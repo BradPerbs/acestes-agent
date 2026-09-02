@@ -24,8 +24,12 @@
 </p>
 
 > **Fork notice.** Acestes Agent is a fork of [CloudTerm](https://github.com/BradPerbs/cloudterm) (v1.4.3).
-> It keeps CloudTerm's terminal, SSH/SFTP/RDP stack and provider integrations (Claude Code, Codex, Grok, Kimi, OpenCode, local models),
-> and rebuilds the UI around a persistent agent in the spirit of Hermes Agent and OpenClaw. See [ROADMAP.md](ROADMAP.md) for the direction.
+> It keeps CloudTerm's terminal, SSH/SFTP stack and provider integrations (Claude Code, Codex, Grok, Kimi, OpenCode, local models),
+> and rebuilds the UI around agents in the spirit of Hermes Agent and OpenClaw: each agent has its own
+> conversations, its own inventory (hosts, keys, proxies, snippets, MCP servers) and its own settings. The
+> sidebar picks the agent and lists its conversations; conversations are the tabs of the window.
+> The remote desktop (RDP, VNC) and IPMI viewers were removed, since an agent works through a shell and a picture
+> of a screen is not one. See [ROADMAP.md](ROADMAP.md) for the direction.
 > Everything below this notice is CloudTerm's original documentation and still applies to the inherited features.
 
 <p align="center">
@@ -42,7 +46,7 @@ move files over SFTP, forward a port and take a Windows desktop, all on the same
 connection and the same tab strip. No second app, no second login.
 
 It connects to anything: your laptop's serial console, a switch that only speaks
-telnet, a Windows box over RDP, or a server on any host you like. CloudTerm is
+telnet, or a server on any host you like. CloudTerm is
 made by [CloudBlast](https://cloudblast.io), a VPS hosting company. It is free for
 everyone, and the whole source is here to read and change.
 
@@ -94,8 +98,7 @@ everyone, and the whole source is here to read and change.
   GPU-accelerated rendering.
 - **An SFTP client** on the connection you already have open, with recursive
   transfers and drag and drop.
-- **An RDP and VNC viewer**, so a Windows box and a Linux box live side by side
-  in the same app.
+
 - **A place to keep servers**: folders, tags, a key vault and snippets, all
   encrypted and all searchable.
 - **An AI agent** in a panel beside the terminal, which reads the session you
@@ -196,7 +199,6 @@ Whichever you choose, the agent:
 - **Full SFTP manager**: recursive transfers, resume, conflict handling, drag and drop
 - **Edit remote files** in your own editor, uploaded on every save
 - **Port forwarding**: local, remote and dynamic SOCKS5, with live traffic counters
-- **Remote desktops**: RDP and VNC in a pane, tunnelled through SSH
 
 ### Organisation
 
@@ -278,12 +280,6 @@ Split as far as the window allows and drag the dividers where you want them.
 
 <img src="Split%20Pane.png" alt="Split panes and SFTP" width="100%">
 
-### Windows RDP
-
-A full Windows desktop in a tab, next to your Linux sessions. Clipboard works
-both ways and the desktop resizes to fit the pane.
-
-<img src="RDP.png" alt="Windows RDP" width="100%">
 
 ### Make it yours
 
@@ -373,7 +369,7 @@ Thanks to everyone who has put work into CloudTerm.
 <a name="tech-stack"></a>
 ## Tech stack
 
-Electron · React · xterm.js · ssh2 · IronRDP (WebAssembly) · noVNC · Tailwind ·
+Electron · React · xterm.js · ssh2 · Tailwind ·
 Vite · Claude Agent SDK · Codex SDK · OpenCode SDK
 
 `src/main/` is the Electron main process, one module per feature.

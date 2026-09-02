@@ -1,8 +1,6 @@
 import { memo } from 'react';
 import { Route02Icon } from 'hugeicons-react';
 import Tooltip from '../ui/Tooltip';
-import { useRdp } from '../../hooks/useRdp';
-import { useVnc } from '../../hooks/useVnc';
 
 /**
  * The mark in a pane header saying where this session goes, and what it goes
@@ -123,25 +121,3 @@ function PaneRoute({ route = [] }) {
 }
 
 export default memo(PaneRoute);
-
-/**
- * The same mark for a pane that is only a desktop.
- *
- * Those panes never dial SSH, so there is no session whose path could be shown:
- * the connection is the desktop's own, and main reports its path on the desktop
- * session instead. Both hooks are read because the pane is one or the other and
- * the idle one simply has no session; they are passive subscriptions, so this
- * neither opens nor closes anything.
- *
- * Mounted only for those panes, which is why the subscription is here rather than
- * in the header: an ordinary session pane has no use for it.
- */
-function DesktopPaneRouteInner({ paneId, isRdp }) {
-    const rdp = useRdp(paneId);
-    const vnc = useVnc(paneId);
-    const session = isRdp ? rdp.session : vnc.session;
-
-    return <PaneRoute route={session?.route} />;
-}
-
-export const DesktopPaneRoute = memo(DesktopPaneRouteInner);

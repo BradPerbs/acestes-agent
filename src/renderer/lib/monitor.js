@@ -122,15 +122,8 @@ export function monitorSupport(host) {
     return { ok: true, reason: '' };
 }
 
-/**
- * The port a host is checked on when its own block does not name one.
- *
- * A desktop-only host has no shell, so the port field at the top of the editor
- * is whatever an earlier edit left there and means nothing. The desktop's own
- * port is what answers on that machine.
- */
+/** The port a host is checked on when its own block does not name one. */
 export function defaultCheckPort(host) {
-    if (host?.desktop?.enabled && host.desktop.only) return host.desktop.port || 0;
     return host?.port || 0;
 }
 

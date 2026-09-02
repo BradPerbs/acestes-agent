@@ -182,6 +182,9 @@ export default function AssistantConversation({
     sessions,
     hosts = [],
     activeSessionId,
+    /** Whose conversation this is: it starts under that agent, and its specs are that agent's. */
+    agentId = '',
+    agentColor = '',
     onConversationChange,
     onStatus,
     onOpenSettings,
@@ -225,7 +228,9 @@ export default function AssistantConversation({
      */
     const [specIds, setSpecIds] = useState([]);
     const { snippets } = useSnippets();
-    const specs = useMemo(() => snippets.filter(isSpec), [snippets]);
+    const specs = useMemo(() => snippets.filter(snippet => (
+        isSpec(snippet) && (!snippet.agentId || !agentId || snippet.agentId === agentId)
+    )), [snippets, agentId]);
 
     // Resolved against the live library, so a spec deleted while attached
     // falls off the message rather than being sent as an id nothing answers.
@@ -250,7 +255,7 @@ export default function AssistantConversation({
     // moves around the app, which is the whole point of pinning it.
     const target = useMemo(() => toWire(scope, activeSessionId), [scope, activeSessionId]);
 
-    const assistant = useAssistant({ ...target, conversationId, onConversationChange });
+    const assistant = useAssistant({ ...target, agentId, conversationId, onConversationChange });
 
     /**
      * What the tab strip says about this tab: what it is about, and whether it
@@ -492,7 +497,7 @@ export default function AssistantConversation({
                             {/* No tile behind it. The mark brings its own
                                 colour, and a grey square around a logo is
                                 a frame around a frame. */}
-                            <AgentMark size={64} animated className="mb-3" />
+                            <AgentMark size={64} animated color={agentColor} className="mb-3" />
                             <h2 className="text-sm font-semibold text-gray-900 dark:text-white">
                                 {t('assistant.welcome')}
                             </h2>

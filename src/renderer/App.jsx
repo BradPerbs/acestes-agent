@@ -11,13 +11,21 @@ import FolderModal from './components/FolderModal';
 import SessionScreen from './components/ui/SessionScreen';
 import SplitLayout from './components/panes/SplitLayout';
 import PanePicker from './components/panes/PanePicker';
-import AssistantPanel from './components/assistant/AssistantPanel';
+import ConversationView from './components/assistant/ConversationView';
+import ConfirmDialog from './components/ui/ConfirmDialog';
+import useConversationTabs, { readStoredConversationTabs } from './hooks/useConversationTabs';
+import { useAgents } from './hooks/useAgents';
+import { useConversationList } from './hooks/useConversationList';
+import AgentDialog from './components/AgentDialog';
+import { INVENTORY_PAGES } from './components/InventoryTabs';
+import { nextAgentColor } from './lib/agent-colors';
 import { useTheme } from './hooks/useTheme';
 import { useSessions } from './hooks/useSessions';
 import { useTerminalTheme } from './hooks/useTerminalTheme';
 import { useTerminalSettings } from './hooks/useTerminalSettings';
 import { useKeychain } from './hooks/useKeychain';
 import useSettingsSnapshot from './hooks/useSettingsSnapshot';
+import { useT } from './i18n';
 import { APP_GUTTER } from './lib/layout';
 import { hostOs } from './lib/os-icons';
 import { tagCounts } from './lib/tags';
@@ -119,14 +127,10 @@ const ARROW_DIRECTIONS = {
 };
 
 function App() {
+    const t = useT();
+
     // Theme management
-    const {
-        theme, setTheme,
-        appColors, setAppColors,
-        showLogo, setShowLogo,
-        logoImage, setLogoImage,
-        logoSide, setLogoSide,
-    } = useTheme();
+    const { theme, setTheme, appColors, setAppColors } = useTheme();
     const { terminalTheme, setTerminalTheme, customTerminalTheme, setCustomTerminalTheme } = useTerminalTheme();
     const {
         terminalSettings,
@@ -135,8 +139,8 @@ function App() {
         fonts: terminalFonts,
     } = useTerminalSettings();
 
-    // Navigation state
-    const [activeNav, setActiveNav] = useState('hosts');
+    // Navigation state. Conversations lead: the agent is the home page.
+    const [activeNav, setActiveNav] = useState('conversations');
 
     const activeNavRef = useRef(activeNav);
     activeNavRef.current = activeNav;
@@ -155,38 +159,57 @@ function App() {
      */
     const [reachedForPage, setReachedForPage] = useState(0);
 
+    /**
+     * The inventory is one entry in the sidebar and several pages here, so
+     * the entry opens whichever of them was up last.
+     */
+    const lastInventory = useRef('overview');
+    useEffect(() => {
+        if (INVENTORY_PAGES.includes(activeNav)) lastInventory.current = activeNav;
+    }, [activeNav]);
+
     const handleNavChange = useCallback((nav) => {
-        if (nav === activeNavRef.current) setReachedForPage(count => count + 1);
-        else setActiveNav(nav);
+        const page = nav === 'inventory' ? lastInventory.current : nav;
+        // The sidebar stays up beside a conversation, so a click on it from
+        // there is also the trip back to Home.
+        if (activeTabIdRef.current !== 'home') setActiveTabId('home');
+        if (page === activeNavRef.current) setReachedForPage(count => count + 1);
+        else setActiveNav(page);
     }, []);
 
-    // Tab management
-    const [tabs, setTabs] = useState([{ id: 'home', type: 'home', title: 'Home' }]);
-    const [activeTabId, setActiveTabId] = useState('home');
+    /**
+     * The tabs, and which is in front.
+     *
+     * Home first, then the conversations as they were left at the last close,
+     * read at once since they need nothing but their ids. The sessions come
+     * later, once the host list is in, and are appended after them. Read
+     * once, before the first render, so both states start from one reading.
+     */
+    const storedConversations = useRef(undefined);
+    if (storedConversations.current === undefined) storedConversations.current = readStoredConversationTabs();
+
+    const [tabs, setTabs] = useState(() => [
+        { id: 'home', type: 'home', title: 'Home' },
+        ...storedConversations.current.tabs,
+    ]);
+    const [activeTabId, setActiveTabId] = useState(() => storedConversations.current.activeId || 'home');
     const [tabGroups, setTabGroups] = useState(readSavedGroups);
 
     // Where typing goes: 'off' | 'tab' | 'window'. See BROADCAST_SCOPES.
     const [broadcast, setBroadcast] = useState('off');
 
-    // The assistant column. Its width is remembered because it is the kind of
-    // thing someone sets once to suit their screen and never touches again.
-    const [assistantOpen, setAssistantOpen] = useState(false);
     /**
-     * Whether the assistant is here at all.
+     * Whether the agent is here at all.
      *
-     * Switched off, there is no column and no rail: the app is a terminal and
-     * nothing else, which is how some people want it and what the setting on
-     * the AI Agent page is for.
+     * Switched off, there are no conversation tabs and no Conversations page:
+     * the app is a terminal and nothing else, which is how some people want
+     * it and what the setting on the AI Agent page is for.
      *
      * True until the answer comes back, since that is what it is on nearly
-     * every machine, and a rail that flickers into existence a moment after
-     * the window opens is worse than one that was always going to be there.
+     * every machine, and tabs that flicker into existence a moment after the
+     * window opens are worse than ones that were always going to be there.
      */
     const [assistantShown, setAssistantShown] = useState(true);
-    const [assistantWidth, setAssistantWidth] = useState(() => {
-        const stored = Number(window.localStorage.getItem('assistant.width'));
-        return Number.isFinite(stored) && stored >= 320 ? stored : 400;
-    });
     // paneId -> resolve, for a connection the assistant asked for and is
     // waiting on. Opening a tab is not the same as being connected, and the
     // tool cannot hand back a session id until it is.
@@ -219,6 +242,40 @@ function App() {
         loadData,
     } = useSessions();
     const { keys, loadData: loadKeys, saveKey, deleteKey, generateKey } = useKeychain();
+
+    /** The agents, and the one selected: whose everything below is. */
+    const {
+        agents,
+        activeId: activeAgentId,
+        active: activeAgent,
+        select: selectAgent,
+        save: saveAgent,
+        remove: removeAgent,
+    } = useAgents();
+    const { conversations, refresh: refreshConversations } = useConversationList(activeAgentId);
+
+    /** The colour an agent's mark wears, for a conversation that names one. */
+    const colorFor = useCallback((agentId) => (
+        agents.find(agent => agent.id === agentId)?.color || activeAgent?.color || ''
+    ), [agents, activeAgent]);
+
+    /**
+     * The inventory as the selected agent sees it: its own records, and the
+     * ones that belong to no agent in particular, which is what a synced or
+     * imported host is. Everything on screen reads from these; the full lists
+     * stay for the session restore and for the agent's own tool calls, which
+     * name a host by id.
+     */
+    const inAgent = useCallback((record) => (
+        !record.agentId || !activeAgentId || record.agentId === activeAgentId
+    ), [activeAgentId]);
+    const agentHosts = useMemo(() => hosts.filter(inAgent), [hosts, inAgent]);
+    const agentKeys = useMemo(() => keys.filter(inAgent), [keys, inAgent]);
+
+    /** A new key is filed under the selected agent; an edit keeps its owner. */
+    const handleSaveKey = useCallback((key) => (
+        saveKey(key.id ? key : { ...key, agentId: activeAgentId })
+    ), [saveKey, activeAgentId]);
     const [currentFolderId, setCurrentFolderId] = useState('');
 
     // Modal state
@@ -494,9 +551,11 @@ function App() {
     // measured itself, so the PTY is created with the real geometry.
     // `intoTabId` turns an existing launcher tab into the session rather than
     // stacking an empty tab next to it. `view` is which view the session should
-    // open on, for a "Connect via SFTP" or a "Connect via RDP" that asked for
-    // something other than the shell.
-    const handleConnect = useCallback((host, intoTabId, view = null) => {
+    // open on, for a "Connect via SFTP" that asked for something other than
+    // the shell. `background` opens the tab without bringing it forward: a
+    // session the agent opens mid-conversation should not pull the window
+    // away from the conversation it is being opened for.
+    const handleConnect = useCallback((host, intoTabId, view = null, { background = false } = {}) => {
         if (intoTabId) {
             setTabs(prev => prev.map(tab => tab.id === intoTabId
                 ? createTerminalTab(intoTabId, host, view)
@@ -509,7 +568,7 @@ function App() {
         const tabId = `term-${Date.now()}-${tabCounter.current}`;
 
         setTabs(prev => [...prev, createTerminalTab(tabId, host, view)]);
-        setActiveTabId(tabId);
+        if (!background) setActiveTabId(tabId);
 
         // The first pane of a new tab takes the tab's own id, so this doubles
         // as the session id every other part of the app knows it by.
@@ -779,6 +838,12 @@ function App() {
         if (doomed.length === 0) return;
 
         for (const tab of doomed) {
+            // Parked, not closed: the transcript stays on the Conversations
+            // page and can be resumed. Only the running query is let go.
+            if (tab.type === 'conversation') {
+                if (tab.conversationId) window.api.ai.park(tab.conversationId);
+                continue;
+            }
             if (tab.type !== 'terminal') continue;
             for (const pane of collectPanes(tab.layout)) {
                 if (pane.mode === 'terminal') window.api.ssh.disconnect(pane.id);
@@ -812,6 +877,10 @@ function App() {
             for (const pane of collectPanes(closing.layout)) {
                 if (pane.mode === 'terminal') window.api.ssh.disconnect(pane.id);
             }
+        }
+        // A conversation is parked rather than closed, as in closeTabs.
+        if (closing?.type === 'conversation' && closing.conversationId) {
+            window.api.ai.park(closing.conversationId);
         }
 
         // Otherwise the shell stays in fullscreen with no title bar to leave it.
@@ -1117,31 +1186,6 @@ function App() {
     }, [handleSplitPane, handleToggleZoom, handleClosePane, handleFocusNeighbor]);
 
     /**
-     * The assistant, toggled from anywhere.
-     *
-     * Registered separately from the pane chords above, which bail out unless a
-     * terminal tab is in front. This one has to work on the Hosts page too,
-     * where "connect to the box that is paging me" is a perfectly good opening
-     * line.
-     */
-    useEffect(() => {
-        const handler = (event) => {
-            if (event.ctrlKey && event.shiftKey && !event.altKey && event.code === 'KeyA') {
-                event.preventDefault();
-                event.stopPropagation();
-                setAssistantOpen(open => !open);
-            }
-        };
-        // Not registered at all while the assistant is switched off, so the
-        // chord falls through to whatever else wants it rather than being
-        // swallowed by a panel that is not on screen.
-        if (!assistantShown) return undefined;
-
-        document.addEventListener('keydown', handler, true);
-        return () => document.removeEventListener('keydown', handler, true);
-    }, [assistantShown]);
-
-    /**
      * Whether the assistant is switched on, kept in step with its settings page.
      *
      * The page is open beside this rather than instead of it, so the column has
@@ -1155,9 +1199,6 @@ function App() {
         return window.api.ai.onSettings(next => setAssistantShown(next?.enabled !== false));
     }, []);
 
-    useEffect(() => {
-        window.localStorage.setItem('assistant.width', String(assistantWidth));
-    }, [assistantWidth]);
 
     /**
      * Jump from the panel to its settings.
@@ -1190,17 +1231,6 @@ function App() {
         else if (nav === 'snippets') handleOpenSnippets();
     }), [handleOpenAssistantSettings, handleOpenSnippets]);
 
-    /**
-     * Tabs handed to the panel from a window of the assistant's own: one that
-     * was closed, or one asked to put them back. The panel opens to show them,
-     * since a tab arriving in a shut panel is a tab nobody sees arrive.
-     */
-    const [adoptedTabs, setAdoptedTabs] = useState(null);
-    useEffect(() => window.api.ai.onAdoptTabs?.(({ conversationIds }) => {
-        if (!Array.isArray(conversationIds) || conversationIds.length === 0) return;
-        setAdoptedTabs(current => ({ conversationIds, seq: (current?.seq || 0) + 1 }));
-        setAssistantOpen(true);
-    }), []);
 
     /**
      * The things the assistant cannot do for itself.
@@ -1223,7 +1253,8 @@ function App() {
                         return;
                     }
 
-                    const opened = handleConnect(host);
+                    // Behind the conversation asking for it, not in front of it.
+                    const opened = handleConnect(host, null, null, { background: true });
                     if (!opened?.tabId) {
                         respond({ success: false, message: 'The session could not be opened' });
                         return;
@@ -1308,18 +1339,21 @@ function App() {
      * one host, and the whole point of offering them is that a tag is shared:
      * you should be able to see that "staging" exists before typing "stage".
      */
-    const allTags = useMemo(() => tagCounts(hosts).map(entry => entry.tag), [hosts]);
+    const allTags = useMemo(() => tagCounts(agentHosts).map(entry => entry.tag), [agentHosts]);
 
     const handleSaveHost = useCallback(async (hostData) => {
         const isEditing = !!hostData.id;
         // A new host is filed where you are standing. An edited one keeps the
         // folder it is already in: the editor can be opened from a search
         // result belonging to another one, and saving is not a move.
-        await saveHost(isEditing ? hostData : { ...hostData, folderId: currentFolderId });
+        await saveHost(isEditing
+            ? hostData
+            // Filed where you are standing, under the agent you are working as.
+            : { ...hostData, folderId: currentFolderId, agentId: activeAgentId });
         // Closing is the sheet's job: it animates out and then unmounts itself
         // through onClose. Clearing the flag here would cut that short.
         toast.success(isEditing ? `Host "${hostData.name}" updated` : `Host "${hostData.name}" created`, { style: getToastStyle() });
-    }, [saveHost, currentFolderId]);
+    }, [saveHost, currentFolderId, activeAgentId]);
 
     const handleDeleteHost = useCallback(async (hostId) => {
         await deleteHost(hostId);
@@ -1443,41 +1477,9 @@ function App() {
         return numberSessions(entries);
     }, [tabs]);
 
-    /**
-     * What the tab strip needs to know, which is about the tab's focused pane
-     * rather than the tab. Derived rather than mirrored into the tab, so a
-     * split can never leave the strip describing a pane that is gone.
-     */
-    const stripTabs = useMemo(() => tabs.map((tab) => {
-        if (tab.type !== 'terminal') return tab;
-
-        const panes = collectPanes(tab.layout);
-        const focused = panes.find(pane => pane.id === tab.focusedPaneId) || panes[0];
-        const sessions = panes.filter(pane => pane.mode === 'terminal');
-
-        return {
-            ...tab,
-            // A name the user typed wins over the pane's, and keeps winning
-            // after a split changes which pane is focused.
-            title: tab.customTitle || focused?.title || 'Session',
-            renamed: Boolean(tab.customTitle),
-            // Which `web-01` this one is, when it is not the only one open. A
-            // tab the user has named is already telling them apart, so it is
-            // left alone: a number on a name somebody chose says nothing.
-            ordinal: tab.customTitle ? 0 : (sessionOrdinals.get(focused?.id) || 0),
-            host: focused?.host,
-            // One pane still dialling, or dropped, is worth showing on the tab.
-            connected: sessions.length > 0 && sessions.every(pane => pane.connected),
-            paneCount: panes.length,
-            // What the strip's own menu offers: there is nothing to disconnect
-            // with none of them up, and nothing to reconnect with all of them.
-            sessionCount: sessions.length,
-            liveCount: sessions.filter(pane => pane.connected).length,
-        };
-    }), [tabs, sessionOrdinals]);
 
     // Filter hosts and folders for current view
-    const currentHosts = hosts.filter(h => (h.folderId || '') === currentFolderId);
+    const currentHosts = agentHosts.filter(h => (h.folderId || '') === currentFolderId);
     const currentFolders = folders.filter(f => (f.parentId || '') === currentFolderId);
 
     /**
@@ -1540,13 +1542,232 @@ function App() {
         return pane?.mode === 'terminal' && pane.connected ? pane.id : '';
     }, [tabs, activeTabId]);
 
+    /* -------------------------------------------------------------- *
+     * Conversations
+     *
+     * The agent's chats are tabs of the window, beside the sessions. What
+     * the strip does to a tab (close, reorder, group) is handled above with
+     * every other tab; what is particular to a conversation lives in the hook.
+     * -------------------------------------------------------------- */
+
+    const {
+        openConversationIds,
+        statuses: conversationStatuses,
+        reportStatus: reportConversationStatus,
+        scopePropsFor,
+        setConversation,
+        addTab: addConversationTab,
+        openConversation,
+        removeConversation,
+        detachTabs: detachConversationTabs,
+    } = useConversationTabs({
+        tabs,
+        setTabs,
+        activeTabId,
+        setActiveTabId,
+        sessions: assistantSessions,
+        hosts,
+        activeSessionId,
+        enabled: assistantShown,
+    });
+
+    const handleNewConversation = useCallback(
+        () => addConversationTab('', activeAgentId),
+        [addConversationTab, activeAgentId],
+    );
+
+    const handleOpenConversation = useCallback(
+        (conversationId) => openConversation(conversationId, activeAgentId),
+        [openConversation, activeAgentId],
+    );
+
+    /**
+     * The conversation last in front, so Ctrl+Shift+A from a terminal goes
+     * back to the chat that was being had rather than to whichever one sits
+     * last in the strip.
+     */
+    const lastConversationId = useRef('');
+    useEffect(() => {
+        if (tabs.find(tab => tab.id === activeTabId)?.type === 'conversation') {
+            lastConversationId.current = activeTabId;
+        }
+    }, [tabs, activeTabId]);
+
+    /**
+     * The agent, from anywhere.
+     *
+     * Ctrl+Shift+A brings the conversation forward, the last one that was if
+     * a terminal is in front, opening a fresh one if there is none. Ctrl+N is
+     * a new conversation and Ctrl+Shift+N a new session; Ctrl+N is left alone
+     * while a terminal is in front, since a shell has its own meaning for it
+     * and the menu offers the same thing.
+     */
+    useEffect(() => {
+        const handler = (event) => {
+            if (!event.ctrlKey || event.altKey || event.metaKey) return;
+            const active = tabsRef.current.find(tab => tab.id === activeTabIdRef.current);
+            const claim = () => {
+                event.preventDefault();
+                event.stopPropagation();
+            };
+
+            if (event.shiftKey && event.code === 'KeyN') {
+                claim();
+                handleNewTab();
+                return;
+            }
+
+            if (event.shiftKey && event.code === 'KeyA' && assistantShown) {
+                claim();
+                if (active?.type === 'conversation') return;
+                const last = tabsRef.current.find(tab => tab.id === lastConversationId.current);
+                const target = last || [...tabsRef.current].reverse().find(tab => tab.type === 'conversation');
+                if (target) setActiveTabId(target.id);
+                else handleNewConversation();
+                return;
+            }
+
+            if (!event.shiftKey && event.code === 'KeyN' && active?.type !== 'terminal') {
+                claim();
+                if (assistantShown) handleNewConversation();
+                else handleNewTab();
+            }
+        };
+
+        document.addEventListener('keydown', handler, true);
+        return () => document.removeEventListener('keydown', handler, true);
+    }, [assistantShown, handleNewTab, handleNewConversation]);
+
+    /**
+     * The agent switched off in Settings takes its tabs with it, and the
+     * Conversations page gives way to Hosts. Nothing is parked or closed:
+     * switching it back on reads the same ids back from the last launch's
+     * record, which this deliberately stops writing meanwhile.
+     */
+    useEffect(() => {
+        if (assistantShown) return;
+        setTabs(prev => (prev.some(tab => tab.type === 'conversation')
+            ? prev.filter(tab => tab.type !== 'conversation')
+            : prev));
+        setActiveTabId(current => (
+            tabsRef.current.find(tab => tab.id === current)?.type === 'conversation' ? 'home' : current
+        ));
+        setActiveNav(nav => (nav === 'conversations' ? 'hosts' : nav));
+    }, [assistantShown]);
+
+    /** Deleting asks first, from a tab's menu and from the sidebar alike. */
+    const [confirming, setConfirming] = useState(null);
+
+    const confirmDeleteConversation = useCallback((conversationId, name) => {
+        setConfirming({
+            title: t('conversations.deleteTitle'),
+            message: t('conversations.deleteMessage', { name: name || t('assistant.newConversation') }),
+            confirmLabel: t('common.delete'),
+            onConfirm: async () => {
+                setConfirming(null);
+                await removeConversation(conversationId);
+                refreshConversations();
+            },
+        });
+    }, [removeConversation, refreshConversations, t]);
+
+    const handleDeleteConversationTab = useCallback((tabId) => {
+        const tab = tabsRef.current.find(entry => entry.id === tabId);
+        if (tab?.type !== 'conversation' || !tab.conversationId) return;
+        confirmDeleteConversation(
+            tab.conversationId,
+            tab.customTitle || conversationStatuses[tabId]?.title || '',
+        );
+    }, [conversationStatuses, confirmDeleteConversation]);
+
+    /* -------------------------------------------------------------- *
+     * Agents
+     * -------------------------------------------------------------- */
+
+    /** `{ agent }` to rename one, `{ agent: null }` to make one. */
+    const [agentDialog, setAgentDialog] = useState(null);
+
+    const handleNewAgent = useCallback(() => setAgentDialog({ agent: null }), []);
+    const handleRenameAgent = useCallback(() => {
+        if (activeAgent) setAgentDialog({ agent: activeAgent });
+    }, [activeAgent]);
+
+    const handleSaveAgentName = useCallback(async (name, color) => {
+        if (agentDialog?.agent) await saveAgent({ id: agentDialog.agent.id, name, color });
+        else await saveAgent({ name, color });
+    }, [agentDialog, saveAgent]);
+
+    const handleDeleteAgent = useCallback((agentId) => {
+        const agent = agents.find(entry => entry.id === agentId);
+        if (!agent) return;
+        setConfirming({
+            title: t('agents.deleteTitle'),
+            message: t('agents.deleteMessage', { name: agent.name }),
+            confirmLabel: t('common.delete'),
+            onConfirm: async () => {
+                setConfirming(null);
+                const result = await removeAgent(agentId);
+                if (result?.error) toast.error(result.error, { style: getToastStyle() });
+            },
+        });
+    }, [agents, removeAgent, t]);
+
+    /**
+     * What the tab strip needs to know, which is about the tab's focused pane
+     * rather than the tab. Derived rather than mirrored into the tab, so a
+     * split can never leave the strip describing a pane that is gone.
+     *
+     * A conversation is named by what it was about, as reported by the tab
+     * itself, unless the user renamed it.
+     */
+    const stripTabs = useMemo(() => tabs.map((tab) => {
+        if (tab.type === 'conversation') {
+            const status = conversationStatuses[tab.id];
+            return {
+                ...tab,
+                title: tab.customTitle || status?.title || t('assistant.newConversation'),
+                renamed: Boolean(tab.customTitle),
+                busy: Boolean(status?.busy),
+                agentColor: colorFor(tab.agentId),
+            };
+        }
+
+        if (tab.type !== 'terminal') return tab;
+
+        const panes = collectPanes(tab.layout);
+        const focused = panes.find(pane => pane.id === tab.focusedPaneId) || panes[0];
+        const sessions = panes.filter(pane => pane.mode === 'terminal');
+
+        return {
+            ...tab,
+            // A name the user typed wins over the pane's, and keeps winning
+            // after a split changes which pane is focused.
+            title: tab.customTitle || focused?.title || 'Session',
+            renamed: Boolean(tab.customTitle),
+            // Which `web-01` this one is, when it is not the only one open. A
+            // tab the user has named is already telling them apart, so it is
+            // left alone: a number on a name somebody chose says nothing.
+            ordinal: tab.customTitle ? 0 : (sessionOrdinals.get(focused?.id) || 0),
+            host: focused?.host,
+            // One pane still dialling, or dropped, is worth showing on the tab.
+            connected: sessions.length > 0 && sessions.every(pane => pane.connected),
+            paneCount: panes.length,
+            // What the strip's own menu offers: there is nothing to disconnect
+            // with none of them up, and nothing to reconnect with all of them.
+            sessionCount: sessions.length,
+            liveCount: sessions.filter(pane => pane.connected).length,
+        };
+    }), [tabs, sessionOrdinals, conversationStatuses, colorFor, t]);
+
+    const activeTab = tabs.find(tab => tab.id === activeTabId);
+
     // What the assistant's own windows cannot see: the same three things the
     // panel in this window is handed, published to main and relayed on.
     useEffect(() => {
         if (!assistantShown) return;
-        window.api.ai.publishContext?.({ sessions: assistantSessions, hosts, activeSessionId })
+        window.api.ai.publishContext?.({ sessions: assistantSessions, hosts: agentHosts, activeSessionId })
             .catch(() => {});
-    }, [assistantShown, assistantSessions, hosts, activeSessionId]);
+    }, [assistantShown, assistantSessions, agentHosts, activeSessionId]);
 
     return (
         // `app-drag` turns the gutter around the shell into a window frame you
@@ -1582,21 +1803,40 @@ function App() {
                     onGroupColor={handleColorGroup}
                     onGroupDelete={handleDeleteGroup}
                     groups={tabGroups}
-                    showLogo={showLogo}
-                    logoImage={logoImage}
-                    logoSide={logoSide}
                     broadcast={broadcast}
                     broadcastCount={broadcastCount}
                     onBroadcastChange={setBroadcast}
+                    onTabDetach={(tabId) => detachConversationTabs([tabId])}
+                    onConversationDelete={handleDeleteConversationTab}
+                    onNewTab={assistantShown ? handleNewConversation : handleNewTab}
+                    newTabLabel={assistantShown ? t('titleBar.newConversation') : t('newTab.title')}
                     onNewSession={handleNewTab}
                 />
             )}
 
             <div className="flex flex-1 min-h-0 app-no-drag" id="app-layout">
                 <Sidebar
-                    activeNav={activeNav}
+                    agents={agents}
+                    activeAgent={activeAgent}
+                    onSelectAgent={selectAgent}
+                    onNewAgent={handleNewAgent}
+                    onRenameAgent={handleRenameAgent}
+                    onDeleteAgent={handleDeleteAgent}
+                    // A conversation in front lights the list it is in; any
+                    // inventory page lights the one entry for all of them.
+                    activeNav={activeTab?.type === 'conversation'
+                        ? 'conversations'
+                        : (INVENTORY_PAGES.includes(activeNav) ? 'inventory' : activeNav)}
                     onNavChange={handleNavChange}
-                    isTerminalView={activeTabId !== 'home'}
+                    conversations={conversations}
+                    activeConversationId={activeTab?.type === 'conversation' ? activeTab.conversationId : ''}
+                    onOpenConversation={handleOpenConversation}
+                    onNewConversation={handleNewConversation}
+                    onDeleteConversation={confirmDeleteConversation}
+                    // A terminal takes the width. A conversation leaves the
+                    // column where it is: the chat has no use for the room,
+                    // and the pages the column leads to are then a click away.
+                    collapsed={activeTab?.type === 'terminal' || activeTab?.type === 'launcher'}
                 />
 
                 <main className="flex-1 relative overflow-hidden flex flex-col" id="main-content">
@@ -1619,24 +1859,18 @@ function App() {
                             reachedForPage={reachedForPage}
                             hosts={currentHosts}
                             folders={currentFolders}
-                            allHosts={hosts}
+                            allHosts={agentHosts}
                             allFolders={folders}
                             currentFolderId={currentFolderId}
                             connectedHostIds={connectedHostIds}
                             theme={theme}
                             appColors={appColors}
-                            showLogo={showLogo}
-                            logoImage={logoImage}
-                            logoSide={logoSide}
                             terminalTheme={terminalTheme}
                             customTerminalTheme={customTerminalTheme}
                             terminalSettings={terminalSettings}
                             terminalFonts={terminalFonts}
                             onThemeChange={setTheme}
                             onAppColorsChange={setAppColors}
-                            onShowLogoChange={setShowLogo}
-                            onLogoImageChange={setLogoImage}
-                            onLogoSideChange={setLogoSide}
                             onTerminalThemeChange={setTerminalTheme}
                             onCustomTerminalThemeChange={setCustomTerminalTheme}
                             onTerminalSettingsChange={setTerminalSettings}
@@ -1655,10 +1889,23 @@ function App() {
                             onNavigateFolder={handleNavigateFolder}
                             onArrange={arrangeItems}
                             onTagHosts={tagHosts}
+                            // The selected agent
+                            agentId={activeAgentId}
+                            agentColor={activeAgent?.color || ''}
+                            activeAgent={activeAgent}
+                            onSaveAgentServers={(servers) => saveAgent({ id: activeAgentId, mcpServers: servers })}
+                            onNavChange={handleNavChange}
+                            // Conversations props
+                            conversations={conversations}
+                            onRefreshConversations={refreshConversations}
+                            openConversationIds={openConversationIds}
+                            onOpenConversation={handleOpenConversation}
+                            onNewConversation={handleNewConversation}
+                            onDeleteConversation={removeConversation}
                             // Keychain props
-                            keys={keys}
+                            keys={agentKeys}
                             onLoadKeys={loadKeys}
-                            onSaveKey={saveKey}
+                            onSaveKey={handleSaveKey}
                             onDeleteKey={deleteKey}
                             onGenerateKey={generateKey}
                         />
@@ -1681,7 +1928,7 @@ function App() {
                             }}
                         >
                             <NewTabView
-                                hosts={hosts}
+                                hosts={agentHosts}
                                 folders={folders}
                                 isActive={activeTabId === tab.id}
                                 onConnect={(host) => handleConnect(host, tab.id)}
@@ -1691,6 +1938,44 @@ function App() {
                                 }}
                                 onNewHost={handleNewHost}
                                 onClose={() => handleCloseTab(tab.id)}
+                            />
+                        </div>
+                    ))}
+
+                    {/* Conversation tabs. Every one stays mounted and is
+                        hidden rather than unmounted: a tab answering behind
+                        another goes on receiving its reply, and the message
+                        being typed into it is as it was left. */}
+                    {tabs.filter(tab => tab.type === 'conversation').map(tab => (
+                        <div
+                            key={tab.id}
+                            style={{
+                                visibility: activeTabId === tab.id ? 'visible' : 'hidden',
+                                position: 'absolute',
+                                top: 0,
+                                left: 0,
+                                right: 0,
+                                bottom: 0,
+                                zIndex: activeTabId === tab.id ? 10 : 0,
+                            }}
+                        >
+                            <ConversationView
+                                tab={tab}
+                                active={activeTabId === tab.id}
+                                status={conversationStatuses[tab.id]}
+                                sessions={assistantSessions}
+                                hosts={agentHosts}
+                                activeSessionId={activeSessionId}
+                                agentId={tab.agentId || activeAgentId}
+                                agentColor={colorFor(tab.agentId)}
+                                scopeProps={scopePropsFor(tab)}
+                                onConversationChange={(id) => setConversation(tab.id, id)}
+                                onStatus={reportConversationStatus}
+                                onOpenSettings={handleOpenAssistantSettings}
+                                onOpenSnippets={handleOpenSnippets}
+                                onDetach={() => detachConversationTabs([tab.id])}
+                                onClose={() => handleCloseTab(tab.id)}
+                                onNewTab={handleNewConversation}
                             />
                         </div>
                     ))}
@@ -1723,7 +2008,7 @@ function App() {
                                     renderPane={(pane, { focused }) => (
                                         pane.mode === 'picker' ? (
                                             <PanePicker
-                                                hosts={hosts}
+                                                hosts={agentHosts}
                                                 isActive={isActiveTab && focused}
                                                 onPick={(host) => handlePanePick(tab.id, pane.id, host)}
                                                 onQuickConnect={async (address) => {
@@ -1778,33 +2063,18 @@ function App() {
                     })}
                 </main>
 
-                {/* A column beside the content, not over it. The terminal gives
-                    up the width rather than being covered, which matters for a
-                    panel whose whole job is talking about what is on screen.
-
-                    Always here, open or shut, because the two states are one
-                    column at two widths and it animates between them. Shut, it
-                    is the rail: the button and nothing else.
-
-                    Unless it is switched off on the settings page, and then it
-                    is not rendered at all: not a rail, not a sliver, nothing.
-                    The width it was giving up goes back to the content. */}
-                {assistantShown && (
-                    <AssistantPanel
-                        open={assistantOpen}
-                        sessions={assistantSessions}
-                        hosts={hosts}
-                        activeSessionId={activeSessionId}
-                        width={assistantWidth}
-                        onWidthChange={setAssistantWidth}
-                        onOpenSettings={handleOpenAssistantSettings}
-                        onOpenSnippets={handleOpenSnippets}
-                        adopt={adoptedTabs}
-                        onOpen={() => setAssistantOpen(true)}
-                        onClose={() => setAssistantOpen(false)}
-                    />
-                )}
             </div>
+
+            {confirming && <ConfirmDialog {...confirming} onCancel={() => setConfirming(null)} />}
+
+            {agentDialog && (
+                <AgentDialog
+                    agent={agentDialog.agent}
+                    suggestedColor={nextAgentColor(agents)}
+                    onClose={() => setAgentDialog(null)}
+                    onSave={handleSaveAgentName}
+                />
+            )}
 
             {/* Mounted only while open. The sheet animates itself out and calls
                 onClose when it has finished, so there is no half-open state to
@@ -1818,7 +2088,7 @@ function App() {
                     keys={keys}
                     // For the jump host picker: a host is reached through
                     // another saved host, so the editor has to see the rest.
-                    hosts={hosts}
+                    hosts={agentHosts}
                     allTags={allTags}
                 />
             )}

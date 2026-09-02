@@ -1,10 +1,10 @@
 /**
  * Shape and validation for proxy records.
  *
- * Kept free of dependencies for the same reason tunnel-config.js and
- * desktop-config.js are: the store (persistence), the client (proxy.js), the
- * three transports that dial through one and the backup importer all have to
- * agree on one record shape without any of them requiring the others.
+ * Kept free of dependencies for the same reason tunnel-config.js is: the store
+ * (persistence), the client (proxy.js), the transports that dial through one
+ * and the backup importer all have to agree on one record shape without any of
+ * them requiring the others.
  *
  * A proxy is a saved server, not a per-host address, for the same reason a jump
  * host is a reference to another saved host: the credential belongs to the proxy
@@ -87,6 +87,8 @@ function normalizeProxy(raw = {}) {
 
     return {
         id: clean(source.id) || nextId(),
+        // Whose inventory it sits in. Blank is everyone's.
+        agentId: clean(source.agentId),
         name: clean(source.name),
         type,
         host: clean(source.host),
@@ -143,8 +145,8 @@ const describeProxyChain = (chain) =>
  *
  * Structure only, no wording: every transport builds its path out of these plus
  * whatever else it went through, and the renderer decides how it reads. Kept here
- * so the four callers (SSH, telnet, and the two desktop bridges) cannot drift
- * into describing the same hop three different ways.
+ * so the callers (SSH and telnet) cannot drift into describing the same hop
+ * two different ways.
  */
 const proxyHops = (chain) => (Array.isArray(chain) ? chain : []).map(hop => ({
     kind: 'proxy',

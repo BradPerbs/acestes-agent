@@ -3,10 +3,7 @@ import toast from 'react-hot-toast';
 import SettingsPage from '../ui/SettingsPage';
 import SettingCard from '../ui/SettingCard';
 import SettingRow, { DIVIDED } from '../ui/SettingRow';
-import Toggle from '../ui/Toggle';
-import SegmentedControl from '../../ui/SegmentedControl';
 import AppColorsDialog from '../AppColorsDialog';
-import logoUrl from '../../../logoterminal.svg';
 import { CUSTOM_THEME } from '../../../hooks/useTheme';
 import {
     APP_COLOR_PRESETS,
@@ -104,50 +101,15 @@ const labelClass = (selected) => `text-xs text-center leading-tight ${selected
 export default function AppearancePage({
     theme,
     appColors,
-    showLogo = true,
-    logoImage = null,
-    logoSide = 'left',
     onThemeChange,
     onAppColorsChange,
-    onShowLogoChange,
-    onLogoImageChange,
-    onLogoSideChange,
 }) {
     const t = useT();
     const [editorOpen, setEditorOpen] = useState(false);
-    const [picking, setPicking] = useState(false);
 
     const colors = sanitizeAppColors(appColors || DEFAULT_APP_COLORS);
     const customSelected = theme === CUSTOM_THEME;
     const activePreset = matchPreset(colors);
-
-    /**
-     * Main owns the picker: the renderer has no filesystem, and the type and
-     * size checks belong on the side that reads the file. A refusal comes back
-     * with its reason rather than as a silent no-op.
-     */
-    const chooseLogo = async () => {
-        setPicking(true);
-        try {
-            const result = await window.api.appearance.chooseLogo();
-            if (result?.canceled) return;
-
-            if (!result?.success) {
-                toast.error(result?.message || t('settings.appearance.logoUnreadable'), toastOptions());
-                return;
-            }
-
-            onLogoImageChange?.(result.dataUrl);
-            // A logo that has been chosen but not shown is a setting that looks
-            // broken, so picking one turns the mark back on.
-            if (!showLogo) onShowLogoChange?.(true);
-            toast.success(t('settings.appearance.logoSet', { name: result.name }), toastOptions());
-        } catch (error) {
-            toast.error(error.message || t('settings.appearance.logoUnreadable'), toastOptions());
-        } finally {
-            setPicking(false);
-        }
-    };
 
     const applyColors = (next, message) => {
         onAppColorsChange?.(next);
@@ -269,116 +231,6 @@ export default function AppearancePage({
                 )}
             </SettingCard>
 
-            <SettingCard>
-                <SettingRow
-                    align="center"
-                    title={t('settings.appearance.showLogo')}
-                    description={t('settings.appearance.showLogoDesc')}
-                    control={
-                        <Toggle
-                            checked={showLogo}
-                            onChange={(next) => {
-                                onShowLogoChange?.(next);
-                                toast.success(
-                                    next
-                                        ? t('settings.appearance.logoShown')
-                                        : t('settings.appearance.logoHidden'),
-                                    toastOptions(),
-                                );
-                            }}
-                            ariaLabel={t('settings.appearance.showLogoAria')}
-                        />
-                    }
-                />
-
-                <SettingRow
-                    className={DIVIDED}
-                    align="center"
-                    title={t('settings.appearance.customLogo')}
-                    description={logoImage
-                        ? t('settings.appearance.customLogoSet')
-                        : t('settings.appearance.customLogoDesc')}
-                    control={
-                        <div className="flex items-center gap-3">
-                            {/* On a chequerboard, so a mark with a transparent
-                                background is not judged against a colour the
-                                title bar will not be. */}
-                            <div
-                                className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0
-                                    border border-gray-200 dark:border-surface-control"
-                                style={{
-                                    backgroundImage:
-                                        'linear-gradient(45deg, rgb(127 127 127 / 0.18) 25%, transparent 25%),'
-                                        + 'linear-gradient(-45deg, rgb(127 127 127 / 0.18) 25%, transparent 25%),'
-                                        + 'linear-gradient(45deg, transparent 75%, rgb(127 127 127 / 0.18) 75%),'
-                                        + 'linear-gradient(-45deg, transparent 75%, rgb(127 127 127 / 0.18) 75%)',
-                                    backgroundSize: '8px 8px',
-                                    backgroundPosition: '0 0, 0 4px, 4px -4px, -4px 0',
-                                }}
-                            >
-                                <img
-                                    src={logoImage || logoUrl}
-                                    alt=""
-                                    className="max-w-[26px] max-h-[26px] object-contain"
-                                />
-                            </div>
-
-                            <button
-                                className="px-4 py-2 rounded-xl text-sm font-semibold border border-gray-300
-                                    dark:border-neutral-700 text-gray-700 dark:text-gray-300 transition-all
-                                    active:scale-95 hover:bg-gray-50 dark:hover:bg-neutral-800
-                                    disabled:opacity-40 disabled:cursor-not-allowed"
-                                disabled={picking}
-                                onClick={chooseLogo}
-                            >
-                                {picking
-                                    ? t('settings.appearance.choosing')
-                                    : t('settings.appearance.chooseImage')}
-                            </button>
-
-                            {logoImage && (
-                                <button
-                                    className="px-4 py-2 rounded-xl text-sm font-semibold border border-gray-300
-                                        dark:border-neutral-700 text-gray-700 dark:text-gray-300 transition-all
-                                        active:scale-95 hover:bg-gray-50 dark:hover:bg-neutral-800"
-                                    onClick={() => {
-                                        onLogoImageChange?.(null);
-                                        toast.success(t('settings.appearance.logoCleared'), toastOptions());
-                                    }}
-                                >
-                                    {t('common.remove')}
-                                </button>
-                            )}
-                        </div>
-                    }
-                />
-
-                <SettingRow
-                    className={DIVIDED}
-                    align="center"
-                    title={t('settings.appearance.position')}
-                    description={t('settings.appearance.positionDesc')}
-                    control={
-                        <SegmentedControl
-                            ariaLabel={t('settings.appearance.positionAria')}
-                            value={logoSide}
-                            onChange={(side) => {
-                                onLogoSideChange?.(side);
-                                toast.success(
-                                    side === 'left'
-                                        ? t('settings.appearance.logoMovedLeft')
-                                        : t('settings.appearance.logoMovedRight'),
-                                    toastOptions(),
-                                );
-                            }}
-                            segments={[
-                                { value: 'left', label: t('common.left') },
-                                { value: 'right', label: t('common.right') },
-                            ]}
-                        />
-                    }
-                />
-            </SettingCard>
 
             {editorOpen && (
                 <AppColorsDialog

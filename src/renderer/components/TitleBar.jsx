@@ -4,9 +4,11 @@ import {
     ArrowRight01Icon,
     Cancel01Icon,
     CancelCircleIcon,
-    ComputerTerminal01Icon,
     Copy01Icon,
+    Delete02Icon,
     FolderRemoveIcon,
+    Home01Icon,
+    LinkSquare02Icon,
     Megaphone02Icon,
     PencilEdit02Icon,
     Refresh01Icon,
@@ -23,9 +25,10 @@ import { playRipple } from '../lib/enterMotion';
 import ContextMenu from './ui/ContextMenu';
 import WindowControls from './ui/WindowControls';
 import NotificationsMenu from './NotificationsMenu';
+import AgentMark from './assistant/AgentMark';
 import Tooltip from './ui/Tooltip';
 import { TAB_COLORS, segmentStrip, tabColor, withAlpha } from '../lib/tabs';
-import logoUrl from '../logoterminal.svg';
+
 import { useT } from '../i18n';
 
 // Ripple effect hook
@@ -66,7 +69,7 @@ function useRippleEffect() {
     }, []);
 }
 
-function AppMenu() {
+function AppMenu({ onNewSession, newTabLabel }) {
     const t = useT();
     const [open, setOpen] = useState(false);
     const menuRef = useRef(null);
@@ -98,7 +101,8 @@ function AppMenu() {
         // Reaches the plus button by its class rather than by its tooltip: the
         // tooltip is translated, and a selector built from it would find
         // nothing the moment the app is set to anything but English.
-        { label: t('newTab.title'), shortcut: 'Ctrl+N', action: () => { close(); document.querySelector('.tab-add')?.click(); } },
+        { label: newTabLabel || t('newTab.title'), shortcut: 'Ctrl+N', action: () => { close(); document.querySelector('.tab-add')?.click(); } },
+        { label: t('titleBar.newSession'), shortcut: 'Ctrl+Shift+N', action: () => { close(); onNewSession?.(); } },
         { type: 'separator' },
         { label: t('titleBar.reload'), shortcut: 'Ctrl+R', action: () => { close(); window.api.window.reload(); } },
         { label: t('titleBar.devTools'), shortcut: 'Ctrl+Shift+I', action: () => { close(); window.api.window.toggleDevTools(); } },
@@ -189,6 +193,7 @@ function SessionTab({
 }) {
     const t = useT();
     const isLauncher = tab.type === 'launcher';
+    const isConversation = tab.type === 'conversation';
     const color = tabColor(tab.color);
 
     /** Whichever element the tab is: a button, or the field it is renamed in. */
@@ -369,6 +374,11 @@ function SessionTab({
                         <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                             <path d="M12 5v14M5 12h14" />
                         </svg>
+                    ) : isConversation ? (
+                        // The agent's mark, pulsing while it is answering: a
+                        // chat working behind another tab should be visibly
+                        // doing so, the way a dialling session is.
+                        <AgentMark size={14} color={tab.agentColor} className={tab.busy ? 'animate-pulse' : ''} />
                     ) : (
                         <OsIcon
                             os={hostOs(tab.host)}
@@ -545,36 +555,11 @@ function TabGroup({ group, children, onMenu, renaming, onRenameCommit, onRenameC
     );
 }
 
-/**
- * The mark in the title bar: the app's, or the user's own if they have set one.
- *
- * Sized to a 24px box rather than stretched to it, so a wide or tall image keeps
- * its proportions and sits in the row at the same height as everything else.
- *
- * Deliberately square-cornered. The box is only as big as the artwork inside it,
- * so a radius here does not round a backdrop, it cuts the corners off the mark
- * itself -- which the CloudBlast cloud, drawn to the edges of its viewBox, shows
- * plainly. An image that wants rounded corners can arrive with them.
- */
-function TitleBarLogo({ src }) {
-    return (
-        <div className="shrink-0 app-no-drag flex items-center justify-center w-6 h-6">
-            <img
-                src={src}
-                alt="Logo"
-                className="max-w-full max-h-full object-contain"
-            />
-        </div>
-    );
-}
 
 function TitleBar({
     tabs,
     activeTabId,
     groups = [],
-    showLogo = true,
-    logoImage = null,
-    logoSide = 'left',
     broadcast = 'off',
     broadcastCount = 0,
     onBroadcastChange,
@@ -594,6 +579,12 @@ function TitleBar({
     onGroupRename,
     onGroupColor,
     onGroupDelete,
+    onTabDetach,
+    onConversationDelete,
+    /** The plus: a conversation with the agent on, a session launcher with it off. */
+    onNewTab,
+    newTabLabel,
+    /** The launcher, from the menu, whichever the plus does. */
     onNewSession,
 }) {
     useRippleEffect();
@@ -763,6 +754,7 @@ function TitleBar({
 
         const tab = sessionTabs[at];
         const isTerminal = tab.type === 'terminal';
+        const isConversation = tab.type === 'conversation';
         const split = tab.sessionCount > 1;
 
         // Groups this tab could join: every one except the one it is in.
@@ -832,7 +824,13 @@ function TitleBar({
                 onClick: () => onTabDisconnect(tab.id),
                 disabled: tab.liveCount === 0,
             },
-            isTerminal && { type: 'separator' },
+            isConversation && {
+                label: t('assistant.detachOnly'),
+                icon: <LinkSquare02Icon size={size} />,
+                onClick: () => onTabDetach?.(tab.id),
+                disabled: !tab.conversationId,
+            },
+            (isTerminal || isConversation) && { type: 'separator' },
             {
                 label: t('common.close'),
                 icon: <Cancel01Icon size={size} />,
@@ -850,10 +848,20 @@ function TitleBar({
                 onClick: () => handleCloseRight(tab.id),
                 disabled: at === sessionTabs.length - 1,
             },
+            // Closing a conversation parks it; this is the one that forgets it.
+            isConversation && { type: 'separator' },
+            isConversation && {
+                label: t('titleBar.deleteConversation'),
+                icon: <Delete02Icon size={size} />,
+                danger: true,
+                disabled: !tab.conversationId,
+                onClick: () => onConversationDelete?.(tab.id),
+            },
         ];
     }, [
         menu, sessionTabs, groups, onTabDuplicate, onTabReconnect, onTabDisconnect,
         onTabRename, onTabColor, onTabGroup, onTabUngroup, onTabNewGroup,
+        onTabDetach, onConversationDelete,
         handleTabClose, handleCloseOthers, handleCloseRight, startRename, t,
     ]);
 
@@ -952,12 +960,7 @@ function TitleBar({
                 }}
             >
                 {/* Burger Menu */}
-                <AppMenu />
-
-                {/* Logo. Optional, and either end: it is decoration, and the row
-                    it sits in is the one the tab strip is competing for (see
-                    Appearance). */}
-                {showLogo && logoSide === 'left' && <TitleBarLogo src={logoImage || logoUrl} />}
+                <AppMenu onNewSession={onNewSession} newTabLabel={newTabLabel} />
 
                 {/* Home Tab - Fixed width */}
                 {homeTab && (
@@ -971,7 +974,7 @@ function TitleBar({
                             data-tab={homeTab.id}
                             onClick={() => onTabClick(homeTab.id)}
                         >
-<ComputerTerminal01Icon className="w-3.5 h-3.5" size={14} />
+                            <Home01Icon className="w-3.5 h-3.5" size={14} />
                             <span className="truncate">{homeTab.title}</span>
                         </button>
                     </div>
@@ -1016,8 +1019,8 @@ function TitleBar({
                     {/* New Session Plus Button */}
                     <button
                         className="tab-add flex items-center justify-center w-8 h-8 rounded-xl text-gray-400 dark:text-gray-500 hover:text-gray-900 dark:hover:text-white hover:bg-gray-900/[0.06] dark:hover:bg-surface-control transition-colors app-no-drag shrink-0"
-                        onClick={onNewSession}
-                        title={t('newTab.title')}
+                        onClick={onNewTab}
+                        title={newTabLabel || t('newTab.title')}
                         // Pointer events rather than `:hover`, since the turn is
                         // GSAP's now. The colours behind it are still the
                         // stylesheet's, through `transition-colors`.
@@ -1033,14 +1036,6 @@ function TitleBar({
 
             {/* Window Controls */}
             <div className="flex items-center h-full app-no-drag gap-1 shrink-0">
-                {/* Ahead of the buttons and with room of its own, so the mark
-                    never reads as a fourth one to press. */}
-                {showLogo && logoSide === 'right' && (
-                    <div className="flex items-center pl-2 pr-3">
-                        <TitleBarLogo src={logoImage || logoUrl} />
-                    </div>
-                )}
-
                 {/* Broadcasting is a mode with consequences a pane border cannot
                     fully carry: the pane you are looking at is only one of the
                     machines being typed at. So it is also said here, in words,

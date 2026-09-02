@@ -42,9 +42,13 @@ const COMPACT_AT = 360;
  * because it answers two questions at once: the count a card shows, and who stops
  * connecting if the proxy is deleted.
  */
-function ProxiesPanel({ isActive = true, reachedForPage = 0, allHosts = [] }) {
+function ProxiesPanel({ isActive = true, reachedForPage = 0, allHosts = [], agentId = '' }) {
     const t = useT();
-    const { proxies, save, remove, duplicate, test } = useProxies();
+    const { proxies: allProxies, save, remove, duplicate, test } = useProxies();
+    // The selected agent's, and the ones that belong to no agent in particular.
+    const proxies = useMemo(() => allProxies.filter(proxy => (
+        !proxy.agentId || !agentId || proxy.agentId === agentId
+    )), [allProxies, agentId]);
     const [editing, setEditing] = useState(null);
     const [confirming, setConfirming] = useState(null);
     const [query, setQuery] = useState('');
@@ -140,7 +144,8 @@ function ProxiesPanel({ isActive = true, reachedForPage = 0, allHosts = [] }) {
     const handleSave = useCallback(async (record) => {
         const isEdit = Boolean(record.id);
         try {
-            await save(record);
+            // A new record is filed under the selected agent; an edit keeps its owner.
+            await save(record.id ? record : { ...record, agentId });
         } catch (error) {
             toast.error(`Could not save that proxy: ${error.message}`, toastOptions());
             // Rethrown so the sheet stays open rather than animating away as

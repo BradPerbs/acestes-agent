@@ -99,35 +99,20 @@ function HostCard({
      * protocol and the account, which is also what tells two hosts on the same
      * machine apart. The address is kept on the line's tooltip rather than
      * dropped.
-     *
-     * A desktop names the protocol it draws with, since RDP and VNC are not
-     * interchangeable to anyone looking for one of them.
      */
-    const label = kind === 'desktop'
-        ? (host.desktop?.protocol === 'rdp' ? 'RDP' : 'VNC')
-        // `protocolLabel` only knows the stored protocols, and would call an
-        // IPMI host SSH, which is the one thing it is not.
-        : kind === 'ipmi' ? 'IPMI'
-        : protocolLabel(kind);
+    const label = protocolLabel(kind);
 
     /**
      * The account, where the host has one to name.
      *
-     * Telnet and VNC ask for a login over the connection itself, so there is no
-     * username on the record to show; RDP signs in with CredSSP and does carry
-     * one, on the desktop block rather than at the top level. A serial console
-     * has no user at all and is identified by the cable instead. Two of them
-     * are told apart by which port they are on, which is why that stays here.
+     * Telnet asks for a login over the connection itself, so there is no
+     * username on the record to show. A serial console has no user at all and
+     * is identified by the cable instead. Two of them are told apart by which
+     * port they are on, which is why that stays here.
      */
     const detail = kind === 'serial'
         ? [host.serial?.path || t('hosts.noPort'), host.serial?.baudRate].filter(Boolean).join(' · ')
-        : kind === 'ipmi'
-        // The board's own account, which is not an account on the machine and is
-        // the thing that tells two service processors apart.
-        ? (host.bmc?.username || '')
-        : (kind === 'ssh'
-            ? host.username
-            : (host.desktop?.protocol === 'rdp' ? host.desktop.username : ''));
+        : (kind === 'ssh' ? host.username : '');
 
     /** Still worth having, just not at the front: the hover tells you where. */
     const address = kind === 'serial'

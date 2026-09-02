@@ -73,8 +73,6 @@ export default {
 
     /* ---- Proxies ---- */
     'proxies.empty': 'Прокси пока нет',
-    'proxies.emptyNote': 'Добавьте прокси SOCKS или HTTP, и через него сможет подключаться любой '
-        + 'хост: сеансы терминала, SFTP, проброс портов и удалённые рабочие столы.',
     'proxies.newProxy': 'Новый прокси',
     'proxies.search': 'Поиск по прокси',
 
@@ -268,9 +266,6 @@ export default {
 
     /* ---- Import from other apps ---- */
     'appImport.title': 'Из других программ',
-    'appImport.desc': 'Переносятся хосты, проброс портов, папки, а также настройки '
-        + 'последовательного порта и удалённого рабочего стола. Пароли остаются на месте: каждая '
-        + 'программа шифрует их по-своему.',
     'appImport.checking': 'Проверка…',
     'appImport.notFound': 'Не найдено',
     'appImport.sessionCount_one': '{count} сохранённый сеанс',
@@ -303,7 +298,6 @@ export default {
     'settings.nav.monitoring': 'Мониторинг',
     'settings.nav.logging': 'Журналирование',
     'settings.nav.security': 'Безопасность',
-    'settings.nav.account': 'Учётная запись',
     'settings.nav.backup': 'Резервные копии',
     'settings.nav.about': 'О программе',
 
@@ -350,27 +344,6 @@ export default {
         + 'текста сами',
     'settings.appearance.editColors': 'Изменить цвета',
     'settings.appearance.colorsApplied': 'Цвета приложения применены',
-    'settings.appearance.showLogo': 'Показывать логотип',
-    'settings.appearance.showLogoDesc': 'Значок в заголовке окна. Если выключить, это место '
-        + 'достанется полосе вкладок.',
-    'settings.appearance.showLogoAria': 'Показывать логотип в заголовке окна',
-    'settings.appearance.logoShown': 'Логотип показан',
-    'settings.appearance.logoHidden': 'Логотип скрыт',
-    'settings.appearance.customLogo': 'Свой логотип',
-    'settings.appearance.customLogoSet': 'Ваше изображение вместо знака CloudBlast.',
-    'settings.appearance.customLogoDesc': 'Используйте своё изображение вместо знака CloudBlast. '
-        + 'PNG, JPG, GIF, WebP, SVG, BMP или ICO, до 512 КБ.',
-    'settings.appearance.choosing': 'Выбор…',
-    'settings.appearance.chooseImage': 'Выбрать изображение',
-    'settings.appearance.logoUnreadable': 'Не удалось прочитать это изображение',
-    'settings.appearance.logoSet': 'Логотип заменён на {name}',
-    'settings.appearance.logoCleared': 'Возврат к знаку CloudBlast',
-    'settings.appearance.position': 'Положение',
-    'settings.appearance.positionDesc': 'С какого края заголовка стоит значок: рядом с кнопкой '
-        + 'меню или со стороны кнопок окна.',
-    'settings.appearance.positionAria': 'Положение логотипа',
-    'settings.appearance.logoMovedLeft': 'Логотип перемещён влево',
-    'settings.appearance.logoMovedRight': 'Логотип перемещён вправо',
 
     /* ---- Settings: Terminal ---- */
     'settings.terminal.title': 'Терминал',
@@ -448,9 +421,6 @@ export default {
         + 'уже открытые вами соединения. Он никогда не видит сохранённые пароли и ключи.',
     'settings.assistant.loading': 'Загрузка настроек ассистента…',
     'settings.assistant.show': 'Показывать помощника',
-    'settings.assistant.showDesc': 'Колонка справа от окна и полоса, в которую она сворачивается. '
-        + 'Выключено: ни полосы, ни кнопки, ширина возвращается тому, над чем вы работаете, а '
-        + 'Ctrl+Shift+A ничего не делает. Всё, что ниже, сохраняется.',
     'settings.assistant.agent': 'Агенты',
     'settings.assistant.agentDesc': 'Какие агенты отвечают: установленные на этой машине или '
         + 'модель, которую вы запустили сами. Включите столько, на сколько у вас есть учётная '
@@ -903,8 +873,6 @@ export default {
     'hosts.open': 'Открыть',
     'hosts.editHost': 'Изменить хост',
     'hosts.connectVia': 'Подключиться по {protocol}',
-    'hosts.openIpmi': 'Открыть IPMI',
-    'hosts.notSetUp': 'не настроено',
     'hosts.moveToFolder': 'Переместить в папку…',
     'hosts.keepsContents': 'содержимое останется',
     'hosts.move': 'Переместить',
@@ -993,23 +961,13 @@ export default {
 
     /* ---- Protocols ---- */
     'protocol.serial': 'Последовательный порт',
-    'protocol.desktop': 'Рабочий стол',
     'protocol.ssh.summary': 'Шифрованная оболочка и всё, что на ней построено',
-    'protocol.ssh.detail': 'Файлы, проброс портов и удалённый рабочий стол это каналы одного '
-        + 'соединения SSH, поэтому они предлагаются только здесь.',
     'protocol.telnet.summary': 'Обычный сокет к устройству без SSH',
     'protocol.telnet.detail': 'Отправляет всё, включая пароли, в открытом виде. Для консольного '
         + 'сервера, PDU или коммутатора, на котором никогда не было демона SSH.',
     'protocol.serial.summary': 'Консольный кабель на этой машине',
     'protocol.serial.detail': 'Сети нет вовсе. Настройки должны точно совпадать с устройством: '
         + 'неверная скорость печатает мусор, а не сообщает об ошибке.',
-    'protocol.desktop.summary': 'RDP или VNC, без оболочки за ними',
-    'protocol.desktop.detail': 'Открывается сразу в удалённом рабочем столе и никогда не набирает '
-        + 'SSH. Для машины с Windows, на которой обычно нет сервера SSH.',
-    'protocol.ipmi.summary': 'Сервисный процессор, и ничего за ним',
-    'protocol.ipmi.detail': 'Открывает собственный веб-интерфейс BMC и никогда не обращается к '
-        + 'самой машине. Для платы iDRAC, iLO или Supermicro перед хостом, к которому у этого '
-        + 'приложения нет сеанса.',
 
     /* ---- Serial ---- */
     'serial.port': 'Последовательный порт',

@@ -63,8 +63,6 @@ export default {
 
     /* ---- Proxies ---- */
     'proxies.empty': 'Chưa có proxy nào',
-    'proxies.emptyNote': 'Thêm một proxy SOCKS hoặc HTTP và mọi máy chủ đều có thể kết nối qua nó: '
-        + 'phiên terminal, SFTP, chuyển tiếp cổng và cả máy tính từ xa.',
     'proxies.newProxy': 'Proxy mới',
     'proxies.search': 'Tìm proxy',
 
@@ -245,8 +243,6 @@ export default {
 
     /* ---- Import from other apps ---- */
     'appImport.title': 'Từ ứng dụng khác',
-    'appImport.desc': 'Máy chủ, cổng chuyển tiếp, thư mục và các thiết lập serial hoặc máy tính từ '
-        + 'xa đều được chuyển sang. Mật khẩu thì không; mỗi ứng dụng mã hoá chúng theo cách riêng.',
     'appImport.checking': 'Đang kiểm tra…',
     'appImport.notFound': 'Không tìm thấy',
     'appImport.sessionCount_other': '{count} phiên đã lưu',
@@ -276,7 +272,6 @@ export default {
     'settings.nav.monitoring': 'Theo dõi',
     'settings.nav.logging': 'Ghi nhật ký',
     'settings.nav.security': 'Bảo mật',
-    'settings.nav.account': 'Tài khoản',
     'settings.nav.backup': 'Sao lưu',
     'settings.nav.about': 'Giới thiệu',
 
@@ -322,27 +317,6 @@ export default {
     'settings.appearance.customColorsDesc': 'Tự đặt màu cho cửa sổ, bảng, điều khiển và chữ',
     'settings.appearance.editColors': 'Sửa màu',
     'settings.appearance.colorsApplied': 'Đã áp dụng màu ứng dụng',
-    'settings.appearance.showLogo': 'Hiện logo',
-    'settings.appearance.showLogoDesc': 'Biểu tượng trên thanh tiêu đề. Tắt đi thì chỗ đó dành cho '
-        + 'dải thẻ.',
-    'settings.appearance.showLogoAria': 'Hiện logo trên thanh tiêu đề',
-    'settings.appearance.logoShown': 'Đã hiện logo',
-    'settings.appearance.logoHidden': 'Đã ẩn logo',
-    'settings.appearance.customLogo': 'Logo tuỳ chỉnh',
-    'settings.appearance.customLogoSet': 'Ảnh của riêng bạn, thay cho biểu tượng CloudBlast.',
-    'settings.appearance.customLogoDesc': 'Dùng ảnh của riêng bạn thay cho biểu tượng CloudBlast. '
-        + 'PNG, JPG, GIF, WebP, SVG, BMP hoặc ICO, tối đa 512 KB.',
-    'settings.appearance.choosing': 'Đang chọn…',
-    'settings.appearance.chooseImage': 'Chọn ảnh',
-    'settings.appearance.logoUnreadable': 'Không đọc được ảnh đó',
-    'settings.appearance.logoSet': 'Đã đặt logo thành {name}',
-    'settings.appearance.logoCleared': 'Đã quay lại biểu tượng CloudBlast',
-    'settings.appearance.position': 'Vị trí',
-    'settings.appearance.positionDesc': 'Biểu tượng nằm ở đầu nào của thanh tiêu đề: cạnh nút menu, '
-        + 'hay phía các nút cửa sổ.',
-    'settings.appearance.positionAria': 'Vị trí logo',
-    'settings.appearance.logoMovedLeft': 'Đã chuyển logo sang trái',
-    'settings.appearance.logoMovedRight': 'Đã chuyển logo sang phải',
 
     /* ---- Settings: Terminal ---- */
     'settings.terminal.title': 'Terminal',
@@ -419,9 +393,6 @@ export default {
         + 'những kết nối bạn đã mở sẵn. Nó không bao giờ thấy mật khẩu hay khoá đã lưu.',
     'settings.assistant.loading': 'Đang tải cài đặt trợ lý…',
     'settings.assistant.show': 'Hiện trợ lý',
-    'settings.assistant.showDesc': 'Cột bên phải cửa sổ, và thanh mà nó thu lại thành. Khi tắt sẽ '
-        + 'không có thanh, không có nút, phần rộng trả lại cho thứ bạn đang làm, và Ctrl+Shift+A '
-        + 'không làm gì cả. Mọi thứ bên dưới vẫn được giữ.',
     'settings.assistant.agent': 'Tác nhân',
     'settings.assistant.agentDesc': 'Những tác nhân lập trình nào sẽ trả lời: các bản đã cài trên '
         + 'máy này, hoặc một mô hình do chính bạn chạy. Bật bao nhiêu tuỳ số tài khoản hoặc khoá '
@@ -816,8 +787,6 @@ export default {
     'hosts.open': 'Mở',
     'hosts.editHost': 'Sửa máy chủ',
     'hosts.connectVia': 'Kết nối qua {protocol}',
-    'hosts.openIpmi': 'Mở IPMI',
-    'hosts.notSetUp': 'chưa thiết lập',
     'hosts.moveToFolder': 'Chuyển vào thư mục…',
     'hosts.keepsContents': 'giữ lại nội dung bên trong',
     'hosts.move': 'Chuyển',
@@ -904,23 +873,13 @@ export default {
 
     /* ---- Protocols ---- */
     'protocol.serial': 'Serial',
-    'protocol.desktop': 'Máy tính từ xa',
     'protocol.ssh.summary': 'Shell được mã hoá, và mọi thứ dựng trên nó',
-    'protocol.ssh.detail': 'Tệp, chuyển tiếp cổng và máy tính từ xa đều là các kênh trên một kết '
-        + 'nối SSH, nên chúng chỉ được cung cấp ở đây.',
     'protocol.telnet.summary': 'Một socket thuần tới thiết bị không có SSH',
     'protocol.telnet.detail': 'Gửi mọi thứ, kể cả mật khẩu, ở dạng rõ. Dành cho máy chủ console, '
         + 'một PDU hoặc một switch chưa từng có SSH.',
     'protocol.serial.summary': 'Một cáp console trên máy này',
     'protocol.serial.detail': 'Hoàn toàn không qua mạng. Các thiết lập phải khớp chính xác với '
         + 'thiết bị: sai tốc độ baud thì chỉ ra ký tự rác chứ không báo lỗi.',
-    'protocol.desktop.summary': 'RDP hoặc VNC, không có shell phía sau',
-    'protocol.desktop.detail': 'Mở thẳng vào màn hình từ xa và không bao giờ gọi SSH. Dành cho máy '
-        + 'Windows, vốn thường không có máy chủ SSH.',
-    'protocol.ipmi.summary': 'Một bộ xử lý dịch vụ, và không có gì phía sau',
-    'protocol.ipmi.detail': 'Mở thẳng vào giao diện web của chính BMC và không bao giờ gọi tới máy. '
-        + 'Dành cho một bo iDRAC, iLO hay Supermicro đứng trước một máy mà ứng dụng này không có '
-        + 'phiên nào.',
 
     /* ---- Serial ---- */
     'serial.port': 'Cổng serial',

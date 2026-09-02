@@ -53,8 +53,12 @@ const nounFor = (snippet) => (isPackage(snippet) ? 'package' : isSpec(snippet) ?
 /** How the page was left last time. Not worth a round trip to the store. */
 const VIEW_KEY = 'snippets.view';
 
-function SnippetsPanel({ isActive = true, reachedForPage = 0, allHosts = [] }) {
-    const { snippets, save, remove } = useSnippets();
+function SnippetsPanel({ isActive = true, reachedForPage = 0, allHosts = [], agentId = '' }) {
+    const { snippets: allSnippets, save, remove } = useSnippets();
+    // The selected agent's, and the ones that belong to no agent in particular.
+    const snippets = useMemo(() => allSnippets.filter(snippet => (
+        !snippet.agentId || !agentId || snippet.agentId === agentId
+    )), [allSnippets, agentId]);
     const [editing, setEditing] = useState(null);
     const [confirming, setConfirming] = useState(null);
     const [query, setQuery] = useState('');
@@ -170,7 +174,8 @@ function SnippetsPanel({ isActive = true, reachedForPage = 0, allHosts = [] }) {
         const isEdit = Boolean(snippet.id);
         const noun = nounFor(snippet);
         setEditing(null);
-        await save(snippet);
+        // A new record is filed under the selected agent; an edit keeps its owner.
+        await save(snippet.id ? snippet : { ...snippet, agentId });
         toast.success(
             `${noun[0].toUpperCase()}${noun.slice(1)} ${isEdit ? 'updated' : 'added'}`,
             toastOptions({ duration: 1800 })
@@ -180,7 +185,7 @@ function SnippetsPanel({ isActive = true, reachedForPage = 0, allHosts = [] }) {
     const handleDuplicate = useCallback(async (snippet) => {
         // Without the id it saves as a new record rather than overwriting.
         const { id, ...rest } = snippet;
-        await save({ ...rest, name: `${snippet.name} copy` });
+        await save({ ...rest, agentId, name: `${snippet.name} copy` });
         toast.success(`Duplicated “${snippet.name}”`, toastOptions({ duration: 2200 }));
     }, [save]);
 

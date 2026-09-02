@@ -7,7 +7,7 @@
  * any of them requiring the others.
  *
  *   ssh      the default, and the only one the rest of the app builds on:
- *            SFTP, port forwarding and the desktop panes are all SSH channels
+ *            SFTP and port forwarding are both SSH channels
  *   telnet   a socket and RFC 854 negotiation; no auth of its own, the far end
  *            asks for a login in-band the way it would on a physical terminal
  *   serial   a local port, no network at all

@@ -63,8 +63,6 @@ export default {
 
     /* ---- Proxies ---- */
     'proxies.empty': '还没有代理',
-    'proxies.emptyNote': '添加 SOCKS 或 HTTP 代理后，任何主机都可以经由它连接：终端会话、SFTP、'
-        + '端口转发和远程桌面都可以。',
     'proxies.newProxy': '新建代理',
     'proxies.search': '搜索代理',
 
@@ -239,8 +237,6 @@ export default {
 
     /* ---- Import from other apps ---- */
     'appImport.title': '从其他应用导入',
-    'appImport.desc': '主机、端口转发、文件夹以及串口或远程桌面设置都会一并导入。密码不会导入，'
-        + '每个应用都用自己的方式加密保存它们。',
     'appImport.checking': '检查中…',
     'appImport.notFound': '未找到',
     'appImport.sessionCount_other': '{count} 个已保存的会话',
@@ -270,7 +266,6 @@ export default {
     'settings.nav.monitoring': '监控',
     'settings.nav.logging': '日志记录',
     'settings.nav.security': '安全',
-    'settings.nav.account': '账户',
     'settings.nav.backup': '备份',
     'settings.nav.about': '关于',
 
@@ -312,25 +307,6 @@ export default {
     'settings.appearance.customColorsDesc': '自行设置窗口、面板、控件和文字的颜色',
     'settings.appearance.editColors': '编辑颜色',
     'settings.appearance.colorsApplied': '已应用配色',
-    'settings.appearance.showLogo': '显示标志',
-    'settings.appearance.showLogoDesc': '标题栏中的标志。关闭后，这块空间会留给标签栏。',
-    'settings.appearance.showLogoAria': '在标题栏显示标志',
-    'settings.appearance.logoShown': '已显示标志',
-    'settings.appearance.logoHidden': '已隐藏标志',
-    'settings.appearance.customLogo': '自定义标志',
-    'settings.appearance.customLogoSet': '使用你自己的图片，替代 CloudBlast 标志。',
-    'settings.appearance.customLogoDesc': '用你自己的图片替代 CloudBlast 标志。支持 PNG、JPG、GIF、'
-        + 'WebP、SVG、BMP 或 ICO，最大 512 KB。',
-    'settings.appearance.choosing': '选择中…',
-    'settings.appearance.chooseImage': '选择图片',
-    'settings.appearance.logoUnreadable': '无法读取该图片',
-    'settings.appearance.logoSet': '标志已设为 {name}',
-    'settings.appearance.logoCleared': '已恢复 CloudBlast 标志',
-    'settings.appearance.position': '位置',
-    'settings.appearance.positionDesc': '标志位于标题栏的哪一端：菜单按钮旁边，还是靠近窗口按钮那一侧。',
-    'settings.appearance.positionAria': '标志位置',
-    'settings.appearance.logoMovedLeft': '标志已移到左侧',
-    'settings.appearance.logoMovedRight': '标志已移到右侧',
 
     /* ---- Settings: Terminal ---- */
     'settings.terminal.title': '终端',
@@ -398,8 +374,6 @@ export default {
         + '它绝不会看到任何已保存的密码或密钥。',
     'settings.assistant.loading': '正在加载助手设置…',
     'settings.assistant.show': '显示助手',
-    'settings.assistant.showDesc': '窗口右侧的那一栏，以及它收起后的窄条。关闭后既没有窄条也没有按钮，'
-        + '腾出的宽度还给你正在处理的内容，Ctrl+Shift+A 也不再有作用。下面的设置都会保留。',
     'settings.assistant.agent': '代理程序',
     'settings.assistant.agentDesc': '由哪些编码代理来作答：本机已安装的那些，或你自己运行的模型。'
         + '有几份账号或密钥就可以开启几个。对话里的模型菜单会把它们的模型列在一起，在那里选哪个模型，'
@@ -742,8 +716,6 @@ export default {
     'hosts.open': '打开',
     'hosts.editHost': '编辑主机',
     'hosts.connectVia': '通过 {protocol} 连接',
-    'hosts.openIpmi': '打开 IPMI',
-    'hosts.notSetUp': '尚未设置',
     'hosts.moveToFolder': '移动到文件夹…',
     'hosts.keepsContents': '保留其中内容',
     'hosts.move': '移动',
@@ -824,20 +796,13 @@ export default {
 
     /* ---- Protocols ---- */
     'protocol.serial': '串口',
-    'protocol.desktop': '远程桌面',
     'protocol.ssh.summary': '加密 shell，以及基于它的一切',
-    'protocol.ssh.detail': '文件、端口转发和远程桌面都是 SSH 连接上的通道，因此只在这里提供。',
     'protocol.telnet.summary': '连到没有 SSH 的设备的普通套接字',
     'protocol.telnet.detail': '包括密码在内的所有内容都以明文发送。适用于控制台服务器、PDU '
         + '或从未装过 SSH 守护进程的交换机。',
     'protocol.serial.summary': '本机上的一根控制台线',
     'protocol.serial.detail': '完全不经过网络。设置必须与设备完全一致：波特率不对只会打印乱码，'
         + '而不会报错。',
-    'protocol.desktop.summary': 'RDP 或 VNC，背后没有 shell',
-    'protocol.desktop.detail': '直接打开远程桌面，绝不拨 SSH。适用于通常没有 SSH 服务器的 Windows 机器。',
-    'protocol.ipmi.summary': '一块服务处理器，背后没有别的',
-    'protocol.ipmi.detail': '直接打开 BMC 自己的网页界面，绝不拨向机器本身。适用于本应用没有会话的主机'
-        + '前面的 iDRAC、iLO 或 Supermicro 板卡。',
 
     /* ---- Serial ---- */
     'serial.port': '串口',

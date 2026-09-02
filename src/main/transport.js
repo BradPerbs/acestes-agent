@@ -8,10 +8,10 @@
  * the session channels, and renaming them would touch four files to say
  * something the renderer does not act on.
  *
- * What the renderer *does* act on is which panes a host can offer. SFTP, port
- * forwarding and the desktop views are all SSH channels; a telnet or serial
- * host has a shell and nothing else, and the view switcher drops the rest
- * rather than showing three tabs that can only ever say no.
+ * What the renderer *does* act on is which panes a host can offer. SFTP and
+ * port forwarding are both SSH channels; a telnet or serial host has a shell
+ * and nothing else, and the view switcher drops the rest rather than showing
+ * two tabs that can only ever say no.
  */
 
 const store = require('./store');

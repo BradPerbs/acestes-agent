@@ -1,4 +1,9 @@
 import { memo } from 'react';
+import ConversationsPanel from './ConversationsPanel';
+import InventoryTabs, { INVENTORY_PAGES } from './InventoryTabs';
+import InventoryOverview from './InventoryOverview';
+import McpPanel from './McpPanel';
+import MemoryPanel from './MemoryPanel';
 import HostsPanel from './HostsPanel';
 import KeychainPanel from './KeychainPanel';
 import ProxiesPanel from './ProxiesPanel';
@@ -22,18 +27,12 @@ function HomeView({
     connectedHostIds,
     theme,
     appColors,
-    showLogo,
-    logoImage,
-    logoSide,
     terminalTheme,
     customTerminalTheme,
     terminalSettings,
     terminalFonts,
     onThemeChange,
     onAppColorsChange,
-    onShowLogoChange,
-    onLogoImageChange,
-    onLogoSideChange,
     onTerminalThemeChange,
     onCustomTerminalThemeChange,
     onTerminalSettingsChange,
@@ -52,6 +51,19 @@ function HomeView({
     onNavigateFolder,
     onArrange,
     onTagHosts,
+    // The selected agent, whose inventory and conversations these are
+    agentId,
+    agentColor,
+    activeAgent,
+    onSaveAgentServers,
+    onNavChange,
+    // Conversations props
+    conversations,
+    onRefreshConversations,
+    openConversationIds,
+    onOpenConversation,
+    onNewConversation,
+    onDeleteConversation,
     // Keychain props
     keys,
     onLoadKeys,
@@ -61,6 +73,42 @@ function HomeView({
 }) {
     return (
         <div className="absolute inset-0 flex flex-col p-6 overflow-y-auto" id="home-view">
+            {/* The inventory is one sidebar entry and several pages; the row
+                of tabs is what moves between them. */}
+            {INVENTORY_PAGES.includes(activeNav) && (
+                <InventoryTabs active={activeNav} onChange={onNavChange} />
+            )}
+
+            {activeNav === 'overview' && (
+                <InventoryOverview
+                    hosts={allHosts}
+                    keys={keys}
+                    agentId={agentId}
+                    activeAgent={activeAgent}
+                    onOpen={onNavChange}
+                />
+            )}
+
+            {activeNav === 'mcp' && (
+                <McpPanel agent={activeAgent} onSave={onSaveAgentServers} />
+            )}
+
+            {activeNav === 'memory' && (
+                <MemoryPanel agentId={agentId} />
+            )}
+
+            {activeNav === 'conversations' && (
+                <ConversationsPanel
+                    conversations={conversations}
+                    agentColor={agentColor}
+                    onRefresh={onRefreshConversations}
+                    openIds={openConversationIds}
+                    onOpen={onOpenConversation}
+                    onNew={onNewConversation}
+                    onDelete={onDeleteConversation}
+                />
+            )}
+
             {activeNav === 'hosts' && (
                 <HostsPanel
                     isActive={isActive}
@@ -107,11 +155,11 @@ function HomeView({
                 // `allHosts` so a proxy can say how many hosts are dialling
                 // through it, and so deleting one can name them rather than
                 // quietly putting their traffic back on the local network.
-                <ProxiesPanel isActive={isActive} reachedForPage={reachedForPage} allHosts={allHosts} />
+                <ProxiesPanel isActive={isActive} reachedForPage={reachedForPage} allHosts={allHosts} agentId={agentId} />
             )}
 
             {activeNav === 'snippets' && (
-                <SnippetsPanel isActive={isActive} reachedForPage={reachedForPage} allHosts={allHosts} />
+                <SnippetsPanel isActive={isActive} reachedForPage={reachedForPage} allHosts={allHosts} agentId={agentId} />
             )}
 
             {activeNav === 'logs' && (
@@ -122,18 +170,12 @@ function HomeView({
                 <SettingsPanel
                     theme={theme}
                     appColors={appColors}
-                    showLogo={showLogo}
-                    logoImage={logoImage}
-                    logoSide={logoSide}
                     terminalTheme={terminalTheme}
                     customTerminalTheme={customTerminalTheme}
                     terminalSettings={terminalSettings}
                     terminalFonts={terminalFonts}
                     onThemeChange={onThemeChange}
                     onAppColorsChange={onAppColorsChange}
-                    onShowLogoChange={onShowLogoChange}
-                    onLogoImageChange={onLogoImageChange}
-                    onLogoSideChange={onLogoSideChange}
                     onTerminalThemeChange={onTerminalThemeChange}
                     onCustomTerminalThemeChange={onCustomTerminalThemeChange}
                     onTerminalSettingsChange={onTerminalSettingsChange}

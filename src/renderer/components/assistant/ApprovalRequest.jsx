@@ -66,6 +66,9 @@ const TITLES = {
     list_directory: 'assistant.askListDirectory',
     list_hosts: 'assistant.askListHosts',
     list_sessions: 'assistant.askListSessions',
+    remember: 'assistant.askRemember',
+    recall: 'assistant.askRecall',
+    forget: 'assistant.askForget',
 };
 
 const SETTLED = {

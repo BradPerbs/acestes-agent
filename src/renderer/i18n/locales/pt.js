@@ -66,9 +66,6 @@ export default {
 
     /* ---- Proxies ---- */
     'proxies.empty': 'Ainda sem proxies',
-    'proxies.emptyNote': 'Adicione um proxy SOCKS ou HTTP e qualquer anfitrião passa a poder ligar '
-        + 'através dele: sessões de terminal, SFTP, encaminhamentos de portas e ambientes de '
-        + 'trabalho remotos.',
     'proxies.newProxy': 'Novo proxy',
     'proxies.search': 'Procurar proxies',
 
@@ -255,9 +252,6 @@ export default {
 
     /* ---- Import from other apps ---- */
     'appImport.title': 'De outras aplicações',
-    'appImport.desc': 'Anfitriões, encaminhamentos de portas, pastas e definições de série ou de '
-        + 'ambiente de trabalho vêm todos. As palavras-passe ficam para trás; cada aplicação '
-        + 'guarda-as cifradas à sua maneira.',
     'appImport.checking': 'A verificar…',
     'appImport.notFound': 'Não encontrado',
     'appImport.sessionCount_one': '{count} sessão guardada',
@@ -288,7 +282,6 @@ export default {
     'settings.nav.monitoring': 'Monitorização',
     'settings.nav.logging': 'Registo',
     'settings.nav.security': 'Segurança',
-    'settings.nav.account': 'Conta',
     'settings.nav.backup': 'Cópia de segurança',
     'settings.nav.about': 'Acerca',
 
@@ -336,27 +329,6 @@ export default {
         + 'controlos e do texto',
     'settings.appearance.editColors': 'Editar cores',
     'settings.appearance.colorsApplied': 'Cores da aplicação aplicadas',
-    'settings.appearance.showLogo': 'Mostrar o logótipo',
-    'settings.appearance.showLogoDesc': 'A marca na barra de título. Desligá-la dá esse espaço à '
-        + 'fila de separadores.',
-    'settings.appearance.showLogoAria': 'Mostrar o logótipo na barra de título',
-    'settings.appearance.logoShown': 'Logótipo visível',
-    'settings.appearance.logoHidden': 'Logótipo escondido',
-    'settings.appearance.customLogo': 'Logótipo personalizado',
-    'settings.appearance.customLogoSet': 'A sua imagem, no lugar da marca CloudBlast.',
-    'settings.appearance.customLogoDesc': 'Use a sua imagem em vez da marca CloudBlast. PNG, JPG, '
-        + 'GIF, WebP, SVG, BMP ou ICO, até 512 KB.',
-    'settings.appearance.choosing': 'A escolher…',
-    'settings.appearance.chooseImage': 'Escolher imagem',
-    'settings.appearance.logoUnreadable': 'Não foi possível ler essa imagem',
-    'settings.appearance.logoSet': 'Logótipo definido para {name}',
-    'settings.appearance.logoCleared': 'De volta à marca CloudBlast',
-    'settings.appearance.position': 'Posição',
-    'settings.appearance.positionDesc': 'Em que extremo da barra de título fica a marca: junto ao '
-        + 'botão de menu, ou do lado dos botões da janela.',
-    'settings.appearance.positionAria': 'Posição do logótipo',
-    'settings.appearance.logoMovedLeft': 'Logótipo movido para a esquerda',
-    'settings.appearance.logoMovedRight': 'Logótipo movido para a direita',
 
     /* ---- Settings: Terminal ---- */
     'settings.terminal.title': 'Terminal',
@@ -434,9 +406,6 @@ export default {
         + 'através das ligações que já abriu. Nunca vê uma palavra-passe ou chave guardada.',
     'settings.assistant.loading': 'A carregar as definições do agente…',
     'settings.assistant.show': 'Mostrar o assistente',
-    'settings.assistant.showDesc': 'A coluna à direita da janela, e a barra a que ela se reduz. '
-        + 'Desligado não há barra nem botão, a largura volta para aquilo em que está a trabalhar, e '
-        + 'Ctrl+Shift+A não faz nada. Tudo o que está abaixo é mantido.',
     'settings.assistant.agent': 'Agentes',
     'settings.assistant.agentDesc': 'Que agentes de programação respondem: os instalados nesta '
         + 'máquina, ou um modelo que você mesmo está a servir. Ligue quantos tiver login ou chave. '
@@ -860,8 +829,6 @@ export default {
     'hosts.open': 'Abrir',
     'hosts.editHost': 'Editar anfitrião',
     'hosts.connectVia': 'Ligar via {protocol}',
-    'hosts.openIpmi': 'Abrir o IPMI',
-    'hosts.notSetUp': 'não configurado',
     'hosts.moveToFolder': 'Mover para pasta…',
     'hosts.keepsContents': 'mantém o conteúdo',
     'hosts.move': 'Mover',
@@ -949,23 +916,13 @@ export default {
 
     /* ---- Protocols ---- */
     'protocol.serial': 'Série',
-    'protocol.desktop': 'Ambiente de trabalho',
     'protocol.ssh.summary': 'Shell cifrada, e tudo o que assenta nela',
-    'protocol.ssh.detail': 'Ficheiros, encaminhamento de portas e um ambiente de trabalho remoto '
-        + 'são todos canais de uma ligação SSH, por isso só são oferecidos aqui.',
     'protocol.telnet.summary': 'Um socket simples para um aparelho sem SSH',
     'protocol.telnet.detail': 'Envia tudo, palavras-passe incluídas, em claro. Para um servidor de '
         + 'consola, um PDU ou um switch que nunca teve um daemon SSH.',
     'protocol.serial.summary': 'Um cabo de consola nesta máquina',
     'protocol.serial.detail': 'Sem rede nenhuma. As definições têm de coincidir exatamente com o '
         + 'aparelho: uma velocidade errada imprime lixo em vez de dar erro.',
-    'protocol.desktop.summary': 'RDP ou VNC, sem shell por trás',
-    'protocol.desktop.detail': 'Abre diretamente no ambiente de trabalho remoto e nunca liga por '
-        + 'SSH. Para uma máquina Windows, que normalmente não tem servidor SSH.',
-    'protocol.ipmi.summary': 'Um processador de serviço, e nada por trás',
-    'protocol.ipmi.detail': 'Abre diretamente na interface web do próprio BMC e nunca liga à '
-        + 'máquina. Para uma placa iDRAC, iLO ou Supermicro à frente de um anfitrião onde esta '
-        + 'aplicação não tem sessão.',
 
     /* ---- Serial ---- */
     'serial.port': 'Porta série',

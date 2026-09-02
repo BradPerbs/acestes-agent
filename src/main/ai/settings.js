@@ -1,6 +1,7 @@
 const { app, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const agents = require('../agents');
 
 /**
  * How the assistant is configured.
@@ -202,9 +203,13 @@ function sanitize(raw) {
         autoApproveCommands: [...DEFAULTS.autoApproveCommands],
         blockedCommands: [...DEFAULTS.blockedCommands],
         quickPrompts: [...DEFAULTS.quickPrompts],
+        instructions: '',
     };
     if (raw && typeof raw === 'object') {
         if ('enabled' in raw) next.enabled = Boolean(raw.enabled);
+        // What the user wrote for the agent about itself, sent ahead of every
+        // conversation. Long enough for a page of house rules.
+        if (typeof raw.instructions === 'string') next.instructions = raw.instructions.trim().slice(0, 4000);
         if (PROVIDERS.has(raw.provider)) next.provider = raw.provider;
         next.providers = readProviders(raw, next.provider);
         // The agent answering has to be one of the agents that are on.
@@ -303,14 +308,43 @@ function persist() {
 }
 
 /**
- * The settings as the renderer reads them. The key itself never comes back
- * across the bridge, only whether there is one, which is the same rule the
- * host store follows for passwords.
+ * The settings that belong to an agent rather than to the machine.
+ *
+ * The base is what the machine has: which runtimes are switched on, where a
+ * local server is, what keys an older version left. What an agent *is*, which
+ * runtime answers for it, what it may do unattended, what it has been told
+ * about itself, is the agent's own, kept as a patch per agent in the registry
+ * and validated here on the way in and on the way out.
  */
-function get() {
-    const current = load();
+const PER_AGENT = [
+    'provider', 'model', 'effort', 'approval', 'commandMode', 'maxTurns',
+    'transcriptLines', 'allowLocalTools', 'autoApproveCommands',
+    'blockedCommands', 'quickPrompts', 'instructions',
+];
+
+const pick = (source, keys) => Object.fromEntries(
+    keys.filter(key => source && key in source).map(key => [key, source[key]]),
+);
+
+/** The settings as one agent sees them: the base with its own patch over it. */
+function effective(agentId) {
+    const id = agents.get(agentId)?.id || agents.activeId();
+    return { id, settings: sanitize({ ...load(), ...pick(agents.overrides(id), PER_AGENT) }) };
+}
+
+/**
+ * The settings as the renderer reads them, for one agent: the selected one
+ * unless another is named. The key itself never comes back across the bridge,
+ * only whether there is one, which is the same rule the host store follows for
+ * passwords.
+ */
+function get(agentId) {
+    const { id, settings: current } = effective(agentId);
     return {
         ...current,
+        agentId: id,
+        // The agent's MCP servers ride along so a provider reads one object.
+        mcpServers: agents.get(id)?.mcpServers || [],
         // Whether the agent now answering is running on a key left here by an
         // older version, which is what the usage chip in the composer needs to
         // know: a metered key and a plan are charged differently and it says
@@ -327,27 +361,38 @@ function get() {
     };
 }
 
-function set(patch) {
-    const before = load();
-    const next = sanitize({ ...before, ...patch });
+/**
+ * Apply a patch: the machine's part to the base, the agent's part to the
+ * agent named, or the one selected.
+ */
+function set(patch, agentId) {
+    const { id, settings: before } = effective(agentId);
+    const source = patch && typeof patch === 'object' ? patch : {};
+    const own = pick(source, PER_AGENT);
+    const shared = { ...source };
+    for (const key of PER_AGENT) delete shared[key];
+
+    config = sanitize({ ...load(), ...shared });
+    persist();
+
+    // Validated against the base it sits on, so an override can never name a
+    // runtime that is switched off.
+    const merged = sanitize({ ...config, ...pick(agents.overrides(id), PER_AGENT), ...own });
 
     // A model name belongs to the agent that offers it. Claude Code's
     // `opus[1m]` means nothing to Codex, and handing it over would either be
-    // refused or, worse, quietly run something else. Switching agents drops
+    // refused or, worse, quietly run something else. Switching runtimes drops
     // back to "whatever it is already set to", which is the one answer that
     // is right for both.
     //
     // Unless the change names both at once, which is what the composer's menu
-    // does now that it lists every switched-on agent's models together: one
-    // click there is a change of model and of the agent that owns it, and
+    // does now that it lists every switched-on runtime's models together: one
+    // click there is a change of model and of the runtime that owns it, and
     // clearing the model it just asked for would undo half of the request.
-    if (next.provider !== before.provider && !(patch && 'model' in patch)) {
-        next.model = '';
-    }
+    if (merged.provider !== before.provider && !('model' in own)) merged.model = '';
 
-    config = next;
-    persist();
-    return get();
+    agents.setOverrides(id, pick(merged, PER_AGENT));
+    return get(id);
 }
 
 /**
@@ -360,7 +405,7 @@ function set(patch) {
  * is what an older version wrote, which is still handed to the agent it belongs
  * to so that nobody's working setup stops working on an update.
  */
-function readApiKey(provider = load().provider) {
+function readApiKey(provider = effective().settings.provider) {
     const secret = secrets[provider];
     if (!secret) return '';
     try {

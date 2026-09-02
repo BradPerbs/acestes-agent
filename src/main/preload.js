@@ -324,68 +324,6 @@ contextBridge.exposeInMainWorld('api', {
         onUpdate: (callback) => subscribe('tunnels-update', callback),
     },
 
-    // Remote desktop. `open` returns the loopback WebSocket address the viewer
-    // attaches to; main has already authenticated to the VNC server by then,
-    // so no credential is ever handed to this side of the bridge.
-    vnc: {
-        get: (paneId) => ipcRenderer.invoke('vnc-get', paneId),
-        open: (paneId, hostId) => ipcRenderer.invoke('vnc-open', { paneId, hostId }),
-        close: (paneId, hostId) => ipcRenderer.invoke('vnc-close', { paneId, hostId }),
-        // Reported back so the header and the activity log can name the desktop
-        // the way the server does.
-        reportName: (paneId, name) => ipcRenderer.invoke('vnc-name', { paneId, name }),
-
-        onUpdate: (callback) => subscribe('vnc-update', callback),
-    },
-
-    // Remote desktop over RDP. Unlike `vnc`, `open` returns the credentials
-    // with the address: RDP authenticates with CredSSP inside the WASM client,
-    // so the handshake cannot be completed in main the way RFB's is. The view
-    // is written to use them once and not retain them; see src/main/rdp.js.
-    rdp: {
-        get: (paneId) => ipcRenderer.invoke('rdp-get', paneId),
-        open: (paneId, hostId) => ipcRenderer.invoke('rdp-open', { paneId, hostId }),
-        close: (paneId, hostId) => ipcRenderer.invoke('rdp-close', { paneId, hostId }),
-
-        // The IronRDP module itself, which a `file://` renderer cannot fetch.
-        wasm: () => ipcRenderer.invoke('rdp-wasm'),
-
-        onUpdate: (callback) => subscribe('rdp-update', callback),
-    },
-
-    // A service processor's own web interface, in a `<webview>`.
-    //
-    // `open` returns a URL and a session partition and nothing else: unlike
-    // `rdp`, no credential crosses here at all. Main logs the guest page in
-    // itself, either by filling the vendor's form through the guest's own
-    // webContents or by answering an HTTP Basic challenge, so the BMC password
-    // never reaches this side of the bridge. See src/main/bmc.js.
-    //
-    // `attach` is the one call that goes the other way: the `<webview>` element
-    // lives here, so its webContents id has to be handed to main before main
-    // can drive it.
-    bmc: {
-        get: (paneId) => ipcRenderer.invoke('bmc-get', paneId),
-        open: (paneId, hostId) => ipcRenderer.invoke('bmc-open', { paneId, hostId }),
-        attach: (paneId, webContentsId) =>
-            ipcRenderer.invoke('bmc-attach', { paneId, webContentsId }),
-        login: (paneId) => ipcRenderer.invoke('bmc-login', paneId),
-        close: (paneId, hostId) => ipcRenderer.invoke('bmc-close', { paneId, hostId }),
-
-        // Trust on first use for the board's self-signed certificate, in the
-        // shape `hostKeys` uses for an SSH host key.
-        onCertPrompt: (callback) => subscribe('bmc-cert-prompt', callback),
-        respondCert: (requestId, accepted) =>
-            ipcRenderer.invoke('bmc-cert-response', { requestId, accepted }),
-
-        onUpdate: (callback) => subscribe('bmc-update', callback),
-    },
-
-    appearance: {
-        // Main owns the picker and the reading; the renderer gets a data URL
-        // for an image the user chose, or a reason it could not have one.
-        chooseLogo: () => ipcRenderer.invoke('choose-logo-image'),
-    },
 
     importer: {
         paths: () => ipcRenderer.invoke('import-paths'),
@@ -597,9 +535,12 @@ contextBridge.exposeInMainWorld('api', {
 
         // `sessionIds` and `hostIds` are the explicit set a pinned scope fences
         // the conversation to. Empty for the two modes that are not a set.
-        start: ({ scope, sessionId, sessionIds, hostIds } = {}) =>
-            ipcRenderer.invoke('ai-conversation-start', { scope, sessionId, sessionIds, hostIds }),
-        list: () => ipcRenderer.invoke('ai-conversation-list'),
+        // `agentId` says whose conversation it is; left out, the selected
+        // agent's.
+        start: ({ scope, sessionId, sessionIds, hostIds, agentId } = {}) =>
+            ipcRenderer.invoke('ai-conversation-start', { scope, sessionId, sessionIds, hostIds, agentId }),
+        // `{ agentId }` narrows the list to one agent's conversations.
+        list: (filter) => ipcRenderer.invoke('ai-conversation-list', filter || {}),
         history: (conversationId) => ipcRenderer.invoke('ai-conversation-history', conversationId),
         // Releases the running query and keeps the transcript, so the
         // conversation can be picked up again from the history menu.
@@ -661,6 +602,28 @@ contextBridge.exposeInMainWorld('api', {
         // got: 'settings' or 'snippets'. The main window listens on the other.
         navigateMain: (nav) => ipcRenderer.invoke('ai-navigate-main', nav),
         onNavigate: (callback) => subscribe('ai-navigate', callback),
+    },
+
+    /** What an agent remembers between conversations. See ai/memory.js. */
+    memory: {
+        list: (agentId) => ipcRenderer.invoke('memory-list', agentId),
+        save: (entry) => ipcRenderer.invoke('memory-save', entry),
+        remove: (agentId, id) => ipcRenderer.invoke('memory-remove', { agentId, id }),
+        search: (agentId, query, limit) => ipcRenderer.invoke('memory-search', { agentId, query, limit }),
+        status: (agentId) => ipcRenderer.invoke('memory-status', agentId),
+        onChange: (callback) => subscribe('memory-changed', callback),
+    },
+
+    /**
+     * The agents: whose the conversations, the inventory and the settings
+     * are. Every mutation answers with the whole list and the selection.
+     */
+    agents: {
+        list: () => ipcRenderer.invoke('agents-list'),
+        select: (id) => ipcRenderer.invoke('agents-select', id),
+        save: (agent) => ipcRenderer.invoke('agents-save', agent),
+        remove: (id) => ipcRenderer.invoke('agents-remove', id),
+        onChange: (callback) => subscribe('agents-changed', callback),
     },
 
     // Which OS this is, for the handful of places the interface has to differ:

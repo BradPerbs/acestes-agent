@@ -868,7 +868,7 @@ function connect({ tabId, hostId, cols, rows }, { window, requestTrust, requestK
             sock = relay.stream;
         }
 
-        // Everything downstream (SFTP, forwards, the desktop views, detectOS)
+        // Everything downstream (SFTP, forwards, detectOS)
         // runs on the last hop, which is the host the user actually asked for.
         const client = clients[clients.length - 1];
 

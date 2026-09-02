@@ -18,7 +18,7 @@ export const TITLE_BAR_HEIGHT = 40;
 export const TITLE_BAR_BOTTOM = APP_GUTTER + TITLE_BAR_HEIGHT;
 
 // Total sidebar width, including the gutter it holds to the content panel.
-export const SIDEBAR_WIDTH = 172;
+export const SIDEBAR_WIDTH = 232;
 
 // Height of a terminal pane's own header row.
 export const PANE_HEADER_HEIGHT = 44;

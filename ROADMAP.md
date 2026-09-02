@@ -7,7 +7,9 @@ terminals, SSH sessions and local folders are the tools it works with.
 ## What is inherited and stays
 
 - Electron + React + xterm.js shell, split panes, tabs, snippets, vaults.
-- SSH, SFTP, Telnet, serial, RDP and VNC sessions (`src/main/*`).
+- SSH, SFTP, Telnet and serial sessions (`src/main/*`). RDP, VNC and IPMI were
+  taken out: an agent works through a shell, and a picture of a screen is not
+  one.
 - Provider integrations in `src/main/ai/providers`: Claude Code (Agent SDK),
   Codex, Grok, Kimi, OpenCode, local / OpenAI-compatible endpoints.
 - The tool layer the assistant already uses to drive SSH sessions
@@ -15,14 +17,22 @@ terminals, SSH sessions and local folders are the tools it works with.
 
 ## What changes
 
-1. **Agent-first UI.** The assistant pane becomes the home screen. Sessions and
-   file views open as panes the agent (or the user) spawns, instead of the
-   assistant living as a tab beside terminals.
-2. **Persistent memory.** A per-workspace memory store under `userData`
-   (facts, preferences, project notes, task history) that is loaded into every
-   run and that the agent can read and write through tools. Start with a
-   file-backed store (markdown + index, like Claude Code's auto-memory), add
-   embeddings for recall later.
+1. **Agent-first UI.** Done in the first pass: agents are the top-level thing.
+   The sidebar picks the agent and lists its conversations; an agent has its
+   own conversations, its own inventory (hosts, keychain, proxies, snippets,
+   MCP servers, logs) and its own settings (runtime, model, approvals,
+   standing instructions). Conversations are tabs of the window, and sessions
+   the agent opens arrive as tabs behind the conversation rather than in front
+   of it. Still to do: sessions and file views as panes beside the
+   conversation, and MCP servers for the runtimes other than Claude Code.
+2. **Persistent memory.** Done in the first pass: a notebook per agent under
+   `userData/memory`, written by the agent through `remember`, `recall` and
+   `forget` and edited on the Memory page of the inventory. Every note is
+   embedded on the machine (MiniLM through ONNX, see `src/main/ai/embeddings.js`)
+   into a flat vector index; the newest notes go into the system prompt and the
+   ones that bear on each message are found by meaning and sent with it. Still
+   to do: automatic extraction of facts from a finished turn, and consolidation
+   of a new fact against the ones it overlaps, the way mem0 does it.
 3. **Local filesystem scope.** Let the user grant the agent one or more local
    folders. Add read / write / search / run tools scoped to those folders, with
    the same approval flow that already gates SSH commands

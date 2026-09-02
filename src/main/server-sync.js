@@ -6,7 +6,6 @@ const account = require('./account');
 const vault = require('./vault');
 const activity = require('./activity');
 const { classifyTemplateName } = require('./os-detect');
-const { DEFAULT_RDP_PORT } = require('./desktop-config');
 
 /**
  * Keeping the host list in step with the servers on a CloudBlast account.
@@ -125,64 +124,6 @@ function osFor(server, existing) {
     if ((existing.cloudblast?.os || '') === reported) return null;
 
     return classified;
-}
-
-/**
- * The remote desktop block for a synced server, or null to leave whatever is
- * already there alone.
- *
- * A Windows server is an RDP machine. The panel says which servers those are
- * before anything has ever connected to one, so there is no reason to make
- * someone discover it: the host arrives configured for the protocol it actually
- * speaks, reaching the machine directly, and not pretending to be an SSH
- * session it has no server for.
- *
- * Three cases, and the last one is the important one:
- *
- *   never set up   configure it, once. Recorded in `cloudblast.desktopSetup`
- *                  so that turning the desktop off afterwards stays off rather
- *                  than being switched back on by the next sync.
- *   RDP tunnelled  repaired whatever the flag says, because it cannot work:
- *                  a tunnelled desktop rides this host's SSH connection, and
- *                  that is the one thing a Windows box has not got.
- *   anything else  the user's arrangement, and left as it is.
- */
-function remoteDesktopFor(detected, existing, creds) {
-    // `detected` is null when the template said nothing new, which is the
-    // normal case for a host that already knows what it is.
-    const os = detected?.os || existing?.os;
-    if (os !== 'windows') return null;
-
-    const current = existing?.desktop;
-    const username = current?.username || creds?.username || 'Administrator';
-
-    const base = {
-        enabled: true,
-        protocol: 'rdp',
-        transport: 'direct',
-        // The point of the whole thing: no SSH session is opened, and the pane
-        // goes straight to the desktop.
-        only: true,
-        port: DEFAULT_RDP_PORT,
-        username,
-    };
-
-    if (!existing?.cloudblast?.desktopSetup && !current?.enabled) return base;
-
-    if (current?.protocol === 'rdp' && current.transport === 'tunnel') {
-        return {
-            // Their scaling, quality and the rest are kept.
-            ...current,
-            ...base,
-            port: current.port || DEFAULT_RDP_PORT,
-            // Emphatically not kept: under a tunnel a blank address means the
-            // server's own loopback, and it is stored as 127.0.0.1. Carried
-            // into a direct dial that would point at this machine.
-            host: '',
-        };
-    }
-
-    return null;
 }
 
 /* ------------------------------------------------------------------ *
@@ -341,7 +282,6 @@ async function sync({ manual = false } = {}) {
 
             const detected = osFor(server, existing);
             const project = projectFor(server);
-            const desktop = remoteDesktopFor(detected, existing, creds);
 
             const record = {
                 id,
@@ -361,23 +301,9 @@ async function sync({ manual = false } = {}) {
                     // Kept so the next sync can tell a rebuild onto a new image
                     // apart from the same image reported again.
                     os: server.os || '',
-                    // Sticky: once a desktop has been set up for this server,
-                    // later syncs stop having an opinion about whether it is on.
-                    desktopSetup: Boolean(existing?.cloudblast?.desktopSetup || desktop),
                     syncedAt: new Date().toISOString(),
                 },
             };
-
-            if (desktop) {
-                record.desktop = desktop;
-
-                // The panel's password is the machine's, so it is the one RDP
-                // needs. Stored under its own field: `password` is the SSH
-                // credential and a desktop-only host never spends it.
-                if (creds?.password && creds.passwordStatus === 'ready') {
-                    record.rdpPassword = creds.password;
-                }
-            }
 
             // Only meaningful when the password actually exists. A server still
             // installing reports 'generating' and has none yet; sending '' here
@@ -545,7 +471,4 @@ module.exports = {
     stop,
     FOLDER_ID,
     hostIdFor,
-    // Exported for the tests: the rules for what a Windows server is set up as
-    // are worth pinning down without standing up a whole sync.
-    remoteDesktopFor,
 };

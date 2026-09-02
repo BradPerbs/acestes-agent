@@ -31,62 +31,23 @@ export const PROTOCOLS = [
 ];
 
 /**
- * What the host editor's first question offers.
- *
- * Not the same list as PROTOCOLS, and the difference is the point. The three
- * above are session *transports*: what the shell pane runs on, and what the
- * record stores in `protocol`. "Desktop" is not one of those: it is a host with
- * no shell at all, which the record has always expressed as
- * `desktop.only`.
- *
- * They are offered together anyway, because "what kind of host is this" is one
- * question to the person answering it. A picker that listed three protocols and
- * left RDP to a section further down the form reads as RDP being missing, which
- * is exactly how it read.
- *
- * So `desktop` is a UI-level kind, resolved back to a stored protocol and a
- * desktop block by the editor. Nothing in the main process knows the word.
+ * What the host editor's first question offers: the three transports a shell
+ * can run on. Every kind of host this app holds has a shell behind it, which
+ * is what lets the agent work on any of them.
  */
-export const HOST_KINDS = [
-    ...PROTOCOLS,
-    {
-        id: 'desktop',
-        labelKey: 'protocol.desktop',
-        summaryKey: 'protocol.desktop.summary',
-        detailKey: 'protocol.desktop.detail',
-    },
-    {
-        id: 'ipmi',
-        label: 'IPMI',
-        summaryKey: 'protocol.ipmi.summary',
-        detailKey: 'protocol.ipmi.detail',
-    },
-];
+export const HOST_KINDS = PROTOCOLS;
 
 /**
  * A kind's own name, in the app's language.
  *
- * `SSH`, `Telnet` and `IPMI` are the protocols' names and stay as they are in
- * every language; `Serial` and `Desktop` are ordinary words describing what the
- * host is, and those carry a key.
+ * `SSH` and `Telnet` are the protocols' names and stay as they are in every
+ * language; `Serial` is an ordinary word describing what the host is, and
+ * carries a key.
  */
 export const kindLabel = (kind) => (kind?.labelKey ? translate(kind.labelKey) : kind?.label || '');
 
-/**
- * Which of those a saved record is.
- *
- * A host that is only a desktop, or only a service processor, is stored as an
- * SSH host carrying `desktop.only` or `bmc.only`, so the kind has to be read off
- * those fields rather than off `protocol` alone.
- *
- * IPMI is tested first. The picker sets one or the other and clears the one it
- * is not, so a record with both is one that predates the picker knowing about
- * IPMI at all, and for that record the service processor is the answer that
- * still reaches something.
- */
+/** Which of those a saved record is. */
 export function hostKind(host) {
-    if (host?.bmc?.enabled && host.bmc.only) return 'ipmi';
-    if (host?.desktop?.enabled && host.desktop.only) return 'desktop';
     return host?.protocol || 'ssh';
 }
 

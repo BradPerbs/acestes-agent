@@ -29,8 +29,6 @@ const ACTIONS = {
     'session.close': { verb: 'Disconnected from %s', kind: 'disconnect' },
     'tunnel.start': { verb: 'Started port forward %s', failed: 'Could not start port forward %s', kind: 'tunnel' },
     'tunnel.stop': { verb: 'Stopped port forward %s', kind: 'tunnel' },
-    'desktop.open': { verb: 'Opened the desktop at %s', failed: 'Could not open the desktop at %s', kind: 'desktop' },
-    'desktop.close': { verb: 'Closed the desktop at %s', kind: 'desktop' },
     // Written by the reachability monitor, on the transition only, so a host
     // that was down for an hour is two lines rather than sixty. `host.offline`
     // is always recorded as a failure, so it only ever uses the second wording.

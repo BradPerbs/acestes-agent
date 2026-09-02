@@ -2,13 +2,13 @@
  * Reaching a TCP address through a proxy.
  *
  * One entry point, `openSocket`, which every outbound connection in the app goes
- * through: the SSH transport, telnet, and the direct dial behind a VNC or RDP
- * pane. With no proxy configured it is `net.connect` with friendlier errors, so
- * call sites have a single path rather than one for each case.
+ * through: the SSH transport and telnet. With no proxy configured it is
+ * `net.connect` with friendlier errors, so call sites have a single path rather
+ * than one for each case.
  *
  * What comes back is always a Duplex that is already talking to the far end, so
- * ssh2 (`config.sock`), `tls.connect({ socket })` and the desktop bridges take it
- * without knowing whether a proxy was involved.
+ * ssh2 (`config.sock`) and `tls.connect({ socket })` take it without knowing
+ * whether a proxy was involved.
  *
  * The three protocols here are all pre-1998 and all trivially framed, which is
  * why they are spoken by hand rather than pulled in as a dependency:
@@ -30,7 +30,7 @@
  * unshifted bytes for a stream that is explicitly paused: left flowing with no
  * listener, the next drain emits them into a `data` event nobody has subscribed
  * to yet and they are gone. ssh2 resumes the socket it is handed, so the SSH path
- * needs nothing; telnet.js, vnc.js and rdp.js each do it where they attach.
+ * needs nothing; telnet.js does it where it attaches.
  *
  * The destination is untrusted text. It comes from a stored host record, and for
  * HTTP CONNECT it is written straight into a request line, so a hostname

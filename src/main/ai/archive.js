@@ -117,6 +117,9 @@ function pack(conversation) {
         providerSessionId: conversation.providerSessionId || '',
         provider: conversation.provider || '',
         title: conversation.title || '',
+        // Whose it is. An id no agent answers to any more is repaired on the
+        // way back in, by `index.js`.
+        agentId: conversation.agentId || '',
         costUsd: conversation.costUsd || 0,
         busy: Boolean(conversation.busy),
         createdAt: conversation.createdAt,
@@ -216,6 +219,7 @@ function unpack(record, currentProvider) {
         needsRestart: false,
         costUsd: Number.isFinite(record.costUsd) ? record.costUsd : 0,
         title: typeof record.title === 'string' ? record.title : '',
+        agentId: typeof record.agentId === 'string' ? record.agentId : '',
         createdAt: Number.isFinite(record.createdAt) ? record.createdAt : at,
         updatedAt: at,
     };

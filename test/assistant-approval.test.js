@@ -283,13 +283,11 @@ check('a saved host never carries a secret into the model', () => {
         password: 'hunter2',
         privateKey: 'BEGIN OPENSSH PRIVATE KEY',
         passphrase: 'letmein',
-        vncPassword: 'vnc',
-        rdpPassword: 'rdp',
         tags: ['prod'],
     });
 
     const serialised = JSON.stringify(shaped);
-    for (const secret of ['hunter2', 'PRIVATE KEY', 'letmein', 'vnc', 'rdp']) {
+    for (const secret of ['hunter2', 'PRIVATE KEY', 'letmein']) {
         assert.ok(!serialised.includes(secret), `${secret} must not reach the model`);
     }
     assert.strictEqual(shaped.address, '10.0.0.1:22', 'the address is still usable');

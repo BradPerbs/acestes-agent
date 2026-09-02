@@ -7,7 +7,6 @@ import {
     ShieldKeyIcon,
     Archive01Icon,
     InformationCircleIcon,
-    UserCircleIcon,
     PulseRectangle01Icon,
 } from 'hugeicons-react';
 import AgentMark from '../assistant/AgentMark';
@@ -40,7 +39,6 @@ export const SETTINGS_CATEGORIES = [
     { id: 'monitoring', icon: PulseRectangle01Icon },
     { id: 'logging', icon: FileEditIcon },
     { id: 'security', icon: ShieldKeyIcon },
-    { id: 'account', icon: UserCircleIcon },
     { id: 'backup', icon: Archive01Icon },
     { id: 'about', icon: InformationCircleIcon },
 ];

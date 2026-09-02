@@ -186,6 +186,23 @@ function claudeCandidates({
  * the app carries no copy of a runtime, ships no credential, and does not go
  * stale the week Claude Code updates.
  */
+/**
+ * The MCP servers from the agent's inventory, in the shape the SDK takes.
+ *
+ * A stdio server is a command to spawn; an http one is a URL. Keyed by name,
+ * which is what the model sees the tools filed under.
+ */
+function agentServers(servers) {
+    const out = {};
+    for (const entry of Array.isArray(servers) ? servers : []) {
+        if (!entry?.name) continue;
+        out[entry.name] = entry.transport === 'http'
+            ? { type: 'http', url: entry.url }
+            : { command: entry.command, args: entry.args || [], env: entry.env || {} };
+    }
+    return out;
+}
+
 function findClaude(options = {}) {
     const platform = options.platform || process.platform;
     const accessSync = options.accessSync || fs.accessSync;
@@ -531,7 +548,9 @@ async function start({
 
     const options = {
         systemPrompt,
-        mcpServers: { [SERVER_NAME]: server },
+        // The agent's own MCP servers first and the app's tools last, so a
+        // server that happens to share the name cannot shadow them.
+        mcpServers: { ...agentServers(settings.mcpServers), [SERVER_NAME]: server },
         // Nothing is pre-approved. Every call goes through canUseTool below,
         // which is what puts the approval policy in one place instead of
         // splitting it between a list here and a callback there.

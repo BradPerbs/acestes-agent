@@ -15,9 +15,6 @@ const transfers = require('./transfers');
 const remoteEdit = require('./remote-edit');
 const screenshot = require('./screenshot');
 const tunnels = require('./tunnels');
-const vnc = require('./vnc');
-const bmc = require('./bmc');
-const rdp = require('./rdp');
 const importer = require('./import');
 const importCommon = require('./import-common');
 const vault = require('./vault');
@@ -32,11 +29,11 @@ const assistant = require('./ai');
 const aiWindows = require('./ai/windows');
 const updates = require('./updates');
 const startup = require('./startup');
+const agents = require('./agents');
+const memory = require('./ai/memory');
 const proxy = require('./proxy');
 const { parseAddress } = require('./address');
 const { describeTunnel } = require('./tunnel-config');
-const { describeDesktop } = require('./desktop-config');
-const { describeBmc } = require('./bmc-config');
 const { describeProxy, nameProxy } = require('./proxy-config');
 
 /**
@@ -64,23 +61,6 @@ function handle(channel, listener) {
         return listener(event, ...args);
     });
 }
-
-/**
- * Image formats the title bar will accept for a custom logo, and the MIME type
- * each is handed back under. An extension not listed here is refused rather
- * than guessed at: the renderer draws whatever comes back in an `<img>`, and a
- * data URL is only as trustworthy as the type on the front of it.
- */
-const LOGO_TYPES = {
-    '.png': 'image/png',
-    '.jpg': 'image/jpeg',
-    '.jpeg': 'image/jpeg',
-    '.gif': 'image/gif',
-    '.webp': 'image/webp',
-    '.svg': 'image/svg+xml',
-    '.bmp': 'image/bmp',
-    '.ico': 'image/x-icon',
-};
 
 /**
  * What to store alongside a key's certificate, and whether to accept it at all.
@@ -130,10 +110,6 @@ function describeCertificate(key) {
     };
 }
 
-// The mark is drawn 24 pixels square and the data URL rides along in the
-// settings snapshot, so there is no reason to carry a photograph.
-const MAX_LOGO_BYTES = 512 * 1024;
-
 // A private key file is a few KB at the very outside. The cap is here so that
 // pointing the picker at a disk image reports what it is instead of reading the
 // whole thing into memory to find out it is not a key.
@@ -160,10 +136,6 @@ function readCertificateFile(privateKeyPath) {
 
 // requestId -> resolve, for host key prompts awaiting a user decision.
 const pendingHostKeyPrompts = new Map();
-// requestId -> resolve, for BMC certificate prompts awaiting one. Separate from
-// the host key map because a page load is held open on each of these, so
-// cancelling them has to deny the load rather than leave Chromium waiting.
-const pendingCertPrompts = new Map();
 // requestId -> resolve, for keyboard-interactive rounds awaiting answers.
 const pendingAuthPrompts = new Map();
 // pendingKeyId -> freshly generated private key, awaiting a save.
@@ -214,11 +186,10 @@ function register(getWindow) {
         }
     };
     assistant.setNotifier(broadcast);
+    agents.setNotifier(notify);
+    memory.setNotifier(notify);
     aiWindows.setMainNotifier(notify);
     tunnels.setNotifier(notify);
-    vnc.setNotifier(notify);
-    rdp.setNotifier(notify);
-    bmc.setNotifier(notify);
     activity.setNotifier(notify);
 
     // Waking from sleep is when a session is most likely to be dead and a
@@ -227,17 +198,13 @@ function register(getWindow) {
     powerMonitor.on('resume', () => notify('system-resume', { reason: 'resume' }));
     powerMonitor.on('unlock-screen', () => notify('system-resume', { reason: 'unlock' }));
 
-    // Closing a tab must stop its in-flight transfers, drop its scratch files,
-    // tear down its port forwards and end any desktop riding the connection;
-    // all of them outlive the IPC call that started them, and a forward left
-    // running would hold its local port.
+    // Closing a tab must stop its in-flight transfers, drop its scratch files
+    // and tear down its port forwards; all of them outlive the IPC call that
+    // started them, and a forward left running would hold its local port.
     ssh.onDestroy((tabId) => {
         transfers.cleanup(tabId);
         remoteEdit.cleanup(tabId);
         tunnels.cleanup(tabId);
-        vnc.cleanup(tabId);
-        rdp.cleanup(tabId);
-        bmc.cleanup(tabId);
     });
 
     /**
@@ -256,23 +223,6 @@ function register(getWindow) {
         window.webContents.send('host-key-prompt', { requestId, ...details });
     });
 
-    /**
-     * The same question for a BMC's TLS certificate. Resolves false with no
-     * window, so a page load is never silently trusted either.
-     *
-     * Handed to bmc.js rather than called from it, so that module stays free of
-     * any knowledge of how a prompt reaches a person, exactly as ssh.js is.
-     */
-    bmc.setTrustRequester((details) => new Promise((resolve) => {
-        const window = getWindow();
-        if (!window || window.isDestroyed()) {
-            resolve(false);
-            return;
-        }
-        const requestId = `bc-${++promptCounter}`;
-        pendingCertPrompts.set(requestId, resolve);
-        window.webContents.send('bmc-cert-prompt', { requestId, ...details });
-    }));
 
     /**
      * Put a keyboard-interactive round in front of the user: a one-time code,
@@ -717,183 +667,6 @@ function register(getWindow) {
     handle('tunnels-start-all', (event, tabId) => tunnels.startAll(tabId));
     handle('tunnels-stop-all', (event, tabId) => tunnels.stopAll(tabId));
 
-    /* ---------------- Remote desktop ---------------- */
-
-    /**
-     * Named from the host record rather than from `ssh.describe`, because a
-     * direct-transport desktop has no SSH session to describe and would
-     * otherwise be logged as happening nowhere.
-     */
-    const describeDesktopHost = (hostId) => {
-        const info = store.describeHost(hostId);
-        return { hostId: info.id, hostName: info.name, subject: info.address };
-    };
-
-    handle('vnc-get', (event, paneId) => vnc.get(paneId));
-
-    handle('vnc-open', async (event, { paneId, hostId }) => {
-        const result = await vnc.open(paneId, hostId);
-
-        activity.record({
-            category: 'connection',
-            action: 'desktop.open',
-            outcome: result.success ? 'success' : 'failure',
-            target: describeDesktop(store.getHostDesktop(hostId)),
-            detail: 'Remote desktop',
-            message: result.success ? '' : (result.message || ''),
-            ...describeDesktopHost(hostId),
-        });
-
-        return result;
-    });
-
-    handle('vnc-close', (event, { paneId, hostId }) => {
-        // Only a session that existed is worth a line; the view closes
-        // defensively on unmount whether or not it ever opened one.
-        const existed = Boolean(vnc.get(paneId));
-        const result = vnc.close(paneId);
-
-        if (existed && hostId) {
-            activity.record({
-                category: 'connection',
-                action: 'desktop.close',
-                target: describeDesktop(store.getHostDesktop(hostId)),
-                detail: 'Remote desktop',
-                ...describeDesktopHost(hostId),
-            });
-        }
-
-        return result;
-    });
-
-    // The desktop's own name arrives in ServerInit, which only the viewer parses.
-    handle('vnc-name', (event, { paneId, name }) => vnc.setDesktopName(paneId, name));
-
-    /* ---------------- Service processors (IPMI / BMC) ---------------- */
-
-    handle('bmc-get', (event, paneId) => bmc.get(paneId));
-
-    /**
-     * Prepare a BMC pane. Returns the URL and partition for the `<webview>` to
-     * load; the password stays in main, and reaches the page from there.
-     */
-    handle('bmc-open', async (event, { paneId, hostId }) => {
-        const result = await bmc.open(paneId, hostId);
-
-        activity.record({
-            category: 'connection',
-            action: 'bmc.open',
-            outcome: result.success ? 'success' : 'failure',
-            target: describeBmc(store.getHostBmc(hostId)),
-            detail: 'IPMI',
-            message: result.success ? '' : (result.message || ''),
-            ...describeDesktopHost(hostId),
-        });
-
-        return result;
-    });
-
-    /**
-     * The renderer handing over the guest page it has just created. Everything
-     * done *to* that page (the login, the popup policy, the load reporting)
-     * happens in main from here on.
-     */
-    handle('bmc-attach', (event, { paneId, webContentsId }) => bmc.attach(paneId, webContentsId));
-
-    /** Fill the login form again, from the pane's own button. */
-    handle('bmc-login', (event, paneId) => bmc.login(paneId));
-
-    handle('bmc-close', (event, { paneId, hostId }) => {
-        const existed = Boolean(bmc.get(paneId));
-        const result = bmc.close(paneId);
-
-        if (existed && hostId) {
-            activity.record({
-                category: 'connection',
-                action: 'bmc.close',
-                target: describeBmc(store.getHostBmc(hostId)),
-                detail: 'IPMI',
-                ...describeDesktopHost(hostId),
-            });
-        }
-
-        return result;
-    });
-
-    handle('bmc-cert-response', (event, { requestId, accepted }) => {
-        const resolve = pendingCertPrompts.get(requestId);
-        if (resolve) {
-            pendingCertPrompts.delete(requestId);
-            resolve(Boolean(accepted));
-        }
-        return true;
-    });
-
-    /* ---------------- Remote desktop: RDP ---------------- */
-
-    handle('rdp-get', (event, paneId) => rdp.get(paneId));
-
-    handle('rdp-open', async (event, { paneId, hostId }) => {
-        const result = await rdp.open(paneId, hostId);
-
-        activity.record({
-            category: 'connection',
-            action: 'desktop.open',
-            outcome: result.success ? 'success' : 'failure',
-            target: describeDesktop(store.getHostDesktop(hostId)),
-            detail: 'Remote desktop (RDP)',
-            message: result.success ? '' : (result.message || ''),
-            ...describeDesktopHost(hostId),
-        });
-
-        return result;
-    });
-
-    handle('rdp-close', (event, { paneId, hostId }) => {
-        // Only a session that existed is worth a line; the view closes
-        // defensively on unmount whether or not it ever opened one.
-        const existed = Boolean(rdp.get(paneId));
-        const result = rdp.close(paneId);
-
-        if (existed && hostId) {
-            activity.record({
-                category: 'connection',
-                action: 'desktop.close',
-                target: describeDesktop(store.getHostDesktop(hostId)),
-                detail: 'Remote desktop (RDP)',
-                ...describeDesktopHost(hostId),
-            });
-        }
-
-        return result;
-    });
-
-    /**
-     * The IronRDP WebAssembly module, as bytes.
-     *
-     * The module ships a loader that resolves the `.wasm` relative to
-     * `import.meta.url` and fetches it. Electron does allow that under `file://`
-     * for the app's own origin, so it would work, but only because Electron is
-     * more permissive there than the web is, and only while `webSecurity` and
-     * the sandbox flags stay as they are. Serving the bytes from here instead
-     * depends on none of that, and keeps one copy of the module rather than a
-     * second emitted into the bundle.
-     *
-     * Cached because it is four megabytes and every pane would otherwise ask
-     * for its own copy.
-     */
-    let wasmBytes = null;
-    handle('rdp-wasm', () => {
-        if (wasmBytes) return wasmBytes;
-
-        // Resolved through the package rather than by path so it is found the
-        // same way inside an asar archive as it is in node_modules.
-        const entry = require.resolve('ironrdp-wasm');
-        const binary = path.join(path.dirname(entry), 'rdp_client_bg.wasm');
-
-        wasmBytes = fs.readFileSync(binary);
-        return wasmBytes;
-    });
 
     /* ---------------- Import from other apps ---------------- */
 
@@ -1490,51 +1263,6 @@ function register(getWindow) {
         return { success: true };
     });
 
-    /* ---------------- Appearance ---------------- */
-
-    /**
-     * Pick an image for the title bar and hand it back as a data URL.
-     *
-     * Read here rather than in the renderer: it has no filesystem, and the type
-     * and size checks belong on the side doing the reading. Only the bytes of a
-     * file the user just chose in a native dialog ever cross the bridge, so
-     * there is no path for the page to name a file of its own.
-     */
-    handle('choose-logo-image', async () => {
-        const { canceled, filePaths } = await dialog.showOpenDialog(getWindow(), {
-            title: 'Choose a logo',
-            properties: ['openFile'],
-            filters: [{ name: 'Images', extensions: Object.keys(LOGO_TYPES).map(ext => ext.slice(1)) }],
-        });
-
-        const filePath = filePaths?.[0];
-        if (canceled || !filePath) return { success: false, canceled: true };
-
-        const type = LOGO_TYPES[path.extname(filePath).toLowerCase()];
-        if (!type) return { success: false, message: 'That file is not an image the title bar can draw' };
-
-        try {
-            const { size } = await fs.promises.stat(filePath);
-            if (size > MAX_LOGO_BYTES) {
-                return {
-                    success: false,
-                    message: `That image is ${Math.round(size / 1024)} KB. The limit is `
-                        + `${MAX_LOGO_BYTES / 1024} KB, because the mark is drawn 24 pixels square `
-                        + 'and travels with your settings.',
-                };
-            }
-
-            const bytes = await fs.promises.readFile(filePath);
-            return {
-                success: true,
-                dataUrl: `data:${type};base64,${bytes.toString('base64')}`,
-                name: path.basename(filePath),
-            };
-        } catch (error) {
-            return { success: false, message: error.message };
-        }
-    });
-
     /* ---------------- Dialogs ---------------- */
 
     handle('show-save-dialog', (event, { defaultPath, filters, title }) =>
@@ -1607,7 +1335,7 @@ function register(getWindow) {
         // Tells any live conversation which of these it has to restart for.
         // The model chip in the composer is expected to change the answer to
         // the next question, not to the next conversation.
-        assistant.reconfigure(before, next);
+        assistant.reconfigure(before, next, next.agentId);
 
         // Only the two that widen what the assistant may do unattended are
         // logged. The model and the effort are changed from a chip in the
@@ -1644,7 +1372,7 @@ function register(getWindow) {
         return next;
     });
     handle('ai-conversation-start', (event, payload) => assistant.create(payload || {}));
-    handle('ai-conversation-list', () => assistant.list());
+    handle('ai-conversation-list', (event, filter) => assistant.list(filter || {}));
     handle('ai-conversation-history', (event, conversationId) => assistant.history(conversationId));
     handle('ai-conversation-park', (event, conversationId) => assistant.park(conversationId));
     handle('ai-conversation-close', (event, conversationId) => assistant.close(conversationId));
@@ -1658,6 +1386,48 @@ function register(getWindow) {
     // asked to.
     handle('ai-approval-response', (event, payload) => assistant.respondToApproval(payload || {}));
     handle('ai-action-response', (event, payload) => assistant.respondToAction(payload || {}));
+
+    /* ---------------- Agents ---------------- */
+
+    handle('agents-list', () => agents.snapshot());
+    handle('agents-select', (event, id) => {
+        const result = agents.select(String(id || ''));
+        // The settings on screen are the selected agent's, so a change of
+        // agent is a change of settings to everything showing them.
+        notify('ai-settings', assistant.settings.get());
+        return result;
+    });
+    handle('agents-save', (event, payload) => agents.save(payload || {}));
+    handle('agents-remove', (event, id) => {
+        const gone = String(id || '');
+        const result = agents.remove(gone);
+        // Its chats go to whichever agent is selected now rather than to
+        // nobody: a conversation with no agent is one no page would list.
+        if (!result.error) {
+            assistant.reassign(gone, result.activeId);
+            memory.moveAll(gone, result.activeId);
+            notify('ai-settings', assistant.settings.get());
+        }
+        return result;
+    });
+
+    /* ---------------- Memory ---------------- */
+
+    // What an agent remembers, for the page that shows it. An entry saved
+    // from here is the user's own note; the agent's arrive through its tools.
+    handle('memory-list', (event, agentId) => memory.list(String(agentId || agents.activeId())));
+    handle('memory-save', (event, { agentId, id, text, tags } = {}) => {
+        const owner = String(agentId || agents.activeId());
+        return id
+            ? memory.update(owner, id, { text, tags })
+            : memory.add(owner, { text, tags, source: 'user' });
+    });
+    handle('memory-remove', (event, { agentId, id } = {}) =>
+        memory.remove(String(agentId || agents.activeId()), String(id || '')));
+    // By meaning as well as by word, the same search the agent's recall runs.
+    handle('memory-search', (event, { agentId, query, limit } = {}) =>
+        memory.search(String(agentId || agents.activeId()), String(query || ''), limit || 20));
+    handle('memory-status', (event, agentId) => memory.status(String(agentId || agents.activeId())));
 
     /* ---------------- Assistant: windows of its own ---------------- */
 
@@ -1715,10 +1485,6 @@ function register(getWindow) {
 function cancelPendingPrompts() {
     for (const resolve of pendingHostKeyPrompts.values()) resolve(false);
     pendingHostKeyPrompts.clear();
-    // Each of these is a page load held open waiting for an answer. Denying
-    // them lets those loads fail instead of hanging on a window that has gone.
-    for (const resolve of pendingCertPrompts.values()) resolve(false);
-    pendingCertPrompts.clear();
     // null, not an empty answer set: a round nobody can answer must end the
     // attempt rather than hand the server blanks and spend a login try.
     for (const resolve of pendingAuthPrompts.values()) resolve(null);

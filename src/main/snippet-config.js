@@ -116,6 +116,8 @@ function normalizeSnippet(raw = {}) {
 
     return {
         id: clean(raw.id) || nextId(),
+        // Whose inventory it sits in. Blank is everyone's.
+        agentId: clean(raw.agentId),
         name: clean(raw.name).slice(0, MAX_NAME_LENGTH),
         kind,
         steps: normalizeSteps(raw.steps),

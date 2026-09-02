@@ -39,7 +39,7 @@ const SOURCES = [
     { id: 'mobaxterm', label: 'MobaXterm', logo: logoMobaxterm },
 ];
 
-const PROTOCOL_LABELS = { ssh: 'SSH', telnet: 'telnet', serial: 'serial', rdp: 'RDP', vnc: 'VNC' };
+const PROTOCOL_LABELS = { ssh: 'SSH', telnet: 'telnet', serial: 'serial' };
 
 const KEY_STATES = {
     encrypted: 'appImport.keyEncrypted',

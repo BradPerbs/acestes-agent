@@ -3,8 +3,6 @@ import { AlertSquareIcon, ViewIcon, ViewOffIcon } from 'hugeicons-react';
 import AgentAuthFields from './AgentAuthFields';
 import SerialFields from './hosts/SerialFields';
 import TunnelsEditor from './tunnels/TunnelsEditor';
-import DesktopEditor from './desktop/DesktopEditor';
-import BmcEditor from './bmc/BmcEditor';
 import Sheet from './ui/Sheet';
 import Button, { IconButton } from './ui/Button';
 import Checkbox from './ui/Checkbox';
@@ -70,12 +68,7 @@ function HostModal({ host, dismiss, onClose, onSave, keys = [], hosts = [], allT
         name: host?.name || '',
         tags: host?.tags || [],
         protocol: host?.protocol || 'ssh',
-        // A desktop-only host has one address. The record may still carry a
-        // leftover on the desktop block from when the form asked twice; seed
-        // from the one that is actually used so a reopen does not change it.
-        host: hostKind(host) === 'desktop'
-            ? (host?.desktop?.host || host?.host || '')
-            : (host?.host || ''),
+        host: host?.host || '',
         port: host?.port || DEFAULT_PORTS[host?.protocol || 'ssh'] || 22,
         serial: { ...DEFAULT_SERIAL, ...(host?.serial || {}) },
         username: host?.username || '',
@@ -99,25 +92,11 @@ function HostModal({ host, dismiss, onClose, onSave, keys = [], hosts = [], allT
         // port. Port 0 means the one it connects on, resolved at check time so
         // that moving the SSH port moves the check with it.
         monitor: { enabled: false, port: 0, ...(host?.monitor || {}) },
-        // The editor keeps the VNC password inside this block for the sake of
-        // the form; `submit` lifts it back out to the flat field the store
-        // encrypts, which is the only place it is ever stored.
-        desktop: host?.desktop ? { ...host.desktop, password: '' } : {},
-        // Same arrangement as `desktop`: the editor keeps the IPMI password
-        // inside this block for the sake of the form, and `submit` lifts it back
-        // out to the flat field the store encrypts.
-        bmc: host?.bmc ? { ...host.bmc, password: '' } : {},
     }));
     const [showPassword, setShowPassword] = useState(false);
     // Secrets are never sent to the renderer, so an existing one shows as a
     // "stored" hint. Blank means keep it; this flag means delete it.
     const [clearSecrets, setClearSecrets] = useState(false);
-    // Tracked apart from the SSH secrets: removing a stored login password is
-    // not a reason to also drop the desktop's.
-    const [clearDesktopPassword, setClearDesktopPassword] = useState(false);
-    // And again for the IPMI's, which belongs to the board rather than to the
-    // machine and has no reason to be cleared alongside either of the others.
-    const [clearBmcPassword, setClearBmcPassword] = useState(false);
     const formRef = useRef(null);
 
     // Read straight from the hook rather than threaded down as a prop: the list
@@ -137,25 +116,11 @@ function HostModal({ host, dismiss, onClose, onSave, keys = [], hosts = [], allT
         setFormData(previous => ({ ...previous, [field]: value }));
     }, []);
 
-    /**
-     * What kind of host this is, which is the question the picker asks.
-     *
-     * Three of the four answers are the stored `protocol`. The fourth,
-     * `desktop`, is not a protocol at all: it is a host with no shell, which the
-     * record has always expressed as `desktop.only`. Resolving between the two
-     * happens here so that nothing below, and nothing in main, has to know
-     * the picker exists.
-     */
+    /** What kind of host this is, which is the question the picker asks. */
     const kind = hostKind(formData);
     const isSerial = kind === 'serial';
-    const isDesktop = kind === 'desktop';
-    const isIpmi = kind === 'ipmi';
-    // A shell of some sort. The things that need one (run-on-connect, the
-    // session port) are offered for the protocols and not for a desktop or an
-    // IPMI, neither of which opens a session at all.
-    const hasShell = !isDesktop && !isIpmi;
-    // Files, forwards and a tunnelled desktop are SSH channels, and telnet and
-    // serial reach devices that have none.
+    // Files and forwards are SSH channels, and telnet and serial reach devices
+    // that have none.
     const sshHost = kind === 'ssh';
 
     /**
@@ -232,7 +197,6 @@ function HostModal({ host, dismiss, onClose, onSave, keys = [], hosts = [], allT
     const summaries = useMemo(() => {
         const tagCount = formData.tags?.length || 0;
         const tunnelCount = formData.tunnels?.length || 0;
-        const desktop = formData.desktop || {};
         const jump = hosts.find(candidate => candidate.id === formData.jumpHostId);
         const via = proxies.find(candidate => candidate.id === formData.proxyId);
         const plural = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
@@ -246,10 +210,6 @@ function HostModal({ host, dismiss, onClose, onSave, keys = [], hosts = [], allT
             proxy: via ? nameProxy(via) : '',
             initCommand: (formData.initCommand || '').split('\n')[0].trim(),
             tunnels: tunnelCount ? plural(tunnelCount, 'forward') : '',
-            desktop: desktop.enabled ? (desktop.protocol === 'rdp' ? 'RDP' : 'VNC') : '',
-            bmc: formData.bmc?.enabled
-                ? (formData.bmc.host || 'Same as the host')
-                : '',
             // Not "Watched" for a host that has since been given a jump host:
             // the switch is still set, and the save is about to clear it,
             // because there is no route from here to check. Asked again here
@@ -264,49 +224,6 @@ function HostModal({ host, dismiss, onClose, onSave, keys = [], hosts = [], allT
 
     const handleKind = useCallback((next) => {
         setFormData(previous => {
-            const desktop = previous.desktop || {};
-            const bmc = previous.bmc || {};
-
-            if (next === 'desktop') {
-                return {
-                    ...previous,
-                    // Still stored as an SSH host. `only` is what stops it
-                    // dialling, and it is the field the rest of the app reads.
-                    protocol: 'ssh',
-                    // Keep whatever was already typed. A leftover desktop
-                    // override is folded into it so switching kind cannot
-                    // blank the only address the form will now show.
-                    host: previous.host || desktop.host || '',
-                    desktop: {
-                        ...desktop,
-                        enabled: true,
-                        only: true,
-                        // Tunnelling rides an SSH session, and this kind of host
-                        // does not open one. Left on `tunnel` the desktop would
-                        // be configured to travel down a connection that is
-                        // never made.
-                        transport: 'direct',
-                        // One address, the host's. A leftover override is
-                        // usually 127.0.0.1 from a tunnelled view, which is
-                        // the wrong answer once this host no longer has SSH.
-                        host: '',
-                    },
-                    // The two shell-less kinds are one answer to one question,
-                    // so choosing this one puts the other back to being a view
-                    // rather than the whole host.
-                    bmc: { ...bmc, only: false },
-                };
-            }
-
-            if (next === 'ipmi') {
-                return {
-                    ...previous,
-                    protocol: 'ssh',
-                    bmc: { ...bmc, enabled: true, only: true },
-                    desktop: { ...desktop, only: false },
-                };
-            }
-
             // Switching protocol carries the port with it, but only when it was
             // still the old protocol's default. A host on 2222 stays on 2222;
             // one left on 22 becomes 23 rather than pointing telnet at the SSH
@@ -318,13 +235,6 @@ function HostModal({ host, dismiss, onClose, onSave, keys = [], hosts = [], allT
                 ...previous,
                 protocol: next,
                 port: wasDefault ? (DEFAULT_PORTS[next] || previous.port) : previous.port,
-                // The host has a shell again. Whatever desktop was configured is
-                // kept, since an SSH host with a desktop view is an ordinary thing
-                // to be, but it is no longer the only reason to open the host.
-                desktop: { ...desktop, only: false },
-                // And the same for the IPMI, which is if anything more ordinary
-                // to have alongside a shell than instead of one.
-                bmc: { ...bmc, only: false },
             };
         });
     }, []);
@@ -340,25 +250,6 @@ function HostModal({ host, dismiss, onClose, onSave, keys = [], hosts = [], allT
         // '' keeps the stored secret, null deletes it.
         const secret = (value) => (value ? value : (clearSecrets ? null : ''));
 
-        // The desktop's password is stored flat, next to the other secrets,
-        // rather than nested in the block; that is what puts it under the same
-        // encryption, redaction and backup handling as everything else. Which
-        // field it lands in follows the protocol, so switching between them
-        // leaves the other's password stored and untouched.
-        const { password: desktopPassword, ...desktopRest } = formData.desktop || {};
-        // A desktop-only host stores the address on the host itself. The
-        // desktop block's copy is the override used when an SSH host also has
-        // a desktop view, and must stay blank here or a save would resurrect
-        // the second field the form just stopped asking.
-        const desktop = isDesktop ? { ...desktopRest, host: '' } : desktopRest;
-        const isRdp = desktop.protocol === 'rdp';
-        const desktopSecret = desktopPassword || (clearDesktopPassword ? null : '');
-
-        // The IPMI password goes the same way, and for the same reason. There is
-        // only one field for it to land in, so unlike the desktop's it needs no
-        // choosing between two.
-        const { password: bmcPassword, ...bmc } = formData.bmc || {};
-        const bmcSecret = bmcPassword || (clearBmcPassword ? null : '');
 
         // Every list, tab and log line calls a host by its name, so the record
         // always carries one, but it does not have to be typed. Left blank it
@@ -372,13 +263,6 @@ function HostModal({ host, dismiss, onClose, onSave, keys = [], hosts = [], allT
             await onSave({
                 ...formData,
                 name,
-                desktop,
-                bmc,
-                // '' keeps whatever is stored, so the protocol not in use is
-                // left exactly as it was.
-                vncPassword: isRdp ? '' : desktopSecret,
-                rdpPassword: isRdp ? desktopSecret : '',
-                bmcPassword: bmcSecret,
                 password: secret(formData.password),
                 privateKey: secret(formData.privateKey),
                 passphrase: secret(formData.passphrase),
@@ -388,7 +272,7 @@ function HostModal({ host, dismiss, onClose, onSave, keys = [], hosts = [], allT
             return;
         }
         close();
-    }, [formData, isSerial, isDesktop, clearSecrets, clearDesktopPassword, onSave]);
+    }, [formData, isSerial, clearSecrets, onSave]);
 
     return (
         <Sheet
@@ -412,24 +296,19 @@ function HostModal({ host, dismiss, onClose, onSave, keys = [], hosts = [], allT
                 className="flex flex-col gap-5"
             >
                 {/* What kind of host this is. First, because every field below
-                    it depends on the answer: a serial console has no address, a
-                    telnet device has no key, and a desktop has no shell.
-
-                    All four live in one row even though only three of them are
-                    session protocols, because "what kind of host is this" is one
-                    question to the person answering it. RDP and VNC are reached
-                    through Desktop. */}
+                    it depends on the answer: a serial console has no address
+                    and a telnet device has no key. */}
                 <div className="flex flex-col gap-1.5">
                     <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">
                         This host is
                     </span>
-                    {/* One column per kind, so the row is the whole question and
-                        not the first four fifths of it. Counted by hand because
-                        Tailwind reads class names out of the source and cannot
-                        be handed a computed one: adding a kind to HOST_KINDS
-                        means changing this number, and forgetting to wraps the
-                        new one onto a line of its own. */}
-                    <div className="grid grid-cols-5 gap-1 p-1 bg-gray-100 dark:bg-surface-base rounded-xl">
+                    {/* One column per kind, so the row is the whole question.
+                        Counted by hand because Tailwind reads class names out
+                        of the source and cannot be handed a computed one:
+                        adding a kind to HOST_KINDS means changing this number,
+                        and forgetting to wraps the new one onto a line of its
+                        own. */}
+                    <div className="grid grid-cols-3 gap-1 p-1 bg-gray-100 dark:bg-surface-base rounded-xl">
                         {HOST_KINDS.map((entry) => (
                             <button
                                 key={entry.id}
@@ -448,7 +327,7 @@ function HostModal({ host, dismiss, onClose, onSave, keys = [], hosts = [], allT
                     </div>
                     {/* SSH is the default and the overwhelming majority, and
                         "encrypted shell" under a button marked SSH is a line
-                        nobody needs. The other four are worth a word. */}
+                        nobody needs. The other two are worth a word. */}
                     {kind !== 'ssh' && (
                         <p className="text-[11px] text-gray-500 dark:text-neutral-500">
                             {t(HOST_KINDS.find(entry => entry.id === kind)?.summaryKey)}
@@ -470,18 +349,11 @@ function HostModal({ host, dismiss, onClose, onSave, keys = [], hosts = [], allT
                     </p>
                 )}
 
-                {/* A desktop names its address in the section below, next to
-                    the port, because that is the only address it has. Showing
-                    Hostname / IP as well would ask the same question twice. */}
-                {!isSerial && !isDesktop && (
+                {/* A serial console has no address: it is named by its port,
+                    in the section below. */}
+                {!isSerial && (
                     <div className="grid grid-cols-4 gap-4">
-                        <Field
-                            label="Hostname / IP"
-                            className={hasShell ? 'col-span-3' : 'col-span-4'}
-                            hint={isIpmi
-                                ? 'Where the service processor is. Used unless the IPMI section below names a different address.'
-                                : undefined}
-                        >
+                        <Field label="Hostname / IP" className="col-span-3">
                             <input
                                 data-autofocus
                                 type="text"
@@ -492,9 +364,6 @@ function HostModal({ host, dismiss, onClose, onSave, keys = [], hosts = [], allT
                                 required
                             />
                         </Field>
-                        {/* The session's port, so a host with no session has no
-                            use for it: the desktop carries its own, below. */}
-                        {hasShell && (
                         <Field label="Port">
                             <input
                                 type="number"
@@ -506,7 +375,6 @@ function HostModal({ host, dismiss, onClose, onSave, keys = [], hosts = [], allT
                                 className={`${FIELD_CLASS} font-mono`}
                             />
                         </Field>
-                        )}
                     </div>
                 )}
 
@@ -517,11 +385,10 @@ function HostModal({ host, dismiss, onClose, onSave, keys = [], hosts = [], allT
                     />
                 )}
 
-                {/* The SSH user, and only that. A desktop host has no SSH
-                    session to name one for and carries its own below; a telnet
-                    or serial device asks for a login over the connection itself,
-                    the way it would to a physical terminal. Asking here in
-                    either case would be demanding a value nothing ever reads. */}
+                {/* The SSH user, and only that. A telnet or serial device asks
+                    for a login over the connection itself, the way it would to
+                    a physical terminal, so asking here would be demanding a
+                    value nothing ever reads. */}
                 {sshHost && (
                 <Field label="Username">
                     <input
@@ -662,44 +529,6 @@ function HostModal({ host, dismiss, onClose, onSave, keys = [], hosts = [], allT
                     </>
                 )}
 
-                {/* A desktop host is nothing but this, so it stays above the
-                    fold rather than folded away with the extras: the picker at
-                    the top has already said the host is a desktop, `managed`
-                    tells the editor not to ask again, and for this one kind
-                    these settings are the essentials. */}
-                {isDesktop && (
-                    <div className="pt-1 border-t border-gray-100 dark:border-surface-control">
-                        <DesktopEditor
-                            managed
-                            desktop={formData.desktop}
-                            hostAddress={formData.host}
-                            onHostAddressChange={(next) => handleChange('host', next)}
-                            hasPassword={formData.desktop?.protocol === 'rdp'
-                                ? host?.hasRdpPassword
-                                : host?.hasVncPassword}
-                            passwordCleared={clearDesktopPassword}
-                            onChange={(next) => handleChange('desktop', next)}
-                            onClearPassword={() => setClearDesktopPassword(true)}
-                        />
-                    </div>
-                )}
-
-                {/* And the same for an IPMI host, which is likewise nothing but
-                    this: the picker at the top has already said so, `managed`
-                    tells the editor not to ask again, and these settings are the
-                    whole of what it needs. */}
-                {isIpmi && (
-                    <div className="pt-1 border-t border-gray-100 dark:border-surface-control">
-                        <BmcEditor
-                            managed
-                            bmc={formData.bmc}
-                            hasPassword={host?.hasBmcPassword}
-                            passwordCleared={clearBmcPassword}
-                            onChange={(next) => handleChange('bmc', next)}
-                            onClearPassword={() => setClearBmcPassword(true)}
-                        />
-                    </div>
-                )}
 
                 {/* Everything past this line has a working default, and most
                     hosts never touch any of it. Saying so once, here, is what
@@ -815,8 +644,7 @@ function HostModal({ host, dismiss, onClose, onSave, keys = [], hosts = [], allT
                         host is a machine this connection passes through and comes
                         out of; a proxy decides how the *socket* is opened, and so
                         applies to everything that runs on top of it: a shell,
-                        telnet, SFTP, a port forward, an RDP or VNC pane dialled
-                        directly.
+                        telnet, SFTP, a port forward.
 
                         Offered for every kind of host but serial, which has no
                         socket for a proxy to open. */}
@@ -828,7 +656,7 @@ function HostModal({ host, dismiss, onClose, onSave, keys = [], hosts = [], allT
                     >
                         <Field
                             hint={formData.proxyId
-                                ? 'The socket is opened through the proxy, which is asked to reach the address above. Everything the session carries travels inside it: files, port forwards and a directly dialled desktop alike.'
+                                ? 'The socket is opened through the proxy, which is asked to reach the address above. Everything the session carries travels inside it: files and port forwards alike.'
                                 : 'For a network only reachable through a SOCKS or HTTP proxy. Saved proxies are managed on the Proxies page.'}
                         >
                             {proxies.length === 0 ? (
@@ -882,9 +710,6 @@ function HostModal({ host, dismiss, onClose, onSave, keys = [], hosts = [], allT
                     </Disclosure>
                     )}
 
-                    {/* Written into a shell, so a host that opens no shell has
-                        nowhere to put it. */}
-                    {hasShell && (
                     <Disclosure
                         title="Run on connect"
                         summary={summaries.initCommand}
@@ -905,14 +730,12 @@ function HostModal({ host, dismiss, onClose, onSave, keys = [], hosts = [], allT
                             />
                         </Field>
                     </Disclosure>
-                    )}
 
                     {/* Whether a timer checks this host is still there. Offered
                         for every kind but serial, because it is a question about
                         an address rather than about a session: a telnet console
-                        server and a Windows box with nothing but RDP on it are
-                        both worth knowing the state of. A serial cable has no
-                        socket to knock on. */}
+                        server is worth knowing the state of. A serial cable has
+                        no socket to knock on. */}
                     {!isSerial && (
                     <Disclosure
                         title="Monitoring"
@@ -995,11 +818,10 @@ function HostModal({ host, dismiss, onClose, onSave, keys = [], hosts = [], allT
                     </Disclosure>
                     )}
 
-                    {/* Files, forwards, a desktop riding the session and the
-                        algorithm list are all properties of an SSH connection. A
-                        telnet or serial host has a shell and nothing else, so
-                        these are dropped rather than shown as sections that
-                        could never do anything. */}
+                    {/* Forwards and the algorithm list are both properties of
+                        an SSH connection. A telnet or serial host has a shell
+                        and nothing else, so these are dropped rather than shown
+                        as sections that could never do anything. */}
                     {sshHost && (
                     <>
                     {/* Configured with the host, started by the session that
@@ -1017,45 +839,6 @@ function HostModal({ host, dismiss, onClose, onSave, keys = [], hosts = [], allT
                         />
                     </Disclosure>
 
-                    {/* The *other* way to reach RDP and VNC: a desktop view
-                        alongside the shell and files rather than instead of
-                        them, riding the connection configured above. A host that
-                        is only a desktop is the Desktop kind at the top. */}
-                    <Disclosure
-                        title="Remote desktop"
-                        summary={summaries.desktop}
-                        defaultOpen={Boolean(formData.desktop?.enabled)}
-                    >
-                        <DesktopEditor
-                            desktop={formData.desktop}
-                            hasPassword={formData.desktop?.protocol === 'rdp'
-                                ? host?.hasRdpPassword
-                                : host?.hasVncPassword}
-                            passwordCleared={clearDesktopPassword}
-                            onChange={(next) => handleChange('desktop', next)}
-                            onClearPassword={() => setClearDesktopPassword(true)}
-                        />
-                    </Disclosure>
-
-                    {/* The *other* way to reach a service processor: an IPMI
-                        view alongside the shell and files rather than instead of
-                        them. A host that is only a BMC is the IPMI kind at the
-                        top. Unlike the desktop, this needs nothing from the
-                        connection configured above; it is a second address for
-                        the same machine, reachable when the machine is not. */}
-                    <Disclosure
-                        title="IPMI"
-                        summary={summaries.bmc}
-                        defaultOpen={Boolean(formData.bmc?.enabled)}
-                    >
-                        <BmcEditor
-                            bmc={formData.bmc}
-                            hasPassword={host?.hasBmcPassword}
-                            passwordCleared={clearBmcPassword}
-                            onChange={(next) => handleChange('bmc', next)}
-                            onClearPassword={() => setClearBmcPassword(true)}
-                        />
-                    </Disclosure>
 
                     <Disclosure
                         title="Advanced"

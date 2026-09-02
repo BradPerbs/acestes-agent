@@ -42,12 +42,119 @@ export default {
     /* ---------------------------------------------------------------- *
      * Sidebar
      * ---------------------------------------------------------------- */
+    'nav.conversations': 'Conversations',
+    'nav.inventory': 'Inventory',
+    'nav.overview': 'Overview',
+    'nav.snippets': 'Snippets',
     'nav.hosts': 'Hosts',
     'nav.keychain': 'Keychain',
     'nav.proxies': 'Proxies',
-    'nav.snippets': 'Snippets',
+    'nav.memory': 'Memory',
+    'nav.mcp': 'MCP servers',
     'nav.logs': 'Logs',
     'nav.settings': 'Settings',
+
+    /* ---------------------------------------------------------------- *
+     * Agents
+     * ---------------------------------------------------------------- */
+    'agents.agent': 'Agent',
+    'agents.heading': 'Agents',
+    'agents.new': 'New agent…',
+    'agents.rename': 'Rename…',
+    'agents.newTitle': 'New agent',
+    'agents.newSubtitle': 'An agent has its own conversations, its own inventory and its own settings.',
+    'agents.renameTitle': 'Rename agent',
+    'agents.nameLabel': 'Name',
+    'agents.colorLabel': 'Colour',
+    'agents.namePlaceholder': 'e.g. Ops',
+    'agents.create': 'Create agent',
+    'agents.deleteTitle': 'Delete this agent?',
+    'agents.deleteMessage': '“{name}” will be removed. Its conversations move to the agent selected '
+        + 'next; the hosts, keys and snippets filed under it stay in the inventory.',
+
+    /* ---------------------------------------------------------------- *
+     * Inventory overview
+     * ---------------------------------------------------------------- */
+    'inventory.carrying_one': 'Carrying {count} item',
+    'inventory.carrying_other': 'Carrying {count} items',
+    'inventory.open': 'Open',
+    'inventory.more': 'and {count} more',
+    'inventory.add': 'Add to {what}',
+
+    /* ---------------------------------------------------------------- *
+     * Memory
+     * ---------------------------------------------------------------- */
+    'memory.count_one': '{count} note',
+    'memory.count_other': '{count} notes',
+    'memory.search': 'Search notes',
+    'memory.new': 'New note',
+    'memory.newTitle': 'New note',
+    'memory.newSubtitle': 'Something the agent should know in every conversation from now on.',
+    'memory.editTitle': 'Edit note',
+    'memory.text': 'Note',
+    'memory.textPlaceholder': 'The staging boxes run Ubuntu 22.04 and nginx is managed by systemd…',
+    'memory.tags': 'Tags',
+    'memory.tagsHint': 'Separated by commas. Up to eight.',
+    'memory.note': 'The agent reads the newest of these at the start of every conversation, and the '
+        + 'ones that bear on each message are found by meaning and sent with it. Nothing here is a '
+        + 'secret; passwords and keys belong in the keychain.',
+    'memory.empty': 'Nothing remembered yet',
+    'memory.emptyNote': 'The agent writes notes as it works: preferences, facts about your machines, '
+        + 'what a fix turned out to be. You can add your own here.',
+    'memory.byUser': 'You',
+    'memory.byAgent': 'The agent',
+    'memory.deleteTitle': 'Forget this note?',
+    'memory.deleteMessage': 'The agent will no longer see it in its conversations.',
+
+    /* ---------------------------------------------------------------- *
+     * MCP servers
+     * ---------------------------------------------------------------- */
+    'mcp.empty': 'No MCP servers yet',
+    'mcp.emptyNote': 'Add a server and its tools are handed to this agent alongside the app’s own.',
+    'mcp.note': 'Handed to Claude Code when it answers for this agent. The other runtimes do not '
+        + 'take these yet.',
+    'mcp.new': 'New server',
+    'mcp.newTitle': 'New MCP server',
+    'mcp.editTitle': 'Edit MCP server',
+    'mcp.name': 'Name',
+    'mcp.transport': 'How it is reached',
+    'mcp.stdio': 'Command',
+    'mcp.http': 'URL',
+    'mcp.command': 'Command',
+    'mcp.args': 'Arguments',
+    'mcp.argsHint': 'Separated by spaces.',
+    'mcp.url': 'URL',
+    'mcp.env': 'Environment',
+    'mcp.envHint': 'One KEY=value per line.',
+    'mcp.deleteTitle': 'Remove this server?',
+    'mcp.deleteMessage': '“{name}” will no longer be handed to the agent.',
+
+    /* ---------------------------------------------------------------- *
+     * The agent's own settings
+     * ---------------------------------------------------------------- */
+    'settings.agent.name': 'Name',
+    'settings.agent.nameDesc': 'How this agent is listed and addressed.',
+    'settings.agent.instructions': 'Instructions',
+    'settings.agent.instructionsDesc': 'Standing instructions sent ahead of every conversation this '
+        + 'agent has: who it is, how it should work, what to leave alone.',
+    'settings.agent.instructionsPlaceholder': 'You look after the staging fleet. Prefer read-only checks…',
+
+    /* ---------------------------------------------------------------- *
+     * Conversations
+     * ---------------------------------------------------------------- */
+    'conversations.count_one': '{count} conversation',
+    'conversations.count_other': '{count} conversations',
+    'conversations.messages_one': '{count} message',
+    'conversations.messages_other': '{count} messages',
+    'conversations.search': 'Search conversations',
+    'conversations.new': 'New conversation',
+    'conversations.open': 'Open',
+    'conversations.empty': 'No conversations yet',
+    'conversations.emptyNote': 'Start one and the agent works on your servers from there, through '
+        + 'the sessions it opens.',
+    'conversations.deleteTitle': 'Delete this conversation?',
+    'conversations.deleteMessage': '“{name}” and everything the agent did in it will be forgotten. '
+        + 'This cannot be undone.',
 
     /* ---------------------------------------------------------------- *
      * Hosts
@@ -84,7 +191,7 @@ export default {
      * ---------------------------------------------------------------- */
     'proxies.empty': 'No proxies yet',
     'proxies.emptyNote': 'Add a SOCKS or HTTP proxy and any host can be dialled through it: '
-        + 'terminal sessions, SFTP, port forwards and remote desktops alike.',
+        + 'terminal sessions, SFTP and port forwards alike.',
     'proxies.newProxy': 'New Proxy',
     'proxies.search': 'Search proxies',
 
@@ -171,6 +278,9 @@ export default {
     'titleBar.ungroup': 'Ungroup',
     'titleBar.closeGroupTabs_one': 'Close the tab',
     'titleBar.closeGroupTabs_other': 'Close all {count} tabs',
+    'titleBar.newConversation': 'New conversation',
+    'titleBar.newSession': 'New session',
+    'titleBar.deleteConversation': 'Delete conversation',
 
     /* ---------------------------------------------------------------- *
      * Reachability monitoring, shared by the settings page and host cards
@@ -288,7 +398,7 @@ export default {
      * Importing from other terminals
      * ---------------------------------------------------------------- */
     'appImport.title': 'From other apps',
-    'appImport.desc': 'Hosts, port forwards, folders and serial or desktop settings come across. '
+    'appImport.desc': 'Hosts, port forwards, folders and serial settings come across. '
         + 'Passwords stay behind; each app keeps those encrypted with its own scheme.',
     'appImport.checking': 'Checking…',
     'appImport.notFound': 'Not found',
@@ -322,7 +432,6 @@ export default {
     'settings.nav.monitoring': 'Monitoring',
     'settings.nav.logging': 'Logging',
     'settings.nav.security': 'Security',
-    'settings.nav.account': 'Account',
     'settings.nav.backup': 'Backup',
     'settings.nav.about': 'About',
 
@@ -372,27 +481,6 @@ export default {
     'settings.appearance.customColorsDesc': 'Set the window, panel, control and text colors yourself',
     'settings.appearance.editColors': 'Edit colors',
     'settings.appearance.colorsApplied': 'App colors applied',
-    'settings.appearance.showLogo': 'Show the logo',
-    'settings.appearance.showLogoDesc': 'The mark in the title bar. Turning it off gives the tab '
-        + 'strip the space instead.',
-    'settings.appearance.showLogoAria': 'Show the logo in the title bar',
-    'settings.appearance.logoShown': 'Logo shown',
-    'settings.appearance.logoHidden': 'Logo hidden',
-    'settings.appearance.customLogo': 'Custom logo',
-    'settings.appearance.customLogoSet': 'Your own image, in place of the CloudBlast mark.',
-    'settings.appearance.customLogoDesc': 'Use your own image instead of the CloudBlast mark. PNG, '
-        + 'JPG, GIF, WebP, SVG, BMP or ICO, up to 512 KB.',
-    'settings.appearance.choosing': 'Choosing…',
-    'settings.appearance.chooseImage': 'Choose image',
-    'settings.appearance.logoUnreadable': 'That image could not be read',
-    'settings.appearance.logoSet': 'Logo set to {name}',
-    'settings.appearance.logoCleared': 'Back to the CloudBlast mark',
-    'settings.appearance.position': 'Position',
-    'settings.appearance.positionDesc': 'Which end of the title bar the mark sits at: beside the '
-        + 'menu button, or over by the window buttons.',
-    'settings.appearance.positionAria': 'Logo position',
-    'settings.appearance.logoMovedLeft': 'Logo moved left',
-    'settings.appearance.logoMovedRight': 'Logo moved right',
 
     /* ---------------------------------------------------------------- *
      * Settings: Terminal
@@ -473,9 +561,9 @@ export default {
         + 'through the connections you have already opened. It never sees a stored password or key.',
     'settings.assistant.loading': 'Loading the agent settings...',
     'settings.assistant.show': 'Show the assistant',
-    'settings.assistant.showDesc': 'The column down the right of the window, and the rail it '
-        + 'collapses to. Switched off there is no rail and no button, the width goes back to what '
-        + 'you are working on, and Ctrl+Shift+A does nothing. Everything below is kept.',
+    'settings.assistant.showDesc': 'The conversation tabs, the Conversations page and Ctrl+Shift+A. '
+        + 'Switched off, the app is a terminal and nothing else: the plus opens a session instead '
+        + 'of a chat. Everything below is kept.',
     'settings.assistant.agent': 'Agents',
     'settings.assistant.agentDesc': 'Which coding agents answer: ones installed on this machine, or '
         + 'a model you are serving yourself. Switch on as many as you have a login or a key for. The '
@@ -898,8 +986,6 @@ export default {
     'hosts.open': 'Open',
     'hosts.editHost': 'Edit host',
     'hosts.connectVia': 'Connect via {protocol}',
-    'hosts.openIpmi': 'Open the IPMI',
-    'hosts.notSetUp': 'not set up',
     'hosts.moveToFolder': 'Move to folder…',
     'hosts.keepsContents': 'keeps contents',
     'hosts.move': 'Move',
@@ -988,23 +1074,15 @@ export default {
      * What a host connects with
      * ---------------------------------------------------------------- */
     'protocol.serial': 'Serial',
-    'protocol.desktop': 'Desktop',
     'protocol.ssh.summary': 'Encrypted shell, and everything built on it',
-    'protocol.ssh.detail': 'Files, port forwarding and a remote desktop are all channels on an SSH '
-        + 'connection, so they are only offered here.',
+    'protocol.ssh.detail': 'Files and port forwarding are channels on an SSH connection, so they '
+        + 'are only offered here.',
     'protocol.telnet.summary': 'A plain socket to a device with no SSH',
     'protocol.telnet.detail': 'Sends everything, passwords included, in the clear. For a console '
         + 'server, a PDU or a switch that has never had an SSH daemon.',
     'protocol.serial.summary': 'A console cable on this machine',
     'protocol.serial.detail': 'No network at all. The settings have to match the device exactly: a '
         + 'wrong baud rate prints garbage rather than reporting an error.',
-    'protocol.desktop.summary': 'RDP or VNC, with no shell behind it',
-    'protocol.desktop.detail': 'Opens straight into the remote desktop and never dials SSH. For a '
-        + 'Windows box, which usually has no SSH server on it.',
-    'protocol.ipmi.summary': 'A service processor, and nothing behind it',
-    'protocol.ipmi.detail': 'Opens straight into the BMC’s own web interface and never dials the '
-        + 'machine. For an iDRAC, iLO or Supermicro board in front of a host this app has no '
-        + 'session on.',
 
     /* ---------------------------------------------------------------- *
      * The serial console's settings
@@ -1210,6 +1288,9 @@ export default {
     'assistant.didWrite': 'Wrote',
     'assistant.didConnect': 'Connected to',
     'assistant.didDisconnect': 'Closed the session',
+    'assistant.didRemember': 'Remembered',
+    'assistant.didRecall': 'Searched its memory',
+    'assistant.didForget': 'Forgot a note',
     'assistant.lastLines': 'last {count} lines',
     'assistant.recentOutput': 'recent output',
     'assistant.matching': 'matching "{query}"',
@@ -1224,6 +1305,9 @@ export default {
     'assistant.askListDirectory': 'List a directory',
     'assistant.askListHosts': 'List saved hosts',
     'assistant.askListSessions': 'List open sessions',
+    'assistant.askRemember': 'Save a note to its memory',
+    'assistant.askRecall': 'Search its memory',
+    'assistant.askForget': 'Forget a note',
     'assistant.askRunLocally': 'Run {tool} locally',
     'assistant.onHost': 'on {host}',
     'assistant.allow': 'Allow',

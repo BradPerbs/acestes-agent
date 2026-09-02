@@ -1,4 +1,6 @@
 const settings = require('./settings');
+const agents = require('../agents');
+const memory = require('./memory');
 const prompt = require('./prompt');
 const catalog = require('./tools');
 const archive = require('./archive');
@@ -131,10 +133,13 @@ function hydrate() {
     // of that. See `shutdown`.
     archive.resume();
 
-    const provider = settings.get().provider;
     for (const record of archive.read()) {
-        const conversation = archive.unpack(record, provider);
+        // Resumable only under the runtime its own agent is set to now.
+        const conversation = archive.unpack(record, settings.get(record.agentId || undefined).provider);
         if (conversation && !conversations.has(conversation.id)) {
+            // A chat written before there were agents belongs to whoever is
+            // selected: it has to be listed somewhere.
+            if (!agents.get(conversation.agentId)) conversation.agentId = agents.activeId();
             conversations.set(conversation.id, conversation);
         }
     }
@@ -204,8 +209,12 @@ function create(target = {}) {
 
     const id = nextId('conv');
     const scope = normalizeScope(target);
+    // Whose conversation this is: the agent the panel named, else the one
+    // selected, since that is who a new chat is to.
+    const agentId = agents.get(target.agentId)?.id || agents.activeId();
     conversations.set(id, {
         id,
+        agentId,
         ...scope,
         session: null,
         starting: null,
@@ -228,7 +237,7 @@ function create(target = {}) {
         updatedAt: Date.now(),
     });
     trim();
-    return { conversationId: id, ...scope };
+    return { conversationId: id, agentId, ...scope };
 }
 
 /**
@@ -304,12 +313,13 @@ function setScope(conversationId, target) {
  * list of one that is switched on but not selected has to hand it the key
  * stored for it, or the ask goes out with somebody else's credential on it.
  */
-function resolvedFor(provider) {
-    return { ...settings.get(), provider, apiKey: settings.readApiKey(provider) };
+function resolvedFor(provider, agentId) {
+    return { ...settings.get(agentId), provider, apiKey: settings.readApiKey(provider) };
 }
 
-function resolved() {
-    return resolvedFor(settings.get().provider);
+/** The settings as the agent behind a conversation sees them. */
+function resolved(agentId) {
+    return resolvedFor(settings.get(agentId).provider, agentId);
 }
 
 /**
@@ -330,7 +340,7 @@ const RESTART_ON = ['provider', 'maxTurns', 'allowLocalTools'];
  * through a command on a live server because someone touched a dropdown while
  * watching it run.
  */
-function reconfigure(before, after) {
+function reconfigure(before, after, agentId = '') {
     // The account describes a runtime rather than the app, so it does not
     // survive a change of agent. The model catalog needs no clearing: it is
     // keyed by provider, so the one held for the agent just left simply stops
@@ -354,6 +364,9 @@ function reconfigure(before, after) {
     }
 
     for (const conversation of conversations.values()) {
+        // A change to one agent's settings is that agent's conversations'
+        // business and nobody else's.
+        if (agentId && conversation.agentId !== agentId) continue;
         const session = conversation.session;
         if (session) {
             // Only when it is still the same agent's session. Picking a model
@@ -497,7 +510,7 @@ function ensureProvider(conversation) {
     if (conversation.session) return Promise.resolve(conversation.session);
     if (conversation.starting) return conversation.starting;
 
-    const current = resolved();
+    const current = resolved(conversation.agentId);
     const provider = PROVIDERS[current.provider];
     if (!provider) {
         return Promise.reject(new Error(`No provider named "${current.provider}" is available`));
@@ -508,8 +521,12 @@ function ensureProvider(conversation) {
         boundSessionId: conversation.boundSessionId,
         sessionIds: conversation.sessionIds,
         hostIds: conversation.hostIds,
-        commandMode: resolved().commandMode,
-        blockedCommands: resolved().blockedCommands,
+        commandMode: current.commandMode,
+        blockedCommands: current.blockedCommands,
+        instructions: current.instructions,
+        // As it stands when the query starts; notes written mid-conversation
+        // are reached with recall until the next one.
+        memory: memory.summary(conversation.agentId),
     });
 
     // A session id belongs to the agent that issued it. Switching agents
@@ -532,7 +549,7 @@ function ensureProvider(conversation) {
         // mid-run takes effect on the next call rather than the next
         // conversation. The snapshot above is only for the options the SDK
         // fixes when the query starts.
-        getSettings: resolved,
+        getSettings: () => resolved(conversation.agentId),
         systemPrompt: prompt.build(context()),
         toolContext: () => ({
             scope: conversation.scope,
@@ -542,7 +559,9 @@ function ensureProvider(conversation) {
             // than the next conversation.
             sessionIds: conversation.sessionIds,
             hostIds: conversation.hostIds,
-            settings: resolved(),
+            settings: resolved(conversation.agentId),
+            // Whose inventory the host tools look in.
+            agentId: conversation.agentId,
             sessionAction: (payload) => requestAction(conversation, payload),
         }),
         requestApproval: (request) => requestApproval(conversation, request),
@@ -690,7 +709,7 @@ async function send(conversationId, text, attachments = [], specIds = []) {
 
     // Refused here rather than quietly dropped: a question about a screenshot
     // the model never saw would get an answer that reads as if it had.
-    if (images.length > 0 && PROVIDERS[resolved().provider]?.supportsImages !== true) {
+    if (images.length > 0 && PROVIDERS[resolved(conversation.agentId).provider]?.supportsImages !== true) {
         return { success: false, message: 'This agent cannot read images. Claude Code and Codex can.' };
     }
 
@@ -721,7 +740,7 @@ async function send(conversationId, text, attachments = [], specIds = []) {
             boundSessionId: conversation.boundSessionId,
             sessionIds: conversation.sessionIds,
             hostIds: conversation.hostIds,
-            commandMode: resolved().commandMode,
+            commandMode: resolved(conversation.agentId).commandMode,
         });
 
         // Context first, then the attached documents, then what the user
@@ -732,6 +751,18 @@ async function send(conversationId, text, attachments = [], specIds = []) {
             conversation.lastContext = context;
             parts.push(`<app-context>\n${context}\n</app-context>`);
         }
+
+        // What the agent remembers that bears on this message, found by
+        // meaning. The newest notes are in the system prompt already; this is
+        // how the rest of a notebook too big for a prompt still reaches it.
+        const remembered = body ? await memory.relevant(conversation.agentId, body) : [];
+        if (remembered.length > 0) {
+            parts.push(
+                '<memory>\nNotes from your memory that may bear on this message:\n'
+                + `${remembered.map(entry => `- (${entry.id}) ${entry.text}`).join('\n')}\n</memory>`,
+            );
+        }
+
         if (specs.length > 0) parts.push(specBlock(specs));
         if (body) parts.push(body);
 
@@ -824,6 +855,7 @@ function history(conversationId) {
         busy: conversation.busy,
         costUsd: conversation.costUsd,
         title: conversation.title,
+        agentId: conversation.agentId,
     };
 }
 
@@ -835,12 +867,16 @@ function history(conversationId) {
  * invisible: picking any of them reads the same event log back, and only
  * sending into it starts anything.
  */
-function list() {
+function list({ agentId = '' } = {}) {
     hydrate();
 
     return [...conversations.values()]
+        // One agent's, when asked; the sidebar and the Conversations page
+        // only ever show the agent that is selected.
+        .filter(conversation => !agentId || conversation.agentId === agentId)
         .map(conversation => ({
             conversationId: conversation.id,
+            agentId: conversation.agentId,
             title: conversation.title,
             scope: conversation.scope,
             sessionId: conversation.boundSessionId,
@@ -851,6 +887,19 @@ function list() {
             messages: conversation.events.filter(event => event.type === 'user-message').length,
         }))
         .sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+/** Hand every conversation of a deleted agent to another, so none is stranded. */
+function reassign(fromAgentId, toAgentId) {
+    hydrate();
+    let moved = 0;
+    for (const conversation of conversations.values()) {
+        if (conversation.agentId !== fromAgentId) continue;
+        conversation.agentId = toAgentId;
+        moved += 1;
+    }
+    if (moved > 0) archive.save();
+    return moved;
 }
 
 /**
@@ -1010,6 +1059,7 @@ module.exports = {
     setScope,
     history,
     list,
+    reassign,
     status,
     models,
     detect,

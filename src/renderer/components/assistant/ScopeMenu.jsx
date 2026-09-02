@@ -4,7 +4,6 @@ import PanelMenu from './PanelMenu';
 import TargetStack from './TargetStack';
 import SearchField from '../ui/SearchField';
 import { OsIcon, hostOs } from '../../lib/os-icons';
-import { hostKind } from '../../lib/protocols';
 import { FOLLOW, GLOBAL, TARGETS, describeSession } from '../../lib/assistant-scope';
 import { useT } from '../../i18n';
 
@@ -32,13 +31,7 @@ import { useT } from '../../i18n';
  * and the assistant can connect one itself. A host that already has sessions
  * open says so, and ticking it puts all of them in reach.
  *
- * Desktop-only hosts are not in it at all. Every tool the assistant has works
- * through a shell, and a host stored as `desktop.only` has none: it is an RDP
- * or VNC box, usually a Windows one with no SSH server, that opens straight
- * into a picture of a screen. Offering it would be offering a target where
- * nothing can be done. A Windows host reached over SSH is a different thing and
- * stays selectable, because there the assistant can work perfectly well.
- *
+
  * The rows are the tab strip's rows: the remote OS on the left and the host's
  * name beside it, one line, nothing else. That is the shape these machines
  * already have everywhere else in the app, and a picker that draws them
@@ -200,14 +193,8 @@ export default function ScopeMenu({
     /** The session "Current session" is currently naming, for its tooltip. */
     const followed = sessions.find(session => session.sessionId === activeSessionId);
 
-    /**
-     * The hosts worth offering: the ones with a shell behind them. See the note
-     * at the top of the file for why a desktop-only host is not one of them.
-     */
-    const selectable = useMemo(
-        () => hosts.filter(host => hostKind(host) !== 'desktop'),
-        [hosts],
-    );
+    /** Every saved host is worth offering: each has a shell behind it. */
+    const selectable = hosts;
 
     const shownSessions = useMemo(
         () => sessions.filter(session => matches(needle, session.hostName, session.address)),

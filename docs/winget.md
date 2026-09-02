@@ -86,7 +86,7 @@ git commit -m "New package: CloudBlast.CloudTerm version 1.2.0"
 git push -u origin CloudBlast.CloudTerm-1.2.0
 gh pr create --repo microsoft/winget-pkgs \
   --title "New package: CloudBlast.CloudTerm version 1.2.0" \
-  --body "Adds CloudTerm, an SSH, SFTP, Telnet, RDP and VNC client. https://github.com/BradPerbs/cloudterm"
+  --body "Adds CloudTerm, an SSH, SFTP, Telnet and serial client. https://github.com/BradPerbs/cloudterm"
 ```
 
 Either way, their pipeline takes over. It downloads the installer, runs a

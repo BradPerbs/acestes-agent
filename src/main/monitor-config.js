@@ -2,7 +2,7 @@
  * Shape and validation for reachability monitoring: the app-wide settings, and
  * the block a host carries saying whether it is watched.
  *
- * Kept free of dependencies for the same reason desktop-config.js is: the store
+ * Kept free of dependencies for the same reason tunnel-config.js is: the store
  * (persistence), the poller (monitor.js), the backup importer and the host
  * editor all have to agree on one record shape without any of them requiring
  * the others.
@@ -137,24 +137,15 @@ function monitorSupport(host) {
         };
     }
 
-    if (!host.host && !(host.desktop?.only && host.desktop?.host)) {
+    if (!host.host) {
         return { ok: false, reason: 'This host has no address to check.' };
     }
 
     return { ok: true, reason: '' };
 }
 
-/**
- * The port a host is checked on when its block does not name one.
- *
- * A desktop-only host has no shell, so its `port` field is whatever was left
- * there by an earlier edit and means nothing. The desktop's own port is the one
- * that answers on that machine, so that is the one to knock on.
- */
+/** The port a host is checked on when its block does not name one. */
 function defaultCheckPort(host, sessionPort) {
-    if (host?.desktop?.enabled && host.desktop.only) {
-        return toPort(host.desktop.port, sessionPort || 0);
-    }
     return toPort(host?.port, sessionPort || 0);
 }
 

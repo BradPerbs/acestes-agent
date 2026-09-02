@@ -199,20 +199,12 @@ const sameText = (a, b) => String(a || '').toLowerCase() === String(b || '').toL
  * connects:
  *
  *   serial      the same COM port, whatever it is set to
- *   rdp / vnc   a desktop host pointing the same protocol at the same address
  *   ssh/telnet  the same address and port as the same user
  */
 function matchExistingHost(existing, candidate) {
     if (candidate.protocol === 'serial') {
         return existing.find(host => (host.protocol || 'ssh') === 'serial'
             && sameText(host.serial?.path, candidate.serial?.path));
-    }
-
-    if (candidate.protocol === 'rdp' || candidate.protocol === 'vnc') {
-        return existing.find(host => host.desktop?.enabled
-            && host.desktop.protocol === candidate.protocol
-            && sameText(host.desktop.host, candidate.host)
-            && (host.desktop.port || 0) === candidate.port);
     }
 
     const standard = candidate.protocol === 'telnet' ? 23 : 22;

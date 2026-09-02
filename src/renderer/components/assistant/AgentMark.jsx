@@ -1,29 +1,29 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { agentColor, shade } from '../../lib/agent-colors';
 
 /**
- * The assistant's mark: the cloud with two eyes in it.
+ * An agent's mark: a round face with two eyes in it.
  *
- * Inlined rather than loaded from `agent.svg` for two reasons. The gradient
- * needs an id, and an id repeated across every copy on screen is one gradient
- * that several elements fight over, so it is generated per instance. And the
- * eyes have to be reachable by a stylesheet, which is where the character
- * lives.
+ * Inlined rather than loaded from a file for two reasons. The gradient needs
+ * an id, and an id repeated across every copy on screen is one gradient that
+ * several elements fight over, so it is generated per instance. And the eyes
+ * have to be reachable by a stylesheet, which is where the character lives.
  *
- * The artwork is 338 x 281, so a square box letterboxes it: the mark comes out
- * about 0.83 of `size` tall, which is why the call sites ask for a couple of
- * pixels more than they did for the icon this replaced.
+ * The drawing keeps the 338 x 281 canvas the eyes were posed on, so the poses
+ * in input.css, which are written in those units, go on working; the body is
+ * a circle inside it. `color` is the id of one of the agent colours (see
+ * `lib/agent-colors`), which is what tells one agent's mark from another's
+ * everywhere it is drawn.
  *
- * `animated` is off by default and asked for in exactly one place: the empty
- * state, where the mark is large and is the thing being looked at. Everywhere
- * else it is a small button icon, and something drifting and blinking in the
- * corner of a terminal window is not charm, it is a distraction with a face on.
+ * `animated` is off by default and asked for where the mark is large and is
+ * the thing being looked at. Everywhere else it is a small button icon, and
+ * something drifting and blinking in the corner of a terminal window is not
+ * charm, it is a distraction with a face on.
  *
  * `mono` is the same shape in `currentColor`, for when the mark is a control
- * rather than the subject. The rail button sits in a row of chrome that is one
- * grey in light mode and another in dark, and lifts to near-black or white
- * under the pointer; a blue and cyan cloud in the middle of that follows
- * nothing and reads as a sticker. The eyes are cut out rather than painted, so
- * they stay legible whatever the mark is tinted to and whatever it sits on.
+ * rather than the subject: a button in a row of chrome that is one grey in
+ * light mode and another in dark. The eyes are cut out rather than painted,
+ * so they stay legible whatever the mark is tinted to and whatever it sits on.
  *
  * ## How it stays alive
  *
@@ -83,18 +83,20 @@ function pickExpression(previous) {
 /** The rest between two expressions. Uneven, or it reads as a metronome. */
 const restFor = () => 1100 + Math.random() * 3200;
 
-/** The cloud, drawn twice in `mono`: once as the shape, once as the mask. */
-const CLOUD = `M313.501 119.878C300.963 104.496 283.685 93.8215 264.437 89.5666C260.208 69.8728 252.425
-    52.748 241.428 38.7057C241.131 38.2188 240.791 37.7604 240.413 37.3355C203.361 -8.04572
-    142.624 -7.87449 101.681 15.5866C66.6589 35.7946 36.8826 78.4355 52.4473 139.571C16.5802
-    148.477 0 180.158 0 208.757C0 240.781 20.6407 276.914 66.8282 280.168H241.766C265.791
-    280.168 288.631 271.263 306.226 254.823C348.861 217.148 343.278 155.327 313.501 119.878Z`;
+/**
+ * The body: a ball on the canvas the eyes were posed for, with the eyes in
+ * its upper half, where a face carries them. The box is cut square around
+ * it, so `size` is the ball's diameter rather than a canvas it sits in.
+ */
+const BODY = { cx: 176, cy: 200, r: 130 };
+const VIEW = `${BODY.cx - BODY.r} ${BODY.cy - BODY.r} ${BODY.r * 2} ${BODY.r * 2}`;
 
-export default function AgentMark({ size = 18, animated = false, mono = false, className = '' }) {
+export default function AgentMark({ size = 18, animated = false, mono = false, color = '', className = '' }) {
     // Colons are fine in an id but read badly in a `url(#...)`, so they go.
     const unique = useId().replace(/:/g, '');
-    const gradient = `agent-cloud-${unique}`;
+    const gradient = `agent-fill-${unique}`;
     const holes = `agent-eyes-${unique}`;
+    const palette = agentColor(color);
 
     const [expression, setExpression] = useState('');
     const timer = useRef(null);
@@ -232,44 +234,56 @@ export default function AgentMark({ size = 18, animated = false, mono = false, c
         <svg
             width={size}
             height={size}
-            viewBox="0 0 338 281"
+            viewBox={VIEW}
             fill="none"
             aria-hidden="true"
             focusable="false"
             className={`${animated ? 'agent-float' : ''} ${className}`}
         >
             {/* Black is a hole, white is kept, so the eyes are subtracted from
-                the cloud and whatever the mark is sitting on shows through
+                the body and whatever the mark is sitting on shows through
                 them: the hover wash on the button, the shell behind it. */}
             {mono && (
-                <mask id={holes} maskUnits="userSpaceOnUse" x="0" y="0" width="338" height="281">
-                    <path d={CLOUD} fill="#fff" />
+                <mask id={holes} maskUnits="userSpaceOnUse" x={BODY.cx - BODY.r} y={BODY.cy - BODY.r} width={BODY.r * 2} height={BODY.r * 2}>
+                    <circle cx={BODY.cx} cy={BODY.cy} r={BODY.r} fill="#fff" />
                     {renderEyes('#000')}
                 </mask>
             )}
 
-            <path
-                opacity="0.8"
-                d={CLOUD}
+            <circle
+                opacity={mono ? 0.8 : 1}
+                cx={BODY.cx}
+                cy={BODY.cy}
+                r={BODY.r}
                 fill={mono ? 'currentColor' : `url(#${gradient})`}
                 mask={mono ? `url(#${holes})` : undefined}
             />
 
-            {!mono && renderEyes('#D9D9D9')}
+            {/* The light: a soft catch above and to the left of the eyes,
+                which is what turns a disc into a ball. */}
+            {!mono && (
+                <ellipse
+                    cx={BODY.cx - BODY.r * 0.32}
+                    cy={BODY.cy - BODY.r * 0.6}
+                    rx={BODY.r * 0.3}
+                    ry={BODY.r * 0.17}
+                    fill="#fff"
+                    opacity="0.28"
+                    transform={`rotate(-25 ${BODY.cx - BODY.r * 0.32} ${BODY.cy - BODY.r * 0.6})`}
+                />
+            )}
+
+            {!mono && renderEyes('#FFFFFF')}
 
             {!mono && (
                 <defs>
-                    <linearGradient
-                        id={gradient}
-                        x1="168.511"
-                        y1="0"
-                        x2="168.511"
-                        y2="280.168"
-                        gradientUnits="userSpaceOnUse"
-                    >
-                        <stop stopColor="#307AF0" />
-                        <stop offset="1" stopColor="#0FCBE3" />
-                    </linearGradient>
+                    {/* Lit from the upper left: pale there, the colour itself
+                        through the middle, and its own shadow at the far edge. */}
+                    <radialGradient id={gradient} cx="0.35" cy="0.3" r="0.8">
+                        <stop stopColor={shade(palette.from, 0.35)} />
+                        <stop offset="0.45" stopColor={palette.from} />
+                        <stop offset="1" stopColor={shade(palette.to, -0.3)} />
+                    </radialGradient>
                 </defs>
             )}
         </svg>

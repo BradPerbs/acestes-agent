@@ -2,10 +2,9 @@
  * The Telnet protocol itself: RFC 854 option negotiation, and the escaping the
  * data stream needs on the way in and out.
  *
- * Split from telnet.js the way vnc-auth.js is split from vnc.js, and for the
- * same reason: this is the part that has to be exactly right and the part that
- * can be exercised without a server. It touches no sockets and requires
- * nothing, so a test drives it with byte arrays.
+ * Split from telnet.js because this is the part that has to be exactly right
+ * and the part that can be exercised without a server. It touches no sockets
+ * and requires nothing, so a test drives it with byte arrays.
  *
  * Two jobs, and they are easy to conflate:
  *

@@ -33,15 +33,19 @@ const LABEL = 'MobaXterm';
 const TYPES = {
     0: { protocol: 'ssh' },
     1: { protocol: 'telnet' },
-    4: { protocol: 'rdp' },
-    5: { protocol: 'vnc' },
     7: { protocol: 'ssh', note: 'was an SFTP bookmark' },
 };
 
-/** Names for the types that are recognised but have no record shape here. */
-const SKIP_LABELS = { 2: 'Rsh', 3: 'Xdmcp', 6: 'FTP', 8: 'local shell', 9: 'browser', 10: 'Mosh' };
+/**
+ * Names for the types that are recognised but have no record shape here. RDP
+ * and VNC are among them: this app holds shells, and a remote desktop is a
+ * picture of a screen that no agent can work on.
+ */
+const SKIP_LABELS = {
+    2: 'Rsh', 3: 'Xdmcp', 4: 'RDP', 5: 'VNC', 6: 'FTP', 8: 'local shell', 9: 'browser', 10: 'Mosh',
+};
 
-const DEFAULT_PORTS = { ssh: 22, telnet: 23, rdp: 3389, vnc: 5900 };
+const DEFAULT_PORTS = { ssh: 22, telnet: 23 };
 
 /** MobaXterm escapes characters that collide with its own separators. */
 function unescapeField(value) {
@@ -175,7 +179,7 @@ function candidateFrom(name, value, folder, existing) {
     if (!host) return { skip: 'without an address' };
 
     const port = toPort(fields[2], DEFAULT_PORTS[protocol]);
-    const username = protocol === 'ssh' || protocol === 'rdp' ? cleanUsername(fields[3]) : '';
+    const username = protocol === 'ssh' ? cleanUsername(fields[3]) : '';
 
     const warnings = [];
     const notes = shape.note ? [shape.note] : [];
@@ -393,24 +397,8 @@ function apply({ path: filePath, keys = [], importIdentityFiles = true } = {}) {
             host: candidate.host,
         };
 
-        if (candidate.protocol === 'rdp' || candidate.protocol === 'vnc') {
-            // A host with no shell: `desktop.only` is what the rest of the app
-            // reads, and `direct` because there is no SSH session to tunnel
-            // through. Same shape the host editor's Desktop kind produces.
-            record.protocol = 'ssh';
-            record.desktop = {
-                enabled: true,
-                only: true,
-                protocol: candidate.protocol,
-                transport: 'direct',
-                host: candidate.host,
-                port: candidate.port,
-                username: candidate.username,
-            };
-        } else {
-            record.protocol = candidate.protocol;
-            record.port = candidate.port;
-        }
+        record.protocol = candidate.protocol;
+        record.port = candidate.port;
 
         if (candidate.protocol === 'ssh') {
             record.username = candidate.username;

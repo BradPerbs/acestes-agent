@@ -5,6 +5,7 @@ const sftp = require('../sftp');
 const transcript = require('../transcript');
 const exec = require('./exec');
 const terminalRun = require('./terminal-run');
+const memory = require('./memory');
 
 // zod 4 exports both a namespace and a `z` binding depending on how it is
 // reached. Taking either keeps this working whichever the installed build is.
@@ -157,16 +158,11 @@ async function viaSftp(sessionId, fn) {
 }
 
 /**
- * Whether a saved host has a shell behind it.
- *
- * A record stored as `desktop.only` does not: it is an RDP or VNC box, usually
- * a Windows one with no SSH server, and connecting to it opens a picture of a
- * screen rather than a session anything here can act on. Every tool in this
- * file works through a shell, so such a host is somewhere the assistant can
- * read about but not work on.
+ * The hosts in the agent's inventory: its own, and the ones that belong to no
+ * agent in particular, which is what a synced or imported host is.
  */
-function hasShell(host) {
-    return !(host?.desktop?.enabled && host.desktop.only);
+function agentHosts(ctx) {
+    return store.getHosts().filter(host => !host.agentId || !ctx?.agentId || host.agentId === ctx.agentId);
 }
 
 /** A saved host, with everything the assistant has no business seeing gone. */
@@ -175,9 +171,6 @@ function publicHost(host) {
         id: host.id,
         name: host.name,
         protocol: host.protocol || 'ssh',
-        // Named as it is on an open session, and meaning the same thing: a
-        // target with no shell is a target no command can be run on.
-        canRunCommands: hasShell(host),
         address: host.protocol === 'serial'
             ? (host.serial?.path || '')
             : [host.host, host.port].filter(Boolean).join(':'),
@@ -203,17 +196,15 @@ const TOOLS = [
         title: 'List saved hosts',
         readOnly: true,
         description:
-            'List the hosts saved in this SSH client, with their names, addresses, tags and folders. '
+            'List the hosts saved in this app, with their names, addresses, tags and folders. '
             + 'Use this to find the id of a host before connecting to it, or to answer questions about '
-            + 'what infrastructure the user has. A host with canRunCommands false is a remote desktop '
-            + 'with no shell behind it: it is part of their estate and you can talk about it, but you '
-            + 'cannot connect to it or run anything on it. Never returns passwords or keys.',
+            + 'what infrastructure the user has. Never returns passwords or keys.',
         shape: {
             query: z.string().optional().describe('Filter by name, address, or tag. Omit to list everything.'),
             limit: z.number().int().min(1).max(500).optional().describe('Maximum hosts to return. Defaults to 200.'),
         },
         handler: async (input, ctx) => {
-            const hosts = await store.getHosts();
+            const hosts = agentHosts(ctx);
             const folders = await store.getFolders();
             const folderName = new Map(folders.map(folder => [folder.id, folder.name]));
 
@@ -565,24 +556,15 @@ const TOOLS = [
             hostId: z.string().describe('The id of a saved host, from list_hosts.'),
         },
         handler: async (input, ctx) => {
-            const hosts = await store.getHosts();
+            const hosts = agentHosts(ctx);
             const host = hosts.find(entry => entry.id === input.hostId);
             if (!host) return fail(`There is no saved host with the id "${input.hostId}". Call list_hosts for the current list.`);
 
-            // Both checks come before the connection rather than after: a
-            // session opened out of scope, or into a desktop nothing can be run
-            // on, has already put a tab on the user's screen by the time the
-            // next tool call refuses it.
+            // Checked before the connection rather than after: a session opened
+            // out of scope has already put a tab on the user's screen by the
+            // time the next tool call refuses it.
             if (!hostInScope(ctx, host.id)) {
                 return fail(outOfScope(ctx, `The host "${host.name || host.id}"`));
-            }
-
-            if (!hasShell(host)) {
-                return fail(
-                    `"${host.name || host.id}" is a remote desktop with no shell behind it, so there is `
-                    + 'nothing here that can act on it. Connecting would open a screen the user has to '
-                    + 'drive themselves. Tell them that rather than trying another way in.'
-                );
             }
 
             const result = await ctx.sessionAction({ action: 'connect', hostId: host.id, hostName: host.name });
@@ -616,6 +598,66 @@ const TOOLS = [
             if (!result?.success) return fail(result?.message || 'That session could not be closed.');
             return ok(`Closed the session on ${resolved.info.hostName || resolved.info.address}.`);
         },
+    },
+
+    /* -------------------------------------------------------------- *
+     * Memory: the agent's own notebook, kept between conversations. See
+     * memory.js. Read-only in the sense that matters to the approval policy:
+     * a note changes nothing on any machine, so writing one asks nobody.
+     * -------------------------------------------------------------- */
+
+    {
+        name: 'remember',
+        title: 'Remember something',
+        readOnly: true,
+        description:
+            'Save a note to your memory for later conversations: a preference the user stated, a fact '
+            + 'about their environment that is not on the host record, a decision, what a fix turned '
+            + 'out to be. It is shown to you at the start of every later conversation. One fact per '
+            + 'call, short and specific. Never save a password, a key or a token.',
+        shape: {
+            text: z.string().min(1).max(1000).describe('The note, one or two sentences.'),
+            tags: z.array(z.string()).optional().describe('Up to eight short tags, e.g. ["preference", "nginx"].'),
+        },
+        handler: async (input, ctx) => {
+            const entry = memory.add(ctx.agentId, { text: input.text, tags: input.tags, source: 'agent' });
+            if (!entry) return fail('There was nothing to remember.');
+            return ok({ saved: true, id: entry.id, text: entry.text, tags: entry.tags });
+        },
+    },
+
+    {
+        name: 'recall',
+        title: 'Search your memory',
+        readOnly: true,
+        description:
+            'Search the notes you kept in earlier conversations. The newest are already in your '
+            + 'context; use this for something older or more specific. Matches on words in the note '
+            + 'and on its tags.',
+        shape: {
+            query: z.string().describe('Words to look for.'),
+            limit: z.number().int().min(1).max(50).optional().describe('How many to return. Defaults to 10.'),
+        },
+        handler: async (input, ctx) => ok({
+            matches: await memory.search(ctx.agentId, input.query, input.limit || 10),
+        }),
+    },
+
+    {
+        name: 'forget',
+        title: 'Forget a note',
+        readOnly: true,
+        description:
+            'Delete one of your notes by id, when it is wrong or no longer true. The id is shown '
+            + 'beside each note in your context and in recall results.',
+        shape: {
+            id: z.string().describe('The note id, e.g. m-abc123-4.'),
+        },
+        handler: async (input, ctx) => (
+            memory.remove(ctx.agentId, input.id)
+                ? ok({ forgotten: input.id })
+                : fail(`There is no note with the id "${input.id}".`)
+        ),
     },
 ];
 

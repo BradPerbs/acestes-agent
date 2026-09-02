@@ -287,6 +287,8 @@ export default function useAssistant({
     sessionId,
     sessionIds = [],
     hostIds = [],
+    /** Whose conversation to start. Left out, the selected agent's. */
+    agentId = '',
     enabled = true,
     /** The conversation to pick up, if the caller was left holding one. */
     conversationId: given = '',
@@ -342,7 +344,7 @@ export default function useAssistant({
      */
     const targetKey = `${scope}|${sessionId}|${sessionIds.join(',')}|${hostIds.join(',')}`;
     const targetRef = useRef(null);
-    targetRef.current = { scope, sessionId, sessionIds, hostIds };
+    targetRef.current = { scope, sessionId, sessionIds, hostIds, agentId };
 
     /* Adopt the conversation from before a reload, or open a new one. */
     useEffect(() => {

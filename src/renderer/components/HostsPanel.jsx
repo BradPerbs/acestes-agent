@@ -4,8 +4,6 @@ import {
     Cancel01Icon,
     CloudServerIcon,
     CommandLineIcon,
-    ComputerIcon,
-    CpuIcon,
     Copy01Icon,
     Delete02Icon,
     Edit02Icon,
@@ -30,7 +28,6 @@ import ConfirmDialog from './ui/ConfirmDialog';
 import Tag from './ui/Tag';
 import { toastOptions } from '../lib/toast';
 import { useT } from '../i18n';
-import { hostOs } from '../lib/os-icons';
 import { hostKind, protocolLabel } from '../lib/protocols';
 import { hostHasTags, tagCounts, toggleTag } from '../lib/tags';
 import { useCardDrag } from '../hooks/useCardDrag';
@@ -812,70 +809,24 @@ function HostsPanel({
 
     const hostMenu = useCallback((host) => {
         const kind = hostKind(host);
-        // RDP and VNC are not interchangeable to anyone looking for one of
-        // them, so the entry names the one this host is actually set up for.
-        const desktopLabel = host.desktop?.protocol === 'rdp' ? 'RDP' : 'VNC';
-        const hasDesktop = Boolean(host.desktop?.enabled);
-        const hasBmc = Boolean(host.bmc?.enabled);
 
         /**
-         * Every way in, in the order they are worth trying.
-         *
-         * Files and a desktop are channels on an SSH connection, so a telnet or
-         * serial host has neither to offer. A desktop-only host is the mirror of
-         * that: it never dials SSH, so the desktop is the only way in there is.
+         * Every way in, in the order they are worth trying. Files are a channel
+         * on an SSH connection, so a telnet or serial host has only its shell
+         * to offer.
          */
-        const ways = kind === 'desktop'
-            ? [{
-                label: t('hosts.connectVia', { protocol: desktopLabel }),
-                icon: <ComputerIcon size={ICON} />,
-                onClick: () => connectAs(host, 'desktop'),
-            }]
-            // And an IPMI-only host is the same case again: there is no session
-            // to open, so the board's own interface is the only way in.
-            : kind === 'ipmi'
-            ? [{
-                label: t('hosts.openIpmi'),
-                icon: <CpuIcon size={ICON} />,
-                onClick: () => connectAs(host, 'bmc'),
-            }]
-            : [
-                {
-                    label: t('hosts.connectVia', { protocol: protocolLabel(kind) }),
-                    icon: <CommandLineIcon size={ICON} />,
-                    onClick: () => connectAs(host, 'ssh'),
-                },
-                kind === 'ssh' && {
-                    label: t('hosts.connectVia', { protocol: 'SFTP' }),
-                    icon: <Folder01Icon size={ICON} />,
-                    onClick: () => connectAs(host, 'sftp'),
-                },
-                kind === 'ssh' && hasDesktop && {
-                    label: t('hosts.connectVia', { protocol: desktopLabel }),
-                    icon: <ComputerIcon size={ICON} />,
-                    onClick: () => connectAs(host, 'desktop'),
-                },
-                // Offered whatever the host connects over, unlike the desktop:
-                // the service processor is a second address for the machine and
-                // needs nothing from the session, which is exactly why it is
-                // worth reaching for when the session is the thing that is down.
-                hasBmc && {
-                    label: t('hosts.openIpmi'),
-                    icon: <CpuIcon size={ICON} />,
-                    onClick: () => connectAs(host, 'bmc'),
-                },
-                // A Windows box with no desktop set up is the one case where the
-                // missing entry is the surprising part, so it is shown and
-                // turned off rather than left out: the answer to "where is RDP"
-                // should be on screen and not a gap.
-                kind === 'ssh' && !hasDesktop && hostOs(host) === 'windows' && {
-                    label: t('hosts.connectVia', { protocol: 'RDP' }),
-                    icon: <ComputerIcon size={ICON} />,
-                    onClick: () => {},
-                    disabled: true,
-                    shortcut: t('hosts.notSetUp'),
-                },
-            ];
+        const ways = [
+            {
+                label: t('hosts.connectVia', { protocol: protocolLabel(kind) }),
+                icon: <CommandLineIcon size={ICON} />,
+                onClick: () => connectAs(host, 'ssh'),
+            },
+            kind === 'ssh' && {
+                label: t('hosts.connectVia', { protocol: 'SFTP' }),
+                icon: <Folder01Icon size={ICON} />,
+                onClick: () => connectAs(host, 'sftp'),
+            },
+        ];
 
         return [
             ...ways,

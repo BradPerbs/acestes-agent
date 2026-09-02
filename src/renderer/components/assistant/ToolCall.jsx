@@ -28,6 +28,9 @@ const TITLES = {
     write_file: 'assistant.didWrite',
     connect_host: 'assistant.didConnect',
     disconnect_session: 'assistant.didDisconnect',
+    remember: 'assistant.didRemember',
+    recall: 'assistant.didRecall',
+    forget: 'assistant.didForget',
 };
 
 /** The dot carries the status, so the row height never changes with it. */

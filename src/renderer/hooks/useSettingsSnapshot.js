@@ -19,9 +19,6 @@ const SYNCED_KEYS = [
     'terminalCustomTheme',   // useTerminalTheme, the user's own palette
     'theme',                 // useTheme, light, dark, system or custom
     'appColors',             // useTheme, the user's own app palette
-    'titleBarLogo',          // useTheme, whether the title bar shows the mark
-    'titleBarLogoImage',     // useTheme, the user's own mark, as a data URL
-    'titleBarLogoSide',      // useTheme, which end of the title bar it sits at
     'settings.category',     // which settings page was last open
 ];
 
