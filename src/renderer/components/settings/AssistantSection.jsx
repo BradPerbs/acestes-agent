@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { PROVIDER_ORDER } from '../../lib/ai-catalog';
 import ProviderPicker from './ProviderPicker';
 import SettingCard from './ui/SettingCard';
@@ -8,6 +8,7 @@ import Slider from './ui/Slider';
 import SegmentedControl from '../ui/SegmentedControl';
 import Button from '../ui/Button';
 import Reveal from '../ui/Reveal';
+import SandboxCard from './SandboxCard';
 import { useT } from '../../i18n';
 
 /**
@@ -71,6 +72,35 @@ export default function AssistantSection() {
     const [commands, setCommands] = useState('');
     const [blocked, setBlocked] = useState('');
     const [prompts, setPrompts] = useState('');
+
+    /**
+     * The card a jump from the chat asked for. "Create quick prompts" on an
+     * empty conversation lands here, and this page is long enough that
+     * landing at its top would leave the person hunting. The card is scrolled
+     * into view, lit for a moment, and its box given focus, once the settings
+     * are in and the card exists.
+     */
+    const promptsRef = useRef(null);
+    const promptsBoxRef = useRef(null);
+    const [litPrompts, setLitPrompts] = useState(false);
+
+    useEffect(() => {
+        if (!settings) return undefined;
+        let wanted = '';
+        try {
+            wanted = window.sessionStorage.getItem('settings.focus') || '';
+            if (wanted) window.sessionStorage.removeItem('settings.focus');
+        } catch {
+            // No session storage: nothing to land on.
+        }
+        if (wanted !== 'quickPrompts') return undefined;
+
+        promptsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        promptsBoxRef.current?.focus({ preventScroll: true });
+        setLitPrompts(true);
+        const timer = setTimeout(() => setLitPrompts(false), 1800);
+        return () => clearTimeout(timer);
+    }, [settings]);
 
     useEffect(() => {
         let cancelled = false;
@@ -437,6 +467,14 @@ export default function AssistantSection() {
                 </SettingRow>
             </SettingCard>
 
+            <SandboxCard agentId={settings.agentId} />
+
+            <div
+                ref={promptsRef}
+                className={`rounded-xl transition-shadow duration-500 ${litPrompts
+                    ? 'ring-2 ring-offset-2 ring-gray-900/40 dark:ring-white/50 ring-offset-white dark:ring-offset-neutral-900'
+                    : ''}`}
+            >
             <SettingCard>
                 <SettingRow
                     title={t('settings.assistant.quickPrompts')}
@@ -444,6 +482,7 @@ export default function AssistantSection() {
                 >
                     <div className="space-y-3">
                         <textarea
+                            ref={promptsBoxRef}
                             aria-label={t('settings.assistant.quickPrompts')}
                             rows={5}
                             spellCheck={false}
@@ -464,6 +503,7 @@ export default function AssistantSection() {
                     </div>
                 </SettingRow>
             </SettingCard>
+            </div>
 
             <SettingCard>
                 <SettingRow

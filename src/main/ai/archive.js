@@ -117,6 +117,9 @@ function pack(conversation) {
         providerSessionId: conversation.providerSessionId || '',
         provider: conversation.provider || '',
         title: conversation.title || '',
+        // Kept at the top of the list by the user. Their choice, so it
+        // outlives the app the way a title does.
+        pinned: Boolean(conversation.pinned),
         // Whose it is. An id no agent answers to any more is repaired on the
         // way back in, by `index.js`.
         agentId: conversation.agentId || '',
@@ -171,6 +174,18 @@ function unpack(record, currentProvider) {
         events.push({ type: 'approval-settled', requestId: event.requestId, status: 'expired', at });
     }
 
+    // And the agent's own questions, the same way: one nobody answered
+    // before the app closed is not still being asked.
+    const replied = new Set(
+        events.filter(event => event.type === 'question-settled').map(event => event.requestId)
+    );
+    for (const event of events.slice()) {
+        if (event.type !== 'question-request') continue;
+        if (replied.has(event.requestId)) continue;
+        replied.add(event.requestId);
+        events.push({ type: 'question-settled', requestId: event.requestId, status: 'expired', answer: '', at });
+    }
+
     if (record.busy) {
         events.push({
             type: 'notice',
@@ -219,6 +234,7 @@ function unpack(record, currentProvider) {
         needsRestart: false,
         costUsd: Number.isFinite(record.costUsd) ? record.costUsd : 0,
         title: typeof record.title === 'string' ? record.title : '',
+        pinned: record.pinned === true,
         agentId: typeof record.agentId === 'string' ? record.agentId : '',
         createdAt: Number.isFinite(record.createdAt) ? record.createdAt : at,
         updatedAt: at,

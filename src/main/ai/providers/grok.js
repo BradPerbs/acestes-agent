@@ -683,12 +683,12 @@ async function start(options) {
     }
 
     const directory = workspace();
-    const { tokenUrl } = await mcpHost.acquire({ toolContext, requestApproval, onEvent });
+    const { tokenUrl, token } = await mcpHost.acquire({ toolContext, requestApproval, onEvent });
 
     try {
         writeMcpConfig(directory, tokenUrl);
     } catch (error) {
-        await mcpHost.release();
+        await mcpHost.release(token);
         throw new Error(`The Grok Build configuration could not be written: ${error.message}`);
     }
 
@@ -804,7 +804,7 @@ async function start(options) {
             stopped = true;
             stopProcess(child);
             await running.catch(() => {});
-            await mcpHost.release();
+            await mcpHost.release(token);
         },
     };
 }

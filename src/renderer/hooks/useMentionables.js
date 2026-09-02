@@ -24,10 +24,18 @@ export function useMentionables({ agentId = '', hosts = [] } = {}) {
 
     useEffect(() => {
         let cancelled = false;
-        window.api.keys.list()
+        const read = () => window.api.keys.list()
             .then(list => { if (!cancelled) setKeys(list || []); })
             .catch(() => {});
-        return () => { cancelled = true; };
+        read();
+        // The agent can add a key to the keychain mid-conversation.
+        const off = window.api.inventory?.onChange?.((change) => {
+            if (change?.kind === 'keys') read();
+        });
+        return () => {
+            cancelled = true;
+            off?.();
+        };
     }, []);
 
     // The agent's MCP servers live on the agent record, so they arrive with

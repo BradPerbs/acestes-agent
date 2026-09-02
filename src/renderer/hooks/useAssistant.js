@@ -193,6 +193,34 @@ function applyEvent(state, event) {
             break;
         }
 
+        // A question the agent asked, as opposed to a call it wants to make.
+        // Its own kind of row: nothing in the transcript is waiting on it the
+        // way a tool row waits on an approval, so it stands on its own.
+        case 'question-request':
+            items.push({
+                kind: 'question',
+                id: event.requestId,
+                requestId: event.requestId,
+                question: event.question || '',
+                options: event.options || [],
+                status: 'pending',
+                answer: '',
+            });
+            break;
+
+        case 'question-settled': {
+            const index = items.findIndex(item => item.kind === 'question' && item.requestId === event.requestId);
+            if (index >= 0) {
+                const item = items[index];
+                items[index] = {
+                    ...item,
+                    status: event.status,
+                    answer: event.answer || item.answer || '',
+                };
+            }
+            break;
+        }
+
         case 'account':
             return { ...state, account: event };
 
@@ -407,6 +435,22 @@ export default function useAssistant({
         );
     }, []);
 
+    /**
+     * Answer one question, in the transcript and over IPC. Marked locally
+     * first for the same reason an approval is: the click should land.
+     */
+    const answer = useCallback((requestId, text, chosen = false) => {
+        const reply = String(text || '').trim();
+        setState(previous => applyEvent(previous, {
+            type: 'question-settled',
+            requestId,
+            status: reply ? 'answered' : 'dismissed',
+            answer: reply,
+            at: Date.now(),
+        }));
+        window.api.ai.answer(requestId, reply, chosen);
+    }, []);
+
     /* The live stream. */
     useEffect(() => {
         if (!enabled) return undefined;
@@ -579,6 +623,7 @@ export default function useAssistant({
         send,
         interrupt,
         respond,
+        answer,
         reset,
         open,
         remove,

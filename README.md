@@ -29,23 +29,59 @@ window closes, but a presence that keeps your servers, your keys, your notes
 and your way of working, and is there the next morning knowing what happened
 the day before.
 
+## An opinionated agent
+
+Acestes is not a general assistant with a terminal bolted on. It is built for
+one job, running servers with the person who owns them, and it takes
+positions on how that should go:
+
+- **The terminal is the truth.** The agent works through real SSH sessions
+  in a real terminal, and by default it types where you can see it. What it
+  did is in your scrollback, not in a summary of what it says it did.
+- **Memory is a notebook, not a transcript.** It keeps short facts it decided
+  were worth keeping, in plain text you can read and edit, rather than
+  quietly mining every conversation.
+- **It asks, in the open.** Anything that changes a system stops on a card
+  you can read to the end of, with the exact command on it. When it needs
+  a decision from you, it puts the question on a card with the answers it
+  sees, instead of guessing or burying the question in a paragraph.
+- **Secrets go one way.** The agent can save a host with its password or
+  key, but nothing it reads back ever carries one, and a secret never lands
+  in a transcript or a log.
+- **Every agent is a person, not a mode.** Two agents in one window have
+  separate memories, inventories, folders and sessions, and one cannot
+  drive the other's terminal.
+
+If you want a blank canvas that does whatever a prompt says, this is not it.
+
 ## An agent, not a chatbot
 
 - **It remembers.** Every agent keeps a memory that grows with every
   conversation: what your machines are, how you like things done, what the
   fix turned out to be. Indexed on your own machine, searched by meaning,
-  never sent anywhere to be stored.
+  never sent anywhere to be stored. It can also search its own past
+  conversations, so "how did we fix this last time" has an answer.
 - **It does the work.** Acestes opens SSH sessions, reads what is on the
   screen, runs the commands, checks the result and reports back. You watch it
-  happen in a real terminal, or let it work quietly in the background.
+  happen in a real terminal, or let it work quietly in the background. It
+  edits a config file by replacing the passage it read rather than rewriting
+  the file, so the approval card shows the change and not the whole file.
 - **It carries its own kit.** Hosts, keys, proxies, snippets, playbooks and
   MCP tool servers live in the agent's inventory, laid out like a bag in a
-  game. Give an agent what it needs and it takes it into every conversation.
+  game. The agent can look through its own bag, read a playbook you wrote
+  for it before starting a job, and keep the bag itself: add the host it was
+  just told about, save a procedure that worked as a playbook, register an
+  MCP server. It sees and edits its own records and the shared ones, never
+  another agent's.
+- **It works on this computer too, inside a fence.** Grant an agent a folder
+  when you create it and it can list, read, search, edit and run commands
+  there and nowhere else. Turn on the container and that fence becomes a
+  wall.
 - **It asks before it breaks things.** You choose how much it does on its own:
   everything on approval, reads without asking, or full autonomy. A blocked
   list stops the truly dangerous commands before they reach a server.
-- **It never sees a password.** Credentials stay in the app's vault. The
-  agent names a host; the app makes the connection.
+- **It never shows you a password.** Credentials stay in the app's vault,
+  encrypted. The agent names a host; the app makes the connection.
 
 ## A team of them
 

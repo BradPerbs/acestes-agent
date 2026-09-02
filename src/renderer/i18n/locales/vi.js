@@ -267,10 +267,8 @@ export default {
     'settings.nav.aria': 'Danh mục cài đặt',
     'settings.nav.general': 'Chung',
     'settings.nav.appearance': 'Giao diện',
-    'settings.nav.terminal': 'Terminal',
+    'settings.nav.servers': 'SSH & Máy chủ',
     'settings.nav.assistant': 'Trợ lý AI',
-    'settings.nav.monitoring': 'Theo dõi',
-    'settings.nav.logging': 'Ghi nhật ký',
     'settings.nav.security': 'Bảo mật',
     'settings.nav.backup': 'Sao lưu',
     'settings.nav.about': 'Giới thiệu',
@@ -278,6 +276,9 @@ export default {
     /* ---- Settings: General ---- */
     'settings.general.title': 'Chung',
     'settings.general.desc': 'Ứng dụng hoạt động thế nào khi khởi động.',
+    'settings.servers.title': 'SSH & Máy chủ',
+    'settings.servers.desc': 'Bộ máy mà tác nhân làm việc qua: terminal trông thế nào và giữ lại gì '
+        + 'của một phiên, host nào được theo dõi, và khoá máy chủ nào được tin cậy.',
     'settings.general.language': 'Ngôn ngữ',
     'settings.general.languageDesc': 'Ngôn ngữ hiển thị cho phần chữ của chính ứng dụng. Kết quả '
         + 'từ terminal và mọi thứ máy chủ của bạn in ra đều được giữ nguyên.',
@@ -288,9 +289,11 @@ export default {
     'settings.general.startupOff': 'CloudTerm sẽ không còn mở khi bạn đăng nhập',
     'settings.general.startupFailed': 'Không thể thay đổi mục này',
     'settings.general.startupUnknown': 'Không đọc được liệu ứng dụng có khởi động cùng máy hay không',
-    'settings.general.restore': 'Khôi phục phiên',
-    'settings.general.restoreDesc': 'Mở lại các thẻ đang mở lúc đóng ứng dụng và kết nối lại tới '
-        + 'các máy chủ của chúng',
+    'settings.general.restore': 'Khôi phục thẻ khi khởi động',
+    'settings.general.restoreDesc': 'Mở lại những gì đang mở lúc đóng ứng dụng: các cuộc trò chuyện '
+        + 'với tác nhân của bạn và các phiên terminal, kết nối lại tới máy chủ của chúng. Khi tắt, '
+        + 'ứng dụng khởi động với một cuộc trò chuyện mới. Dù thế nào cũng không mất gì; các cuộc '
+        + 'trò chuyện đã đóng vẫn nằm trong lịch sử của tác nhân.',
 
     /* ---- Settings: Appearance ---- */
     'settings.appearance.title': 'Giao diện',
@@ -463,6 +466,51 @@ export default {
         + 'pháp bảo mật. Shell có quá nhiều cách viết cùng một lệnh nên không danh sách nào bắt hết '
         + 'được, vì vậy hãy giữ phê duyệt bật cho những việc quan trọng.',
     'settings.assistant.saveList': 'Lưu danh sách',
+    'settings.assistant.sandbox': 'Hộp cát',
+    'settings.assistant.sandboxDesc': 'Những gì tác nhân này được chạm tới trên máy tính này và nơi '
+        + 'công việc cục bộ của nó chạy. Máy chủ luôn được rào lại: mọi công cụ từ xa đều kiểm tra '
+        + 'phiên và host của chính tác nhân trước khi chạy.',
+    'settings.assistant.sandbox.execution': 'Công việc cục bộ chạy',
+    'settings.assistant.sandbox.execution.host': 'Trên máy này',
+    'settings.assistant.sandbox.execution.container': 'Trong container',
+    'settings.assistant.sandbox.execution.host.note': 'Lệnh và tệp cục bộ nằm trong các thư mục được '
+        + 'cấp bên dưới, ứng dụng kiểm tra ở mỗi lần gọi. Là rào chắn, không phải tường: shell với '
+        + 'tới được mọi thứ bạn với tới được, nên thẻ phê duyệt vẫn quan trọng.',
+    'settings.assistant.sandbox.execution.container.note': 'Lệnh, tệp cục bộ và máy chủ MCP của tác '
+        + 'nhân này chạy trong một container Docker riêng được gia cố, chỉ gắn các thư mục được cấp '
+        + 'bên dưới. Công cụ riêng của runtime trên máy này bị tắt. Cần Docker.',
+    'settings.assistant.sandbox.docker.checking': 'Đang tìm Docker…',
+    'settings.assistant.sandbox.docker.ready': 'Docker {version} đang chạy.',
+    'settings.assistant.sandbox.docker.container': 'Container {status}.',
+    'settings.assistant.sandbox.docker.missing': '{reason}',
+    'settings.assistant.sandbox.reset': 'Tạo lại container',
+    'settings.assistant.sandbox.resetDone': 'Container đã được dựng lại từ đầu.',
+    'settings.assistant.sandbox.resetFailed': 'Không dựng lại được container: {error}',
+    'settings.assistant.sandbox.network': 'Mạng của container',
+    'settings.assistant.sandbox.network.none': 'Không',
+    'settings.assistant.sandbox.network.any': 'Mở',
+    'settings.assistant.sandbox.network.none.note': 'Không có đường ra khỏi container. Không gì nó '
+        + 'đọc được có thể gửi đi đâu, và không gì có thể kéo vào. Phù hợp với tác nhân làm việc qua '
+        + 'phiên SSH, thứ ứng dụng giữ bên ngoài container.',
+    'settings.assistant.sandbox.network.any.note': 'Container với được internet và mạng cục bộ của '
+        + 'bạn. Cần cho cài đặt và tải xuống; cũng là con đường chính để một tác nhân bị đánh lừa '
+        + 'rò rỉ những gì nó thấy.',
+    'settings.assistant.sandbox.sessions': 'Phiên terminal',
+    'settings.assistant.sandbox.sessions.own': 'Của nó',
+    'settings.assistant.sandbox.sessions.any': 'Mọi phiên mở',
+    'settings.assistant.sandbox.sessions.own.note': 'Tác nhân này được dùng các phiên nó mở và các '
+        + 'phiên bạn tự mở. Phiên do tác nhân khác mở bị từ chối.',
+    'settings.assistant.sandbox.sessions.any.note': 'Tác nhân này được điều khiển mọi phiên đang mở, '
+        + 'kể cả phiên do tác nhân khác mở.',
+    'settings.assistant.sandbox.folders': 'Thư mục trên máy này',
+    'settings.assistant.sandbox.foldersDesc': 'Những nơi duy nhất công cụ cục bộ được nhìn vào. Ban '
+        + 'đầu không cấp gì. Trong container mỗi thư mục được gắn dưới /workspace.',
+    'settings.assistant.sandbox.foldersEmpty': 'Chưa cấp thư mục nào. Công cụ cục bộ từ chối mọi thứ '
+        + 'cho tới khi có một thư mục.',
+    'settings.assistant.sandbox.addFolder': 'Cấp một thư mục',
+    'settings.assistant.sandbox.folder.read': 'Đọc',
+    'settings.assistant.sandbox.folder.write': 'Đọc và ghi',
+    'settings.assistant.sandbox.removeFolder': 'Gỡ',
     'settings.assistant.restoreDefaults': 'Khôi phục mặc định',
     'settings.assistant.quickPrompts': 'Câu hỏi nhanh',
     'settings.assistant.quickPromptsDesc': 'Những câu hỏi bảng trợ lý hiện thành nút bấm một lần '
@@ -578,7 +626,7 @@ export default {
 
     /* ---- Settings: Security ---- */
     'settings.security.title': 'Bảo mật',
-    'settings.security.desc': 'Ai được mở ứng dụng này, và nó tin cậy những máy chủ nào.',
+    'settings.security.desc': 'Ai được mở ứng dụng này.',
 
     'settings.lock.title': 'Mật khẩu mở ứng dụng',
     'settings.lock.badgeOn': 'bật',

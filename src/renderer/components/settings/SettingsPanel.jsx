@@ -3,11 +3,9 @@ import SettingsNav, { SETTINGS_CATEGORIES } from './SettingsNav';
 import { StackedProvider } from './ui/stacked';
 import useNarrow from '../../hooks/useNarrow';
 import GeneralPage from './pages/GeneralPage';
-import AppearancePage from './pages/AppearancePage';
-import TerminalPage from './pages/TerminalPage';
 import AssistantPage from './pages/AssistantPage';
-import MonitoringPage from './pages/MonitoringPage';
-import LoggingPage from './pages/LoggingPage';
+import AppearancePage from './pages/AppearancePage';
+import ServersPage from './pages/ServersPage';
 import SecurityPage from './pages/SecurityPage';
 import BackupPage from './pages/BackupPage';
 import AboutPage from './pages/AboutPage';
@@ -15,15 +13,20 @@ import AboutPage from './pages/AboutPage';
 /** Keyed by the ids in SETTINGS_CATEGORIES, so every category needs an entry. */
 const PAGES = {
     general: GeneralPage,
-    appearance: AppearancePage,
-    terminal: TerminalPage,
     assistant: AssistantPage,
-    monitoring: MonitoringPage,
-    logging: LoggingPage,
+    appearance: AppearancePage,
+    servers: ServersPage,
     security: SecurityPage,
     backup: BackupPage,
     about: AboutPage,
 };
+
+/**
+ * Categories that used to exist on their own and now live as tabs of the
+ * servers page. A remembered selection of one of them lands there rather
+ * than back at General.
+ */
+const FOLDED = { terminal: 'servers', monitoring: 'servers', logging: 'servers' };
 
 /**
  * The two widths this page changes shape at, measured on the panel itself: the
@@ -50,7 +53,7 @@ const NARROW = [780, 660];
 const CATEGORY_KEY = 'settings.category';
 
 const readCategory = () => {
-    const saved = localStorage.getItem(CATEGORY_KEY);
+    const saved = FOLDED[localStorage.getItem(CATEGORY_KEY)] || localStorage.getItem(CATEGORY_KEY);
     return SETTINGS_CATEGORIES.some(category => category.id === saved) ? saved : 'general';
 };
 

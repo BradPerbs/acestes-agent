@@ -293,10 +293,8 @@ export default {
     'settings.nav.aria': 'Категории настроек',
     'settings.nav.general': 'Общие',
     'settings.nav.appearance': 'Оформление',
-    'settings.nav.terminal': 'Терминал',
+    'settings.nav.servers': 'SSH и серверы',
     'settings.nav.assistant': 'ИИ-ассистент',
-    'settings.nav.monitoring': 'Мониторинг',
-    'settings.nav.logging': 'Журналирование',
     'settings.nav.security': 'Безопасность',
     'settings.nav.backup': 'Резервные копии',
     'settings.nav.about': 'О программе',
@@ -304,6 +302,9 @@ export default {
     /* ---- Settings: General ---- */
     'settings.general.title': 'Общие',
     'settings.general.desc': 'Как приложение ведёт себя при запуске.',
+    'settings.servers.title': 'SSH и серверы',
+    'settings.servers.desc': 'Механика, через которую работает агент: как выглядит терминал и что '
+        + 'сохраняется из сессии, какие хосты отслеживаются и каким ключам серверов доверять.',
     'settings.general.language': 'Язык',
     'settings.general.languageDesc': 'Язык, на котором показывается текст самого приложения. Вывод '
         + 'терминала и всё, что печатают ваши серверы, остаётся ровно таким, каким приходит.',
@@ -314,9 +315,11 @@ export default {
     'settings.general.startupOff': 'CloudTerm больше не будет открываться при входе в систему',
     'settings.general.startupFailed': 'Не удалось изменить эту настройку',
     'settings.general.startupUnknown': 'Не удалось узнать, запускается ли приложение вместе с системой',
-    'settings.general.restore': 'Восстанавливать сеансы',
-    'settings.general.restoreDesc': 'Снова открывать вкладки, которые были открыты при закрытии '
-        + 'приложения, и подключаться к их хостам',
+    'settings.general.restore': 'Восстанавливать вкладки при запуске',
+    'settings.general.restoreDesc': 'Снова открывать то, что было открыто при закрытии приложения: '
+        + 'разговоры с вашими агентами и сеансы терминала, с повторным подключением к их хостам. '
+        + 'Если выключено, приложение запускается с одним новым разговором. Ничего не теряется в '
+        + 'любом случае: закрытые разговоры остаются в истории агента.',
 
     /* ---- Settings: Appearance ---- */
     'settings.appearance.title': 'Оформление',
@@ -495,6 +498,54 @@ export default {
         + 'оболочке слишком много способов записать одну и ту же команду, чтобы любой список '
         + 'поймал их все, поэтому для важного оставляйте подтверждения включёнными.',
     'settings.assistant.saveList': 'Сохранить список',
+    'settings.assistant.sandbox': 'Песочница',
+    'settings.assistant.sandboxDesc': 'К чему этот агент может прикасаться на этом компьютере и '
+        + 'где выполняется его локальная работа. Серверы ограждены в любом случае: каждый '
+        + 'удалённый инструмент проверяет сессии и хосты самого агента перед запуском.',
+    'settings.assistant.sandbox.execution': 'Локальная работа выполняется',
+    'settings.assistant.sandbox.execution.host': 'На этом компьютере',
+    'settings.assistant.sandbox.execution.container': 'В контейнере',
+    'settings.assistant.sandbox.execution.host.note': 'Локальные команды и файлы остаются в '
+        + 'папках, выданных ниже, и приложение проверяет это при каждом вызове. Это ограждение, '
+        + 'а не стена: оболочка достаёт до всего, до чего достаёте вы, так что карточка '
+        + 'подтверждения по-прежнему важна.',
+    'settings.assistant.sandbox.execution.container.note': 'Локальные команды, файлы и MCP-серверы '
+        + 'этого агента выполняются в собственном защищённом контейнере Docker, куда смонтированы '
+        + 'только выданные ниже папки. Собственные инструменты рантайма на этом компьютере '
+        + 'отключаются. Требуется Docker.',
+    'settings.assistant.sandbox.docker.checking': 'Поиск Docker…',
+    'settings.assistant.sandbox.docker.ready': 'Docker {version} запущен.',
+    'settings.assistant.sandbox.docker.container': 'Контейнер: {status}.',
+    'settings.assistant.sandbox.docker.missing': '{reason}',
+    'settings.assistant.sandbox.reset': 'Пересоздать контейнер',
+    'settings.assistant.sandbox.resetDone': 'Контейнер пересоздан с нуля.',
+    'settings.assistant.sandbox.resetFailed': 'Не удалось пересоздать контейнер: {error}',
+    'settings.assistant.sandbox.network': 'Сеть контейнера',
+    'settings.assistant.sandbox.network.none': 'Нет',
+    'settings.assistant.sandbox.network.any': 'Открыта',
+    'settings.assistant.sandbox.network.none.note': 'Из контейнера нет выхода. Ничего из '
+        + 'прочитанного нельзя куда-либо отправить, и ничего нельзя загрузить. Подходит агенту, '
+        + 'который работает через SSH-сессии, которые приложение держит вне контейнера.',
+    'settings.assistant.sandbox.network.any.note': 'Контейнер имеет доступ в интернет и в вашу '
+        + 'локальную сеть. Нужно для установок и загрузок; это же главный путь, которым '
+        + 'обманутый агент может передать увиденное наружу.',
+    'settings.assistant.sandbox.sessions': 'Сессии терминала',
+    'settings.assistant.sandbox.sessions.own': 'Свои',
+    'settings.assistant.sandbox.sessions.any': 'Любые открытые',
+    'settings.assistant.sandbox.sessions.own.note': 'Этот агент может использовать сессии, которые '
+        + 'открыл сам, и те, что открыли вы. Сессии, открытые другим агентом, отклоняются.',
+    'settings.assistant.sandbox.sessions.any.note': 'Этот агент может управлять любой открытой '
+        + 'сессией, включая открытые другим агентом.',
+    'settings.assistant.sandbox.folders': 'Папки на этом компьютере',
+    'settings.assistant.sandbox.foldersDesc': 'Единственные места, куда могут заглядывать '
+        + 'локальные инструменты. Изначально не выдано ничего. В контейнере каждая папка '
+        + 'монтируется под /workspace.',
+    'settings.assistant.sandbox.foldersEmpty': 'Папки не выданы. Локальные инструменты отклоняют '
+        + 'всё, пока не будет выдана хотя бы одна.',
+    'settings.assistant.sandbox.addFolder': 'Выдать папку',
+    'settings.assistant.sandbox.folder.read': 'Чтение',
+    'settings.assistant.sandbox.folder.write': 'Чтение и запись',
+    'settings.assistant.sandbox.removeFolder': 'Убрать',
     'settings.assistant.restoreDefaults': 'Вернуть значения по умолчанию',
     'settings.assistant.quickPrompts': 'Быстрые вопросы',
     'settings.assistant.quickPromptsDesc': 'Вопросы, которые панель предлагает кнопками в один '
@@ -627,7 +678,7 @@ export default {
 
     /* ---- Settings: Security ---- */
     'settings.security.title': 'Безопасность',
-    'settings.security.desc': 'Кто может открыть это приложение и каким серверам оно доверяет.',
+    'settings.security.desc': 'Кто может открыть это приложение.',
 
     'settings.lock.title': 'Пароль на открытие',
     'settings.lock.badgeOn': 'вкл',

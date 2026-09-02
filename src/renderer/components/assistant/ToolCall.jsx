@@ -31,6 +31,21 @@ const TITLES = {
     remember: 'assistant.didRemember',
     recall: 'assistant.didRecall',
     forget: 'assistant.didForget',
+    list_snippets: 'assistant.didListSnippets',
+    read_snippet: 'assistant.didReadSnippet',
+    list_inventory: 'assistant.didListInventory',
+    save_snippet: 'assistant.didSaveSnippet',
+    save_host: 'assistant.didSaveHost',
+    save_proxy: 'assistant.didSaveProxy',
+    save_key: 'assistant.didSaveKey',
+    save_mcp_server: 'assistant.didSaveServer',
+    save_folder: 'assistant.didSaveFolder',
+    delete_inventory_item: 'assistant.didDeleteItem',
+    edit_file: 'assistant.didEdit',
+    edit_local_file: 'assistant.didEdit',
+    search_local_files: 'assistant.didSearchFiles',
+    search_conversations: 'assistant.didSearchConversations',
+    ask_user: 'assistant.didAsk',
 };
 
 /** The dot carries the status, so the row height never changes with it. */
@@ -64,6 +79,22 @@ export function describeCall(name, input = {}) {
         case 'write_file':
         case 'list_directory':
             return { mono: true, text: input.path || '' };
+        case 'edit_file':
+        case 'edit_local_file':
+            // The path on the row; the change itself is what the approval
+            // card shows in full, old above new.
+            return {
+                mono: true,
+                text: input.path || '',
+                detail: input.old !== undefined
+                    ? `- ${String(input.old)}\n+ ${String(input.new ?? '')}`
+                    : '',
+            };
+        case 'search_local_files':
+        case 'search_conversations':
+            return { mono: false, text: input.query || '' };
+        case 'ask_user':
+            return { mono: false, text: input.question || '' };
         case 'read_terminal':
             return {
                 mono: false,
@@ -78,6 +109,26 @@ export function describeCall(name, input = {}) {
             };
         case 'connect_host':
             return { mono: false, text: input.hostId || '' };
+        case 'list_snippets':
+        case 'list_inventory':
+            return {
+                mono: false,
+                text: [input.kind, input.query ? translate('assistant.matching', { query: input.query }) : '']
+                    .filter(Boolean).join(' '),
+            };
+        case 'read_snippet':
+            return { mono: false, text: input.id || '' };
+        case 'save_snippet':
+        case 'save_host':
+        case 'save_proxy':
+        case 'save_key':
+        case 'save_mcp_server':
+        case 'save_folder':
+            // The name and nothing else. A password or a key in the input
+            // must not be drawn on the row, in the tooltip, or in the log.
+            return { mono: false, text: input.name || input.id || '' };
+        case 'delete_inventory_item':
+            return { mono: false, text: [input.kind, input.id].filter(Boolean).join(' ') };
         default: {
             const entries = Object.entries(input).filter(([key]) => key !== 'session');
             if (entries.length === 0) return { mono: false, text: '' };

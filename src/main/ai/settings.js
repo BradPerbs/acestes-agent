@@ -340,11 +340,18 @@ function effective(agentId) {
  */
 function get(agentId) {
     const { id, settings: current } = effective(agentId);
+    const sandbox = agents.sandbox(id);
     return {
         ...current,
         agentId: id,
         // The agent's MCP servers ride along so a provider reads one object.
         mcpServers: agents.get(id)?.mcpServers || [],
+        // The envelope, for the same reason. A containerised agent has the
+        // runtime's own local tools forced off here, once, so every provider
+        // and the tool gate read the same answer: on this machine, that agent
+        // works through the app's local tools, which run in its container.
+        sandbox,
+        allowLocalTools: sandbox.execution === 'container' ? false : current.allowLocalTools,
         // Whether the agent now answering is running on a key left here by an
         // older version, which is what the usage chip in the composer needs to
         // know: a metered key and a plan are charged differently and it says

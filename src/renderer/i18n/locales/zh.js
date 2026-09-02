@@ -261,10 +261,8 @@ export default {
     'settings.nav.aria': '设置分类',
     'settings.nav.general': '通用',
     'settings.nav.appearance': '外观',
-    'settings.nav.terminal': '终端',
+    'settings.nav.servers': 'SSH 与服务器',
     'settings.nav.assistant': 'AI 助手',
-    'settings.nav.monitoring': '监控',
-    'settings.nav.logging': '日志记录',
     'settings.nav.security': '安全',
     'settings.nav.backup': '备份',
     'settings.nav.about': '关于',
@@ -272,6 +270,8 @@ export default {
     /* ---- Settings: General ---- */
     'settings.general.title': '通用',
     'settings.general.desc': '应用启动时的行为。',
+    'settings.servers.title': 'SSH 与服务器',
+    'settings.servers.desc': '代理工作所依赖的机制：终端的外观和会话保留的内容、监视哪些主机，以及信任哪些服务器密钥。',
     'settings.general.language': '语言',
     'settings.general.languageDesc': '应用自身文字所使用的语言。终端输出以及服务器打印的任何内容都保持原样。',
     'settings.general.languageChanged': '语言已切换为 {language}',
@@ -281,8 +281,9 @@ export default {
     'settings.general.startupOff': '登录时不再自动打开 CloudTerm',
     'settings.general.startupFailed': '无法更改该设置',
     'settings.general.startupUnknown': '无法读取应用是否随系统启动',
-    'settings.general.restore': '恢复会话',
-    'settings.general.restoreDesc': '重新打开应用关闭时开着的标签页，并重新连接到对应主机',
+    'settings.general.restore': '启动时恢复标签页',
+    'settings.general.restoreDesc': '重新打开应用关闭时开着的内容：与代理的对话，以及终端会话（会重新连接到对应主机）。'
+        + '关闭后，应用启动时只有一个新对话。两种情况都不会丢失任何东西；关闭的对话仍保留在代理的历史中。',
 
     /* ---- Settings: Appearance ---- */
     'settings.appearance.title': '外观',
@@ -431,6 +432,45 @@ export default {
     'settings.assistant.blockListWarning': '这是防止误操作的护栏，不是安全控制手段。'
         + 'shell 中同一条命令的写法太多，任何列表都不可能全部覆盖，所以重要的操作请保持开启批准。',
     'settings.assistant.saveList': '保存列表',
+    'settings.assistant.sandbox': '沙箱',
+    'settings.assistant.sandboxDesc': '这个代理在本机上可以触及什么，以及它的本地工作在哪里运行。'
+        + '服务器始终有围栏：每个远程工具在运行前都会检查代理自己的会话和主机。',
+    'settings.assistant.sandbox.execution': '本地工作运行于',
+    'settings.assistant.sandbox.execution.host': '本机',
+    'settings.assistant.sandbox.execution.container': '容器',
+    'settings.assistant.sandbox.execution.host.note': '本地命令和文件限制在下方授予的文件夹内，'
+        + '应用在每次调用时检查。这是护栏而不是墙：shell 能触及你能触及的一切，所以批准卡仍然重要。',
+    'settings.assistant.sandbox.execution.container.note': '本地命令、文件和这个代理的 MCP 服务器'
+        + '在它自己的加固 Docker 容器中运行，只挂载下方授予的文件夹。运行时在本机上的自带工具'
+        + '会被关闭。需要 Docker。',
+    'settings.assistant.sandbox.docker.checking': '正在查找 Docker…',
+    'settings.assistant.sandbox.docker.ready': 'Docker {version} 正在运行。',
+    'settings.assistant.sandbox.docker.container': '容器{status}。',
+    'settings.assistant.sandbox.docker.missing': '{reason}',
+    'settings.assistant.sandbox.reset': '重建容器',
+    'settings.assistant.sandbox.resetDone': '容器已从头重建。',
+    'settings.assistant.sandbox.resetFailed': '容器无法重建：{error}',
+    'settings.assistant.sandbox.network': '容器网络',
+    'settings.assistant.sandbox.network.none': '无',
+    'settings.assistant.sandbox.network.any': '开放',
+    'settings.assistant.sandbox.network.none.note': '容器没有出口。它读到的任何内容都无法发送出去，'
+        + '也无法拉取任何东西。适合通过 SSH 会话工作的代理，会话由应用在容器之外持有。',
+    'settings.assistant.sandbox.network.any.note': '容器可以访问互联网和你的本地网络。安装和下载需要它；'
+        + '这也是被误导的代理泄露所见内容的主要途径。',
+    'settings.assistant.sandbox.sessions': '终端会话',
+    'settings.assistant.sandbox.sessions.own': '自己的',
+    'settings.assistant.sandbox.sessions.any': '任何已打开的',
+    'settings.assistant.sandbox.sessions.own.note': '这个代理可以使用它自己打开的会话和你亲自打开的会话。'
+        + '其他代理打开的会话会被拒绝。',
+    'settings.assistant.sandbox.sessions.any.note': '这个代理可以操作所有已打开的会话，包括其他代理打开的。',
+    'settings.assistant.sandbox.folders': '本机上的文件夹',
+    'settings.assistant.sandbox.foldersDesc': '本地工具唯一可以查看的位置。初始不授予任何文件夹。'
+        + '在容器中每个文件夹挂载在 /workspace 下。',
+    'settings.assistant.sandbox.foldersEmpty': '未授予任何文件夹。在授予之前本地工具会拒绝一切。',
+    'settings.assistant.sandbox.addFolder': '授予文件夹',
+    'settings.assistant.sandbox.folder.read': '读取',
+    'settings.assistant.sandbox.folder.write': '读写',
+    'settings.assistant.sandbox.removeFolder': '移除',
     'settings.assistant.restoreDefaults': '恢复默认',
     'settings.assistant.quickPrompts': '快捷提问',
     'settings.assistant.quickPromptsDesc': '对话为空时，面板会把这些问题做成一键按钮。每行一条。'
@@ -524,7 +564,7 @@ export default {
 
     /* ---- Settings: Security ---- */
     'settings.security.title': '安全',
-    'settings.security.desc': '谁可以打开这个应用，以及它信任哪些服务器。',
+    'settings.security.desc': '谁可以打开这个应用。',
 
     'settings.lock.title': '启动密码',
     'settings.lock.badgeOn': '已开启',

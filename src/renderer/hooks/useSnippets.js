@@ -35,6 +35,13 @@ async function reload() {
     }
 }
 
+// The agent saves snippets from the main process, behind every copy of this
+// hook, so the cache follows that channel as well as its own saves. Once per
+// page load, like the cache itself.
+window.api?.inventory?.onChange?.((change) => {
+    if (change?.kind === 'snippets' && cache !== null) reload();
+});
+
 export function useSnippets() {
     const [snippets, setSnippets] = useState(() => cache || []);
     const [loading, setLoading] = useState(() => cache === null);

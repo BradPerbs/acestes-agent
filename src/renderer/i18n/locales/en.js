@@ -60,14 +60,51 @@ export default {
     'agents.agent': 'Agent',
     'agents.heading': 'Agents',
     'agents.new': 'New agent…',
-    'agents.rename': 'Rename…',
+    'agents.rename': 'Edit…',
     'agents.newTitle': 'New agent',
     'agents.newSubtitle': 'An agent has its own conversations, its own inventory and its own settings.',
-    'agents.renameTitle': 'Rename agent',
+    'agents.renameTitle': 'Edit agent',
     'agents.nameLabel': 'Name',
     'agents.colorLabel': 'Colour',
+    'agents.modeLabel': 'Where its local work runs',
+    'agents.mode.info': 'What each mode can and cannot do',
+    'agents.mode.can': 'Can',
+    'agents.mode.cannot': 'Cannot',
+    'agents.mode.host': 'On this computer',
+    'agents.mode.host.desc': 'Inside the folders you grant it. Checked by the app on every call. '
+        + 'Nothing to install.',
+    'agents.mode.container': 'In a container',
+    'agents.mode.container.desc': 'A hardened Docker container of its own, no network by '
+        + 'default. Right for unattended work. Needs Docker.',
+    'agents.mode.host.can1': 'Work on your servers over the SSH sessions the app holds',
+    'agents.mode.host.can2': 'Read, write and run inside the folders you grant it, with approval',
+    'agents.mode.host.can3': 'Use the runtime’s own tools on this machine, if you leave them on',
+    'agents.mode.host.cannot1': 'Be stopped by a wall: a shell reaches what you can, so the '
+        + 'folder grant is a guardrail and the approval card is the control',
+    'agents.mode.host.cannot2': 'Keep a hostile MCP server or a bug away from the rest of your disk',
+    'agents.mode.container.can1': 'Work on your servers over the SSH sessions the app holds, '
+        + 'exactly as before',
+    'agents.mode.container.can2': 'Run commands, install packages and write files in its own '
+        + 'container, with only the folders you grant it mounted',
+    'agents.mode.container.can3': 'Run its MCP servers inside that container, away from your '
+        + 'files and keys',
+    'agents.mode.container.cannot1': 'Reach anything on this computer outside the granted folders',
+    'agents.mode.container.cannot2': 'Reach the internet or your network unless you open it, '
+        + 'so no installs or downloads until you do',
+    'agents.mode.container.cannot3': 'Use the runtime’s own local tools; it works through the '
+        + 'app’s local tools instead',
+    'agents.mode.footnote': 'Both modes fence the servers the same way: an agent only drives '
+        + 'the sessions it opened or you opened, and never sees a credential. You can change '
+        + 'the mode later on the agent’s Sandbox card in Settings.',
     'agents.namePlaceholder': 'e.g. Ops',
     'agents.create': 'Create agent',
+    'agents.foldersLabel': 'Folders on this computer',
+    'agents.foldersHint': 'The agent is confined to these when it works on this machine: it can '
+        + 'list, read, search, edit and run commands inside them and nowhere else. Leave empty to '
+        + 'keep it off this computer entirely.',
+    'agents.addFolder': 'Grant a folder…',
+    'agents.folder.read': 'Read',
+    'agents.folder.write': 'Read & write',
     'agents.deleteTitle': 'Delete this agent?',
     'agents.deleteMessage': '“{name}” will be removed. Its conversations move to the agent selected '
         + 'next; the hosts, keys and snippets filed under it stay in the inventory.',
@@ -147,8 +184,48 @@ export default {
     'conversations.messages_one': '{count} message',
     'conversations.messages_other': '{count} messages',
     'conversations.search': 'Search conversations',
+    'conversations.searchPlaceholder': 'Search what was said… try is:pinned, host:web-01, has:error',
+    'conversations.quickSearch': 'Find a conversation',
+    'conversations.quickSearchPlaceholder': 'Filter titles · Enter searches everything',
+    'conversations.searchHelp': 'Search help',
+    'conversations.searchHelpTitle': 'Searching conversations',
+    'conversations.searchHelpIntro': 'Words are looked for in the titles, your messages, the '
+        + 'agent’s replies, the commands it ran and what came back. Every word has to appear '
+        + 'somewhere. Add these to narrow it:',
+    'conversations.searchHelp.phrase': 'the words in that order',
+    'conversations.searchHelp.exclude': 'without that word',
+    'conversations.searchHelp.is': 'pinned, open in a tab, or working right now',
+    'conversations.searchHelp.has': 'an error, a tool call, an image, or an approval',
+    'conversations.searchHelp.from': 'the words in your messages, or in the agent’s',
+    'conversations.searchHelp.tool': 'a tool that was called',
+    'conversations.searchHelp.host': 'a host it touched, by name',
+    'conversations.searchHelp.when': 'by when it was last active: 7d, 2w, yesterday, or a date',
+    'conversations.searchHelpMeaning': 'Conversations close in meaning are offered too, marked '
+        + '“related”, even when none of the words match.',
+    'conversations.filter.pinned': 'Pinned',
+    'conversations.filter.open': 'Open',
+    'conversations.filter.errors': 'Had errors',
+    'conversations.filter.week': 'This week',
+    'conversations.filter.mine': 'My messages',
+    'conversations.results_one': '{count} result',
+    'conversations.results_other': '{count} results',
+    'conversations.searching': 'Searching…',
+    'conversations.noResults': 'Nothing matches',
+    'conversations.noResultsNote': 'Try fewer words, or drop a filter.',
+    'conversations.matches_one': '{count} match',
+    'conversations.matches_other': '{count} matches',
+    'conversations.related': 'related',
+    'conversations.meaningLoading': 'Search by meaning is warming up; results are by words for now.',
+    'conversations.snippet.user': 'You',
+    'conversations.snippet.agent': 'Agent',
+    'conversations.snippet.tool': 'Ran',
+    'conversations.snippet.result': 'Got',
     'conversations.new': 'New conversation',
     'conversations.open': 'Open',
+    'conversations.pin': 'Pin to top',
+    'conversations.unpin': 'Unpin',
+    'conversations.pinned': 'Pinned',
+    'conversations.others': 'Recent',
     'conversations.empty': 'No conversations yet',
     'conversations.emptyNote': 'Start one and the agent works on your servers from there, through '
         + 'the sessions it opens.',
@@ -427,10 +504,8 @@ export default {
     'settings.nav.aria': 'Settings categories',
     'settings.nav.general': 'General',
     'settings.nav.appearance': 'Appearance',
-    'settings.nav.terminal': 'Terminal',
+    'settings.nav.servers': 'SSH & Servers',
     'settings.nav.assistant': 'AI Agent',
-    'settings.nav.monitoring': 'Monitoring',
-    'settings.nav.logging': 'Logging',
     'settings.nav.security': 'Security',
     'settings.nav.backup': 'Backup',
     'settings.nav.about': 'About',
@@ -440,6 +515,9 @@ export default {
      * ---------------------------------------------------------------- */
     'settings.general.title': 'General',
     'settings.general.desc': 'How the app behaves when it starts.',
+    'settings.servers.title': 'SSH & Servers',
+    'settings.servers.desc': 'The machinery the agent works through: how the terminal looks and '
+        + 'what is kept of a session, which hosts are watched, and which server keys are trusted.',
     'settings.general.language': 'Language',
     'settings.general.languageDesc': 'The language the app’s own text is shown in. Terminal output '
         + 'and anything your servers print is left exactly as it arrives.',
@@ -450,9 +528,11 @@ export default {
     'settings.general.startupOff': 'CloudTerm will no longer open when you sign in',
     'settings.general.startupFailed': 'That could not be changed',
     'settings.general.startupUnknown': 'Could not read whether the app starts at boot',
-    'settings.general.restore': 'Restore sessions',
-    'settings.general.restoreDesc': 'Reopen the tabs that were open when the app closed and '
-        + 'reconnect to their hosts',
+    'settings.general.restore': 'Restore tabs on launch',
+    'settings.general.restoreDesc': 'Reopen what was open when the app closed: the conversations '
+        + 'with your agents, and the terminal sessions, reconnected to their hosts. Off, the app '
+        + 'starts with one fresh conversation. Nothing is lost either way; closed conversations '
+        + 'stay in the agent\'s history.',
 
     /* ---------------------------------------------------------------- *
      * Settings: Appearance
@@ -634,6 +714,52 @@ export default {
         + 'shell has too many ways to spell the same command for any list to catch them all, so '
         + 'keep approvals on for anything that matters.',
     'settings.assistant.saveList': 'Save list',
+    'settings.assistant.sandbox': 'Sandbox',
+    'settings.assistant.sandboxDesc': 'What this agent may touch on this computer, and where its '
+        + 'local work runs. The servers are fenced either way: every remote tool checks the '
+        + 'agent\'s own sessions and hosts before it runs.',
+    'settings.assistant.sandbox.execution': 'Local work runs',
+    'settings.assistant.sandbox.execution.host': 'On this computer',
+    'settings.assistant.sandbox.execution.container': 'In a container',
+    'settings.assistant.sandbox.execution.host.note': 'Local commands and files stay inside the '
+        + 'folders granted below, checked by the app on every call. A guardrail, not a wall: a '
+        + 'shell can reach what you can, so the approval card still matters.',
+    'settings.assistant.sandbox.execution.container.note': 'Local commands, files and this '
+        + 'agent\'s MCP servers run in a hardened Docker container of its own, with only the '
+        + 'folders granted below mounted. The runtime\'s own tools on this computer are switched '
+        + 'off. Needs Docker.',
+    'settings.assistant.sandbox.docker.checking': 'Looking for Docker…',
+    'settings.assistant.sandbox.docker.ready': 'Docker {version} is running.',
+    'settings.assistant.sandbox.docker.container': 'Container {status}.',
+    'settings.assistant.sandbox.docker.missing': '{reason}',
+    'settings.assistant.sandbox.reset': 'Reset container',
+    'settings.assistant.sandbox.resetDone': 'The container was rebuilt from scratch.',
+    'settings.assistant.sandbox.resetFailed': 'The container could not be rebuilt: {error}',
+    'settings.assistant.sandbox.network': 'Container network',
+    'settings.assistant.sandbox.network.none': 'None',
+    'settings.assistant.sandbox.network.any': 'Open',
+    'settings.assistant.sandbox.network.none.note': 'No way out of the container. Nothing it reads '
+        + 'can be sent anywhere, and nothing can be pulled in. Right for an agent that works '
+        + 'through SSH sessions, which the app holds outside the container.',
+    'settings.assistant.sandbox.network.any.note': 'The container can reach the internet and '
+        + 'your local network. Needed for installs and downloads; also the main way a misled '
+        + 'agent leaks what it was shown.',
+    'settings.assistant.sandbox.sessions': 'Terminal sessions',
+    'settings.assistant.sandbox.sessions.own': 'Its own',
+    'settings.assistant.sandbox.sessions.any': 'Any open',
+    'settings.assistant.sandbox.sessions.own.note': 'This agent may use the sessions it opened '
+        + 'and the ones you opened yourself. Sessions another agent opened are refused.',
+    'settings.assistant.sandbox.sessions.any.note': 'This agent may drive every open session, '
+        + 'including ones another agent opened.',
+    'settings.assistant.sandbox.folders': 'Folders on this computer',
+    'settings.assistant.sandbox.foldersDesc': 'The only places the local tools may look. Nothing '
+        + 'is granted to begin with. In a container each folder is mounted under /workspace.',
+    'settings.assistant.sandbox.foldersEmpty': 'No folders granted. The local tools refuse '
+        + 'everything until one is.',
+    'settings.assistant.sandbox.addFolder': 'Grant a folder',
+    'settings.assistant.sandbox.folder.read': 'Read',
+    'settings.assistant.sandbox.folder.write': 'Read & write',
+    'settings.assistant.sandbox.removeFolder': 'Remove',
     'settings.assistant.restoreDefaults': 'Restore defaults',
     'settings.assistant.quickPrompts': 'Quick prompts',
     'settings.assistant.quickPromptsDesc': 'Questions the panel offers as one-click buttons when a '
@@ -760,7 +886,7 @@ export default {
      * Settings: Security
      * ---------------------------------------------------------------- */
     'settings.security.title': 'Security',
-    'settings.security.desc': 'Who can open this app, and which servers it trusts.',
+    'settings.security.desc': 'Who can open this app.',
 
     'settings.lock.title': 'Opening password',
     'settings.lock.badgeOn': 'on',
@@ -1286,6 +1412,25 @@ export default {
     'assistant.didRemember': 'Remembered',
     'assistant.didRecall': 'Searched its memory',
     'assistant.didForget': 'Forgot a note',
+    'assistant.didListSnippets': 'Listed snippets',
+    'assistant.didReadSnippet': 'Read a snippet',
+    'assistant.didListInventory': 'Listed its inventory',
+    'assistant.didSaveSnippet': 'Saved a snippet',
+    'assistant.didSaveHost': 'Saved a host',
+    'assistant.didSaveProxy': 'Saved a proxy',
+    'assistant.didSaveKey': 'Saved a key',
+    'assistant.didSaveServer': 'Saved an MCP server',
+    'assistant.didSaveFolder': 'Saved a folder',
+    'assistant.didDeleteItem': 'Deleted from its inventory',
+    'assistant.didEdit': 'Edited',
+    'assistant.didSearchFiles': 'Searched files',
+    'assistant.didSearchConversations': 'Searched past conversations',
+    'assistant.didAsk': 'Asked',
+    'assistant.asks': 'The agent asks',
+    'assistant.answered': 'Answered',
+    'assistant.dismissed': 'Dismissed',
+    'assistant.typeAnswer': 'Type an answer…',
+    'assistant.answerPlaceholder': 'Your answer',
     'assistant.lastLines': 'last {count} lines',
     'assistant.recentOutput': 'recent output',
     'assistant.matching': 'matching "{query}"',
@@ -1303,6 +1448,17 @@ export default {
     'assistant.askRemember': 'Save a note to its memory',
     'assistant.askRecall': 'Search its memory',
     'assistant.askForget': 'Forget a note',
+    'assistant.askListSnippets': 'List its snippets',
+    'assistant.askReadSnippet': 'Read a snippet',
+    'assistant.askListInventory': 'List its inventory',
+    'assistant.askSaveSnippet': 'Save a snippet',
+    'assistant.askSaveHost': 'Save a host',
+    'assistant.askSaveProxy': 'Save a proxy',
+    'assistant.askSaveKey': 'Save a key to the keychain',
+    'assistant.askSaveServer': 'Add an MCP server',
+    'assistant.askSaveFolder': 'Save a folder',
+    'assistant.askDeleteItem': 'Delete from its inventory',
+    'assistant.askEditFile': 'Edit a file',
     'assistant.askRunLocally': 'Run {tool} locally',
     'assistant.onHost': 'on {host}',
     'assistant.allow': 'Allow',

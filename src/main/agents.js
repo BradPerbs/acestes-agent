@@ -1,6 +1,7 @@
 const { app } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const sandboxModule = require('./ai/sandbox');
 
 /**
  * The agents.
@@ -112,6 +113,10 @@ function normalizeAgent(raw) {
         mcpServers: Array.isArray(raw.mcpServers)
             ? raw.mcpServers.map(normalizeServer).filter(Boolean).slice(0, MAX_SERVERS)
             : [],
+        // The envelope the agent works inside: which sessions it may drive,
+        // which local folders it may touch, and whether its local footprint
+        // runs in a container. See ai/sandbox.js.
+        sandbox: sandboxModule.normalize(raw.sandbox),
     };
 }
 
@@ -123,6 +128,7 @@ function fresh(name = DEFAULT_NAME, color = COLORS[0]) {
         createdAt: Date.now(),
         settings: {},
         mcpServers: [],
+        sandbox: sandboxModule.normalize(),
     };
 }
 
@@ -168,7 +174,13 @@ function publicAgent(agent) {
         color: agent.color,
         createdAt: agent.createdAt,
         mcpServers: agent.mcpServers.map(server => ({ ...server, env: { ...server.env } })),
+        sandbox: sandboxModule.normalize(agent.sandbox),
     };
+}
+
+/** The envelope one agent works inside, as the tool layer reads it. */
+function sandbox(id) {
+    return sandboxModule.normalize(get(id)?.sandbox);
 }
 
 function snapshot() {
@@ -213,7 +225,7 @@ function select(id) {
  * A new one is selected on creation: making an agent and then having to pick
  * it is two steps for one intention.
  */
-function save({ id, name, color, mcpServers } = {}) {
+function save({ id, name, color, mcpServers, sandbox: envelope } = {}) {
     const current = load();
     const existing = id ? current.agents.find(agent => agent.id === id) : null;
 
@@ -222,6 +234,11 @@ function save({ id, name, color, mcpServers } = {}) {
         if (COLORS.includes(color)) existing.color = color;
         if (Array.isArray(mcpServers)) {
             existing.mcpServers = mcpServers.map(normalizeServer).filter(Boolean).slice(0, MAX_SERVERS);
+        }
+        if (envelope && typeof envelope === 'object') {
+            // A patch over what is there, so a page that only changes the
+            // network does not have to resend the folder list.
+            existing.sandbox = sandboxModule.normalize({ ...existing.sandbox, ...envelope });
         }
         persist();
         notify('agents-changed', snapshot());
@@ -236,6 +253,7 @@ function save({ id, name, color, mcpServers } = {}) {
     if (Array.isArray(mcpServers)) {
         agent.mcpServers = mcpServers.map(normalizeServer).filter(Boolean).slice(0, MAX_SERVERS);
     }
+    if (envelope && typeof envelope === 'object') agent.sandbox = sandboxModule.normalize(envelope);
     current.agents.push(agent);
     current.activeId = agent.id;
     persist();
@@ -269,6 +287,7 @@ module.exports = {
     snapshot,
     activeId,
     get,
+    sandbox,
     overrides,
     setOverrides,
     select,

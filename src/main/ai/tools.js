@@ -6,6 +6,8 @@ const transcript = require('../transcript');
 const exec = require('./exec');
 const terminalRun = require('./terminal-run');
 const memory = require('./memory');
+const local = require('./local');
+const inventoryTools = require('./inventory-tools');
 
 // zod 4 exports both a namespace and a `z` binding depending on how it is
 // reached. Taking either keeps this working whichever the installed build is.
@@ -60,7 +62,24 @@ function fenced(ctx) {
  * opens did not exist when the user was ticking boxes, and it has to be usable
  * the moment it does.
  */
+/**
+ * Whether a session belongs to some other agent.
+ *
+ * A session the user opened by hand belongs to nobody and every agent may
+ * use it. One an agent opened through connect_host is that agent's, and the
+ * others are kept off it unless the envelope says `sessions: 'any'`. This is
+ * the fence that makes two agents in one window two agents, rather than one
+ * agent with two names: it is enforced here, in front of every tool that
+ * takes a session, and not asked for in the prompt.
+ */
+function ownedElsewhere(ctx, sessionId) {
+    if (!ctx?.agentId || ctx.sandbox?.sessions === 'any') return false;
+    const info = transcript.info(sessionId);
+    return Boolean(info?.agentId && info.agentId !== ctx.agentId);
+}
+
 function sessionInScope(ctx, sessionId) {
+    if (ownedElsewhere(ctx, sessionId)) return false;
     if (!fenced(ctx)) return true;
     if (ctx.sessionIds.includes(sessionId)) return true;
     const info = transcript.info(sessionId);
@@ -121,6 +140,13 @@ function resolveSession(input, ctx) {
         return {
             error: 'This call needs a session id. Open sessions: '
                 + open.map(s => `${s.sessionId} (${s.hostName || s.address})`).join(', '),
+        };
+    }
+
+    if (ownedElsewhere(ctx, chosen)) {
+        return {
+            error: `Session "${chosen}" was opened by another agent and is not yours to use. `
+                + 'Use list_sessions for the ones you can, or connect_host to open your own.',
         };
     }
 
@@ -659,9 +685,288 @@ const TOOLS = [
                 : fail(`There is no note with the id "${input.id}".`)
         ),
     },
+
+    /* -------------------------------------------------------------- *
+     * This computer. Every one of these goes through local.js, which
+     * reads the agent's envelope and either stays inside the folders the
+     * user granted or runs inside the agent's container. See sandbox.js.
+     * -------------------------------------------------------------- */
+
+    {
+        name: 'list_local_directory',
+        title: 'List a local directory',
+        readOnly: true,
+        description:
+            'List a directory on the user\'s own computer, inside a folder the user has granted this '
+            + 'agent. When the agent runs in a container, paths are as seen inside it, under /workspace. '
+            + 'Refused outside the granted folders.',
+        shape: {
+            path: z.string().optional().describe('Absolute path of the directory. Inside a container, a path under /workspace; omit for /workspace itself.'),
+        },
+        handler: async (input, ctx) => {
+            const result = await local.list(ctx, input.path || '');
+            return result.error ? fail(result.error) : ok(result);
+        },
+    },
+
+    {
+        name: 'read_local_file',
+        title: 'Read a local file',
+        readOnly: true,
+        description:
+            'Read a text file on the user\'s own computer, inside a folder the user has granted this '
+            + 'agent. Returns at most the first 120 KB. Refused outside the granted folders.',
+        shape: {
+            path: z.string().describe('Absolute path of the file, or a path under /workspace inside a container.'),
+        },
+        handler: async (input, ctx) => {
+            const result = await local.read(ctx, input.path);
+            return result.error ? fail(result.error) : ok(result);
+        },
+    },
+
+    {
+        name: 'write_local_file',
+        title: 'Write a local file',
+        readOnly: false,
+        description:
+            'Write a text file on the user\'s own computer, replacing it if it exists, inside a folder '
+            + 'the user has granted this agent for writing. Parent directories are created. Refused '
+            + 'outside the granted folders and in folders granted read-only.',
+        shape: {
+            path: z.string().describe('Absolute path of the file, or a path under /workspace inside a container.'),
+            content: z.string().describe('The whole content the file should have.'),
+        },
+        handler: async (input, ctx) => {
+            const result = await local.write(ctx, input.path, input.content);
+            return result.error ? fail(result.error) : ok({ written: true, ...result });
+        },
+    },
+
+    {
+        name: 'run_local_command',
+        title: 'Run a command on this computer',
+        readOnly: false,
+        description:
+            'Run a shell command on the user\'s own computer and return its output and exit code. '
+            + 'Runs with its working directory inside a folder the user has granted this agent, or '
+            + 'inside the agent\'s container when it has one. Not for servers: use run_command with a '
+            + 'session for those.',
+        shape: {
+            command: z.string().describe('The command line to run.'),
+            cwd: z.string().optional().describe('Working directory, inside a granted folder. Defaults to the first granted folder, or /workspace in a container.'),
+            timeout: z.number().int().min(1000).max(600000).optional().describe('Milliseconds to wait before stopping it. Default 60000.'),
+        },
+        handler: async (input, ctx) => {
+            const result = await local.run(ctx, input.command, {
+                cwd: input.cwd || '',
+                timeout: input.timeout || local.DEFAULT_TIMEOUT,
+            });
+            if (!result.success) {
+                return fail([result.message, result.stdout, result.stderr].filter(Boolean).join('\n'));
+            }
+            return ok({
+                exitCode: result.exitCode,
+                stdout: result.stdout,
+                stderr: result.stderr,
+                truncated: result.truncated || undefined,
+            });
+        },
+    },
+
+    /* -------------------------------------------------------------- *
+     * Editing in place, remote and local.
+     *
+     * A replacement of one passage rather than a whole file. The
+     * approval card gets something a person can read (the text going
+     * out and the text coming in) instead of a full config file, and a
+     * file the agent has not read whole cannot be quietly rewritten.
+     * -------------------------------------------------------------- */
+
+    {
+        name: 'edit_file',
+        title: 'Edit a remote file',
+        readOnly: false,
+        description:
+            'Replace one passage of a text file on a session\'s server over SFTP, leaving the rest as '
+            + 'it is. Prefer this to write_file for a change to a config file: it is smaller to review '
+            + 'and cannot discard lines you did not see. `old` must match the file exactly, whitespace '
+            + 'included, and exactly once unless `all` is set. Read the file first.',
+        shape: {
+            session: z.string().optional().describe('Session id. Defaults to the session in front of the user.'),
+            path: z.string().describe('Absolute path of the file.'),
+            old: z.string().min(1).describe('The exact text to replace.'),
+            new: z.string().describe('What it becomes. Empty to delete the passage.'),
+            all: z.boolean().optional().describe('Replace every occurrence rather than requiring exactly one.'),
+        },
+        handler: async (input, ctx) => {
+            const resolved = resolveSession(input, ctx);
+            if (resolved.error) return fail(resolved.error);
+
+            return viaSftp(resolved.sessionId, (handle, resolve) => {
+                handle.readFile(input.path, (readError, data) => {
+                    if (readError) {
+                        resolve(fail(`Could not read ${input.path}: ${readError.message}`));
+                        return;
+                    }
+                    if (data.length > MAX_FILE_BYTES * 8) {
+                        resolve(fail(`${input.path} is too large to edit in place. Use run_command with sed.`));
+                        return;
+                    }
+                    const applied = local.applyEdit(data.toString('utf8'), input.old, input.new, { all: Boolean(input.all) });
+                    if (applied.error) {
+                        resolve(fail(applied.error));
+                        return;
+                    }
+                    handle.writeFile(input.path, applied.content, { encoding: 'utf8' }, (writeError) => {
+                        if (writeError) {
+                            resolve(fail(`Could not write ${input.path}: ${writeError.message}`));
+                            return;
+                        }
+                        resolve(ok(`Replaced ${applied.replaced} occurrence${applied.replaced === 1 ? '' : 's'} in ${input.path}.`));
+                    });
+                });
+            });
+        },
+    },
+
+    {
+        name: 'edit_local_file',
+        title: 'Edit a local file',
+        readOnly: false,
+        description:
+            'Replace one passage of a text file on the user\'s own computer, inside a folder granted '
+            + 'for writing, leaving the rest as it is. `old` must match exactly, whitespace included, '
+            + 'and exactly once unless `all` is set. Read the file first.',
+        shape: {
+            path: z.string().describe('Absolute path of the file, or a path under /workspace inside a container.'),
+            old: z.string().min(1).describe('The exact text to replace.'),
+            new: z.string().describe('What it becomes. Empty to delete the passage.'),
+            all: z.boolean().optional().describe('Replace every occurrence rather than requiring exactly one.'),
+        },
+        handler: async (input, ctx) => {
+            const result = await local.edit(ctx, input.path, input.old, input.new, { all: Boolean(input.all) });
+            return result.error ? fail(result.error) : ok({ edited: true, ...result });
+        },
+    },
+
+    {
+        name: 'search_local_files',
+        title: 'Search local files',
+        readOnly: true,
+        description:
+            'Search for text inside the files of the folders the user granted this agent, like grep. '
+            + 'Returns file, line number and the line. Skips .git, node_modules, build output and '
+            + 'binary files. Omit `path` to search every granted folder.',
+        shape: {
+            query: z.string().min(1).describe('The text to look for, or a regular expression when `regex` is set.'),
+            path: z.string().optional().describe('A granted folder, or a file or folder inside one. Omit for all of them.'),
+            regex: z.boolean().optional().describe('Treat the query as a regular expression.'),
+            glob: z.string().optional().describe('Only files whose name matches, e.g. "*.conf" or "*.js".'),
+            limit: z.number().int().min(1).max(local.MAX_MATCHES).optional().describe('Most matches to return. Defaults to 200.'),
+        },
+        handler: async (input, ctx) => {
+            const result = await local.search(ctx, input);
+            return result.error ? fail(result.error) : ok(result);
+        },
+    },
+
+    /* -------------------------------------------------------------- *
+     * Looking back, and asking.
+     * -------------------------------------------------------------- */
+
+    {
+        name: 'search_conversations',
+        title: 'Search past conversations',
+        readOnly: true,
+        description:
+            'Search this agent\'s earlier conversations with the user by what was said in them: the '
+            + 'user\'s messages, your replies, the commands run and what came back. Use it for "what '
+            + 'did we do about X", "how did we fix this last time", or to find the host a problem was '
+            + 'on. Plain words plus operators: "exact phrase", -word, host:web-01, tool:run_command, '
+            + 'after:7d, before:2026-08-01, has:error, from:me, from:agent. Returns the matching '
+            + 'conversations with the passages that matched.',
+        shape: {
+            query: z.string().min(1).describe('Words and operators, as above.'),
+            limit: z.number().int().min(1).max(30).optional().describe('Most conversations to return. Defaults to 8.'),
+        },
+        handler: async (input, ctx) => {
+            if (typeof ctx.searchConversations !== 'function') return fail('Conversation search is not available here.');
+            const found = await ctx.searchConversations({ query: input.query, limit: input.limit || 8 });
+            return ok({
+                total: found.total,
+                meaning: found.meaning,
+                conversations: (found.results || []).map(result => ({
+                    conversationId: result.conversationId,
+                    title: result.title,
+                    when: new Date(result.updatedAt || result.createdAt || 0).toISOString(),
+                    current: result.conversationId === ctx.conversationId || undefined,
+                    byMeaning: result.byMeaning || undefined,
+                    passages: (result.snippets || []).map(snippet => ({
+                        from: snippet.kind || snippet.source || undefined,
+                        text: snippet.text,
+                    })),
+                })),
+            });
+        },
+    },
+
+    {
+        name: 'ask_user',
+        title: 'Ask the user a question',
+        readOnly: true,
+        description:
+            'Put a question to the user with a short list of answers to pick from, and wait for the '
+            + 'answer. Use it when the next step depends on a choice only they can make: which of two '
+            + 'hosts, whether to proceed a particular way, a value you cannot find. Not for approval of a '
+            + 'tool call, which the app asks on its own. Keep the question to one line and the options '
+            + 'to two to four; the user can always type something else.',
+        shape: {
+            question: z.string().min(1).max(500).describe('The question, one or two sentences.'),
+            options: z.array(z.string().min(1).max(120)).min(0).max(6).optional()
+                .describe('Answers to offer, in the order to show them. Omit for a free-text answer.'),
+        },
+        handler: async (input, ctx) => {
+            if (typeof ctx.askUser !== 'function') return fail('There is no one to ask here.');
+            const options = (input.options || []).map(option => String(option).trim()).filter(Boolean).slice(0, 6);
+            const reply = await ctx.askUser({ question: input.question, options });
+            if (!reply.answered) return fail(reply.message || 'The user did not answer.');
+            return ok({ answer: reply.answer, chosen: reply.chosen || undefined });
+        },
+    },
+
+    /* -------------------------------------------------------------- *
+     * The agent's kit: reading and keeping its own inventory. Defined
+     * in inventory-tools.js and built with the helpers above, so they
+     * fence hosts the same way list_hosts does.
+     * -------------------------------------------------------------- */
+    ...inventoryTools.build({ z, ok, fail, hostInScope, publicHost, agentHosts }),
 ];
 
 const BY_NAME = new Map(TOOLS.map(tool => [tool.name, tool]));
+
+/**
+ * The input fields that are secrets, and a copy of an input with them masked.
+ *
+ * The inventory tools take a password or a key so the agent can save a host
+ * it was just told about. The call that carries one is also an event: it is
+ * drawn on the approval card, kept in the conversation's log, written to the
+ * history file and summarised into the activity log. None of those should
+ * hold the secret, so it is masked once, where an event enters the
+ * conversation, and the handler is the only thing that sees the real value.
+ */
+const SECRET_FIELDS = ['password', 'privateKey', 'passphrase'];
+
+function redactInput(input) {
+    if (!input || typeof input !== 'object') return input;
+    let masked = input;
+    for (const field of SECRET_FIELDS) {
+        if (typeof input[field] !== 'string' || !input[field]) continue;
+        if (masked === input) masked = { ...input };
+        masked[field] = '••••';
+    }
+    return masked;
+}
 
 /* ------------------------------------------------------------------ *
  * Blocked commands
@@ -829,6 +1134,9 @@ function commandTextFor(toolName, input) {
     // Typing into the terminal reaches the same shell by another door. A list
     // that only covered run_command would be one tool call away from useless.
     if (toolName === 'send_input') return String(input?.text ?? '');
+    // A shell on this computer is still a shell. What is blocked on a server
+    // is blocked here too, container or not.
+    if (toolName === 'run_local_command') return String(input?.command ?? '');
     return '';
 }
 
@@ -918,11 +1226,14 @@ function isAutoApproved(toolName, input, settings) {
 module.exports = {
     TOOLS,
     BY_NAME,
+    SECRET_FIELDS,
+    redactInput,
     isAutoApproved,
     blockedReason,
     blockedMessage,
     resolveSession,
     sessionInScope,
+    ownedElsewhere,
     hostInScope,
     publicHost,
 };

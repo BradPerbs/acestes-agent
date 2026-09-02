@@ -86,12 +86,30 @@ check('every tool declares whether it only reads', () => {
 });
 
 check('the tools that change things are not marked read only', () => {
-    const mutating = ['run_command', 'send_input', 'write_file', 'connect_host', 'disconnect_session'];
+    const mutating = [
+        'run_command', 'send_input', 'write_file', 'connect_host', 'disconnect_session',
+        'save_snippet', 'save_host', 'save_proxy', 'save_key', 'save_mcp_server', 'save_folder', 'delete_inventory_item',
+        'edit_file', 'edit_local_file',
+    ];
+    for (const name of ['search_conversations', 'search_local_files', 'ask_user']) {
+        assert.strictEqual(tools.BY_NAME.get(name).readOnly, true, `${name} changes nothing and asks nobody`);
+    }
     for (const name of mutating) {
         const tool = tools.BY_NAME.get(name);
         assert.ok(tool, `${name} is in the catalog`);
         assert.strictEqual(tool.readOnly, false, `${name} must not be treated as a read`);
     }
+});
+
+check('a secret in a tool input is masked before it becomes an event', () => {
+    const input = { name: 'db-01', address: '10.0.0.2', password: 'hunter2', privateKey: 'PRIVATE', passphrase: 'pp' };
+    const masked = tools.redactInput(input);
+    assert.strictEqual(masked.name, 'db-01');
+    assert.strictEqual(masked.address, '10.0.0.2');
+    for (const field of tools.SECRET_FIELDS) assert.strictEqual(masked[field], '••••');
+    assert.strictEqual(input.password, 'hunter2', 'the handler still gets the real one');
+    const plain = { command: 'ls' };
+    assert.strictEqual(tools.redactInput(plain), plain, 'nothing to mask, nothing copied');
 });
 
 check('under "ask every time" nothing runs unattended', () => {

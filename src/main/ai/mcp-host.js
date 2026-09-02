@@ -20,28 +20,52 @@ const catalog = require('./tools');
  *
  *   - it binds to 127.0.0.1 with an OS-assigned port, so nothing off this
  *     machine can reach it and the port is not guessable from run to run
- *   - every request must carry a token generated at startup, in the
- *     Authorization header or in the URL path, compared in constant time.
- *     Anything else gets 401 before it is parsed
+ *   - every request must carry a token, in the Authorization header or in
+ *     the URL path, compared in constant time. Anything else gets 401 before
+ *     it is parsed
  *   - it is started on demand by a provider that needs it, and stopped when
  *     the last one is done
  *
- * The approval policy is the same one the other provider uses, applied in the
- * same place it matters: before the handler runs. A call that needs a person
- * parks here until the panel answers, so "may I restart this service" reaches
- * the user whichever agent asked it.
+ * The token is per conversation, not per server. Each `acquire` mints its own
+ * and the request is answered in the context that token was minted for: that
+ * conversation's agent, its scope, its settings and its approval card. One
+ * server, many tokens, and a call from agent B's runtime cannot land in agent
+ * A's context, because it does not hold A's token. (It used to be one token
+ * and the first caller's context for everyone, which with two agents open
+ * was exactly that.)
+ *
+ * The approval policy is the same one the in-process provider uses, applied
+ * in the same place it matters: before the handler runs. A call that needs a
+ * person parks here until the panel answers.
  */
 
 let server = null;
 let ready = null;
-let token = '';
-let users = 0;
+
+// token -> { toolContext, requestApproval, onEvent }
+const contexts = new Map();
 
 /** Constant time, because a token check that returns early leaks the token. */
-function tokenMatches(offered) {
+function tokenMatches(offered, expected) {
     const a = Buffer.from(String(offered || ''));
-    const b = Buffer.from(token);
+    const b = Buffer.from(String(expected || ''));
     return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+/**
+ * The context a request is entitled to, or null.
+ *
+ * Every token is compared, not looked up: a Map lookup is a string compare
+ * that returns early, and the whole point of the constant-time compare is
+ * that it does not. There are as many tokens as open conversations, which is
+ * a handful.
+ */
+function contextFor(offered) {
+    let found = null;
+    for (const [token, context] of contexts) {
+        if (tokenMatches(offered, token)) found = context;
+    }
+    return found;
 }
 
 /**
@@ -82,40 +106,21 @@ function readBody(request) {
 }
 
 /**
- * Start the server, or hand back the one already running.
+ * A server per request, built for the context the token names.
  *
- * `context` is read per call rather than captured, so a tool always acts on
- * the session in front of the user now and under the settings as they are now,
- * exactly as the in-process path does.
+ * This looked like something to hoist: the tool definitions never change,
+ * so why rebuild them per call. Because the transport is what a server is
+ * connected to, and connecting a second one replaces the first: a shared
+ * server answers each request into whichever transport connected last, and
+ * the call that was actually waiting is left to time out as cancelled.
+ * Stateless means stateless. Building ten closures per request is nothing
+ * next to the ssh round trip they are about to make.
  */
-async function acquire({ toolContext, requestApproval, onEvent = () => {} }) {
-    users += 1;
+function buildServer(McpServer, { toolContext, requestApproval, onEvent }) {
+    const mcp = new McpServer({ name: 'remote', version: '1.0.0' });
 
-    if (ready) return ready;
-
-    token = crypto.randomBytes(32).toString('hex');
-
-    const { McpServer } = await import('@modelcontextprotocol/sdk/server/mcp.js');
-    const { StreamableHTTPServerTransport } = await import(
-        '@modelcontextprotocol/sdk/server/streamableHttp.js'
-    );
-
-    /**
-     * A server per request.
-     *
-     * This looked like something to hoist: the tool definitions never change,
-     * so why rebuild them per call. Because the transport is what a server is
-     * connected to, and connecting a second one replaces the first: a shared
-     * server answers each request into whichever transport connected last, and
-     * the call that was actually waiting is left to time out as cancelled.
-     * Stateless means stateless. Building ten closures per request is nothing
-     * next to the ssh round trip they are about to make.
-     */
-    const buildServer = () => {
-        const mcp = new McpServer({ name: 'remote', version: '1.0.0' });
-
-        for (const definition of catalog.TOOLS) {
-            mcp.registerTool(
+    for (const definition of catalog.TOOLS) {
+        mcp.registerTool(
             definition.name,
             {
                 title: definition.title,
@@ -170,19 +175,26 @@ async function acquire({ toolContext, requestApproval, onEvent = () => {} }) {
                         isError: true,
                     };
                 }
-                }
-            );
-        }
+            }
+        );
+    }
 
-        return mcp;
-    };
+    return mcp;
+}
 
-    // Stateless: a server and a transport per request, torn down with the
-    // response. There is no session id to track and nothing to leak between
-    // turns, which for a socket this process is hosting is the point.
-    ready = new Promise((resolve, reject) => {
+async function listen() {
+    const { McpServer } = await import('@modelcontextprotocol/sdk/server/mcp.js');
+    const { StreamableHTTPServerTransport } = await import(
+        '@modelcontextprotocol/sdk/server/streamableHttp.js'
+    );
+
+    return new Promise((resolve, reject) => {
+        // Stateless: a server and a transport per request, torn down with the
+        // response. There is no session id to track and nothing to leak between
+        // turns, which for a socket this process is hosting is the point.
         server = http.createServer(async (request, response) => {
-            if (!tokenMatches(offeredToken(request))) {
+            const context = contextFor(offeredToken(request));
+            if (!context) {
                 if (process.env.CLOUDBLAST_MCP_DEBUG) console.error('[mcp] 401', request.method, request.url);
                 response.writeHead(401).end();
                 return;
@@ -197,7 +209,7 @@ async function acquire({ toolContext, requestApproval, onEvent = () => {} }) {
                     console.error('[mcp]', request.method, request.url, body?.method || '', 'accept=', request.headers.accept || '');
                 }
 
-                const mcp = buildServer();
+                const mcp = buildServer(McpServer, context);
                 const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
                 response.on('close', () => {
                     transport.close();
@@ -208,36 +220,67 @@ async function acquire({ toolContext, requestApproval, onEvent = () => {} }) {
                 await transport.handleRequest(request, response, body);
             } catch (error) {
                 if (!response.headersSent) response.writeHead(500).end();
-                onEvent({ type: 'tool-failed', name: 'mcp', message: error.message });
+                context.onEvent({ type: 'tool-failed', name: 'mcp', message: error.message });
             }
         });
 
         server.on('error', reject);
         server.listen(0, '127.0.0.1', () => {
-            const { port } = server.address();
-            resolve({
-                url: `http://127.0.0.1:${port}/mcp`,
-                token,
-                // The same endpoint with the token already in it, for a client
-                // that can only be handed an address. See `offeredToken`.
-                tokenUrl: `http://127.0.0.1:${port}/mcp/${token}`,
-            });
+            resolve(server.address().port);
         });
     });
-
-    return ready;
 }
 
-/** Let go. The last one out closes the door. */
-async function release() {
-    users = Math.max(0, users - 1);
-    if (users > 0 || !server) return;
+/**
+ * Start the server if it is not running, and mint a token for this caller.
+ *
+ * `toolContext` is read per call rather than captured, so a tool always acts
+ * on the session in front of the user now and under the settings as they are
+ * now, exactly as the in-process path does.
+ */
+async function acquire({ toolContext, requestApproval, onEvent = () => {} }) {
+    const token = crypto.randomBytes(32).toString('hex');
+    contexts.set(token, { toolContext, requestApproval, onEvent });
+
+    if (!ready) {
+        ready = listen().catch((error) => {
+            ready = null;
+            server = null;
+            throw error;
+        });
+    }
+
+    let port;
+    try {
+        port = await ready;
+    } catch (error) {
+        contexts.delete(token);
+        throw error;
+    }
+
+    return {
+        url: `http://127.0.0.1:${port}/mcp`,
+        token,
+        // The same endpoint with the token already in it, for a client
+        // that can only be handed an address. See `offeredToken`.
+        tokenUrl: `http://127.0.0.1:${port}/mcp/${token}`,
+    };
+}
+
+/**
+ * Let go of one token. The last one out closes the door.
+ *
+ * Called without a token by nobody now, but tolerated: it then only closes
+ * the server if no token is left, which is the safe reading.
+ */
+async function release(token) {
+    if (token) contexts.delete(token);
+    if (contexts.size > 0 || !server) return;
 
     const closing = server;
     server = null;
     ready = null;
-    token = '';
     await new Promise(resolve => closing.close(resolve));
 }
 
-module.exports = { acquire, release, _test: { offeredToken } };
+module.exports = { acquire, release, _test: { offeredToken, contextFor, contexts } };

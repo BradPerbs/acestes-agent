@@ -68,6 +68,18 @@ const TITLES = {
     list_sessions: 'assistant.askListSessions',
     remember: 'assistant.askRemember',
     recall: 'assistant.askRecall',
+    list_snippets: 'assistant.askListSnippets',
+    read_snippet: 'assistant.askReadSnippet',
+    list_inventory: 'assistant.askListInventory',
+    save_snippet: 'assistant.askSaveSnippet',
+    save_host: 'assistant.askSaveHost',
+    save_proxy: 'assistant.askSaveProxy',
+    save_key: 'assistant.askSaveKey',
+    save_mcp_server: 'assistant.askSaveServer',
+    save_folder: 'assistant.askSaveFolder',
+    delete_inventory_item: 'assistant.askDeleteItem',
+    edit_file: 'assistant.askEditFile',
+    edit_local_file: 'assistant.askEditFile',
     forget: 'assistant.askForget',
 };
 
@@ -238,9 +250,18 @@ export default function ApprovalRequest({ group, sessions = [], onRespond }) {
                             }`}
                         >
                             {summary.text}
+                            {/* An edit shows the passage going out and the
+                                one coming in under the path, so what is
+                                approved is the change and not the file. */}
+                            {summary.detail && (
+                                <div className="mt-1.5 pt-1.5 border-t border-black/[0.06] dark:border-white/[0.08]
+                                    text-gray-700 dark:text-gray-300">
+                                    {summary.detail}
+                                </div>
+                            )}
                         </div>
                         <CopyButton
-                            text={summary.text}
+                            text={summary.detail ? `${summary.text}\n${summary.detail}` : summary.text}
                             label={summary.mono ? t('assistant.copyCommand') : t('common.copy')}
                             className="absolute right-1 top-1"
                         />

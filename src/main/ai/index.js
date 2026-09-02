@@ -4,6 +4,7 @@ const memory = require('./memory');
 const prompt = require('./prompt');
 const catalog = require('./tools');
 const archive = require('./archive');
+const searchModule = require('./search');
 const { readImages } = require('./images');
 const { readMentions, mentionBlock, stripMentions } = require('./mentions');
 const store = require('../store');
@@ -61,6 +62,8 @@ const conversations = new Map();
 // requestId -> { resolve, timer }
 const pendingApprovals = new Map();
 const pendingActions = new Map();
+// requestId -> { resolve, timer, conversationId }, for ask_user
+const pendingQuestions = new Map();
 
 let counter = 0;
 let notify = () => {};
@@ -233,6 +236,8 @@ function create(target = {}) {
         // menu has to label the entry with. Nothing else here knows what a
         // conversation was about.
         title: '',
+        // Kept at the top of the list by the user: see `pin`.
+        pinned: false,
         createdAt: Date.now(),
         updatedAt: Date.now(),
     });
@@ -280,6 +285,9 @@ function get(conversationId) {
  */
 function emit(conversation, event) {
     const stamped = { ...event, at: Date.now() };
+    // A tool call or an approval card carrying a password is masked here,
+    // before it reaches the log, the file or a window. See `redactInput`.
+    if (stamped.input) stamped.input = catalog.redactInput(stamped.input);
     conversation.updatedAt = stamped.at;
     conversation.events.push(stamped);
     if (conversation.events.length > MAX_EVENTS) {
@@ -461,6 +469,55 @@ function requestApproval(conversation, { toolName, name, input, local }) {
 }
 
 /**
+ * Put a question from the agent in front of the user, and wait.
+ *
+ * The same shape as an approval: an event the panel draws as a card, a
+ * request id the answer comes back on, and a timer so a question nobody
+ * answers does not hold the turn open for ever. It differs in what it
+ * carries: a question and its options rather than a tool call, and the
+ * answer is text rather than a verdict.
+ */
+function requestQuestion(conversation, { question, options = [] }) {
+    return new Promise((resolve) => {
+        const requestId = nextId('ask');
+
+        const settle = (reply, status) => {
+            const entry = pendingQuestions.get(requestId);
+            if (!entry) return;
+            clearTimeout(entry.timer);
+            pendingQuestions.delete(requestId);
+            emit(conversation, { type: 'question-settled', requestId, status, answer: reply.answer || '' });
+            resolve(reply);
+        };
+
+        const timer = setTimeout(() => {
+            settle({ answered: false, message: 'The question timed out waiting for an answer.' }, 'expired');
+        }, APPROVAL_TIMEOUT);
+
+        pendingQuestions.set(requestId, { resolve: settle, timer, conversationId: conversation.id });
+
+        emit(conversation, {
+            type: 'question-request',
+            requestId,
+            question: String(question || '').slice(0, 500),
+            options: options.slice(0, 6),
+        });
+    });
+}
+
+function respondToQuestion({ requestId, answer, chosen }) {
+    const entry = pendingQuestions.get(requestId);
+    if (!entry) return false;
+    const text = String(answer || '').trim();
+    if (!text) {
+        entry.resolve({ answered: false, message: 'The user dismissed the question without answering.' }, 'dismissed');
+        return true;
+    }
+    entry.resolve({ answered: true, answer: text, chosen: Boolean(chosen) }, 'answered');
+    return true;
+}
+
+/**
  * Ask the renderer to do something only it can.
  *
  * Opening a session means creating a tab, and tabs live in the pane tree in
@@ -524,6 +581,9 @@ function ensureProvider(conversation) {
         commandMode: current.commandMode,
         blockedCommands: current.blockedCommands,
         instructions: current.instructions,
+        // What the agent may touch on this computer, so the prompt can say so
+        // before the tools have to refuse.
+        sandbox: agents.sandbox(conversation.agentId),
         // As it stands when the query starts; notes written mid-conversation
         // are reached with recall until the next one.
         memory: memory.summary(conversation.agentId),
@@ -562,7 +622,31 @@ function ensureProvider(conversation) {
             settings: resolved(conversation.agentId),
             // Whose inventory the host tools look in.
             agentId: conversation.agentId,
-            sessionAction: (payload) => requestAction(conversation, payload),
+            // The envelope, read fresh too: a folder granted or a container
+            // switched on mid-run applies to the next call.
+            sandbox: agents.sandbox(conversation.agentId),
+            // The inventory tools write to the store behind the renderer's
+            // state, the way an import does, so every window is told which
+            // collection to read again.
+            inventoryChanged: (kind) => notify('inventory-changed', { kind, agentId: conversation.agentId }),
+            // Whose conversation this is, so a search can mark itself.
+            conversationId: conversation.id,
+            // The agent's own past, through the same search the history page
+            // uses. Given as a function because this module owns the map
+            // and the tool catalog must not require it back.
+            searchConversations: (args) => search({ ...args, agentId: conversation.agentId }),
+            // A question to the person, answered on a card. See requestQuestion.
+            askUser: (payload) => requestQuestion(conversation, payload || {}),
+            sessionAction: async (payload) => {
+                const result = await requestAction(conversation, payload);
+                // A session this agent opened is this agent's. Claimed here,
+                // where the id first comes back, rather than in the transport,
+                // which does not know who asked for the tab.
+                if (payload?.action === 'connect' && result?.success && result.sessionId) {
+                    transcript.claim(result.sessionId, conversation.agentId);
+                }
+                return result;
+            },
         }),
         requestApproval: (request) => requestApproval(conversation, request),
         onEvent: (event) => handleProviderEvent(conversation, event),
@@ -655,7 +739,7 @@ function recordToolActivity(conversation, event) {
     const info = target ? transcript.info(target) : null;
     const summary = event.name === 'run_command'
         ? String(event.input?.command || '').slice(0, 300)
-        : summarise(event.input);
+        : summarise(catalog.redactInput(event.input));
 
     activity.record({
         category: 'connection',
@@ -794,6 +878,10 @@ async function interrupt(conversationId) {
         if (entry.conversationId !== conversationId) continue;
         entry.resolve({ approved: false, message: 'The user stopped the run.' }, 'denied');
     }
+    for (const entry of [...pendingQuestions.values()]) {
+        if (entry.conversationId !== conversationId) continue;
+        entry.resolve({ answered: false, message: 'The user stopped the run.' }, 'dismissed');
+    }
 
     await conversation.session.interrupt();
     conversation.busy = false;
@@ -893,9 +981,69 @@ function list({ agentId = '' } = {}) {
             live: Boolean(conversation.session || conversation.starting),
             createdAt: conversation.createdAt,
             updatedAt: conversation.updatedAt,
+            pinned: Boolean(conversation.pinned),
             messages: conversation.events.filter(event => event.type === 'user-message').length,
         }))
-        .sort((a, b) => b.updatedAt - a.updatedAt);
+        // The pinned ones first, newest within each half. Ordered here rather
+        // than in each list that draws it, so the sidebar and the page agree.
+        .sort((a, b) => (Number(b.pinned) - Number(a.pinned)) || (b.updatedAt - a.updatedAt));
+}
+
+/** One row of `list`, for one conversation. */
+function describe(conversation) {
+    return {
+        conversationId: conversation.id,
+        agentId: conversation.agentId,
+        title: conversation.title,
+        scope: conversation.scope,
+        sessionId: conversation.boundSessionId,
+        busy: conversation.busy,
+        live: Boolean(conversation.session || conversation.starting),
+        createdAt: conversation.createdAt,
+        updatedAt: conversation.updatedAt,
+        pinned: Boolean(conversation.pinned),
+        messages: conversation.events.filter(event => event.type === 'user-message').length,
+    };
+}
+
+/**
+ * Search one agent's conversations by what was said in them. See search.js
+ * for the query language; this only hands it the conversations and the
+ * lookups it needs.
+ */
+async function search({ agentId = '', query = '', limit, openIds = [] } = {}) {
+    hydrate();
+    const rows = [...conversations.values()]
+        .filter(conversation => !agentId || conversation.agentId === agentId)
+        .filter(conversation => conversation.title || conversation.events.length > 0);
+    const hostsById = new Map(store.getHosts().map(host => [host.id, host]));
+    return searchModule.search(rows, {
+        query,
+        limit,
+        openIds: new Set(Array.isArray(openIds) ? openIds.map(String) : []),
+        hostName: (id) => hostsById.get(id)?.name || '',
+        live: (conversation) => Boolean(conversation.session || conversation.starting),
+        describe,
+    });
+}
+
+/**
+ * Keep a conversation at the top of the list, or let it go.
+ *
+ * A pin is the user's, not the conversation's: it does not touch
+ * `updatedAt`, so unpinning drops the chat back to wherever its last
+ * message put it rather than to the top as if something had just happened.
+ */
+function pin(conversationId, pinned) {
+    hydrate();
+    const conversation = conversations.get(conversationId);
+    if (!conversation) return { ok: false };
+    const next = Boolean(pinned);
+    if (conversation.pinned !== next) {
+        conversation.pinned = next;
+        archive.save();
+    }
+    return { ok: true, pinned: next };
 }
 
 /** Hand every conversation of a deleted agent to another, so none is stranded. */
@@ -1068,6 +1216,8 @@ module.exports = {
     setScope,
     history,
     list,
+    search,
+    pin,
     reassign,
     status,
     models,
@@ -1075,5 +1225,6 @@ module.exports = {
     shutdown,
     respondToApproval,
     respondToAction,
+    respondToQuestion,
     settings,
 };

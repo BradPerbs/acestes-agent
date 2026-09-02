@@ -254,6 +254,14 @@ function App() {
     } = useAgents();
     const { conversations, refresh: refreshConversations } = useConversationList(activeAgentId);
 
+    /** Keep a conversation at the top of the lists, or let it go. */
+    const pinConversation = useCallback(async (conversationId, pinned) => {
+        await window.api.ai.pin(conversationId, pinned);
+        // Not an event on the conversation, so the list does not hear it on
+        // its own.
+        refreshConversations();
+    }, [refreshConversations]);
+
     /** The colour an agent's mark wears, for a conversation that names one. */
     const colorFor = useCallback((agentId) => (
         agents.find(agent => agent.id === agentId)?.color || activeAgent?.color || ''
@@ -1207,8 +1215,13 @@ function App() {
      * settings shell reads it from, so this lands on the Assistant page rather
      * than on whichever one was open last.
      */
-    const handleOpenAssistantSettings = useCallback(() => {
+    const handleOpenAssistantSettings = useCallback((focus = '') => {
         window.localStorage.setItem('settings.category', 'assistant');
+        // Which card the page should scroll to and light up, when the jump
+        // was about one thing: "create quick prompts" from an empty chat
+        // lands on the quick prompts box, not at the top of a long page.
+        // Session storage, because it is a one-shot for this window.
+        if (typeof focus === 'string' && focus) window.sessionStorage.setItem('settings.focus', focus);
         setActiveTabId('home');
         setActiveNav('settings');
         setReachedForPage(count => count + 1);
@@ -1226,9 +1239,12 @@ function App() {
 
     // A detached assistant window asking for one of those pages. It has no
     // Home of its own, so the request comes here and the window comes forward.
+    // From a detached conversation window. `settings:quickPrompts` names the
+    // card to land on, the same way a click in this window does.
     useEffect(() => window.api.ai.onNavigate?.(({ nav }) => {
-        if (nav === 'settings') handleOpenAssistantSettings();
-        else if (nav === 'snippets') handleOpenSnippets();
+        const [page, focus = ''] = String(nav || '').split(':');
+        if (page === 'settings') handleOpenAssistantSettings(focus);
+        else if (page === 'snippets') handleOpenSnippets();
     }), [handleOpenAssistantSettings, handleOpenSnippets]);
 
 
@@ -1377,6 +1393,13 @@ function App() {
     useEffect(() => window.api.serverSync.onState(({ report }) => {
         if (report && !report.error && !report.skipped) loadData();
     }), [loadData]);
+
+    // And the agent, whose inventory tools save hosts, folders and keys the
+    // same way. Snippets and proxies keep themselves current in their hooks.
+    useEffect(() => window.api.inventory?.onChange?.((change) => {
+        if (change?.kind === 'hosts') loadData();
+        if (change?.kind === 'keys') loadKeys();
+    }), [loadData, loadKeys]);
 
     // Same for a setup pulled down from another device.
     useEffect(() => window.api.cloudSnapshot.onState((state) => {
@@ -1692,9 +1715,13 @@ function App() {
         if (activeAgent) setAgentDialog({ agent: activeAgent });
     }, [activeAgent]);
 
-    const handleSaveAgentName = useCallback(async (name, color) => {
-        if (agentDialog?.agent) await saveAgent({ id: agentDialog.agent.id, name, color });
-        else await saveAgent({ name, color });
+    const handleSaveAgentName = useCallback(async (name, color, sandbox = null) => {
+        // The dialog hands back the part of the envelope it edits: the mode
+        // at creation, and the folders either time. The registry patches, so
+        // the network and session settings on the Sandbox card are untouched.
+        const patch = sandbox ? { sandbox } : {};
+        if (agentDialog?.agent) await saveAgent({ id: agentDialog.agent.id, name, color, ...patch });
+        else await saveAgent({ name, color, ...patch });
     }, [agentDialog, saveAgent]);
 
     const handleDeleteAgent = useCallback((agentId) => {
@@ -1833,6 +1860,7 @@ function App() {
                     onOpenConversation={handleOpenConversation}
                     onNewConversation={handleNewConversation}
                     onDeleteConversation={confirmDeleteConversation}
+                    onPinConversation={pinConversation}
                     // A terminal takes the width. A conversation leaves the
                     // column where it is: the chat has no use for the room,
                     // and the pages the column leads to are then a click away.
@@ -1902,6 +1930,7 @@ function App() {
                             onOpenConversation={handleOpenConversation}
                             onNewConversation={handleNewConversation}
                             onDeleteConversation={removeConversation}
+                            onPinConversation={pinConversation}
                             // Keychain props
                             keys={agentKeys}
                             onLoadKeys={loadKeys}

@@ -64,6 +64,7 @@ function HomeView({
     onOpenConversation,
     onNewConversation,
     onDeleteConversation,
+    onPinConversation,
     // Keychain props
     keys,
     onLoadKeys,
@@ -100,12 +101,14 @@ function HomeView({
             {activeNav === 'conversations' && (
                 <ConversationsPanel
                     conversations={conversations}
+                    agentId={agentId}
                     agentColor={agentColor}
                     onRefresh={onRefreshConversations}
                     openIds={openConversationIds}
                     onOpen={onOpenConversation}
                     onNew={onNewConversation}
                     onDelete={onDeleteConversation}
+                    onPin={onPinConversation}
                 />
             )}
 

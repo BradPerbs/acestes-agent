@@ -169,9 +169,6 @@ function MemoryPanel({ agentId = '' }) {
                     placeholder={t('memory.search')}
                 />
                 <div className="flex items-center gap-2 shrink-0 ml-auto">
-                    <span className="text-xs tabular-nums text-gray-400 dark:text-neutral-500">
-                        {t('memory.count', { count: entries.length })}
-                    </span>
                     <Button
                         variant="primary"
                         icon={<PlusSignIcon size={16} strokeWidth={2.5} />}

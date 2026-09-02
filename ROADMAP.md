@@ -33,14 +33,45 @@ terminals, SSH sessions and local folders are the tools it works with.
    ones that bear on each message are found by meaning and sent with it. Still
    to do: automatic extraction of facts from a finished turn, and consolidation
    of a new fact against the ones it overlaps, the way mem0 does it.
-3. **Local filesystem scope.** Let the user grant the agent one or more local
-   folders. Add read / write / search / run tools scoped to those folders, with
-   the same approval flow that already gates SSH commands
-   (`test/assistant-approval.test.js` documents the current contract).
+3. **Sandbox.** Done in the first pass, in two layers (`src/main/ai/sandbox.js`
+   is the envelope both read). The code layer is always on: an agent may only
+   drive the sessions it opened and the ones the user opened, its local tools
+   (`list_local_directory`, `read_local_file`, `write_local_file`,
+   `run_local_command`) stay inside the folders the user granted on the
+   Sandbox card of the settings page, and its MCP servers are started with the
+   secrets stripped out of the environment (`mcp-launch.js`). The loopback tool
+   server now answers each conversation in its own context, keyed by token.
+   The container layer is opt-in per agent: with Docker present, local
+   commands, files and the agent's MCP servers run in a hardened container of
+   its own (`container.js`), read-only root, capabilities dropped, no network
+   unless the agent is given it, with the granted folders mounted under
+   `/workspace`. `test/sandbox.test.js` documents the contract. Still to do:
+   a per-host network allowlist for the container (Docker has no egress
+   filter of its own, so it needs a proxy), a search tool over the granted
+   folders, and an unattended policy for scheduled runs (see 4).
 4. **Long-running tasks.** Background jobs with progress, resumable across app
    restarts, surfaced in the agent timeline rather than a chat scrollback.
 5. **Skills / playbooks.** Reuse the snippet + specs library as the place where
-   reusable procedures live, and let the agent be handed them.
+   reusable procedures live, and let the agent be handed them. Done in the
+   first pass: the agent can look through its own bag (`list_snippets`,
+   `read_snippet`, `list_inventory`) and keep it (`save_snippet`, `save_host`,
+   `save_proxy`, `save_key`, `save_mcp_server`, `save_folder`,
+   `delete_inventory_item`), see `src/main/ai/inventory-tools.js`. It sees
+   and edits its own records and the shared ones, never another agent's, and
+   it has the full hand over them, credentials included: it can set a host's
+   password or key, a proxy's password, and add keys to the keychain. Secrets
+   flow one way: what it writes is encrypted by the store, and nothing it
+   reads back carries one. Every write stops at the approval card under the
+   default policy. `test/inventory-tools.test.js` documents the contract.
+   Still to do: let the agent turn a finished turn into a spec on its own.
+6. **The tools a day's work needs.** Done in the first pass: `edit_file` and
+   `edit_local_file` replace one passage rather than a whole file, and the
+   approval card shows the change; `search_local_files` greps the granted
+   folders; `search_conversations` reads the agent's own past through the
+   history page's search; `ask_user` puts a question with options on a card
+   and waits. Folders are granted in the agent dialog as well as on the
+   Sandbox card. Still to do: wait-and-poll for long commands, SFTP
+   transfer between local and remote, fan-out of one command across hosts.
 
 ## Identity
 

@@ -66,7 +66,14 @@ export function createConversationTab(conversationId = '', agentId = '') {
  */
 export function readStoredConversationTabs() {
     try {
-        const stored = JSON.parse(localStorage.getItem(CONVERSATION_TABS_KEY) || 'null');
+        // The same switch that gates the terminal tabs. "Restore tabs" in
+        // Settings means every kind of tab, and a conversation coming back
+        // while the sessions do not would make the switch look half broken.
+        // The conversations themselves are kept either way: this only decides
+        // whether they are open when the window appears.
+        const stored = localStorage.getItem('restoreSessions') === 'false'
+            ? null
+            : JSON.parse(localStorage.getItem(CONVERSATION_TABS_KEY) || 'null');
         if (stored && Array.isArray(stored.tabs) && stored.tabs.length > 0) {
             const tabs = stored.tabs
                 .filter(entry => entry && typeof entry === 'object')
@@ -81,7 +88,10 @@ export function readStoredConversationTabs() {
         // Unreadable: start again below.
     }
 
-    const first = createConversationTab(localStorage.getItem(LEGACY_KEY) || '');
+    // The old single slot is only adopted when restoring is on: with it off,
+    // a fresh tab is a fresh conversation, not the last one under another name.
+    const restoring = localStorage.getItem('restoreSessions') !== 'false';
+    const first = createConversationTab(restoring ? (localStorage.getItem(LEGACY_KEY) || '') : '');
     return { tabs: [first], activeId: first.id };
 }
 

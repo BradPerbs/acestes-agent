@@ -31,6 +31,7 @@ const updates = require('./updates');
 const startup = require('./startup');
 const agents = require('./agents');
 const memory = require('./ai/memory');
+const container = require('./ai/container');
 const proxy = require('./proxy');
 const { parseAddress } = require('./address');
 const { describeTunnel } = require('./tunnel-config');
@@ -1375,6 +1376,9 @@ function register(getWindow) {
     handle('ai-conversation-list', (event, filter) => assistant.list(filter || {}));
     handle('ai-conversation-history', (event, conversationId) => assistant.history(conversationId));
     handle('ai-conversation-park', (event, conversationId) => assistant.park(conversationId));
+    handle('ai-conversation-search', (event, filter) => assistant.search(filter || {}));
+    handle('ai-conversation-pin', (event, { conversationId, pinned } = {}) =>
+        assistant.pin(String(conversationId || ''), Boolean(pinned)));
     handle('ai-conversation-close', (event, conversationId) => assistant.close(conversationId));
     handle('ai-scope', (event, payload) => assistant.setScope(payload?.conversationId, payload || {}));
     handle('ai-send', (event, payload) =>
@@ -1386,6 +1390,8 @@ function register(getWindow) {
     // asked to.
     handle('ai-approval-response', (event, payload) => assistant.respondToApproval(payload || {}));
     handle('ai-action-response', (event, payload) => assistant.respondToAction(payload || {}));
+    // And a third: the answer to a question the agent asked with ask_user.
+    handle('ai-question-response', (event, payload) => assistant.respondToQuestion(payload || {}));
 
     /* ---------------- Agents ---------------- */
 
@@ -1407,8 +1413,33 @@ function register(getWindow) {
             assistant.reassign(gone, result.activeId);
             memory.moveAll(gone, result.activeId);
             notify('ai-settings', assistant.settings.get());
+            // Its container and workspace go with it. Best effort: Docker may
+            // not be running, and an orphan container is a `docker rm` away.
+            container.remove(gone).catch(() => {});
         }
         return result;
+    });
+
+    /* ---------------- Sandbox ---------------- */
+
+    // Whether Docker is there, and whether this agent's container is. Asked
+    // by the settings page before the container switch is offered.
+    handle('sandbox-status', (event, agentId) => container.status(String(agentId || agents.activeId())));
+    // A fresh container from the same envelope: what "reset" means.
+    handle('sandbox-reset', async (event, agentId) => {
+        const id = String(agentId || agents.activeId());
+        const result = await container.reset(id, agents.sandbox(id));
+        return result.ok ? { ok: true } : { ok: false, error: result.message };
+    });
+    // A folder to grant. The dialog is the grant: the path comes from the
+    // user's own click, never from the agent.
+    handle('sandbox-choose-folder', async () => {
+        const { canceled, filePaths } = await dialog.showOpenDialog(getWindow(), {
+            title: 'Choose a folder the agent may use',
+            properties: ['openDirectory', 'createDirectory'],
+        });
+        if (canceled || !filePaths?.[0]) return { canceled: true };
+        return { path: filePaths[0] };
     });
 
     /* ---------------- Memory ---------------- */

@@ -2,12 +2,10 @@ import { memo, useCallback, useRef } from 'react';
 import {
     SlidersHorizontalIcon,
     PaintBoardIcon,
-    CommandLineIcon,
-    FileEditIcon,
+    ServerStack01Icon,
     ShieldKeyIcon,
     Archive01Icon,
     InformationCircleIcon,
-    PulseRectangle01Icon,
 } from 'hugeicons-react';
 import AgentMark from '../assistant/AgentMark';
 import Tooltip from '../ui/Tooltip';
@@ -33,11 +31,12 @@ const AgentIcon = ({ size = 17, className = '' }) => (
  */
 export const SETTINGS_CATEGORIES = [
     { id: 'general', icon: SlidersHorizontalIcon },
-    { id: 'appearance', icon: PaintBoardIcon },
-    { id: 'terminal', icon: CommandLineIcon },
+    // The agent second, right under the app's own basics: it is what the
+    // app is about. Everything to do with terminals, sessions and servers
+    // is one category further down, as tabs of a single page.
     { id: 'assistant', icon: AgentIcon },
-    { id: 'monitoring', icon: PulseRectangle01Icon },
-    { id: 'logging', icon: FileEditIcon },
+    { id: 'appearance', icon: PaintBoardIcon },
+    { id: 'servers', icon: ServerStack01Icon },
     { id: 'security', icon: ShieldKeyIcon },
     { id: 'backup', icon: Archive01Icon },
     { id: 'about', icon: InformationCircleIcon },

@@ -1,13 +1,19 @@
-import { memo, useLayoutEffect, useMemo, useRef } from 'react';
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { gsap } from 'gsap';
 import {
     ArrowDown01Icon,
+    Cancel01Icon,
     Delete02Icon,
+    PinIcon,
+    PinOffIcon,
     Layers01Icon,
     PencilEdit02Icon,
     PlusSignIcon,
+    Search01Icon,
     Settings01Icon,
 } from 'hugeicons-react';
 import { setSidebar, slideSidebar } from '../lib/panelMotion';
+import { cubicBezier, seconds } from '../lib/motion';
 import AgentMark from './assistant/AgentMark';
 import PanelMenu from './assistant/PanelMenu';
 import { useT } from '../i18n';
@@ -37,10 +43,214 @@ function NavItem({ label, icon, active, onClick }) {
     );
 }
 
+/** The house curve, for the pill settling into place rather than stopping. */
+const EASE_SOFT = cubicBezier(0.16, 1, 0.3, 1);
+const EASE_OUT = cubicBezier(0, 0, 0.58, 1);
+
+/** The magnifier button's size, which is the pill's size before it grows. */
+const PILL_START = 28;
+
+/**
+ * The conversations heading, which is also the quick search.
+ *
+ * Two faces in one row, both always mounted, so the change between them is
+ * a movement rather than a swap. Open, the magnifier button itself grows:
+ * the pill starts exactly over it, the same 28px circle, and widens across
+ * the row to the left while the heading text slides out under it and the
+ * plus fades. The magnifier never moves, which is what makes the pill read
+ * as the button having opened rather than a box having appeared. The text
+ * and the cross come in a beat later, once there is room for them. Close
+ * runs it backwards.
+ *
+ * Borderless and soft, like everything else in the column: the sidebar's
+ * controls are translucent fills on the column's own ground, and a bordered
+ * white box would be the one thing in it drawn in another hand.
+ */
+function ConversationsHeading({
+    active,
+    open,
+    onOpen,
+    onClose,
+    onOpenPage,
+    onNew,
+    query,
+    onQuery,
+    onSubmit,
+}) {
+    const t = useT();
+    const rowRef = useRef(null);
+    const titleRef = useRef(null);
+    const magnifierRef = useRef(null);
+    const plusRef = useRef(null);
+    const pillRef = useRef(null);
+    const insideRef = useRef(null);
+    const inputRef = useRef(null);
+    const timeline = useRef(null);
+    const shown = useRef(open);
+
+    useLayoutEffect(() => {
+        const row = rowRef.current;
+        const pill = pillRef.current;
+        if (!row || !pill) return;
+
+        // The first paint lays the faces out for the state they are in,
+        // without playing anything.
+        if (shown.current === open && !timeline.current) {
+            gsap.set(pill, open
+                ? { visibility: 'visible', left: 0, width: row.clientWidth }
+                : { visibility: 'hidden', left: magnifierRef.current?.offsetLeft || 0, width: PILL_START });
+            gsap.set(insideRef.current, { opacity: open ? 1 : 0 });
+            gsap.set([titleRef.current, plusRef.current, magnifierRef.current], { opacity: open ? 0 : 1, x: 0 });
+            return;
+        }
+        shown.current = open;
+
+        timeline.current?.kill();
+        const from = magnifierRef.current?.offsetLeft || 0;
+        const full = row.clientWidth;
+        const tl = gsap.timeline({ defaults: { overwrite: 'auto' } });
+        timeline.current = tl;
+
+        if (open) {
+            // The pill's own magnifier lands on the button's the same frame
+            // the pill appears, so the button is hidden outright rather than
+            // faded: two magnifiers a hair apart is the one thing this must
+            // never show.
+            tl.set(pill, { visibility: 'visible' }, 0);
+            tl.set(magnifierRef.current, { opacity: 0 }, 0);
+            tl.to(titleRef.current, { opacity: 0, x: -8, duration: seconds(110), ease: EASE_OUT }, 0);
+            tl.to(plusRef.current, { opacity: 0, scale: 0.6, duration: seconds(100), ease: EASE_OUT }, 0);
+            tl.fromTo(pill,
+                { left: from, width: PILL_START },
+                { left: 0, width: full, duration: seconds(240), ease: EASE_SOFT }, 0);
+            tl.fromTo(insideRef.current,
+                { opacity: 0, x: 6 },
+                { opacity: 1, x: 0, duration: seconds(140), ease: EASE_OUT }, 0.07);
+            tl.call(() => inputRef.current?.focus({ preventScroll: true }), null, 0.05);
+        } else {
+            tl.to(insideRef.current, { opacity: 0, x: 6, duration: seconds(80), ease: EASE_OUT }, 0);
+            tl.to(pill, { left: from, width: PILL_START, duration: seconds(200), ease: EASE_SOFT }, 0.02);
+            tl.to(plusRef.current, { opacity: 1, scale: 1, duration: seconds(140), ease: EASE_SOFT }, 0.08);
+            tl.to(titleRef.current, { opacity: 1, x: 0, duration: seconds(160), ease: EASE_SOFT }, 0.06);
+            tl.set(magnifierRef.current, { opacity: 1 });
+            tl.set(pill, { visibility: 'hidden' });
+        }
+
+        return () => {
+            if (timeline.current === tl) {
+                tl.progress(1);
+                timeline.current = null;
+            }
+        };
+    }, [open]);
+
+    return (
+        <div ref={rowRef} className="relative mt-2 mx-1.5 h-9">
+            {/* The heading face. Inert while the search is open, since it is
+                still there under the pill. */}
+            <div className={`absolute inset-0 flex items-center ${open ? 'pointer-events-none' : ''}`}>
+                <button
+                    ref={titleRef}
+                    type="button"
+                    tabIndex={open ? -1 : 0}
+                    onClick={onOpenPage}
+                    className={`flex-1 min-w-0 pl-1.5 py-1.5 text-left text-[11px] font-semibold uppercase tracking-wider
+                        transition-colors truncate
+                        ${active
+                            ? 'text-gray-900 dark:text-white'
+                            : 'text-gray-500 dark:text-neutral-500 hover:text-gray-900 dark:hover:text-gray-200'}`}
+                >
+                    {t('nav.conversations')}
+                </button>
+                <button
+                    ref={magnifierRef}
+                    type="button"
+                    tabIndex={open ? -1 : 0}
+                    aria-label={t('conversations.quickSearch')}
+                    title={t('conversations.quickSearch')}
+                    onClick={onOpen}
+                    className="shrink-0 w-7 h-7 flex items-center justify-center rounded-full transition-colors
+                        text-gray-500 dark:text-gray-400
+                        hover:bg-gray-900/[0.06] hover:text-gray-900
+                        dark:hover:bg-surface-control dark:hover:text-white"
+                >
+                    <Search01Icon size={15} strokeWidth={2} />
+                </button>
+                <button
+                    ref={plusRef}
+                    type="button"
+                    tabIndex={open ? -1 : 0}
+                    aria-label={t('conversations.new')}
+                    title={t('conversations.new')}
+                    onClick={onNew}
+                    className="shrink-0 w-7 h-7 flex items-center justify-center rounded-full transition-colors
+                        text-gray-500 dark:text-gray-400
+                        hover:bg-gray-900/[0.06] hover:text-gray-900
+                        dark:hover:bg-surface-control dark:hover:text-white"
+                >
+                    <PlusSignIcon size={15} strokeWidth={2.5} />
+                </button>
+            </div>
+
+            {/* The search face: the pill, which is the magnifier grown. */}
+            <div
+                ref={pillRef}
+                className="absolute top-1/2 -translate-y-1/2 h-7 rounded-full overflow-hidden
+                    bg-gray-200 dark:bg-surface-control
+                    focus-within:bg-gray-200/80 dark:focus-within:bg-surface-control/80
+                    transition-colors"
+                style={{ visibility: 'hidden', width: PILL_START }}
+            >
+                <Search01Icon
+                    size={15}
+                    strokeWidth={2}
+                    className="absolute left-[6.5px] top-1/2 -translate-y-1/2 pointer-events-none
+                        text-gray-500 dark:text-gray-400"
+                />
+                <div ref={insideRef} className="absolute inset-0 pl-7 pr-7">
+                    <input
+                        ref={inputRef}
+                        type="text"
+                        value={query}
+                        onChange={(event) => onQuery(event.target.value)}
+                        onKeyDown={(event) => {
+                            if (event.key === 'Escape') { event.preventDefault(); onClose(); }
+                            if (event.key === 'Enter') { event.preventDefault(); onSubmit(); }
+                        }}
+                        tabIndex={open ? 0 : -1}
+                        placeholder={t('conversations.quickSearchPlaceholder')}
+                        aria-label={t('conversations.quickSearch')}
+                        spellCheck={false}
+                        autoComplete="off"
+                        className="w-full h-full bg-transparent text-[13px] font-medium normal-case tracking-normal
+                            outline-none border-0 p-0 m-0 shadow-none appearance-none
+                            text-gray-900 dark:text-white caret-gray-900 dark:caret-white
+                            placeholder:text-gray-500 dark:placeholder:text-neutral-400 placeholder:font-normal"
+                    />
+                    <button
+                        type="button"
+                        tabIndex={open ? 0 : -1}
+                        aria-label={t('common.close')}
+                        title={t('common.close')}
+                        onClick={onClose}
+                        className="absolute right-1 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full
+                            flex items-center justify-center transition-colors
+                            text-gray-400 dark:text-neutral-500
+                            hover:bg-gray-900/[0.08] hover:text-gray-900 dark:hover:bg-white/[0.1] dark:hover:text-white"
+                    >
+                        <Cancel01Icon size={11} strokeWidth={2.5} />
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 /** One chat in the list: its title, whether it is working, and a bin on hover. */
-function ConversationRow({ conversation, active, onOpen, onDelete, deleteLabel }) {
+function ConversationRow({ conversation, active, onOpen, onDelete, onPin, deleteLabel }) {
     const t = useT();
     const title = conversation.title || t('assistant.newConversation');
+    const pinLabel = conversation.pinned ? t('conversations.unpin') : t('conversations.pin');
 
     return (
         <div className="relative group/row">
@@ -48,7 +258,7 @@ function ConversationRow({ conversation, active, onOpen, onDelete, deleteLabel }
                 type="button"
                 onClick={onOpen}
                 title={title}
-                className={`w-full flex items-center gap-2 pl-3 pr-8 py-1.5 rounded-lg text-left text-[13px]
+                className={`w-full flex items-center gap-2 pl-3 pr-14 py-1.5 rounded-lg text-left text-[13px]
                     transition-colors outline-none
                     focus-visible:ring-2 focus-visible:ring-gray-900/20 dark:focus-visible:ring-white/25
                     ${active
@@ -63,18 +273,44 @@ function ConversationRow({ conversation, active, onOpen, onDelete, deleteLabel }
                 <span className="min-w-0 flex-1 truncate">{title}</span>
             </button>
 
-            <button
-                type="button"
-                aria-label={deleteLabel}
-                onClick={onDelete}
-                className="absolute right-1 top-1/2 -translate-y-1/2 w-6 h-6 rounded-md
-                    flex items-center justify-center transition-colors
-                    opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100
-                    text-gray-400 dark:text-neutral-500
-                    hover:bg-red-500/10 hover:text-red-500 dark:hover:text-red-400"
-            >
-                <Delete02Icon size={13} strokeWidth={1.5} />
-            </button>
+            {/* The pin of a pinned row is always shown, at the far right where
+                the actions live, and is the unpin button on hover: one glyph
+                in one place, rather than a marker in the row and a button
+                beside it. */}
+            <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
+                <button
+                    type="button"
+                    aria-label={pinLabel}
+                    aria-pressed={Boolean(conversation.pinned)}
+                    title={pinLabel}
+                    onClick={onPin}
+                    className={`w-6 h-6 rounded-md flex items-center justify-center transition-colors
+                        focus-visible:opacity-100
+                        text-gray-400 dark:text-neutral-500
+                        hover:bg-gray-900/[0.06] hover:text-gray-900 dark:hover:bg-white/[0.08] dark:hover:text-white
+                        ${conversation.pinned ? 'opacity-100' : 'opacity-0 group-hover/row:opacity-100'}`}
+                >
+                    {conversation.pinned ? (
+                        <>
+                            <PinIcon size={13} strokeWidth={1.75} className="group-hover/row:hidden" />
+                            <PinOffIcon size={13} strokeWidth={1.5} className="hidden group-hover/row:block" />
+                        </>
+                    ) : (
+                        <PinIcon size={13} strokeWidth={1.5} />
+                    )}
+                </button>
+                <button
+                    type="button"
+                    aria-label={deleteLabel}
+                    onClick={onDelete}
+                    className="w-6 h-6 rounded-md flex items-center justify-center transition-colors
+                        opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100
+                        text-gray-400 dark:text-neutral-500
+                        hover:bg-red-500/10 hover:text-red-500 dark:hover:text-red-400"
+                >
+                    <Delete02Icon size={13} strokeWidth={1.5} />
+                </button>
+            </div>
         </div>
     );
 }
@@ -94,6 +330,7 @@ function Sidebar({
     onOpenConversation,
     onNewConversation,
     onDeleteConversation,
+    onPinConversation,
 }) {
     const t = useT();
 
@@ -155,7 +392,32 @@ function Sidebar({
         ];
     }, [agents, activeAgent, onSelectAgent, onNewAgent, onRenameAgent, onDeleteAgent, t]);
 
-    const listed = conversations.slice(0, LIST_LIMIT);
+    /**
+     * The quick search: a box under the heading that narrows the column by
+     * title as you type, and hands the words to the page's full search on
+     * Enter. Quick because it is local and instant; the page is where the
+     * contents are searched, and Enter is the way there.
+     */
+    const [searchOpen, setSearchOpen] = useState(false);
+    const [query, setQuery] = useState('');
+
+    // Closing clears: the list goes back to all of it as the pill shrinks.
+    useEffect(() => {
+        if (!searchOpen) setQuery('');
+    }, [searchOpen]);
+
+    const needle = query.trim().toLowerCase();
+    const listed = (needle
+        ? conversations.filter(conversation => (conversation.title || '').toLowerCase().includes(needle))
+        : conversations
+    ).slice(0, LIST_LIMIT);
+
+    const searchEverything = () => {
+        if (!needle) return;
+        try { window.sessionStorage.setItem('conversations.query', query.trim()); } catch { /* no storage */ }
+        setSearchOpen(false);
+        onNavChange('conversations');
+    };
 
     return (
         <nav
@@ -218,31 +480,17 @@ function Sidebar({
                 {/* The conversations: a heading that is also the way to the
                     page listing all of them, the plus beside it, and the
                     newest underneath. */}
-                <div className="mt-2 flex items-center pl-3 pr-1.5">
-                    <button
-                        type="button"
-                        onClick={() => onNavChange('conversations')}
-                        className={`flex-1 min-w-0 py-1.5 text-left text-[11px] font-semibold uppercase tracking-wider
-                            transition-colors truncate
-                            ${activeNav === 'conversations'
-                                ? 'text-gray-900 dark:text-white'
-                                : 'text-gray-500 dark:text-neutral-500 hover:text-gray-900 dark:hover:text-gray-200'}`}
-                    >
-                        {t('nav.conversations')}
-                    </button>
-                    <button
-                        type="button"
-                        aria-label={t('conversations.new')}
-                        title={t('conversations.new')}
-                        onClick={onNewConversation}
-                        className="shrink-0 w-7 h-7 flex items-center justify-center rounded-lg transition-colors
-                            text-gray-500 dark:text-gray-400
-                            hover:bg-gray-900/[0.06] hover:text-gray-900
-                            dark:hover:bg-surface-control dark:hover:text-white"
-                    >
-                        <PlusSignIcon size={15} strokeWidth={2.5} />
-                    </button>
-                </div>
+                <ConversationsHeading
+                    active={activeNav === 'conversations'}
+                    open={searchOpen}
+                    onOpen={() => setSearchOpen(true)}
+                    onClose={() => setSearchOpen(false)}
+                    onOpenPage={() => onNavChange('conversations')}
+                    onNew={onNewConversation}
+                    query={query}
+                    onQuery={setQuery}
+                    onSubmit={searchEverything}
+                />
 
                 <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-0.5 pb-2">
                     {listed.length === 0 ? (
@@ -256,6 +504,7 @@ function Sidebar({
                             active={conversation.conversationId === activeConversationId}
                             onOpen={() => onOpenConversation?.(conversation.conversationId)}
                             onDelete={() => onDeleteConversation?.(conversation.conversationId, conversation.title)}
+                            onPin={() => onPinConversation?.(conversation.conversationId, !conversation.pinned)}
                             deleteLabel={t('common.deleteNamed', {
                                 name: conversation.title || t('assistant.newConversation'),
                             })}

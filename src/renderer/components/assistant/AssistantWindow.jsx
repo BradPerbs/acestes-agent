@@ -53,7 +53,9 @@ export default function AssistantWindow() {
 
     // The pages the panel can send you to live in the main window, so it is
     // asked to go there and brought forward.
-    const openSettings = useCallback(() => window.api.ai.navigateMain('settings'), []);
+    const openSettings = useCallback((focus = '') => window.api.ai.navigateMain(
+        typeof focus === 'string' && focus ? `settings:${focus}` : 'settings',
+    ), []);
     const openSnippets = useCallback(() => window.api.ai.navigateMain('snippets'), []);
 
     const mac = window.api.platform === 'darwin';

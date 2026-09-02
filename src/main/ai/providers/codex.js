@@ -373,7 +373,7 @@ async function start({
         async close() {
             abort?.abort();
             await running?.catch(() => {});
-            await mcpHost.release();
+            await mcpHost.release(token);
         },
     };
 }

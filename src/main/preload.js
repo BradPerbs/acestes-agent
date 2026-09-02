@@ -541,10 +541,14 @@ contextBridge.exposeInMainWorld('api', {
             ipcRenderer.invoke('ai-conversation-start', { scope, sessionId, sessionIds, hostIds, agentId }),
         // `{ agentId }` narrows the list to one agent's conversations.
         list: (filter) => ipcRenderer.invoke('ai-conversation-list', filter || {}),
+        // By what was said: `{ agentId, query, limit, openIds }`. See ai/search.js.
+        search: (filter) => ipcRenderer.invoke('ai-conversation-search', filter || {}),
         history: (conversationId) => ipcRenderer.invoke('ai-conversation-history', conversationId),
         // Releases the running query and keeps the transcript, so the
         // conversation can be picked up again from the history menu.
         park: (conversationId) => ipcRenderer.invoke('ai-conversation-park', conversationId),
+        // Keep a conversation at the top of the list, or let it go.
+        pin: (conversationId, pinned) => ipcRenderer.invoke('ai-conversation-pin', { conversationId, pinned }),
         close: (conversationId) => ipcRenderer.invoke('ai-conversation-close', conversationId),
         // Which servers the panel is pointed at: the session in front, every
         // host, or a pinned set of sessions and saved hosts.
@@ -569,6 +573,11 @@ contextBridge.exposeInMainWorld('api', {
         // ordinary event stream, so there is no second channel to watch.
         approve: (requestId, approved, message) =>
             ipcRenderer.invoke('ai-approval-response', { requestId, approved, message }),
+        // A question the agent asked with ask_user, answered. `chosen` says
+        // the answer was one of the offered options rather than typed. An
+        // empty answer dismisses the question.
+        answer: (requestId, answer, chosen = false) =>
+            ipcRenderer.invoke('ai-question-response', { requestId, answer, chosen }),
 
         // Main asking the window to open or close a session, which only the
         // window can do because that means touching the tab tree.
@@ -604,6 +613,15 @@ contextBridge.exposeInMainWorld('api', {
         onNavigate: (callback) => subscribe('ai-navigate', callback),
     },
 
+    /**
+     * The inventory, as the agent changes it. Its tools write hosts, snippets
+     * and proxies straight to the store, so a window has to be told to read
+     * a collection again: `{ kind: 'hosts' | 'snippets' | 'proxies' | 'keys', agentId }`.
+     */
+    inventory: {
+        onChange: (callback) => subscribe('inventory-changed', callback),
+    },
+
     /** What an agent remembers between conversations. See ai/memory.js. */
     memory: {
         list: (agentId) => ipcRenderer.invoke('memory-list', agentId),
@@ -624,6 +642,11 @@ contextBridge.exposeInMainWorld('api', {
         save: (agent) => ipcRenderer.invoke('agents-save', agent),
         remove: (id) => ipcRenderer.invoke('agents-remove', id),
         onChange: (callback) => subscribe('agents-changed', callback),
+        // The sandbox: whether Docker can run this agent's container, a
+        // reset of it, and the folder picker that grants a local folder.
+        sandboxStatus: (id) => ipcRenderer.invoke('sandbox-status', id),
+        sandboxReset: (id) => ipcRenderer.invoke('sandbox-reset', id),
+        chooseFolder: () => ipcRenderer.invoke('sandbox-choose-folder'),
     },
 
     // Which OS this is, for the handful of places the interface has to differ:

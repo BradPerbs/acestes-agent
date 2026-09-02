@@ -16,6 +16,7 @@ import useMentionables from '../../hooks/useMentionables';
 import MentionPicker, { MentionIcon, matchMentions } from './MentionPicker';
 import ToolCall from './ToolCall';
 import ApprovalRequest from './ApprovalRequest';
+import QuestionRequest from './QuestionRequest';
 import ModelMenu from './ModelMenu';
 import ApprovalMenu from './ApprovalMenu';
 import { useT } from '../../i18n';
@@ -541,6 +542,12 @@ export default function AssistantConversation({
      * skips them where they would otherwise fall.
      */
     const asking = useMemo(() => groupApprovals(assistant.items), [assistant.items]);
+    // The agent's own questions, open. Kept apart from the approvals: they
+    // are not folded, and they carry no server.
+    const questions = useMemo(
+        () => assistant.items.filter(item => item.kind === 'question' && item.status === 'pending'),
+        [assistant.items],
+    );
 
     return (
         <>
@@ -622,7 +629,7 @@ export default function AssistantConversation({
                             )) : (
                                 <button
                                     type="button"
-                                    onClick={onOpenSettings}
+                                    onClick={() => onOpenSettings?.('quickPrompts')}
                                     className="w-full h-12 px-3 rounded-xl flex items-center
                                         justify-center gap-1.5 text-xs font-medium
                                         select-none transition-colors
@@ -717,6 +724,12 @@ export default function AssistantConversation({
                             />
                         );
                     }
+                    if (item.kind === 'question') {
+                        // Pinned above the composer while it stands, like an
+                        // approval; here once answered, with the answer on it.
+                        if (item.status === 'pending') return null;
+                        return <QuestionRequest key={item.id} item={item} onAnswer={assistant.answer} />;
+                    }
                     return <Notice key={item.id} item={item} />;
                 })}
 
@@ -729,7 +742,7 @@ export default function AssistantConversation({
                 {/* Not while a question is standing: the turn is still open, so
                     `busy` is true, but nothing is happening and the thing to
                     look at is the card below. */}
-                {assistant.busy && !assistant.draft.text && asking.length === 0 && (
+                {assistant.busy && !assistant.draft.text && asking.length === 0 && questions.length === 0 && (
                     <div className="flex items-center gap-2 h-8 px-2.5 text-[11px]
                         text-gray-500 dark:text-gray-500">
                         <span className="flex gap-1" aria-hidden="true">
@@ -762,7 +775,7 @@ export default function AssistantConversation({
                 transcript ends there. Several questions can stand at once, and
                 the panel is not allowed to lose its reply and its composer to a
                 stack of them. */}
-            {asking.length > 0 && (
+            {(asking.length > 0 || questions.length > 0) && (
                 <div className={`shrink-0 max-h-[55%] overflow-y-auto px-3 pt-3 pb-1 space-y-2
                     border-t ${HAIRLINE}`}>
                     {asking.map(group => (
@@ -772,6 +785,9 @@ export default function AssistantConversation({
                             sessions={sessions}
                             onRespond={assistant.respond}
                         />
+                    ))}
+                    {questions.map(item => (
+                        <QuestionRequest key={item.id} item={item} onAnswer={assistant.answer} />
                     ))}
                 </div>
             )}

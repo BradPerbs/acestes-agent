@@ -1,29 +1,28 @@
 import { useState } from 'react';
 import toast from 'react-hot-toast';
-import SettingsPage from '../ui/SettingsPage';
-import SettingCard from '../ui/SettingCard';
-import SettingRow, { DIVIDED } from '../ui/SettingRow';
-import Slider from '../ui/Slider';
-import Toggle from '../ui/Toggle';
-import SegmentedControl from '../../ui/SegmentedControl';
-import Select from '../../ui/Select';
-import CustomThemeDialog from '../CustomThemeDialog';
+import SettingCard from './ui/SettingCard';
+import SettingRow, { DIVIDED } from './ui/SettingRow';
+import Slider from './ui/Slider';
+import Toggle from './ui/Toggle';
+import SegmentedControl from '../ui/SegmentedControl';
+import Select from '../ui/Select';
+import CustomThemeDialog from './CustomThemeDialog';
 import {
     CUSTOM_THEME_ID,
     TERMINAL_THEMES,
     TERMINAL_THEME_PRESETS,
     sanitizeCustomTheme,
-} from '../../../hooks/useTerminalTheme';
+} from '../../hooks/useTerminalTheme';
 import {
     CURSOR_STYLES,
     DEFAULT_TERMINAL_SETTINGS,
     LIMITS,
     LINK_ACTIVATIONS,
     resolveFontFamily,
-} from '../../../hooks/useTerminalSettings';
-import { MODIFIER_KEY } from '../../../lib/platform';
-import { toastOptions } from '../../../lib/toast';
-import { useT } from '../../../i18n';
+} from '../../hooks/useTerminalSettings';
+import { MODIFIER_KEY } from '../../lib/platform';
+import { toastOptions } from '../../lib/toast';
+import { useT } from '../../i18n';
 
 const TERMINAL_THEME_OPTIONS = TERMINAL_THEME_PRESETS.map(option => ({
     ...option,
@@ -76,7 +75,7 @@ const labelClass = (selected) => `text-xs text-center leading-tight ${selected
  */
 const SAMPLE = 'if (x != 0) => ~/.ssh/config';
 
-export default function TerminalPage({
+export default function TerminalSection({
     terminalTheme,
     customTerminalTheme,
     terminalSettings = DEFAULT_TERMINAL_SETTINGS,
@@ -112,10 +111,7 @@ export default function TerminalPage({
     };
 
     return (
-        <SettingsPage
-            title={t('settings.terminal.title')}
-            description={t('settings.terminal.desc')}
-        >
+        <>
             {/* ---------------- Type ---------------- */}
             <SettingCard>
                 <SettingRow
@@ -466,6 +462,6 @@ export default function TerminalPage({
                     onClose={() => setEditorOpen(false)}
                 />
             )}
-        </SettingsPage>
+        </>
     );
 }

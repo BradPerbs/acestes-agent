@@ -277,10 +277,8 @@ export default {
     'settings.nav.aria': 'Categorias de definições',
     'settings.nav.general': 'Geral',
     'settings.nav.appearance': 'Aspeto',
-    'settings.nav.terminal': 'Terminal',
+    'settings.nav.servers': 'SSH e Servidores',
     'settings.nav.assistant': 'Agente de IA',
-    'settings.nav.monitoring': 'Monitorização',
-    'settings.nav.logging': 'Registo',
     'settings.nav.security': 'Segurança',
     'settings.nav.backup': 'Cópia de segurança',
     'settings.nav.about': 'Acerca',
@@ -288,6 +286,10 @@ export default {
     /* ---- Settings: General ---- */
     'settings.general.title': 'Geral',
     'settings.general.desc': 'Como a aplicação se comporta ao arrancar.',
+    'settings.servers.title': 'SSH e Servidores',
+    'settings.servers.desc': 'A maquinaria através da qual o agente trabalha: o aspeto do terminal '
+        + 'e o que se guarda de uma sessão, que anfitriões são vigiados e em que chaves de servidor '
+        + 'se confia.',
     'settings.general.language': 'Idioma',
     'settings.general.languageDesc': 'O idioma em que é mostrado o texto da própria aplicação. O '
         + 'que o terminal e os seus servidores escrevem fica exatamente como chega.',
@@ -299,9 +301,11 @@ export default {
     'settings.general.startupOff': 'O CloudTerm deixará de abrir quando iniciar sessão',
     'settings.general.startupFailed': 'Não foi possível alterar isso',
     'settings.general.startupUnknown': 'Não foi possível saber se a aplicação arranca com o sistema',
-    'settings.general.restore': 'Restaurar sessões',
-    'settings.general.restoreDesc': 'Voltar a abrir os separadores que estavam abertos quando a '
-        + 'aplicação fechou e ligar de novo aos respetivos anfitriões',
+    'settings.general.restore': 'Restaurar separadores ao arrancar',
+    'settings.general.restoreDesc': 'Voltar a abrir o que estava aberto quando a aplicação fechou: '
+        + 'as conversas com os seus agentes e as sessões de terminal, ligadas de novo aos respetivos '
+        + 'anfitriões. Desligado, a aplicação arranca com uma conversa nova. Nada se perde em '
+        + 'nenhum dos casos; as conversas fechadas ficam no histórico do agente.',
 
     /* ---- Settings: Appearance ---- */
     'settings.appearance.title': 'Aspeto',
@@ -478,6 +482,53 @@ export default {
         + 'segurança. Uma shell tem demasiadas formas de escrever o mesmo comando para qualquer '
         + 'lista as apanhar todas, por isso mantenha as aprovações ligadas para o que importa.',
     'settings.assistant.saveList': 'Guardar lista',
+    'settings.assistant.sandbox': 'Sandbox',
+    'settings.assistant.sandboxDesc': 'O que este agente pode tocar neste computador e onde corre '
+        + 'o seu trabalho local. Os servidores ficam vedados de qualquer forma: cada ferramenta '
+        + 'remota verifica as sessões e os hosts do próprio agente antes de correr.',
+    'settings.assistant.sandbox.execution': 'O trabalho local corre',
+    'settings.assistant.sandbox.execution.host': 'Neste computador',
+    'settings.assistant.sandbox.execution.container': 'Num contentor',
+    'settings.assistant.sandbox.execution.host.note': 'Comandos e ficheiros locais ficam dentro das '
+        + 'pastas concedidas abaixo, verificadas pela app em cada chamada. Uma proteção, não um '
+        + 'muro: uma shell alcança o que você alcança, por isso o cartão de aprovação continua a '
+        + 'importar.',
+    'settings.assistant.sandbox.execution.container.note': 'Comandos, ficheiros e os servidores MCP '
+        + 'deste agente correm num contentor Docker próprio e endurecido, apenas com as pastas '
+        + 'concedidas abaixo montadas. As ferramentas do próprio runtime neste computador são '
+        + 'desligadas. Precisa do Docker.',
+    'settings.assistant.sandbox.docker.checking': 'A procurar o Docker…',
+    'settings.assistant.sandbox.docker.ready': 'Docker {version} está a correr.',
+    'settings.assistant.sandbox.docker.container': 'Contentor {status}.',
+    'settings.assistant.sandbox.docker.missing': '{reason}',
+    'settings.assistant.sandbox.reset': 'Repor contentor',
+    'settings.assistant.sandbox.resetDone': 'O contentor foi reconstruído de raiz.',
+    'settings.assistant.sandbox.resetFailed': 'Não foi possível reconstruir o contentor: {error}',
+    'settings.assistant.sandbox.network': 'Rede do contentor',
+    'settings.assistant.sandbox.network.none': 'Nenhuma',
+    'settings.assistant.sandbox.network.any': 'Aberta',
+    'settings.assistant.sandbox.network.none.note': 'Sem saída do contentor. Nada do que lê pode '
+        + 'ser enviado para lado nenhum, e nada pode ser descarregado. Certo para um agente que '
+        + 'trabalha por sessões SSH, que a app mantém fora do contentor.',
+    'settings.assistant.sandbox.network.any.note': 'O contentor alcança a internet e a sua rede '
+        + 'local. Necessário para instalações e descargas; também a principal forma de um agente '
+        + 'enganado divulgar o que viu.',
+    'settings.assistant.sandbox.sessions': 'Sessões de terminal',
+    'settings.assistant.sandbox.sessions.own': 'As suas',
+    'settings.assistant.sandbox.sessions.any': 'Qualquer aberta',
+    'settings.assistant.sandbox.sessions.own.note': 'Este agente pode usar as sessões que abriu e '
+        + 'as que você abriu. Sessões abertas por outro agente são recusadas.',
+    'settings.assistant.sandbox.sessions.any.note': 'Este agente pode conduzir todas as sessões '
+        + 'abertas, incluindo as abertas por outro agente.',
+    'settings.assistant.sandbox.folders': 'Pastas neste computador',
+    'settings.assistant.sandbox.foldersDesc': 'Os únicos sítios onde as ferramentas locais podem '
+        + 'olhar. Nada é concedido à partida. Num contentor cada pasta é montada em /workspace.',
+    'settings.assistant.sandbox.foldersEmpty': 'Nenhuma pasta concedida. As ferramentas locais '
+        + 'recusam tudo até haver uma.',
+    'settings.assistant.sandbox.addFolder': 'Conceder uma pasta',
+    'settings.assistant.sandbox.folder.read': 'Ler',
+    'settings.assistant.sandbox.folder.write': 'Ler e escrever',
+    'settings.assistant.sandbox.removeFolder': 'Remover',
     'settings.assistant.restoreDefaults': 'Repor predefinições',
     'settings.assistant.quickPrompts': 'Perguntas rápidas',
     'settings.assistant.quickPromptsDesc': 'Perguntas que o painel oferece como botões de um clique '
@@ -600,7 +651,7 @@ export default {
 
     /* ---- Settings: Security ---- */
     'settings.security.title': 'Segurança',
-    'settings.security.desc': 'Quem pode abrir esta aplicação, e em que servidores ela confia.',
+    'settings.security.desc': 'Quem pode abrir esta aplicação.',
 
     'settings.lock.title': 'Palavra-passe de abertura',
     'settings.lock.badgeOn': 'ligada',

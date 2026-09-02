@@ -59,11 +59,15 @@ function splitTail(text) {
 // paneId -> { chunks, length, written, pending, startedAt }
 const buffers = new Map();
 
-function open(paneId, { hostName = '', address = '', protocol = '', hostId = '' } = {}) {
+function open(paneId, { hostName = '', address = '', protocol = '', hostId = '', agentId = '' } = {}) {
     buffers.set(paneId, {
         chunks: [],
         length: 0,
         hostId,
+        // Which agent opened it, when one did. A session the user opened by
+        // hand has none, and every agent may use it; one an agent opened is
+        // that agent's, and the tool layer keeps the others off it.
+        agentId,
         // Every character ever appended, so a caller can hold a cursor and ask
         // only for what has landed since. The count keeps rising after the
         // window at the front has been dropped, which is what makes a stale
@@ -79,6 +83,22 @@ function open(paneId, { hostName = '', address = '', protocol = '', hostId = '' 
 
 function close(paneId) {
     buffers.delete(paneId);
+}
+
+/**
+ * Mark a session as opened by an agent.
+ *
+ * Separate from `open` because the two happen in different places: the
+ * transport opens the buffer when the connection lands, and the assistant
+ * learns the session id only when the renderer reports the tab it made. The
+ * first claim sticks; a session is not handed from one agent to another by
+ * the second one asking.
+ */
+function claim(paneId, agentId) {
+    const entry = buffers.get(paneId);
+    if (!entry || !agentId || entry.agentId) return false;
+    entry.agentId = String(agentId);
+    return true;
 }
 
 /**
@@ -186,6 +206,7 @@ function list() {
     return [...buffers.entries()].map(([paneId, entry]) => ({
         sessionId: paneId,
         hostId: entry.hostId,
+        agentId: entry.agentId || '',
         hostName: entry.hostName,
         address: entry.address,
         protocol: entry.protocol,
@@ -199,6 +220,7 @@ function info(paneId) {
     return {
         sessionId: paneId,
         hostId: entry.hostId,
+        agentId: entry.agentId || '',
         hostName: entry.hostName,
         address: entry.address,
         protocol: entry.protocol,
@@ -213,6 +235,7 @@ function has(paneId) {
 module.exports = {
     open,
     close,
+    claim,
     record,
     read,
     cursor,

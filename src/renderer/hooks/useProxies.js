@@ -35,6 +35,11 @@ async function reload() {
     }
 }
 
+// The agent saves proxies from the main process too; see useSnippets.
+window.api?.inventory?.onChange?.((change) => {
+    if (change?.kind === 'proxies' && cache !== null) reload();
+});
+
 export function useProxies() {
     const [proxies, setProxies] = useState(() => cache || []);
     const [loading, setLoading] = useState(() => cache === null);
