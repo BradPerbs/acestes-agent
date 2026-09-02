@@ -1,144 +1,79 @@
 <h1 align="center">Acestes Agent</h1>
 
 <p align="center">
-  <strong>An agent that lives on your desktop: persistent memory, its own inventory, and SSH sessions it works through.</strong>
+  <strong>The agent that lives on your desktop and runs your servers with you.</strong>
 </p>
 
 <p align="center">
-  Electron · React · xterm.js · Claude Code, Codex, OpenCode, Grok, Kimi and local models
+  Persistent memory · Its own inventory · SSH sessions it opens itself · Runs on Claude Code, Codex, OpenCode, Grok, Kimi or a local model
 </p>
 
 ---
 
-Acestes Agent is a desktop workspace built around agents. Each agent has its
-own conversations, its own inventory of things to work with, its own memory
-and its own settings. You talk to it in a chat; it reads your terminals, runs
-commands over SSH sessions it opens itself, and remembers what it learned for
-next time.
+## Meet Acestes
 
-It is a fork of [CloudTerm](https://github.com/BradPerbs/cloudterm) 1.4.3,
-which contributed the terminal, the SSH/SFTP stack and the provider
-integrations. Everything that an agent cannot work through, such as the remote
-desktop viewers, has been taken out, and the interface has been rebuilt around
-the agent rather than around a list of hosts.
+In the *Aeneid*, Acestes is the king of Sicily who takes the Trojans in. He
+shelters them after the storm, welcomes them back when they return, and keeps
+the ones who stay. Aeneas moves on; Acestes holds the ground.
 
-## What is in it
+That is the idea. Every chat assistant forgets you the moment the window
+closes. Acestes stays. It keeps your servers, your keys, your notes and your
+habits, and it is there the next morning knowing what happened yesterday.
 
-### Agents
+## An agent, not a chatbot
 
-- **More than one.** Pick the agent from the top of the sidebar, make a new
-  one with a name and a colour, rename or delete it. Deleting an agent hands
-  its conversations and notes to the one selected next.
-- **Its own settings.** Which runtime answers for it, the model and effort,
-  the approval policy, the command mode, quick prompts, blocked commands, and
-  standing instructions sent ahead of every conversation. Machine-level
-  settings, such as which runtimes are installed, are shared.
-- **Its own mark.** A round face with animated eyes, in the agent's colour,
-  everywhere the agent appears.
+- **It remembers.** Every agent keeps a memory that grows with every
+  conversation: what your machines are, how you like things done, what the
+  fix turned out to be. Indexed on your own machine, searched by meaning,
+  never sent anywhere to be stored.
+- **It does the work.** Acestes opens SSH sessions, reads what is on the
+  screen, runs the commands, checks the result and reports back. You watch it
+  happen in a real terminal, or let it work quietly in the background.
+- **It carries its own kit.** Hosts, keys, proxies, snippets, playbooks and
+  MCP tool servers live in the agent's inventory, laid out like a bag in a
+  game. Give an agent what it needs and it takes it into every conversation.
+- **It asks before it breaks things.** You choose how much it does on its own:
+  everything on approval, reads without asking, or full autonomy. A blocked
+  list stops the truly dangerous commands before they reach a server.
+- **It never sees a password.** Credentials stay in the app's vault. The
+  agent names a host; the app makes the connection.
 
-### Conversations
+## A team of them
 
-- Conversations are tabs of the window, beside the SSH sessions. The chat is
-  the main surface; the sidebar lists the selected agent's conversations,
-  newest first, and a Conversations page lists all of them with search.
-- A conversation can be pointed at the session in front of you, at every
-  saved host, or pinned to a set of servers the tools are fenced to.
-- Sessions the agent opens arrive as tabs behind the conversation rather
-  than in front of it. A conversation can be lifted into a window of its own.
+One agent for production, one for the homelab, one that only reads and
+reports. Each has its own name, its own colour, its own face, its own
+memory, its own inventory and its own rules. Switch between them from the
+sidebar. Run them on different models. Give each one standing instructions
+and it behaves like the specialist you hired it to be.
 
-### Inventory
+## Built on a real terminal
 
-One sidebar entry, several pages, all scoped to the selected agent:
+Acestes grew out of [CloudTerm](https://github.com/BradPerbs/cloudterm), so
+underneath the agent is a serious SSH client: tabs, split panes, SFTP with
+drag and drop, port forwarding, session recording, jump hosts, proxies and
+serial consoles. The agent works through the same sessions you do, in the
+same window.
 
-- **Overview**, drawn like a game inventory: the agent's card, and a pouch
-  per class with a round token per item.
-- **Hosts**, with folders, tags, jump hosts, proxies, port forwards,
-  run-on-connect commands and reachability monitoring. SSH, Telnet and
-  serial.
-- **Keychain**, for SSH keys, including keys held in Windows Hello.
-- **Proxies**: SOCKS4, SOCKS5 and HTTP CONNECT, chainable.
-- **Snippets**: commands, packages of commands, and specs, which are
-  documents the agent is handed with a message.
-- **Memory**: what the agent remembers, readable and editable.
-- **MCP servers**: external tool servers handed to the agent, by command or
-  by URL.
-- **Logs**: the activity log of what was connected to and changed.
+## Your runtime, your choice
 
-Records made while an agent is selected belong to it. Records with no owner,
-such as imported hosts, are visible to every agent.
+Acestes drives the coding agents already installed and signed in on your
+machine: Claude Code, Codex, OpenCode, Grok, Kimi, or any local
+OpenAI-compatible model. No new subscription, no key to paste, and you can
+change your mind per agent.
 
-### Memory
-
-Every agent keeps a notebook between conversations. The agent writes to it
-through three tools: `remember` saves a note, `recall` searches, `forget`
-deletes one by id. The user can add and edit notes on the Memory page.
-
-Notes are embedded on the machine, with MiniLM run through ONNX, into a
-vector index kept beside them. The newest notes go into the system prompt;
-the ones that bear on each message are found by meaning and sent with it,
-which is what lets the notebook grow past what a prompt could carry. Search
-folds in a plain word match, so an exact hostname or id still wins. The model
-is fetched once, about 23 MB, and nothing leaves the machine to be indexed.
-
-### The agent's tools
-
-The agent works through the app rather than around it. It can list hosts and
-sessions, read what is on a terminal, run commands (typed into the terminal
-you are watching, or on a background channel with a real exit code), send
-input to a running program, list, read and write files over SFTP, open and
-close sessions, and use its memory. It never sees a credential: it names a
-host or a session, and the app connects with what is already stored.
-
-Every call that changes something goes through an approval policy: ask every
-time, ask before changes, or never ask. A blocked command list refuses the
-dangerous ones before they reach a server.
-
-### Terminal
-
-Everything CloudTerm's terminal had: tabs and tab groups, split panes,
-broadcast typing, search, session recording, snippets, SFTP with drag and
-drop, port forwarding with live counters, remote file editing in your own
-editor, host key trust on first use, and keyboard-interactive logins.
-
-## Running it
+## Run it
 
 ```
 npm install
 npm run dev
 ```
 
-`npm run dev` starts the Vite dev server and Electron against it. If you
-launch from a shell that inherited `ELECTRON_RUN_AS_NODE` (VS Code's
-integrated terminal does this), unset it first or Electron starts as plain
-Node.
-
-```
-npm test          # the unit tests
-npm run build     # Windows installer and portable build, into dist/
-npm run build:mac
-npm run build:linux
-```
-
-The first conversation needs one of the supported runtimes installed and
-signed in on the machine: Claude Code, Codex, OpenCode, Grok, Kimi, or a local
-OpenAI-compatible endpoint. Which ones are on is set on the agent's settings
-page.
-
-## Where things live
-
-- `src/main/agents.js`: the agent registry.
-- `src/main/ai/`: conversations (`index.js`), the tool catalog (`tools.js`),
-  the system prompt (`prompt.js`), memory (`memory.js`, `embeddings.js`),
-  settings with per-agent overlays (`settings.js`), and one file per runtime
-  under `providers/`.
-- `src/main/`: SSH, SFTP, telnet, serial, tunnels, proxies, the store and the
-  activity log.
-- `src/renderer/`: the React app. `App.jsx` holds the tabs; `components/`
-  holds the pages and the conversation surface; `hooks/` holds the state.
-- `ROADMAP.md`: what is done and what is next.
+Builds for Windows, macOS and Linux come from `npm run build`,
+`npm run build:mac` and `npm run build:linux`. See [ROADMAP.md](ROADMAP.md)
+for where this is going.
 
 ## License
 
-Acestes Agent keeps CloudTerm's license, a fair-code license under which the
-source is open to read and the software is free to use and modify. See
+Acestes Agent is a fork of CloudTerm 1.4.3 and keeps its fair-code license:
+the source is open to read, and the software is free to use and modify. See
 [LICENSE](LICENSE).
