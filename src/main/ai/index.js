@@ -5,7 +5,7 @@ const prompt = require('./prompt');
 const catalog = require('./tools');
 const archive = require('./archive');
 const { readImages } = require('./images');
-const { readSpecs, specBlock, stripSpecs } = require('./specs');
+const { readMentions, mentionBlock, stripMentions } = require('./mentions');
 const store = require('../store');
 const transcript = require('../transcript');
 const activity = require('../activity');
@@ -687,7 +687,7 @@ function summarise(input) {
  * user is exactly the thing that moves while they work. Sending it only on
  * change keeps the cached prefix intact for the turns where nothing moved.
  */
-async function send(conversationId, text, attachments = [], specIds = []) {
+async function send(conversationId, text, attachments = [], tagged = []) {
     hydrate();
 
     const conversation = conversations.get(conversationId);
@@ -697,13 +697,20 @@ async function send(conversationId, text, attachments = [], specIds = []) {
     const { images, error } = readImages(attachments);
     if (error) return { success: false, message: error };
 
-    // Specs are looked up here, against the library as it stands, rather than
-    // trusted as text from the renderer. See `specs.js`.
-    const attached = readSpecs(specIds, store.getSnippets());
+    // What the message tagged is looked up here, against the inventory as it
+    // stands, rather than trusted as text from the renderer. See `mentions.js`.
+    const attached = readMentions(tagged, {
+        hosts: store.getHosts(),
+        snippets: store.getSnippets(),
+        proxies: store.getProxies(),
+        keys: store.getKeys(),
+        notes: memory.list(conversation.agentId),
+        servers: agents.get(conversation.agentId)?.mcpServers || [],
+    });
     if (attached.error) return { success: false, message: attached.error };
-    const { specs } = attached;
+    const { mentions } = attached;
 
-    if (!body && images.length === 0 && specs.length === 0) {
+    if (!body && images.length === 0 && mentions.length === 0) {
         return { success: false, message: 'Nothing to send' };
     }
 
@@ -714,16 +721,16 @@ async function send(conversationId, text, attachments = [], specIds = []) {
     }
 
     if (!conversation.title) {
-        conversation.title = (body || specs[0]?.name || images[0].name).replace(/\s+/g, ' ').slice(0, 80);
+        conversation.title = (body || mentions[0]?.name || images[0].name).replace(/\s+/g, ' ').slice(0, 80);
     }
 
-    // The transcript keeps a spec's name and not its text: the text is in the
-    // library, and a chip is what the bubble draws for it.
+    // The transcript keeps what was tagged and not what it said: the records
+    // are in the inventory, and a chip is what the bubble draws for them.
     emit(conversation, {
         type: 'user-message',
         text: body,
         ...(images.length ? { images } : {}),
-        ...(specs.length ? { specs: stripSpecs(specs) } : {}),
+        ...(mentions.length ? { mentions: stripMentions(mentions) } : {}),
     });
     conversation.busy = true;
 
@@ -763,7 +770,7 @@ async function send(conversationId, text, attachments = [], specIds = []) {
             );
         }
 
-        if (specs.length > 0) parts.push(specBlock(specs));
+        if (mentions.length > 0) parts.push(mentionBlock(mentions));
         if (body) parts.push(body);
 
         session.send(parts.join('\n\n'), images);
@@ -872,8 +879,10 @@ function list({ agentId = '' } = {}) {
 
     return [...conversations.values()]
         // One agent's, when asked; the sidebar and the Conversations page
-        // only ever show the agent that is selected.
+        // only ever show the agent that is selected. Nothing that was never
+        // spoken into: a tab opened and left is not a conversation yet.
         .filter(conversation => !agentId || conversation.agentId === agentId)
+        .filter(conversation => conversation.title || conversation.events.length > 0)
         .map(conversation => ({
             conversationId: conversation.id,
             agentId: conversation.agentId,

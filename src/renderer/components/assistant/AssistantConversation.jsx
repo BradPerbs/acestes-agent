@@ -6,16 +6,14 @@ import {
     StopCircleIcon,
     Image01Icon,
     ImageAdd01Icon,
-    Note01Icon,
 } from 'hugeicons-react';
 import Tooltip from '../ui/Tooltip';
 import AgentMark from './AgentMark';
 import Markdown from '../../lib/markdown';
 import useAssistant from '../../hooks/useAssistant';
 import useTypewriter from '../../hooks/useTypewriter';
-import { useSnippets } from '../../hooks/useSnippets';
-import { isSpec } from '../../lib/snippets';
-import SpecMenu from './SpecMenu';
+import useMentionables from '../../hooks/useMentionables';
+import MentionPicker, { MentionIcon, matchMentions } from './MentionPicker';
 import ToolCall from './ToolCall';
 import ApprovalRequest from './ApprovalRequest';
 import ModelMenu from './ModelMenu';
@@ -24,6 +22,7 @@ import { useT } from '../../i18n';
 import { groupApprovals } from '../../lib/approvals';
 import { IMAGE_TYPES, imageFiles, readImage } from '../../lib/images';
 import { describe, toWire } from '../../lib/assistant-scope';
+import { pickLine } from '../../lib/aeneid';
 
 /** The rule inside a card, which is lighter than the one between two cards. */
 export const HAIRLINE = 'border-black/[0.06] dark:border-white/[0.06]';
@@ -188,7 +187,6 @@ export default function AssistantConversation({
     onConversationChange,
     onStatus,
     onOpenSettings,
-    onOpenSnippets,
 }) {
     const t = useT();
     const [settings, setSettings] = useState(null);
@@ -222,33 +220,34 @@ export default function AssistantConversation({
     const [imageNotice, setImageNotice] = useState('');
 
     /**
-     * The specs going with the message, by id. Ids rather than records, so a
-     * spec edited in the library while it sits in the composer is sent as it
-     * now reads; main looks each one up when the message goes.
+     * What this message points at, tagged with `@`: hosts, snippets, notes,
+     * proxies, keys, MCP servers. Held as `{ kind, id, name }` and sent as the
+     * first two, so the main process reads the record as it stands rather than
+     * from a copy the panel took when it was tagged.
      */
-    const [specIds, setSpecIds] = useState([]);
-    const { snippets } = useSnippets();
-    const specs = useMemo(() => snippets.filter(snippet => (
-        isSpec(snippet) && (!snippet.agentId || !agentId || snippet.agentId === agentId)
-    )), [snippets, agentId]);
+    const [mentions, setMentions] = useState([]);
+    const mentionables = useMentionables({ agentId, hosts });
 
-    // Resolved against the live library, so a spec deleted while attached
-    // falls off the message rather than being sent as an id nothing answers.
-    const attached = useMemo(
-        () => specIds.map(id => specs.find(spec => spec.id === id)).filter(Boolean),
-        [specIds, specs],
+    /** `{ query, start }` while the picker is open, and the row highlighted. */
+    const [mention, setMention] = useState(null);
+    const [activeRow, setActiveRow] = useState(0);
+
+    const matches = useMemo(
+        () => (mention ? matchMentions(mentionables, mention.query) : []),
+        [mention, mentionables],
     );
 
-    const toggleSpec = useCallback((id) => {
-        setSpecIds(current => (
-            current.includes(id) ? current.filter(entry => entry !== id) : [...current, id]
-        ));
+    const dropMention = useCallback((kind, id) => {
+        setMentions(current => current.filter(entry => !(entry.kind === kind && entry.id === id)));
     }, []);
 
     const scrollRef = useRef(null);
     const inputRef = useRef(null);
     const fileRef = useRef(null);
     const stickToBottom = useRef(true);
+
+    /** What the empty page says, chosen once for the life of the tab. */
+    const line = useMemo(() => pickLine(), []);
 
     // `follow` is resolved against the pane in front here, so what goes over
     // IPC is always a concrete answer. A pinned set stays put while the user
@@ -266,7 +265,7 @@ export default function AssistantConversation({
     const first = assistant.items.find(item => item.kind === 'user');
     const title = String(
         first?.text
-        || first?.specs?.[0]?.name
+        || first?.mentions?.[0]?.name
         || (first?.images?.length ? t('assistant.image') : ''),
     ).replace(/\s+/g, ' ').trim().slice(0, 60);
 
@@ -375,19 +374,86 @@ export default function AssistantConversation({
 
     const submit = useCallback(() => {
         const body = text.trim();
-        if ((!body && images.length === 0 && attached.length === 0) || assistant.busy) return;
+        if ((!body && images.length === 0 && mentions.length === 0) || assistant.busy) return;
         setText('');
         setImages([]);
         setImageNotice('');
-        setSpecIds([]);
+        setMentions([]);
+        setMention(null);
         stickToBottom.current = true;
         if (inputRef.current) inputRef.current.style.height = 'auto';
         assistant.send(
             body,
             images.map(({ name, mediaType, data }) => ({ name, mediaType, data })),
-            attached.map(spec => spec.id),
+            mentions.map(({ kind, id }) => ({ kind, id })),
         );
-    }, [text, images, attached, assistant]);
+    }, [text, images, mentions, assistant]);
+
+    /**
+     * What is being tagged, if anything: an `@` at the caret, at the start of
+     * a word, with what has been typed since. Read on every change rather than
+     * held as a mode, so clicking elsewhere in the line, or backspacing over
+     * the `@`, closes the picker without anything having to notice.
+     */
+    const readMention = useCallback((value, caret) => {
+        const found = /(?:^|\s)@([^\s@]{0,60})$/.exec(value.slice(0, caret));
+        if (!found) return null;
+        return { query: found[1], start: caret - found[1].length - 1 };
+    }, []);
+
+    const onText = useCallback((event) => {
+        const { value, selectionStart } = event.target;
+        setText(value);
+        const next = readMention(value, selectionStart);
+        setMention(next);
+        setActiveRow(0);
+    }, [readMention]);
+
+    /**
+     * Take the highlighted row: the `@query` in the text becomes the thing's
+     * name, and the thing itself is held as a chip. The caret lands after the
+     * name so the sentence can carry on being written.
+     */
+    const pickMention = useCallback((item) => {
+        if (!mention) return;
+        const caret = mention.start + 1 + mention.query.length;
+        const inserted = `@${item.name} `;
+        const next = text.slice(0, mention.start) + inserted + text.slice(caret);
+
+        setText(next);
+        setMentions(current => (
+            current.some(entry => entry.kind === item.kind && entry.id === item.id)
+                ? current
+                : [...current, { kind: item.kind, id: item.id, name: item.name }]
+        ));
+        setMention(null);
+
+        const at = mention.start + inserted.length;
+        requestAnimationFrame(() => {
+            const node = inputRef.current;
+            if (!node) return;
+            node.focus({ preventScroll: true });
+            node.setSelectionRange(at, at);
+        });
+    }, [mention, text]);
+
+    /** The `@` button: the same thing typing one does, for a pointer. */
+    const openMentions = useCallback(() => {
+        const node = inputRef.current;
+        if (!node) return;
+        const caret = node.selectionStart ?? text.length;
+        const spaced = caret > 0 && !/\s$/.test(text.slice(0, caret)) ? ' ' : '';
+        const next = `${text.slice(0, caret)}${spaced}@${text.slice(caret)}`;
+        const at = caret + spaced.length + 1;
+
+        setText(next);
+        setMention({ query: '', start: at - 1 });
+        setActiveRow(0);
+        requestAnimationFrame(() => {
+            node.focus({ preventScroll: true });
+            node.setSelectionRange(at, at);
+        });
+    }, [text]);
 
     /**
      * Take in image files, however they arrived. One at a time, so a handful
@@ -432,6 +498,27 @@ export default function AssistantConversation({
     };
 
     const onKeyDown = (event) => {
+        // The picker is driven from here so the caret never leaves the field.
+        if (mention && matches.length > 0) {
+            if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                event.preventDefault();
+                const step = event.key === 'ArrowDown' ? 1 : -1;
+                setActiveRow(current => (current + step + matches.length) % matches.length);
+                return;
+            }
+            if (event.key === 'Enter' || event.key === 'Tab') {
+                event.preventDefault();
+                pickMention(matches[activeRow] || matches[0]);
+                return;
+            }
+        }
+        if (mention && event.key === 'Escape') {
+            event.preventDefault();
+            event.stopPropagation();
+            setMention(null);
+            return;
+        }
+
         if (event.key === 'Enter' && !event.shiftKey) {
             event.preventDefault();
             submit();
@@ -499,9 +586,12 @@ export default function AssistantConversation({
                                 a frame around a frame. */}
                             <AgentMark size={64} animated color={agentColor} className="mb-3" />
                             <h2 className="text-sm font-semibold text-gray-900 dark:text-white">
-                                {t('assistant.welcome')}
+                                {line.text}
                             </h2>
-                            <p className="mt-1.5 text-xs leading-relaxed text-gray-500 dark:text-gray-500">
+                            <p className="mt-1 text-[11px] italic text-gray-400 dark:text-gray-600">
+                                {line.latin} · Aeneid {line.book}
+                            </p>
+                            <p className="mt-3 text-xs leading-relaxed text-gray-500 dark:text-gray-500">
                                 {t('assistant.welcomeNote')}
                             </p>
                         </div>
@@ -561,21 +651,19 @@ export default function AssistantConversation({
                                     {/* The pictures, or a chip naming each one for a
                                         message read back from disk, which keeps the
                                         name and not the bytes. */}
-                                    {/* The documents that went with it, by
-                                        name. The text is in the library, and
-                                        a bubble holding a runbook would be
-                                        the whole panel. */}
-                                    {item.specs?.length > 0 && (
+                                    {/* What the message tagged, by name. The
+                                        records are in the inventory, and a
+                                        bubble holding a runbook would be the
+                                        whole panel. */}
+                                    {item.mentions?.length > 0 && (
                                         <div className={`flex flex-wrap gap-1.5 ${item.text || item.images?.length ? 'mb-1.5' : ''}`}>
-                                            {item.specs.map((spec, index) => (
+                                            {item.mentions.map((entry, index) => (
                                                 <span
-                                                    key={spec.id || index}
-                                                    title={t('assistant.spec')}
+                                                    key={`${entry.kind}:${entry.id}` || index}
                                                     className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md
                                                         text-xs bg-white/15 dark:bg-black/10"
                                                 >
-                                                    <Note01Icon size={12} strokeWidth={2} />
-                                                    {spec.name || t('assistant.spec')}
+                                                    @{entry.name}
                                                 </span>
                                             ))}
                                         </div>
@@ -708,31 +796,42 @@ export default function AssistantConversation({
                 into it. */}
             <div className="shrink-0 p-3">
                 <div
-                    className="rounded-2xl transition-colors
+                    className="relative rounded-2xl transition-colors
                         border border-gray-300 dark:border-surface-control
                         focus-within:border-gray-400 dark:focus-within:border-neutral-600"
                     onDrop={onDrop}
                     onDragOver={onDragOver}
                 >
-                    {/* The specs going with the message, as chips. Each can be
-                        taken back until it is sent; the menu below toggles the
-                        same set. */}
-                    {attached.length > 0 && (
+                    {/* What `@` opened, over the composer rather than in it. */}
+                    {mention && (
+                        <MentionPicker
+                            items={matches}
+                            query={mention.query}
+                            active={activeRow}
+                            onPick={pickMention}
+                            onHover={setActiveRow}
+                        />
+                    )}
+
+                    {/* What the message tags, as chips. Each can be taken back
+                        until it is sent; the words in the field are the user's
+                        own and are left alone. */}
+                    {mentions.length > 0 && (
                         <div className="flex flex-wrap gap-1.5 px-3 pt-2.5">
-                            {attached.map(spec => (
+                            {mentions.map(entry => (
                                 <span
-                                    key={spec.id}
+                                    key={`${entry.kind}:${entry.id}`}
                                     className="inline-flex items-center gap-1 pl-2 pr-1 h-6 rounded-md
                                         text-xs font-medium select-none
                                         bg-gray-100 dark:bg-surface-control
                                         text-gray-700 dark:text-gray-200"
                                 >
-                                    <Note01Icon size={12} strokeWidth={2} className="shrink-0 opacity-70" />
-                                    <span className="max-w-[12rem] truncate">{spec.name}</span>
+                                    <MentionIcon item={entry} size={12} />
+                                    <span className="max-w-[12rem] truncate">{entry.name}</span>
                                     <button
                                         type="button"
-                                        aria-label={t('assistant.removeSpec')}
-                                        onClick={() => toggleSpec(spec.id)}
+                                        aria-label={t('mentions.remove', { name: entry.name })}
+                                        onClick={() => dropMention(entry.kind, entry.id)}
                                         className="w-4 h-4 flex items-center justify-center rounded
                                             text-gray-500 dark:text-gray-400
                                             hover:text-gray-900 dark:hover:text-white
@@ -781,8 +880,10 @@ export default function AssistantConversation({
                         ref={inputRef}
                         rows={1}
                         value={text}
-                        onChange={(event) => setText(event.target.value)}
+                        onChange={onText}
                         onKeyDown={onKeyDown}
+                        onClick={(event) => setMention(readMention(event.target.value, event.target.selectionStart))}
+                        onBlur={() => setMention(null)}
                         onPaste={onPaste}
                         placeholder={t('assistant.askAbout', { about: described.sentence })}
                         className="block w-full max-h-40 px-3 pt-2.5 pb-1 bg-transparent
@@ -802,15 +903,23 @@ export default function AssistantConversation({
                             <ApprovalMenu settings={settings} onChange={changeSettings} />
                         )}
 
-                        {/* The documents from the library that go with the
-                            message. Every agent can read text, so this is
-                            there whichever one is answering. */}
-                        <SpecMenu
-                            specs={specs}
-                            selected={specIds}
-                            onToggle={toggleSpec}
-                            onCreate={onOpenSnippets}
-                        />
+                        {/* Anything in the inventory can be named in a message.
+                            The same thing typing `@` does, for a pointer. */}
+                        <Tooltip label={t('mentions.tag')} hint="@" placement="top">
+                            <button
+                                type="button"
+                                aria-label={t('mentions.tag')}
+                                onClick={openMentions}
+                                className={`w-7 h-7 shrink-0 flex items-center justify-center rounded-full
+                                    text-sm font-semibold transition-colors
+                                    ${mention || mentions.length > 0
+                                        ? 'bg-gray-100 dark:bg-surface-control text-gray-700 dark:text-gray-200'
+                                        : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-surface-control '
+                                            + 'hover:text-gray-700 dark:hover:text-gray-200'}`}
+                            >
+                                @
+                            </button>
+                        </Tooltip>
 
                         {/* The picker, for the agents that can read a picture.
                             Paste and drop work without it; this is for the

@@ -990,9 +990,6 @@ export default {
 
     /* ---- Assistant panel ---- */
     'assistant.title': 'Trợ lý AI',
-    'assistant.welcome': 'Cùng làm việc trên máy chủ của bạn nào',
-    'assistant.welcomeNote': 'Nó đọc terminal này, chạy lệnh trên kênh riêng, và có thể làm việc '
-        + 'trên mọi máy chủ bạn đã lưu.',
     'assistant.createQuickPrompts': 'Tạo câu hỏi nhanh',
     'assistant.newConversation': 'Cuộc trò chuyện mới',
     'assistant.chats': 'Cuộc trò chuyện',

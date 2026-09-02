@@ -1039,9 +1039,6 @@ export default {
 
     /* ---- Assistant panel ---- */
     'assistant.title': 'Agente de IA',
-    'assistant.welcome': 'Vamos trabalhar nos seus servidores',
-    'assistant.welcomeNote': 'Lê este terminal, corre comandos no canal deles, e pode trabalhar em '
-        + 'todos os anfitriões que tem guardados.',
     'assistant.createQuickPrompts': 'Criar perguntas rápidas',
     'assistant.newConversation': 'Nova conversa',
     'assistant.chats': 'Conversas',
@@ -1052,15 +1049,6 @@ export default {
     'assistant.removeImage': 'Remover imagem',
     'assistant.image': 'Imagem',
     'assistant.imageDropped': '{name} ficou de fora: as imagens têm de ser PNG, JPEG, GIF ou WebP e ter menos de 5 MB.',
-    'assistant.attachSpec': 'Anexar uma especificação',
-    'assistant.attachSpecHint': 'Instruções da sua biblioteca de excertos, enviadas com a mensagem',
-    'assistant.removeSpec': 'Remover especificação',
-    'assistant.spec': 'Especificação',
-    'assistant.specs': 'Especificações',
-    'assistant.searchSpecs': 'Procurar especificações',
-    'assistant.noSpecsNote': 'Uma especificação é um documento que o agente lê com a sua mensagem: um '
-        + 'runbook, regras da casa, um briefing. Escreva uma em Excertos.',
-    'assistant.createSpec': 'Criar uma especificação',
     'assistant.newTab': 'Novo separador',
     'assistant.closeTab': 'Fechar separador',
     'assistant.closeOtherTabs': 'Fechar os outros separadores',

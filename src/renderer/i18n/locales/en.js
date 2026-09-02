@@ -1200,9 +1200,9 @@ export default {
      * The assistant panel
      * ---------------------------------------------------------------- */
     'assistant.title': 'AI Agent',
-    'assistant.welcome': 'Let’s work on your servers',
-    'assistant.welcomeNote': 'It reads this terminal, runs commands on their own channel, and can '
-        + 'work across every host you have saved.',
+
+    'assistant.welcomeNote': 'Say what you need. I open the sessions, do the work, check the result, '
+        + 'and remember what we learned.',
     'assistant.createQuickPrompts': 'Create quick prompts',
     'assistant.newConversation': 'New conversation',
     'assistant.chats': 'Chats',
@@ -1212,16 +1212,11 @@ export default {
     'assistant.attachImage': 'Add an image',
     'assistant.removeImage': 'Remove image',
     'assistant.image': 'Image',
+    'mentions.tag': 'Tag something from the inventory',
+    'mentions.remove': 'Remove {name}',
+    'mentions.noMatches': 'Nothing in the inventory matches “{query}”',
+    'mentions.emptyInventory': 'Nothing in the inventory yet',
     'assistant.imageDropped': '{name} was left out: images have to be PNG, JPEG, GIF or WebP, and under 5 MB.',
-    'assistant.attachSpec': 'Attach a spec',
-    'assistant.attachSpecHint': 'Instructions from your Snippets library, sent with the message',
-    'assistant.removeSpec': 'Remove spec',
-    'assistant.spec': 'Spec',
-    'assistant.specs': 'Specs',
-    'assistant.searchSpecs': 'Search specs',
-    'assistant.noSpecsNote': 'A spec is a document the agent reads with your message: a runbook, house '
-        + 'rules, a brief. Write one in Snippets.',
-    'assistant.createSpec': 'Create a spec',
     'assistant.newTab': 'New tab',
     'assistant.closeTab': 'Close tab',
     'assistant.closeOtherTabs': 'Close other tabs',

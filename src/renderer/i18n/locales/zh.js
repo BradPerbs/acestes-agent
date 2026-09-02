@@ -907,8 +907,6 @@ export default {
 
     /* ---- Assistant panel ---- */
     'assistant.title': 'AI 助手',
-    'assistant.welcome': '一起来打理你的服务器吧',
-    'assistant.welcomeNote': '它会读取这个终端，在独立通道上运行命令，并且可以在你保存的所有主机上工作。',
     'assistant.createQuickPrompts': '创建快捷提问',
     'assistant.newConversation': '新对话',
     'assistant.chats': '对话',

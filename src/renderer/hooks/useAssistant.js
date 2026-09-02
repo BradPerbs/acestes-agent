@@ -58,14 +58,17 @@ function applyEvent(state, event) {
     switch (event.type) {
         case 'user-message':
             // Images carry their bytes while the app runs; one read back from
-            // disk has only a name and a type, and is drawn as a chip. A spec
-            // is only ever a name here: its text lives in the library.
+            // disk has only a name and a type, and is drawn as a chip. A
+            // mention is only ever a kind, an id and a name here: the record
+            // itself lives in the inventory. `specs` is what a message written
+            // before mentions existed carries, read as the snippets they were.
             items.push({
                 kind: 'user',
                 id: event.at,
                 text: event.text,
                 images: event.images || [],
-                specs: event.specs || [],
+                mentions: event.mentions
+                    || (event.specs || []).map(spec => ({ ...spec, kind: 'snippet' })),
             });
             busy = true;
             draft = emptyDraft();
@@ -364,9 +367,9 @@ export default function useAssistant({
                     }
                 }
 
-                const created = await window.api.ai.start(targetRef.current);
-                if (cancelled) return;
-                adopt(created.conversationId);
+                // Nothing is started for a fresh tab. The conversation is made
+                // on the first message, so a tab opened and left leaves nothing
+                // behind in the list.
                 setStarting(false);
             } catch (error) {
                 if (!cancelled) {
@@ -451,16 +454,30 @@ export default function useAssistant({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [conversationId, targetKey]);
 
-    /** `specs` is a list of spec snippet ids; main reads their text itself. */
-    const send = useCallback(async (text, images = [], specs = []) => {
-        if (!conversationId) return;
-        const result = await window.api.ai.send(conversationId, text, images, specs);
+    /** `mentions` are `{ kind, id }`; main reads each record itself. */
+    const send = useCallback(async (text, images = [], mentions = []) => {
+        // Made on the first message rather than when the tab opened. The ref is
+        // set here as well as through state, so an event arriving on the heels
+        // of the send is not filtered out by a render that has not happened.
+        let id = conversationId;
+        if (!id) {
+            try {
+                const created = await window.api.ai.start(targetRef.current);
+                id = created.conversationId;
+                conversationRef.current = id;
+                adopt(id);
+            } catch (error) {
+                setFailure(error.message || 'The assistant could not be started');
+                return;
+            }
+        }
+        const result = await window.api.ai.send(id, text, images, mentions);
         if (!result?.success && result?.message) {
             setState(previous => applyEvent(previous, {
                 type: 'error', message: result.message, at: Date.now(),
             }));
         }
-    }, [conversationId]);
+    }, [conversationId, adopt]);
 
     const interrupt = useCallback(() => {
         if (conversationId) window.api.ai.interrupt(conversationId);

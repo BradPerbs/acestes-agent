@@ -1083,9 +1083,6 @@ export default {
 
     /* ---- Assistant panel ---- */
     'assistant.title': 'ИИ-ассистент',
-    'assistant.welcome': 'Займёмся вашими серверами',
-    'assistant.welcomeNote': 'Он читает этот терминал, выполняет команды в отдельном канале и может '
-        + 'работать со всеми сохранёнными хостами.',
     'assistant.createQuickPrompts': 'Создать быстрые вопросы',
     'assistant.newConversation': 'Новый разговор',
     'assistant.chats': 'Разговоры',
@@ -1096,15 +1093,6 @@ export default {
     'assistant.removeImage': 'Убрать изображение',
     'assistant.image': 'Изображение',
     'assistant.imageDropped': '{name} не добавлен: изображения должны быть в формате PNG, JPEG, GIF или WebP и меньше 5 МБ.',
-    'assistant.attachSpec': 'Прикрепить спецификацию',
-    'assistant.attachSpecHint': 'Инструкции из библиотеки сниппетов, отправляются вместе с сообщением',
-    'assistant.removeSpec': 'Убрать спецификацию',
-    'assistant.spec': 'Спецификация',
-    'assistant.specs': 'Спецификации',
-    'assistant.searchSpecs': 'Поиск спецификаций',
-    'assistant.noSpecsNote': 'Спецификация — это документ, который агент читает вместе с вашим сообщением: '
-        + 'ранбук, правила, бриф. Создайте её в Сниппетах.',
-    'assistant.createSpec': 'Создать спецификацию',
     'assistant.newTab': 'Новая вкладка',
     'assistant.closeTab': 'Закрыть вкладку',
     'assistant.closeOtherTabs': 'Закрыть другие вкладки',
