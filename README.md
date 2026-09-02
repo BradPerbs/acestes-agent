@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="cloudterm.png" alt="CloudTerm" width="128">
+  <img src="cloudterm.png" alt="Acestes Agent" width="128">
 </p>
 
-<h1 align="center">CloudTerm</h1>
+<h1 align="center">Acestes Agent</h1>
 
 <p align="center">
-  <strong>SSH, SFTP, Telnet and Windows RDP, all in one terminal</strong>
+  <strong>An agent that lives on your desktop: persistent memory, local files, SSH sessions</strong>
 </p>
 
 <p align="center">
@@ -22,6 +22,11 @@
   &nbsp;
   <a href="https://discord.gg/7M84Xp8QBr"><img alt="Discord" src="https://img.shields.io/badge/Discord-Join-5865F2?style=for-the-badge&logo=discord&logoColor=white"></a>
 </p>
+
+> **Fork notice.** Acestes Agent is a fork of [CloudTerm](https://github.com/BradPerbs/cloudterm) (v1.4.3).
+> It keeps CloudTerm's terminal, SSH/SFTP/RDP stack and provider integrations (Claude Code, Codex, Grok, Kimi, OpenCode, local models),
+> and rebuilds the UI around a persistent agent in the spirit of Hermes Agent and OpenClaw. See [ROADMAP.md](ROADMAP.md) for the direction.
+> Everything below this notice is CloudTerm's original documentation and still applies to the inherited features.
 
 <p align="center">
   <strong>English</strong> ·

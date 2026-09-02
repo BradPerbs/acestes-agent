@@ -1,7 +1,7 @@
 {
-    "name": "cloudblast-ssh",
-    "version": "1.4.3",
-    "description": "Modern SSH Client built with Electron, React and xterm.js",
+    "name": "acestes-agent",
+    "version": "0.1.0",
+    "description": "Acestes Agent - an agentic desktop workspace with persistent memory, local file access and SSH sessions. Forked from CloudTerm.",
     "main": "src/main/main.js",
     "scripts": {
         "postinstall": "patch-package",
@@ -21,8 +21,8 @@
         "build:linux": "npm run build:renderer && npm run build:electron:linux"
     },
     "build": {
-        "appId": "com.cloudblast.ssh",
-        "productName": "CloudTerm",
+        "appId": "com.acestes.agent",
+        "productName": "Acestes Agent",
         "directories": {
             "output": "dist"
         },
@@ -30,7 +30,7 @@
             {
                 "provider": "github",
                 "owner": "BradPerbs",
-                "repo": "cloudterm"
+                "repo": "acestes-agent"
             }
         ],
         "files": [
@@ -101,15 +101,15 @@
             ]
         },
         "portable": {
-            "artifactName": "CloudTerm-${arch}.exe"
+            "artifactName": "AcestesAgent-${arch}.exe"
         },
         "nsis": {
-            "artifactName": "CloudTerm-Setup-${arch}.${ext}",
+            "artifactName": "AcestesAgent-Setup-${arch}.${ext}",
             "oneClick": false,
             "allowToChangeInstallationDirectory": true,
             "createDesktopShortcut": true,
             "createStartMenuShortcut": true,
-            "shortcutName": "CloudTerm",
+            "shortcutName": "Acestes Agent",
             "deleteAppDataOnUninstall": false,
             "perMachine": false
         },
@@ -121,7 +121,7 @@
             "category": "public.app-category.developer-tools",
             "darkModeSupport": true,
             "icon": "build/icon.png",
-            "artifactName": "CloudTerm-${arch}.${ext}"
+            "artifactName": "AcestesAgent-${arch}.${ext}"
         },
         "dmg": {
             "background": null,
@@ -147,8 +147,8 @@
         "linux": {
             "target": "AppImage",
             "category": "Development",
-            "synopsis": "Modern SSH client",
-            "artifactName": "CloudTerm-${arch}.${ext}",
+            "synopsis": "Agentic desktop workspace",
+            "artifactName": "AcestesAgent-${arch}.${ext}",
             "icon": "build/icon.png",
             "desktop": {
                 "entry": {
@@ -163,7 +163,7 @@
         "terminal",
         "electron"
     ],
-    "author": "CloudBlast",
+    "author": "Acestes",
     "license": "SEE LICENSE IN LICENSE",
     "devDependencies": {
         "@vitejs/plugin-react": "^4.2.1",
