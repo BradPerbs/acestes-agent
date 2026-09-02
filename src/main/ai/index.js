@@ -10,6 +10,9 @@ const { readMentions, mentionBlock, stripMentions } = require('./mentions');
 const store = require('../store');
 const transcript = require('../transcript');
 const activity = require('../activity');
+const runs = require('../runs');
+const headless = require('./headless');
+const ssh = require('../ssh');
 
 /**
  * The assistant, from the app's point of view.
@@ -67,6 +70,14 @@ const pendingQuestions = new Map();
 
 let counter = 0;
 let notify = () => {};
+// Whether a window is up. Set by ipc; without it the assistant assumes none,
+// which is the safe reading: a session is then opened headless rather than
+// by asking a window that is not there.
+let hasWindow = () => false;
+
+function setWindowProbe(fn) {
+    hasWindow = typeof fn === 'function' ? fn : () => false;
+}
 
 /**
  * How the runtime last reported it was authenticating: a plan, a key, or a
@@ -129,6 +140,16 @@ let hydrated = false;
 function hydrate() {
     if (hydrated) return;
     hydrated = true;
+
+    // What the last process left running is closed out before anything can
+    // start: an interactive run cannot continue without the person who was
+    // driving it, and a tool step that never reported is marked unknown.
+    // Scheduled runs will be picked up here instead once there are any.
+    try {
+        runs.recover({ resumable: () => false });
+    } catch (error) {
+        console.error('Could not recover the run log:', error.message);
+    }
 
     // Writing is safe again from here: this is the moment the map holds the
     // conversations rather than nothing. A shutdown stopped it precisely
@@ -638,6 +659,24 @@ function ensureProvider(conversation) {
             // A question to the person, answered on a card. See requestQuestion.
             askUser: (payload) => requestQuestion(conversation, payload || {}),
             sessionAction: async (payload) => {
+                // Through a window when there is one, so the person sees the
+                // tab open; through the main process when there is none. A
+                // session opened headless is adopted by the next window up.
+                if (payload?.action === 'connect' && !hasWindow()) {
+                    return headless.open({ hostId: payload.hostId, agentId: conversation.agentId });
+                }
+                // Typing and closing need no window at all for an SSH session
+                // the main process holds, which is every session this agent
+                // opened headless and most it opened through a pane.
+                if (payload?.action === 'input' && ssh.get(payload.sessionId)) {
+                    return ssh.write(payload.sessionId, payload.data)
+                        ? { success: true }
+                        : { success: false, message: 'That session is not accepting input' };
+                }
+                if (payload?.action === 'disconnect' && !hasWindow() && ssh.get(payload.sessionId)) {
+                    ssh.destroy(payload.sessionId);
+                    return { success: true };
+                }
                 const result = await requestAction(conversation, payload);
                 // A session this agent opened is this agent's. Claimed here,
                 // where the id first comes back, rather than in the transport,
@@ -721,6 +760,135 @@ function handleProviderEvent(conversation, event) {
         recordToolActivity(conversation, event);
     }
     emit(conversation, event);
+    recordRunEvent(conversation, event);
+}
+
+/* ------------------------------------------------------------------ *
+ * Runs
+ *
+ * Every turn a person sends is a run: created when the message goes, closed
+ * by the provider's result. The tool calls in between are its steps, written
+ * pending before they run and complete after, which is what the run log is
+ * for. Nothing here changes what a conversation does; it writes down what it
+ * did, and stops it when a budget says so.
+ * ------------------------------------------------------------------ */
+
+function beginRun(conversation, { kind = 'interactive', trigger = { source: 'window' }, policy, title } = {}) {
+    try {
+        const run = runs.create({
+            agentId: conversation.agentId,
+            kind,
+            trigger,
+            policy,
+            conversationId: conversation.id,
+            title: title || conversation.title || '',
+        });
+        runs.start(run.id);
+        runs.beginStep(run.id, { kind: 'turn', name: 'turn' });
+        conversation.runId = run.id;
+        emit(conversation, { type: 'run-started', runId: run.id, kind });
+        return run.id;
+    } catch (error) {
+        console.error('Could not start a run:', error.message);
+        return '';
+    }
+}
+
+/** Close the run a conversation is on, whichever way the turn ended. */
+function endRun(conversation, status, detail = {}) {
+    const runId = conversation.runId;
+    if (!runId) return;
+    conversation.runId = '';
+    try {
+        const turn = runs.openStep(runId, 'turn');
+        if (turn) runs.endStep(runId, turn.seq, { status: status === 'done' ? 'complete' : 'interrupted', output: detail.reason || '' });
+        if (status === 'done') runs.finish(runId, detail);
+        else if (status === 'cancelled') runs.cancel(runId, detail.reason || '');
+        else runs.fail(runId, detail.reason || '', detail);
+        emit(conversation, { type: status === 'done' ? 'run-finished' : status === 'cancelled' ? 'run-cancelled' : 'run-failed', runId, ...detail });
+    } catch (error) {
+        console.error('Could not close a run:', error.message);
+    }
+}
+
+function recordRunEvent(conversation, event) {
+    const runId = conversation.runId;
+    if (!runId) return;
+    try {
+        switch (event.type) {
+            case 'tool-call': {
+                runs.beginStep(runId, {
+                    kind: 'tool',
+                    name: event.name,
+                    input: catalog.redactInput(event.input),
+                });
+                runs.tally(runId, { toolCalls: 1 });
+                stopIfOverBudget(conversation);
+                break;
+            }
+            case 'tool-result': {
+                const step = runs.openStep(runId, 'tool', event.name || '');
+                if (step) runs.endStep(runId, step.seq, { status: event.isError ? 'failed' : 'complete', output: event.text || '' });
+                break;
+            }
+            case 'result': {
+                runs.tally(runId, { costUsd: event.costUsd || 0, turns: 1 });
+                if (event.isError && event.subtype !== 'success') {
+                    endRun(conversation, 'failed', { reason: `The run ended early (${event.subtype}).`, subtype: event.subtype });
+                } else {
+                    endRun(conversation, 'done', { costUsd: event.costUsd || 0 });
+                }
+                break;
+            }
+            case 'error':
+                endRun(conversation, 'failed', { reason: event.message || 'The provider reported an error.' });
+                break;
+            case 'closed':
+                endRun(conversation, 'failed', { reason: 'The provider closed before the turn finished.' });
+                break;
+            default:
+                break;
+        }
+    } catch (error) {
+        console.error('Could not record a run step:', error.message);
+    }
+}
+
+/** Stop the turn when the run's policy says it has spent enough. */
+function stopIfOverBudget(conversation) {
+    const reason = conversation.runId ? runs.overBudget(conversation.runId) : '';
+    if (!reason) return;
+    emit(conversation, { type: 'notice', tone: 'warn', text: `Stopped: ${reason}.` });
+    const runId = conversation.runId;
+    conversation.runId = '';
+    // Interrupt is asynchronous and would otherwise close the run as
+    // cancelled; it is closed here first, with the reason that matters.
+    try {
+        const turn = runs.openStep(runId, 'turn');
+        if (turn) runs.endStep(runId, turn.seq, { status: 'interrupted', output: reason });
+        runs.fail(runId, reason, { budget: true });
+        emit(conversation, { type: 'run-failed', runId, reason });
+    } catch (error) {
+        console.error('Could not close a run on budget:', error.message);
+    }
+    interrupt(conversation.id).catch(() => {});
+}
+
+/** Stop a run from the runs page: the conversation it is on is interrupted. */
+async function cancelRun(runId) {
+    hydrate();
+    const run = runs.get(runId);
+    if (!run) return { success: false, message: 'No such run' };
+    const conversation = [...conversations.values()].find(entry => entry.runId === runId);
+    if (conversation) {
+        await interrupt(conversation.id);
+        return { success: true };
+    }
+    if (runs.OPEN_STATUSES.includes(run.status)) {
+        runs.cancel(runId, 'Cancelled from the runs page.');
+        return { success: true };
+    }
+    return { success: false, message: 'That run has already ended' };
 }
 
 /**
@@ -818,6 +986,18 @@ async function send(conversationId, text, attachments = [], tagged = []) {
     });
     conversation.busy = true;
 
+    // A message sent into a turn still going is a new turn of the same run
+    // as far as the log is concerned; one sent into a quiet conversation
+    // starts a run.
+    if (!conversation.runId) {
+        beginRun(conversation, {
+            kind: conversation.runKind || 'interactive',
+            trigger: conversation.runTrigger || { source: 'window' },
+            policy: conversation.runPolicy,
+            title: conversation.title,
+        });
+    }
+
     try {
         // A model or effort change since the last message. Restarting here,
         // rather than when the setting changed, means it lands between turns
@@ -862,6 +1042,7 @@ async function send(conversationId, text, attachments = [], tagged = []) {
     } catch (error) {
         conversation.busy = false;
         emit(conversation, { type: 'error', message: error.message });
+        endRun(conversation, 'failed', { reason: error.message });
         return { success: false, message: error.message };
     }
 }
@@ -886,6 +1067,7 @@ async function interrupt(conversationId) {
     await conversation.session.interrupt();
     conversation.busy = false;
     emit(conversation, { type: 'interrupted' });
+    endRun(conversation, 'cancelled', { reason: 'The user stopped the run.' });
     return { success: true };
 }
 
@@ -1206,6 +1388,8 @@ async function shutdown() {
 
 module.exports = {
     setNotifier,
+    setWindowProbe,
+    cancelRun,
     reconfigure,
     create,
     get,

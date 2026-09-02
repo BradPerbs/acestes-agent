@@ -58,7 +58,7 @@ export const isSplit = (node) => node?.kind === 'split';
  * views need something the pane does not have yet at this point (a live SSH
  * session, in the one case, and a desktop that may ride on it in the other).
  */
-export function createPane({ id, host = null, title, mode, view = null } = {}) {
+export function createPane({ id, host = null, title, mode, view = null, attach = false } = {}) {
     const resolved = mode || (host ? 'terminal' : 'picker');
     return {
         kind: 'pane',
@@ -68,6 +68,10 @@ export function createPane({ id, host = null, title, mode, view = null } = {}) {
         title: title || host?.name || 'Choose a host',
         view,
         connected: false,
+        // A pane for a session main already holds (opened by the agent with
+        // no window up) adopts it instead of dialling. Never persisted: a
+        // restored tab dials afresh like any other.
+        ...(attach ? { attach: true } : {}),
     };
 }
 

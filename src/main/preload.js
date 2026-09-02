@@ -226,6 +226,13 @@ contextBridge.exposeInMainWorld('api', {
             ipcRenderer.invoke('ssh-connect', { tabId, hostId, cols, rows }),
         disconnect: (tabId) => ipcRenderer.invoke('ssh-disconnect', tabId),
         detectOS: (tabId) => ipcRenderer.invoke('ssh-detect-os', tabId),
+        // Adopt a session that is already open in main (opened by the agent
+        // with no window up). The port arrives on `ssh-port` as for a dial,
+        // carrying what the session has shown so far.
+        attach: (tabId) => ipcRenderer.invoke('ssh-attach', tabId),
+        // The sessions no window is drawing yet.
+        headless: () => ipcRenderer.invoke('sessions-headless'),
+        onHeadless: (callback) => subscribe('session-headless', callback),
 
         sendInput: (tabId, data) => post(tabId, { type: 'input', data }),
         resize: (tabId, cols, rows) => post(tabId, { type: 'resize', cols, rows }),
@@ -611,6 +618,19 @@ contextBridge.exposeInMainWorld('api', {
         // got: 'settings' or 'snippets'. The main window listens on the other.
         navigateMain: (nav) => ipcRenderer.invoke('ai-navigate-main', nav),
         onNavigate: (callback) => subscribe('ai-navigate', callback),
+    },
+
+    /**
+     * Runs: the units of work, interactive or scheduled, with their steps.
+     * See main/runs. `onChange` fires on any change to any run.
+     */
+    runs: {
+        list: (filter) => ipcRenderer.invoke('runs-list', filter || {}),
+        get: (runId) => ipcRenderer.invoke('runs-get', runId),
+        usage: (filter) => ipcRenderer.invoke('runs-usage', filter || {}),
+        cancel: (runId) => ipcRenderer.invoke('runs-cancel', runId),
+        remove: (runId) => ipcRenderer.invoke('runs-remove', runId),
+        onChange: (callback) => subscribe('runs-changed', callback),
     },
 
     /**

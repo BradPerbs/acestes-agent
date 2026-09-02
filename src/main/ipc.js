@@ -32,6 +32,8 @@ const startup = require('./startup');
 const agents = require('./agents');
 const memory = require('./ai/memory');
 const container = require('./ai/container');
+const headless = require('./ai/headless');
+const runs = require('./runs');
 const proxy = require('./proxy');
 const { parseAddress } = require('./address');
 const { describeTunnel } = require('./tunnel-config');
@@ -187,6 +189,11 @@ function register(getWindow) {
         }
     };
     assistant.setNotifier(broadcast);
+    // Whether any window is up, so the assistant can open a session through
+    // a pane when there is one and headless when there is not.
+    assistant.setWindowProbe(() => BrowserWindow.getAllWindows().some(window => !window.isDestroyed()));
+    headless.setNotifier(broadcast);
+    runs.setNotifier(broadcast);
     agents.setNotifier(notify);
     memory.setNotifier(notify);
     aiWindows.setMainNotifier(notify);
@@ -626,6 +633,11 @@ function register(getWindow) {
 
     handle('ssh-disconnect', (event, tabId) => transport.destroy(tabId));
     handle('ssh-detect-os', (event, tabId) => ssh.detectOS(tabId));
+
+    // Sessions the agent opened with no window up, and adopting one as a tab.
+    // The window asking is the one that gets the port.
+    handle('sessions-headless', () => headless.list());
+    handle('ssh-attach', (event, tabId) => headless.attach(tabId, BrowserWindow.fromWebContents(event.sender) || getWindow()));
 
     /* ---------------- Serial ports ---------------- */
 
@@ -1392,6 +1404,17 @@ function register(getWindow) {
     handle('ai-action-response', (event, payload) => assistant.respondToAction(payload || {}));
     // And a third: the answer to a question the agent asked with ask_user.
     handle('ai-question-response', (event, payload) => assistant.respondToQuestion(payload || {}));
+
+    /* ---------------- Runs ---------------- */
+
+    handle('runs-list', (event, filter) => runs.list(filter || {}));
+    handle('runs-get', (event, runId) => {
+        const run = runs.get(runId);
+        return run ? { ...run, steps: runs.steps(runId) } : null;
+    });
+    handle('runs-usage', (event, filter) => runs.usage(filter || {}));
+    handle('runs-cancel', (event, runId) => assistant.cancelRun(runId));
+    handle('runs-remove', (event, runId) => runs.remove(runId));
 
     /* ---------------- Agents ---------------- */
 

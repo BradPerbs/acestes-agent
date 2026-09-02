@@ -916,22 +916,70 @@ function connect({ tabId, hostId, cols, rows }, { window, requestTrust, requestK
                 return;
             }
 
-            const { port1, port2 } = new MessageChannelMain();
             // The host is carried on the session so anything holding only a
             // tab id (SFTP, transfers, forwards) can name the server it
             // is acting on without resolving credentials again.
-            sessions.set(tabId, {
+            const session = {
                 client,
                 // Every hop, in dial order. Only teardown reads it; everything
                 // else wants `client`, the far end.
                 chain: clients,
                 stream,
-                port: port1,
+                port: null,
                 hostId,
                 hostName: label.name,
                 address: label.address,
                 openedAt: Date.now(),
-            });
+                // Whether a window is drawing this session. A headless one
+                // (opened by the agent with no window up) has none until a
+                // window adopts it through `attach`.
+                attached: false,
+                attach: null,
+            };
+            sessions.set(tabId, session);
+
+            /**
+             * The port the pane writes at and reads from.
+             *
+             * Made here rather than once, because a session can outlive the
+             * window that opened it (a reload, a headless run) and a later
+             * window needs a fresh pair. `port` below is the live end; the
+             * output path posts to whichever one it is now. A pair with no
+             * window to take the far end is closed at once, so a headless
+             * session's output does not queue in a port nobody reads.
+             */
+            let port = null;
+            const handleMessage = (event) => {
+                const message = event.data;
+                if (message?.type === 'input' && stream.writable) {
+                    stream.write(message.data);
+                } else if (message?.type === 'resize') {
+                    stream.setWindow(message.rows, message.cols, 0, 0);
+                }
+            };
+            const openPort = (targetWindow) => {
+                if (port) {
+                    try { port.close(); } catch { /* already closed */ }
+                }
+                const { port1, port2 } = new MessageChannelMain();
+                port = port1;
+                session.port = port1;
+                port1.on('message', handleMessage);
+                port1.start();
+                if (targetWindow && !targetWindow.isDestroyed()) {
+                    targetWindow.webContents.postMessage('ssh-port', { tabId }, [port2]);
+                    session.attached = true;
+                } else {
+                    port2.close();
+                    session.attached = false;
+                }
+            };
+            session.attach = (targetWindow, { backlog = '' } = {}) => {
+                openPort(targetWindow);
+                if (backlog) {
+                    try { port.postMessage(backlog); } catch { /* port gone */ }
+                }
+            };
 
             // Decides for itself whether recording is on. Started before
             // the first byte can arrive, so a transcript never begins
@@ -953,16 +1001,6 @@ function connect({ tabId, hostId, cols, rows }, { window, requestTrust, requestK
                 protocol: 'ssh',
             });
 
-            port1.on('message', (event) => {
-                const message = event.data;
-                if (message?.type === 'input' && stream.writable) {
-                    stream.write(message.data);
-                } else if (message?.type === 'resize') {
-                    stream.setWindow(message.rows, message.cols, 0, 0);
-                }
-            });
-            port1.start();
-
             // Coalesce burst output into one post per tick.
             let buffer = '';
             let scheduled = false;
@@ -970,7 +1008,7 @@ function connect({ tabId, hostId, cols, rows }, { window, requestTrust, requestK
                 scheduled = false;
                 if (!buffer) return;
                 try {
-                    port1.postMessage(buffer);
+                    port.postMessage(buffer);
                 } catch {
                     // Port closed while data was in flight.
                 }
@@ -997,7 +1035,7 @@ function connect({ tabId, hostId, cols, rows }, { window, requestTrust, requestK
             stream.on('close', () => {
                 flush();
                 try {
-                    port1.postMessage({ type: 'disconnected' });
+                    port.postMessage({ type: 'disconnected' });
                 } catch {
                     // Already closed.
                 }
@@ -1006,9 +1044,7 @@ function connect({ tabId, hostId, cols, rows }, { window, requestTrust, requestK
                 if (sessions.get(tabId)?.stream === stream) destroy(tabId);
             });
 
-            if (window && !window.isDestroyed()) {
-                window.webContents.postMessage('ssh-port', { tabId }, [port2]);
-            }
+            openPort(window);
 
             // Whatever the host wants run as soon as its shell is up: a
             // `cd`, an `export`, `tmux attach`. Written straight to the PTY,
@@ -1036,6 +1072,35 @@ function connect({ tabId, hostId, cols, rows }, { window, requestTrust, requestK
             settle({ success: true, message: 'Connected', route: describeRoute(chain) });
         });
     });
+}
+
+/**
+ * Hand a live session to a window.
+ *
+ * For a session that was opened with no window (see ai/headless.js) or one
+ * whose window reloaded. The window gets a fresh port and, first thing on
+ * it, what the session has shown so far, so the pane does not open on a
+ * blank screen for a shell that has been working for an hour.
+ */
+function attach(tabId, window, { backlog = '' } = {}) {
+    const session = sessions.get(tabId);
+    if (!session?.attach) return { success: false, message: 'That session is not open' };
+    session.attach(window, { backlog });
+    return {
+        success: true,
+        hostId: session.hostId,
+        hostName: session.hostName,
+        address: session.address,
+        openedAt: session.openedAt,
+    };
+}
+
+/** Type into a session from the main process, for a headless run. */
+function write(tabId, data) {
+    const session = sessions.get(tabId);
+    if (!session?.stream?.writable) return false;
+    session.stream.write(String(data ?? ''));
+    return true;
 }
 
 function detectOS(tabId) {
@@ -1078,6 +1143,8 @@ module.exports = {
     describe,
     onDestroy,
     connect,
+    attach,
+    write,
     destroy,
     destroyAll,
     detectOS,

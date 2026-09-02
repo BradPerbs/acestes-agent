@@ -110,10 +110,10 @@ const BROADCAST_SCOPES = ['off', 'tab', 'window'];
  * the id the main process already knows this connection by, and the id a
  * restored session was saved under.
  */
-const createTerminalTab = (id, host, view = null) => ({
+const createTerminalTab = (id, host, view = null, { attach = false } = {}) => ({
     id,
     type: 'terminal',
-    layout: createPane({ id, host, title: host.name, view }),
+    layout: createPane({ id, host, title: host.name, view, attach }),
     focusedPaneId: id,
     zoomedPaneId: null,
 });
@@ -1400,6 +1400,42 @@ function App() {
         if (change?.kind === 'hosts') loadData();
         if (change?.kind === 'keys') loadKeys();
     }), [loadData, loadKeys]);
+
+    /**
+     * Sessions the agent opened with no window up.
+     *
+     * Main holds them; this window adopts each as a tab behind whatever is
+     * in front, so the person sees the shell the agent has been working in.
+     * Asked for once the hosts are known (the tab needs the host record), and
+     * again whenever main reports a new one.
+     */
+    const adoptHeadless = useCallback(async () => {
+        if (!window.api.ssh?.headless) return;
+        let open = [];
+        try {
+            open = (await window.api.ssh.headless()) || [];
+        } catch {
+            return;
+        }
+        if (open.length === 0) return;
+        setTabs(prev => {
+            const known = new Set(prev.map(tab => tab.id));
+            const added = [];
+            for (const session of open) {
+                if (known.has(session.sessionId)) continue;
+                const host = hosts.find(entry => entry.id === session.hostId);
+                if (!host) continue;
+                added.push(createTerminalTab(session.sessionId, host, null, { attach: true }));
+            }
+            return added.length ? [...prev, ...added] : prev;
+        });
+    }, [hosts]);
+
+    useEffect(() => {
+        if (hosts.length === 0) return undefined;
+        adoptHeadless();
+        return window.api.ssh.onHeadless?.(() => adoptHeadless());
+    }, [hosts, adoptHeadless]);
 
     // Same for a setup pulled down from another device.
     useEffect(() => window.api.cloudSnapshot.onState((state) => {

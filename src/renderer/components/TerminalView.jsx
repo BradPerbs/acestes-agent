@@ -686,7 +686,11 @@ function TerminalView({
             if (connectedPanes.has(pane.id)) return;
             connectedPanes.add(pane.id);
 
-            const result = await connectionRef.current.connect();
+            // A pane made for a session the agent already opened adopts it
+            // rather than dialling; see useSshConnection.adopt.
+            const result = pane.attach
+                ? await connectionRef.current.adopt()
+                : await connectionRef.current.connect();
             if (disposed) return;
             if (!result?.success) hideOverlayOnce();
         };

@@ -183,6 +183,37 @@ export function useSshConnection({ tabId, hostId, getGeometry, write, onResult }
     const connect = useCallback(() => dialRef.current?.({ reconnect: false }), []);
 
     /**
+     * Take over a session main already holds, instead of dialling one.
+     *
+     * The agent opens sessions with no window up; this is a window adopting
+     * one. The port arrives the same way a dial's does, so everything after
+     * this point (drops, retries, input) is the ordinary path. A retry after
+     * a drop dials the host afresh under this same tab id, which is right:
+     * the session is the pane's from here on.
+     */
+    const adopt = useCallback(async () => {
+        clearTimers();
+        setMessage('');
+        setPhase('connecting');
+        const result = await window.api.ssh.attach(tabId);
+        if (disposedRef.current) return result;
+        if (result?.success) {
+            establishedRef.current = true;
+            attemptRef.current = 0;
+            setAttempt(0);
+            setPhase('connected');
+            setRoute([]);
+            callbacks.current.onResult?.({ ...result, adopted: true }, { reconnect: false });
+            return result;
+        }
+        setPhase('failed');
+        setMessage(result?.message || 'That session is no longer open');
+        callbacks.current.write(ANSI.error(result?.message || 'That session is no longer open'));
+        callbacks.current.onResult?.(result || { success: false }, { reconnect: false });
+        return result;
+    }, [tabId, clearTimers, setPhase]);
+
+    /**
      * The session went away.
      *
      * Only meaningful while we believe we are connected. Everything else that
@@ -241,6 +272,7 @@ export function useSshConnection({ tabId, hostId, getGeometry, write, onResult }
         route,
         maxAttempts: MAX_ATTEMPTS,
         connect,
+        adopt,
         handleDropped,
         disconnect,
         reconnectNow,

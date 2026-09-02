@@ -9,6 +9,7 @@ import KeychainPanel from './KeychainPanel';
 import ProxiesPanel from './ProxiesPanel';
 import SnippetsPanel from './SnippetsPanel';
 import LogsPanel from './LogsPanel';
+import RunsPanel from './RunsPanel';
 import SettingsPanel from './settings/SettingsPanel';
 
 function HomeView({
@@ -163,6 +164,10 @@ function HomeView({
 
             {activeNav === 'snippets' && (
                 <SnippetsPanel isActive={isActive} reachedForPage={reachedForPage} allHosts={allHosts} agentId={agentId} />
+            )}
+
+            {activeNav === 'runs' && (
+                <RunsPanel agentId={agentId} />
             )}
 
             {activeNav === 'logs' && (
