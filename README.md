@@ -1,11 +1,11 @@
 <h1 align="center">Acestes Agent</h1>
 
 <p align="center">
-  <strong>The agent that lives on your desktop and runs your servers with you.</strong>
+  <strong>The agent that lives on your desktop and does real work: code, servers, anything IT.</strong>
 </p>
 
 <p align="center">
-  Persistent memory · Its own inventory · SSH sessions it opens itself · Runs on Claude Code, Codex, OpenCode, Grok, Kimi or a local model
+  Persistent memory · Its own inventory · Works on your code and your servers · Runs on Claude Code, Codex, OpenCode, Grok, Kimi or a local model
 </p>
 
 ---
@@ -25,58 +25,75 @@ A host, in the oldest sense of the word: the one whose ground you can return
 to, who remembers you, and who holds what you leave in his care.
 
 That is what this agent is built to be. Not a conversation that ends when the
-window closes, but a presence that keeps your servers, your keys, your notes
-and your way of working, and is there the next morning knowing what happened
-the day before.
+window closes, but a presence that keeps your projects, your servers, your
+keys, your notes and your way of working, and is there the next morning
+knowing what happened the day before.
+
+## What it is for
+
+Real work, on real things. A codebase on your disk, a fleet of servers, a
+container, a config file, a database, a deploy that went wrong at two in the
+morning: anything a person in IT does at a keyboard. The agent writes and
+edits code, runs the build, reads the logs, opens a shell on the box, fixes
+the thing, and writes down what it learned.
+
+Servers and terminals are not what it is; they are part of what it carries.
+An agent's inventory holds folders on this computer, saved hosts, keys,
+proxies, snippets, playbooks and MCP tool servers, and it reaches for
+whichever the job needs.
 
 ## An opinionated agent
 
-Acestes is not a general assistant with a terminal bolted on. It is built for
-one job, running servers with the person who owns them, and it takes
-positions on how that should go:
+Acestes is not a blank canvas that does whatever a prompt says. It takes
+positions on how work should be done, and they are built in rather than
+suggested:
 
-- **The terminal is the truth.** The agent works through real SSH sessions
-  in a real terminal, and by default it types where you can see it. What it
-  did is in your scrollback, not in a summary of what it says it did.
+- **It works where you can see.** On a server it types into a real
+  terminal in front of you by default; on your code it edits the file you
+  granted it and shows the change. What it did is on your screen, not in a
+  summary of what it says it did.
 - **Memory is a notebook, not a transcript.** It keeps short facts it decided
   were worth keeping, in plain text you can read and edit, rather than
   quietly mining every conversation.
-- **It asks, in the open.** Anything that changes a system stops on a card
-  you can read to the end of, with the exact command on it. When it needs
-  a decision from you, it puts the question on a card with the answers it
-  sees, instead of guessing or burying the question in a paragraph.
+- **It asks, in the open.** Anything that changes a system or a file stops
+  on a card you can read to the end of, with the exact command or the exact
+  change on it. When it needs a decision from you, it puts the question on
+  a card with the answers it sees, instead of guessing or burying the
+  question in a paragraph.
 - **Secrets go one way.** The agent can save a host with its password or
   key, but nothing it reads back ever carries one, and a secret never lands
   in a transcript or a log.
 - **Every agent is a person, not a mode.** Two agents in one window have
   separate memories, inventories, folders and sessions, and one cannot
-  drive the other's terminal.
-
-If you want a blank canvas that does whatever a prompt says, this is not it.
+  reach into the other's.
+- **It runs on the agent you already have.** Claude Code, Codex, OpenCode,
+  Grok, Kimi or a local model, already installed and signed in. No new
+  subscription and no key to paste.
 
 ## An agent, not a chatbot
 
 - **It remembers.** Every agent keeps a memory that grows with every
-  conversation: what your machines are, how you like things done, what the
-  fix turned out to be. Indexed on your own machine, searched by meaning,
-  never sent anywhere to be stored. It can also search its own past
-  conversations, so "how did we fix this last time" has an answer.
-- **It does the work.** Acestes opens SSH sessions, reads what is on the
-  screen, runs the commands, checks the result and reports back. You watch it
-  happen in a real terminal, or let it work quietly in the background. It
-  edits a config file by replacing the passage it read rather than rewriting
-  the file, so the approval card shows the change and not the whole file.
-- **It carries its own kit.** Hosts, keys, proxies, snippets, playbooks and
-  MCP tool servers live in the agent's inventory, laid out like a bag in a
-  game. The agent can look through its own bag, read a playbook you wrote
-  for it before starting a job, and keep the bag itself: add the host it was
-  just told about, save a procedure that worked as a playbook, register an
-  MCP server. It sees and edits its own records and the shared ones, never
-  another agent's.
-- **It works on this computer too, inside a fence.** Grant an agent a folder
-  when you create it and it can list, read, search, edit and run commands
-  there and nowhere else. Turn on the container and that fence becomes a
-  wall.
+  conversation: how your projects are laid out, what your machines are, how
+  you like things done, what the fix turned out to be. Indexed on your own
+  machine, searched by meaning, never sent anywhere to be stored. It can
+  also search its own past conversations, so "how did we fix this last time"
+  has an answer.
+- **It does the work.** On your code it reads, searches and edits inside the
+  folders you grant it and runs whatever the project needs. On a server it
+  opens the session, reads what is on the screen, runs the commands, checks
+  the result and reports back. An edit replaces the passage it read rather
+  than rewriting the file, so the approval card shows the change and not the
+  whole file.
+- **It carries its own kit.** Folders, hosts, keys, proxies, snippets,
+  playbooks and MCP tool servers live in the agent's inventory, laid out
+  like a bag in a game. The agent can look through its own bag, read a
+  playbook you wrote for it before starting a job, and keep the bag itself:
+  add the host it was just told about, save a procedure that worked as a
+  playbook, register an MCP server. It sees and edits its own records and
+  the shared ones, never another agent's.
+- **It stays inside the fence.** Grant an agent a folder when you create it
+  and it can list, read, search, edit and run commands there and nowhere
+  else. Turn on the container and that fence becomes a wall.
 - **It asks before it breaks things.** You choose how much it does on its own:
   everything on approval, reads without asking, or full autonomy. A blocked
   list stops the truly dangerous commands before they reach a server.
@@ -91,13 +108,13 @@ memory, its own inventory and its own rules. Switch between them from the
 sidebar. Run them on different models. Give each one standing instructions
 and it behaves like the specialist you hired it to be.
 
-## Built on a real terminal
+## With a real terminal in the bag
 
 Acestes grew out of [CloudTerm](https://github.com/BradPerbs/cloudterm), so
-underneath the agent is a serious SSH client: tabs, split panes, SFTP with
-drag and drop, port forwarding, session recording, jump hosts, proxies and
-serial consoles. The agent works through the same sessions you do, in the
-same window.
+one of the tools it carries is a serious SSH client: tabs, split panes, SFTP
+with drag and drop, port forwarding, session recording, jump hosts, proxies
+and serial consoles. When the job is on a server, the agent works through the
+same sessions you do, in the same window.
 
 ## Your runtime, your choice
 
