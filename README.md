@@ -12,13 +12,22 @@
 
 ## Meet Acestes
 
-In the *Aeneid*, Acestes is the king of Sicily who takes the Trojans in. He
-shelters them after the storm, welcomes them back when they return, and keeps
-the ones who stay. Aeneas moves on; Acestes holds the ground.
+Acestes appears twice in the *Aeneid*, and both times he is the one who stays.
+Born of a Trojan mother and a Sicilian river, he rules the western coast where
+Aeneas is driven ashore, and he receives the fleet without ceremony or terms.
+When the Trojans return a year later, it is in his kingdom that they bury their
+dead, hold the games, and watch his arrow take fire in the air, the omen the
+poem chooses for him. And when the ships burn and the exhausted decide they can
+go no further, it is Acestes who founds a city for them and keeps them, while
+Aeneas sails on to his destiny.
 
-That is the idea. Every chat assistant forgets you the moment the window
-closes. Acestes stays. It keeps your servers, your keys, your notes and your
-habits, and it is there the next morning knowing what happened yesterday.
+A host, in the oldest sense of the word: the one whose ground you can return
+to, who remembers you, and who holds what you leave in his care.
+
+That is what this agent is built to be. Not a conversation that ends when the
+window closes, but a presence that keeps your servers, your keys, your notes
+and your way of working, and is there the next morning knowing what happened
+the day before.
 
 ## An agent, not a chatbot
 
