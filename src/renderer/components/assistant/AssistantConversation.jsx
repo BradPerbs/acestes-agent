@@ -181,7 +181,7 @@ export default function AssistantConversation({
     sessions,
     hosts = [],
     activeSessionId,
-    /** Whose conversation this is: it starts under that agent, and its specs are that agent's. */
+    /** Whose conversation this is: it starts under that agent, whose inventory it can tag. */
     agentId = '',
     agentColor = '',
     onConversationChange,
@@ -992,7 +992,7 @@ export default function AssistantConversation({
                                         <StopCircleIcon size={15} strokeWidth={2} />
                                     </button>
                                 </Tooltip>
-                            ) : (text.trim() || images.length > 0 || attached.length > 0) ? (
+                            ) : (text.trim() || images.length > 0 || mentions.length > 0) ? (
                                 <Tooltip label={t('assistant.send')} hint="Enter" placement="top">
                                     <button
                                         type="button"
