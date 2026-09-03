@@ -26,6 +26,8 @@ const PROVIDER_ALIASES = {
 const NOISE = new Set(['on', 'with', 'using', 'use', 'via', 'the', 'model', 'effort', 'at', 'in', 'mode', 'reasoning', 'and']);
 
 const fold = (text) => String(text || '').toLowerCase().replace(/[^a-z0-9.]+/g, '');
+/** The same, minus the dots, so "5.1" can meet "5-1". */
+const bare = (text) => String(text || '').replace(/\./g, '');
 
 function tokens(text) {
     return String(text || '')
@@ -75,6 +77,10 @@ function matchModel(catalogs, query, { providerOrder = [] } = {}) {
                 if (!needle) continue;
                 if (haystacks.some(hay => hay === needle)) score += 5;
                 else if (haystacks.some(hay => hay.includes(needle))) score += 2;
+                // "5.1" against an id spelled "claude-fable-5-1": the dots a
+                // person says are dashes in the id. Worth less than a spelled
+                // match, so "4.6" still prefers the row that says 4.6.
+                else if (needle.includes('.') && haystacks.some(hay => bare(hay).includes(bare(needle)))) score += 1;
                 else {
                     missed = true;
                     break;

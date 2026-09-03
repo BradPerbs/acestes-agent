@@ -315,7 +315,7 @@ async function run() {
 
         const toml = fs.readFileSync(path.join(directory, '.grok', 'config.toml'), 'utf8');
         assert.match(toml, /\[mcp_servers\.remote\]/);
-        assert.match(toml, /type = "http"/);
+        assert.doesNotMatch(toml, /type = /, 'the TOML spelling is the address alone');
         assert.ok(toml.includes(url), 'the address carries the token, so no header has to be spelled');
 
         const json = JSON.parse(fs.readFileSync(path.join(directory, '.mcp.json'), 'utf8'));
@@ -323,6 +323,39 @@ async function run() {
         assert.strictEqual(json.mcpServers.remote.type, 'http');
     } finally {
         fs.rmSync(directory, { recursive: true, force: true });
+    }
+
+    /* ---------------- Trusting the workspace ---------------- */
+
+    // The CLI ignores a folder's config until the folder is trusted, and in
+    // headless mode nobody is there to say so. The app says so itself, in
+    // the CLI's own file, once.
+    const trustHome = fs.mkdtempSync(path.join(os.tmpdir(), 'grok-trust-'));
+    try {
+        const folder = path.join(trustHome, 'workspace');
+        assert.strictEqual(provider.trustWorkspace(folder, { source: trustHome, now: 1700000000000 }), true);
+        const trusted = fs.readFileSync(path.join(trustHome, 'trusted_folders.toml'), 'utf8');
+        assert.ok(trusted.includes(`[folders.'${folder}']`), 'the folder is the key, in the CLI\'s own spelling');
+        assert.match(trusted, /trusted = true/);
+        assert.match(trusted, /decided_at = 1700000000/);
+
+        assert.strictEqual(provider.trustWorkspace(folder, { source: trustHome }), false, 'once is enough');
+        assert.strictEqual(fs.readFileSync(path.join(trustHome, 'trusted_folders.toml'), 'utf8'), trusted, 'and the file is then left alone');
+
+        // An entry that is already there, whatever it says, is not ours to change.
+        const declined = path.join(trustHome, 'declined');
+        fs.appendFileSync(path.join(trustHome, 'trusted_folders.toml'), `\n[folders.'${declined}']\ntrusted = false\ndecided_at = 1\n`);
+        assert.strictEqual(provider.trustWorkspace(declined, { source: trustHome }), false);
+        assert.match(fs.readFileSync(path.join(trustHome, 'trusted_folders.toml'), 'utf8'), /trusted = false/);
+
+        // Appended after an existing file that has other folders in it, on
+        // its own paragraph, so the CLI's parser still reads the whole file.
+        const another = path.join(trustHome, 'another');
+        provider.trustWorkspace(another, { source: trustHome });
+        const whole = fs.readFileSync(path.join(trustHome, 'trusted_folders.toml'), 'utf8');
+        assert.ok(whole.includes(`\n\n[folders.'${another}']\ntrusted = true`), 'a blank line before the new table');
+    } finally {
+        fs.rmSync(trustHome, { recursive: true, force: true });
     }
 
     /* ---------------- The token, however it is offered ---------------- */

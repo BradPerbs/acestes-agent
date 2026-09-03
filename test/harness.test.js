@@ -235,6 +235,22 @@ const check = async (label, fn) => {
         assert.strictEqual(found.error, undefined);
     });
 
+    await check('"claude fable 5.1" finds Fable by the id Claude Code reports for it', () => {
+        // The rows as the Claude Code SDK actually describes them: the id
+        // carries the version with dashes, the label carries no version.
+        const claude = [{ provider: 'claude-code', rows: [
+            { value: 'opus[1m]', label: 'Opus (1M context)', resolved: 'claude-opus-5[1m]', short: 'Opus', effort: ['low', 'high', 'xhigh'] },
+            { value: 'claude-fable-5-1[1m]', label: 'Fable', resolved: 'claude-fable-5-1', short: 'Fable', effort: ['low', 'medium', 'high', 'xhigh', 'max'] },
+            { value: 'sonnet', label: 'Sonnet', resolved: 'claude-sonnet-5', short: 'Sonnet', effort: ['low', 'high'] },
+        ] }];
+        const found = modelMatch.matchModel(claude, 'claude fable 5.1 xhigh', { providerOrder: ['claude-code'] });
+        assert.strictEqual(found.error, undefined, found.error);
+        assert.strictEqual(found.model, 'claude-fable-5-1[1m]');
+        assert.strictEqual(found.effort, 'xhigh');
+        assert.strictEqual(modelMatch.matchModel(claude, 'fable', { providerOrder: ['claude-code'] }).model, 'claude-fable-5-1[1m]');
+        assert.strictEqual(modelMatch.matchModel(claude, 'opus 5', { providerOrder: ['claude-code'] }).model, 'opus[1m]');
+    });
+
     await check('the tighter name wins, and the runtime word narrows the search', () => {
         assert.strictEqual(modelMatch.matchModel(catalogs, 'grok 4', { providerOrder: order }).model, 'grok-4');
         assert.strictEqual(modelMatch.matchModel(catalogs, 'grok 4.6 fast high', { providerOrder: order }).model, 'grok-4.6-fast');

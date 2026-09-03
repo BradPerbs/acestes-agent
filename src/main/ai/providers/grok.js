@@ -174,8 +174,9 @@ function findGrok(options = {}) {
  * Where Grok Build keeps its own setup: its login, its config, its model cache.
  *
  * `~/.grok` is the CLI's default, and `GROK_HOME` wins if one is set, because
- * that is the answer the CLI itself would give. Only ever read from: what is in
- * there belongs to the CLI, and this app has no business writing to it.
+ * that is the answer the CLI itself would give. What is in there belongs to
+ * the CLI: this app reads it, and writes exactly one line of its own, the
+ * trust entry for its workspace (see `trustWorkspace`).
  */
 function grokHome({ env = process.env, home = os.homedir() } = {}) {
     return envValue(env, 'GROK_HOME') || path.join(home, '.grok');
@@ -300,11 +301,48 @@ function writeMcpConfig(directory, url) {
         },
     }, null, 2);
 
-    const toml = `[mcp_servers.${SERVER_NAME}]\ntype = "http"\nurl = "${url}"\n`;
+    // The CLI's own spelling of an http server is the address alone; the
+    // `type` key belongs to the JSON format and is not in its TOML.
+    const toml = `[mcp_servers.${SERVER_NAME}]\nurl = "${url}"\n`;
 
     fs.mkdirSync(path.join(directory, '.grok'), { recursive: true });
     fs.writeFileSync(path.join(directory, '.grok', 'config.toml'), toml, 'utf8');
     fs.writeFileSync(path.join(directory, '.mcp.json'), json, 'utf8');
+}
+
+/**
+ * Mark our workspace as a folder Grok Build may take config from.
+ *
+ * The CLI reads a folder's `.grok/config.toml` only once that folder has
+ * been trusted, which in a terminal is a prompt on the first visit. Nobody
+ * sees that prompt in headless mode, so the server written above was read
+ * and quietly ignored, and the agent ran with none of this app's tools:
+ * no hosts, no inventory, no jobs, only what the CLI carries itself. The
+ * folder is one this app made and owns, so trusting it is only saying so in
+ * the CLI's own file, in the shape the CLI writes for itself, once. An
+ * entry that is already there is left as it is, including one that says
+ * `false`: that is a decision somebody made in the CLI, not ours to undo.
+ */
+function trustWorkspace(directory, { source = grokHome(), now = Date.now() } = {}) {
+    const file = path.join(source, 'trusted_folders.toml');
+    let text = '';
+    try {
+        text = fs.readFileSync(file, 'utf8');
+    } catch {
+        text = '';
+    }
+    // TOML has two spellings for a key with backslashes in it; the CLI
+    // writes the literal one, but a hand-edited file may carry the other.
+    const literal = `[folders.'${directory}']`;
+    const basic = `[folders."${directory.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"]`;
+    if (text.includes(literal) || text.includes(basic)) return false;
+
+    const key = directory.includes('\'') ? basic : literal;
+    const block = `${key}\ntrusted = true\ndecided_at = ${Math.floor(now / 1000)}\n`;
+    const glue = text.length === 0 ? '' : (text.endsWith('\n') ? '\n' : '\n\n');
+    fs.mkdirSync(source, { recursive: true });
+    fs.appendFileSync(file, glue + block, 'utf8');
+    return true;
 }
 
 /** `remote__run_command` or `mcp__remote__read_file` back to the bare name. */
@@ -691,6 +729,14 @@ async function start(options) {
         await mcpHost.release(token);
         throw new Error(`The Grok Build configuration could not be written: ${error.message}`);
     }
+    // Without this the file above is read and ignored. Not fatal on its
+    // own: a run with the CLI's tools alone is still a run, and the agent
+    // will say what it is missing.
+    try {
+        trustWorkspace(directory);
+    } catch (error) {
+        console.warn(`Could not trust the Grok Build workspace: ${error.message}`);
+    }
 
     // Only from our own store, and only when the user put one there. Left
     // alone otherwise so the CLI uses the login already on this machine.
@@ -894,6 +940,7 @@ module.exports = {
     createTranslator,
     runArguments,
     writeMcpConfig,
+    trustWorkspace,
     stripServer,
     effortFor,
     describeFailure,
