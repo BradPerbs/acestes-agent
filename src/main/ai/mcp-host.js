@@ -128,14 +128,16 @@ function buildServer(McpServer, { toolContext, requestApproval, onEvent, onOpen 
                 description: definition.description,
                 inputSchema: definition.shape,
             },
-            async (input) => {
+            async (input, extra) => {
                 // Counted for as long as the call is open, approval wait and
                 // question wait included, so a runtime's idle timer can tell
                 // "waiting on the user" from "hung". See `pending`.
                 onOpen(1);
+                const beating = heartbeat(extra);
                 try {
-                    return await handler(input);
+                    return await handler(input, extra?.signal);
                 } finally {
+                    clearInterval(beating);
                     onOpen(-1);
                 }
             }
@@ -145,9 +147,39 @@ function buildServer(McpServer, { toolContext, requestApproval, onEvent, onOpen 
     return mcp;
 }
 
+/**
+ * Say we are still here, every few seconds, while a call is open.
+ *
+ * A call that is waiting for a person can be open for minutes, and a
+ * client gives a request far less than that: OpenCode dropped a question
+ * to the user after twenty seconds, and the answer that arrived
+ * twenty seconds later had nowhere to go. A progress notification resets
+ * that clock on any client that follows the protocol, which is the fix at
+ * the right level. It can only be sent when the client asked for progress
+ * by handing us a token; when it did not, `ctx.signal` is the fallback and
+ * the card is parked instead. See `requestQuestion`.
+ */
+const HEARTBEAT_MS = 5000;
+
+function heartbeat(extra) {
+    const token = extra?._meta?.progressToken;
+    if (token === undefined || typeof extra?.sendNotification !== 'function') return null;
+    let beats = 0;
+    return setInterval(() => {
+        beats += 1;
+        extra.sendNotification({
+            method: 'notifications/progress',
+            // No total: this is "still working", not a fraction of anything.
+            params: { progressToken: token, progress: beats },
+        }).catch(() => {
+            // The client has gone; the signal below is what acts on that.
+        });
+    }, HEARTBEAT_MS);
+}
+
 /** One tool call: the block list, the approval gate, then the handler. */
 function callHandler(definition, { toolContext, requestApproval, onEvent }) {
-    return async (input) => {
+    return async (input, signal) => {
                 const context = toolContext();
                 const settings = context.settings;
 
@@ -173,6 +205,9 @@ function callHandler(definition, { toolContext, requestApproval, onEvent }) {
                         name: definition.name,
                         input: input || {},
                         local: false,
+                        // A card for a call the client has given up on is a
+                        // question nobody is listening to the answer of.
+                        signal,
                     });
                     if (!verdict.approved) {
                         return {
@@ -183,7 +218,9 @@ function callHandler(definition, { toolContext, requestApproval, onEvent }) {
                 }
 
                 try {
-                    const result = await catalog.invoke(definition, input || {}, context);
+                    // The signal rides with the context, so a tool that waits
+                    // on a person knows when the client stopped waiting.
+                    const result = await catalog.invoke(definition, input || {}, { ...context, signal });
                     return {
                         content: [{ type: 'text', text: String(result.text ?? '') }],
                         isError: Boolean(result.isError),

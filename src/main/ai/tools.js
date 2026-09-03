@@ -949,7 +949,13 @@ const TOOLS = [
         handler: async (input, ctx) => {
             if (typeof ctx.askUser !== 'function') return fail('There is no one to ask here.');
             const options = (input.options || []).map(option => String(option).trim()).filter(Boolean).slice(0, 6);
-            const reply = await ctx.askUser({ question: input.question, options, secret: input.secret || '' });
+            const reply = await ctx.askUser({
+                question: input.question,
+                options,
+                secret: input.secret || '',
+                // So the question outlives a client that stops waiting for it.
+                signal: ctx.signal,
+            });
             if (!reply.answered) return fail(reply.message || 'The user did not answer.');
             if (reply.stored) {
                 return ok({

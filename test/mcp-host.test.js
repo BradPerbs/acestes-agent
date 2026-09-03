@@ -68,6 +68,36 @@ async function main() {
     console.log('  ok  the count drops when the call is answered');
 
     assert.strictEqual(mcpHost.pending('not-a-token'), 0);
+
+    // A tool that waits on a person is handed the request's signal, which is
+    // how it knows it is being served to a CLI over this server rather than
+    // called in this process. What it does with that is `requestQuestion`'s
+    // business: it holds the call for seconds rather than minutes, because
+    // these clients give up on one quickly. See QUESTION_HOLD.
+    let sawSignal = 'never called';
+    const second = await mcpHost.acquire({
+        toolContext: () => ({
+            settings: { approval: 'never', autoApproveCommands: [], blockedCommands: [] },
+            askUser: async ({ signal }) => {
+                sawSignal = signal instanceof AbortSignal ? 'a signal' : typeof signal;
+                return { answered: true, answer: 'this way' };
+            },
+        }),
+        requestApproval: async () => ({ approved: true }),
+        onEvent: () => {},
+    });
+
+    const asker = new Client({ name: 'asker', version: '0.0.0' });
+    await asker.connect(new StreamableHTTPClientTransport(new URL(second.tokenUrl || second.url), {
+        requestInit: { headers: { Authorization: `Bearer ${second.token}` } },
+    }));
+    const answered = await asker.callTool({ name: 'ask_user', arguments: { question: 'Which way?' } });
+    assert.ok(/this way/.test(answered.content[0].text), 'an answer given straight away comes back on the call');
+    assert.strictEqual(sawSignal, 'a signal', 'and the tool knows it is being served over the wire');
+    console.log('  ok  a question served over the wire is handed the request\'s signal');
+
+    await asker.close().catch(() => {});
+    await mcpHost.release(second.token);
     await client.close();
     await mcpHost.release(token);
     console.log('\nall mcp host tests passed');

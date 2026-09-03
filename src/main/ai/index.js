@@ -71,6 +71,25 @@ const APPROVAL_TIMEOUT = 45 * 60 * 1000;
 /** How long a question to the user holds the turn before the turn is handed back. */
 const QUESTION_WAIT = 15 * 60 * 1000;
 
+/**
+ * The same, for a runtime reached over the tool server rather than in this
+ * process.
+ *
+ * Those clients put their own limit on a tool call, and it is short: OpenCode
+ * gives one twenty seconds. Past that it reports a timeout to the agent and
+ * stops listening, and because the server is stateless per request its
+ * cancellation reaches a fresh instance rather than the call that is waiting,
+ * so nothing on this side ever learns the answer is no longer wanted. A user
+ * who answered forty seconds later had their answer settled into a call that
+ * was already dead, and the agent never saw it.
+ *
+ * So the call does not wait that long. It waits for an answer given straight
+ * away, and otherwise hands the turn back with the card still up, and the
+ * answer arrives as the user's next message. Twelve seconds is under every
+ * client limit seen so far and long enough for someone already reading.
+ */
+const QUESTION_HOLD = 12 * 1000;
+
 /** How long the renderer gets to open or close a session. */
 const ACTION_TIMEOUT = 90 * 1000;
 
@@ -441,6 +460,57 @@ function trim() {
     }
 }
 
+/** The ids of the live conversations, for the backup preview to count against. */
+function conversationIds() {
+    return [...conversations.keys()];
+}
+
+/**
+ * Bring conversations from a backup into the live map, the same way `hydrate`
+ * adopts the ones from disk: unpacked under the runtime their agent is set to
+ * now, repaired onto the selected agent when theirs is gone, matched on id.
+ * The archive picks them up from the map on its next write.
+ */
+function importConversations(records, { overwrite = false } = {}) {
+    const result = { added: 0, replaced: 0, skipped: 0 };
+    for (const record of Array.isArray(records) ? records : []) {
+        let conversation;
+        try {
+            conversation = archive.unpack(record, settings.get(record?.agentId || undefined).provider);
+        } catch {
+            conversation = null;
+        }
+        if (!conversation) {
+            result.skipped++;
+            continue;
+        }
+        if (!agents.get(conversation.agentId)) conversation.agentId = agents.activeId();
+        if (conversations.has(conversation.id)) {
+            if (!overwrite) {
+                result.skipped++;
+                continue;
+            }
+            result.replaced++;
+        } else {
+            result.added++;
+        }
+        conversations.set(conversation.id, conversation);
+    }
+    if (result.added > 0 || result.replaced > 0) {
+        while (conversations.size > archive.MAX_CONVERSATIONS) {
+            let oldest = null;
+            for (const conversation of conversations.values()) {
+                if (conversation.pinned) continue;
+                if (!oldest || conversation.updatedAt < oldest.updatedAt) oldest = conversation;
+            }
+            if (!oldest) break;
+            conversations.delete(oldest.id);
+        }
+        archive.save();
+    }
+    return result;
+}
+
 function get(conversationId) {
     return conversations.get(conversationId);
 }
@@ -663,7 +733,7 @@ async function restart(conversation) {
  * answer to "may I restart this service" when nobody is there to say yes is
  * no, not an exception somewhere up the stack.
  */
-function requestApproval(conversation, { toolName, name, input, local }) {
+function requestApproval(conversation, { toolName, name, input, local, signal = null }) {
     return new Promise((resolve) => {
         const definition = catalog.BY_NAME.get(name);
         const requestId = nextId('approve');
@@ -716,6 +786,20 @@ function requestApproval(conversation, { toolName, name, input, local }) {
 
         pendingApprovals.set(requestId, { resolve: settle, timer, conversationId: conversation.id });
 
+        // The runtime gave up on the call: the card is taken down rather than
+        // left standing over a question whose answer can no longer be acted on.
+        if (signal) {
+            const giveUp = () => settle(
+                { approved: false, message: 'The runtime stopped waiting for this approval.' },
+                'expired',
+            );
+            if (signal.aborted) {
+                giveUp();
+                return;
+            }
+            signal.addEventListener('abort', giveUp, { once: true });
+        }
+
         if (parked) {
             try {
                 const summary = name === 'run_command' ? String(input?.command || '') : summarise(catalog.redactInput(input));
@@ -764,7 +848,7 @@ function requestApproval(conversation, { toolName, name, input, local }) {
  * carries: a question and its options rather than a tool call, and the
  * answer is text rather than a verdict.
  */
-function requestQuestion(conversation, { question, options = [], secret = '' }) {
+function requestQuestion(conversation, { question, options = [], secret = '', signal = null }) {
     return new Promise((resolve) => {
         const requestId = nextId('ask');
         // A secret answer is stored under this name and never reaches the
@@ -793,6 +877,8 @@ function requestQuestion(conversation, { question, options = [], secret = '' }) 
         // the question still on screen. The card stays open; an answer given
         // later arrives as the next message. Told to the agent as what to do
         // next, since a bare "timed out" had it retrying or giving up.
+        // A runtime on the tool server is the one with a short leash: see
+        // QUESTION_HOLD. In this process the turn can wait properly.
         const timer = setTimeout(() => {
             settle({
                 answered: false,
@@ -800,9 +886,28 @@ function requestQuestion(conversation, { question, options = [], secret = '' }) 
                 message: 'The user has not answered yet. End your turn now: say in one line what you are waiting for. '
                     + 'The question stays on their screen, and their answer will reach you as their next message.',
             }, 'parked');
-        }, QUESTION_WAIT);
+        }, signal ? QUESTION_HOLD : QUESTION_WAIT);
 
         pendingQuestions.set(requestId, { resolve: settle, timer, conversationId: conversation.id });
+
+        // The runtime stopped waiting for the answer, which some do in
+        // twenty seconds. The card stays up and the question is parked, so
+        // the answer reaches the agent as the user's next message instead of
+        // being settled into a call that is already dead.
+        if (signal) {
+            if (signal.aborted) {
+                settle({ answered: false, parked: true, message: 'The runtime stopped waiting for this answer.' }, 'parked');
+                return;
+            }
+            signal.addEventListener('abort', () => {
+                settle({
+                    answered: false,
+                    parked: true,
+                    message: 'The runtime stopped waiting for this answer before the user gave one. '
+                        + 'End your turn now, saying in one line what you asked. Their answer arrives as their next message.',
+                }, 'parked');
+            }, { once: true });
+        }
 
         emit(conversation, {
             type: 'question-request',
@@ -2241,6 +2346,8 @@ module.exports = {
     reconfigure,
     create,
     get,
+    conversationIds,
+    importConversations,
     send,
     interrupt,
     park,
