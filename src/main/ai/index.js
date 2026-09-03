@@ -61,6 +61,8 @@ const MAX_CONVERSATIONS = 20;
 
 /** How long a tool call waits for a person before it gives up. */
 const APPROVAL_TIMEOUT = 10 * 60 * 1000;
+/** How long a question to the user holds the turn before the turn is handed back. */
+const QUESTION_WAIT = 15 * 60 * 1000;
 
 /** How long the renderer gets to open or close a session. */
 const ACTION_TIMEOUT = 90 * 1000;
@@ -700,9 +702,18 @@ function requestQuestion(conversation, { question, options = [] }) {
             resolve(reply);
         };
 
+        // Not an error when the person is away: the turn is handed back with
+        // the question still on screen. The card stays open; an answer given
+        // later arrives as the next message. Told to the agent as what to do
+        // next, since a bare "timed out" had it retrying or giving up.
         const timer = setTimeout(() => {
-            settle({ answered: false, message: 'The question timed out waiting for an answer.' }, 'expired');
-        }, APPROVAL_TIMEOUT);
+            settle({
+                answered: false,
+                parked: true,
+                message: 'The user has not answered yet. End your turn now: say in one line what you are waiting for. '
+                    + 'The question stays on their screen, and their answer will reach you as their next message.',
+            }, 'parked');
+        }, QUESTION_WAIT);
 
         pendingQuestions.set(requestId, { resolve: settle, timer, conversationId: conversation.id });
 

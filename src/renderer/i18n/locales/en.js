@@ -1642,4 +1642,5 @@ export default {
     'assistant.allowed': 'Allowed',
     'assistant.declined': 'Declined',
     'assistant.timedOut': 'Timed out',
+    'assistant.questionParked': 'The agent has moved on. Your answer is sent as a message.',
 };

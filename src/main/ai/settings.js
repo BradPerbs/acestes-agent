@@ -116,7 +116,7 @@ const DEFAULTS = {
     commandMode: 'terminal',
     // A ceiling on tool calls per turn, so a loop that is not converging stops
     // on its own rather than when someone notices.
-    maxTurns: 40,
+    maxTurns: 100,
     // How much terminal output a single read hands back.
     transcriptLines: 240,
     // Whether the assistant may touch this machine (its filesystem, its shell)

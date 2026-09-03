@@ -61,6 +61,10 @@ export default function QuestionRequest({ item, onAnswer }) {
         if (text) onAnswer(item.requestId, text, false);
     };
 
+    // The agent stopped waiting, and said so; the card stays for the answer,
+    // which then goes as a message rather than into the call that asked.
+    const parked = item.status === 'parked';
+
     return (
         <div className="rounded-xl overflow-hidden shadow-sm
             bg-white dark:bg-white/[0.06]
@@ -77,6 +81,11 @@ export default function QuestionRequest({ item, onAnswer }) {
                 <p className="px-0.5 text-xs leading-relaxed text-gray-900 dark:text-gray-100 whitespace-pre-wrap break-words">
                     {item.question}
                 </p>
+                {parked && (
+                    <p className="px-0.5 text-[11px] leading-snug text-gray-500 dark:text-gray-400">
+                        {t('assistant.questionParked')}
+                    </p>
+                )}
 
                 {note === null ? (
                     <div className="space-y-1.5">

@@ -780,7 +780,7 @@ function environment({ home }) {
  * Code keeps its sessions under the data directory, so this survives the app
  * being closed in a way the in-process providers cannot.
  */
-function runTurn({ binary, args, directory, env, translator, onStart = () => {} }) {
+function runTurn({ binary, args, directory, env, translator, onStart = () => {}, waiting = () => false }) {
     return new Promise((resolve) => {
         let child;
         let stderr = '';
@@ -796,6 +796,12 @@ function runTurn({ binary, args, directory, env, translator, onStart = () => {} 
 
         let timer = null;
         const expire = () => {
+            // Quiet because one of our own tools is still open, which is a
+            // card waiting for the user: not a hang, and not ended.
+            if (waiting()) {
+                rewind();
+                return;
+            }
             try { child?.kill(); } catch { /* already gone */ }
             finish({ ok: false, message: 'Kimi Code went quiet for half an hour, so the turn was ended.' });
         };
@@ -980,6 +986,7 @@ async function start(options) {
         preamble = '';
         stopped = false;
 
+        const waiting = () => mcpHost.pending(token) > 0;
         let outcome = await runTurn({
             binary,
             args: runArguments({ sessionId, prompt, model }),
@@ -987,6 +994,7 @@ async function start(options) {
             env,
             translator,
             onStart: hold,
+            waiting,
         });
 
         // A stored id that this machine no longer has a session for. The
@@ -1002,6 +1010,7 @@ async function start(options) {
                 env,
                 translator,
                 onStart: hold,
+                waiting,
             });
         }
 

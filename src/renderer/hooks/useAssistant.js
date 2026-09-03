@@ -441,7 +441,11 @@ export default function useAssistant({
      * Answer one question, in the transcript and over IPC. Marked locally
      * first for the same reason an approval is: the click should land.
      */
-    const answer = useCallback((requestId, text, chosen = false) => {
+    // `send` is defined further down; the answer below reaches it through a
+    // ref so a question the agent stopped waiting on can still be answered.
+    const sendRef = useRef(null);
+
+    const answer = useCallback(async (requestId, text, chosen = false) => {
         const reply = String(text || '').trim();
         setState(previous => applyEvent(previous, {
             type: 'question-settled',
@@ -450,7 +454,11 @@ export default function useAssistant({
             answer: reply,
             at: Date.now(),
         }));
-        window.api.ai.answer(requestId, reply, chosen);
+        const taken = await window.api.ai.answer(requestId, reply, chosen);
+        // Nobody was waiting any more: the agent handed the turn back while
+        // the card sat there. The answer goes as the next message instead,
+        // which is what the agent was told would happen.
+        if (taken === false && reply) await sendRef.current?.(reply);
     }, []);
 
     /* The live stream. */
@@ -622,6 +630,8 @@ export default function useAssistant({
         }
         await refreshConversations();
     }, [conversationId, refreshConversations, adopt]);
+
+    sendRef.current = send;
 
     return {
         items: state.items,

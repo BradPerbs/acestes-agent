@@ -116,10 +116,11 @@ function readBody(request) {
  * Stateless means stateless. Building ten closures per request is nothing
  * next to the ssh round trip they are about to make.
  */
-function buildServer(McpServer, { toolContext, requestApproval, onEvent }) {
+function buildServer(McpServer, { toolContext, requestApproval, onEvent, onOpen = () => {} }) {
     const mcp = new McpServer({ name: 'remote', version: '1.0.0' });
 
     for (const definition of catalog.TOOLS) {
+        const handler = callHandler(definition, { toolContext, requestApproval, onEvent });
         mcp.registerTool(
             definition.name,
             {
@@ -128,6 +129,25 @@ function buildServer(McpServer, { toolContext, requestApproval, onEvent }) {
                 inputSchema: definition.shape,
             },
             async (input) => {
+                // Counted for as long as the call is open, approval wait and
+                // question wait included, so a runtime's idle timer can tell
+                // "waiting on the user" from "hung". See `pending`.
+                onOpen(1);
+                try {
+                    return await handler(input);
+                } finally {
+                    onOpen(-1);
+                }
+            }
+        );
+    }
+
+    return mcp;
+}
+
+/** One tool call: the block list, the approval gate, then the handler. */
+function callHandler(definition, { toolContext, requestApproval, onEvent }) {
+    return async (input) => {
                 const context = toolContext();
                 const settings = context.settings;
 
@@ -175,11 +195,20 @@ function buildServer(McpServer, { toolContext, requestApproval, onEvent }) {
                         isError: true,
                     };
                 }
-            }
-        );
-    }
+    };
+}
 
-    return mcp;
+/**
+ * How many of this token's tool calls are open right now.
+ *
+ * A call is open from the request arriving until the answer leaves, which
+ * covers the whole time a card is waiting for the user. The CLI runtimes
+ * read this from their idle timers: a process that has said nothing for
+ * half an hour because a question is on screen is not hung.
+ */
+function pending(token) {
+    const context = contextFor(token);
+    return context ? (context.open || 0) : 0;
 }
 
 async function listen() {
@@ -209,7 +238,10 @@ async function listen() {
                     console.error('[mcp]', request.method, request.url, body?.method || '', 'accept=', request.headers.accept || '');
                 }
 
-                const mcp = buildServer(McpServer, context);
+                const mcp = buildServer(McpServer, {
+                    ...context,
+                    onOpen: (delta) => { context.open = Math.max(0, (context.open || 0) + delta); },
+                });
                 const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
                 response.on('close', () => {
                     transport.close();
@@ -283,4 +315,4 @@ async function release(token) {
     await new Promise(resolve => closing.close(resolve));
 }
 
-module.exports = { acquire, release, _test: { offeredToken, contextFor, contexts } };
+module.exports = { acquire, release, pending, _test: { offeredToken, contextFor, contexts } };

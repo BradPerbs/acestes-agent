@@ -524,15 +524,22 @@ function createTranslator(onEvent) {
                     return;
 
                 case 'error':
+                case 'max_turns_reached': {
                     sawError = true;
                     flush();
+                    const said = firstString(payload, 'message', 'error', 'text') || '';
+                    // The ceiling is a setting of this app, not a fault of the
+                    // CLI, and the session is intact: one more message picks
+                    // the work up where it stopped.
+                    const ceiling = payload.type === 'max_turns_reached' || /max[ _]turns/i.test(said);
                     onEvent({
                         type: 'error',
-                        message: describeFailure(
-                            firstString(payload, 'message', 'error', 'text') || 'Grok Build reported an error'
-                        ),
+                        message: ceiling
+                            ? 'Stopped at the turn limit for one message (Settings → Max turns). The work is not lost: say "continue" to carry on from here.'
+                            : describeFailure(said || 'Grok Build reported an error'),
                     });
                     return;
+                }
 
                 // A plan and the slash commands the session offers are about
                 // the agent's own interface rather than about this
@@ -600,7 +607,7 @@ function runArguments({ current, sessionId, resume, directory, prompt }) {
  * it in `~/.grok/sessions`, so this survives the app being closed in a way the
  * in-process providers cannot.
  */
-function runTurn({ binary, args, directory, env, translator, onStart = () => {} }) {
+function runTurn({ binary, args, directory, env, translator, onStart = () => {}, waiting = () => false }) {
     return new Promise((resolve) => {
         let child;
         let stderr = '';
@@ -616,6 +623,12 @@ function runTurn({ binary, args, directory, env, translator, onStart = () => {} 
 
         let timer = null;
         const expire = () => {
+            // Quiet because one of our own tools is still open, which is a
+            // card waiting for the user: not a hang, and not ended.
+            if (waiting()) {
+                rewind();
+                return;
+            }
             try { child?.kill(); } catch { /* already gone */ }
             finish({ ok: false, message: 'Grok Build went quiet for half an hour, so the turn was ended.' });
         };
@@ -805,6 +818,7 @@ async function start(options) {
         preamble = '';
         stopped = false;
 
+        const waiting = () => mcpHost.pending(token) > 0;
         let outcome = await runTurn({
             binary,
             args: runArguments({ current, sessionId, resume, directory, prompt }),
@@ -812,6 +826,7 @@ async function start(options) {
             env,
             translator,
             onStart: hold,
+            waiting,
         });
 
         // A stored id that this machine no longer has a session for. The
@@ -828,6 +843,7 @@ async function start(options) {
                 env,
                 translator,
                 onStart: hold,
+                waiting,
             });
         }
 
