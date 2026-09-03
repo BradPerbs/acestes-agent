@@ -4,6 +4,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 
 const mcpHost = require('../mcp-host');
+const mcpConfig = require('../mcp-config');
 
 /**
  * The Codex provider.
@@ -284,6 +285,13 @@ async function start({
         env,
         config: {
             mcp_servers: {
+                // The agent's own servers first, ours last, so a name clash
+                // cannot shadow the app's tools.
+                ...mcpConfig.codex(
+                    (settings.mcpServers || []).filter(entry => entry?.name !== SERVER_NAME),
+                    settings.sandbox,
+                    settings.agentId,
+                ),
                 [SERVER_NAME]: {
                     url,
                     bearer_token_env_var: 'CLOUDBLAST_MCP_TOKEN',

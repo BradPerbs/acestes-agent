@@ -5,6 +5,7 @@ const spawn = require('cross-spawn');
 const { app } = require('electron');
 
 const mcpHost = require('../mcp-host');
+const mcpConfig = require('../mcp-config');
 
 /**
  * The Kimi Code provider.
@@ -47,7 +48,12 @@ const mcpHost = require('../mcp-host');
 const SERVER_NAME = 'remote';
 
 /** How long one headless run may take before it is given up on. */
-const RUN_TIMEOUT = 15 * 60 * 1000;
+/**
+ * How long a turn may go without a word from the CLI before it is given up
+ * on, measured from its last line on stdout: a turn that is working keeps
+ * talking. The run's own budget is the ceiling on the whole.
+ */
+const IDLE_TIMEOUT = 30 * 60 * 1000;
 
 /**
  * Kimi Code's own tools, which act on this machine rather than on a server.
@@ -503,8 +509,20 @@ function writeConfig({ home, base = '', url, current, effort = '' }) {
         ...(effort ? ['[thinking]', 'enabled = true', `effort = "${effort}"`, ''] : []),
     ].join('\n');
 
+    // The agent's own servers, in this CLI's spelling: a URL and headers for
+    // an http one, a command for the rest. One named like ours is left out
+    // rather than let shadow the app's tools.
+    const own = Object.entries(mcpConfig.agentServers(
+        (current.mcpServers || []).filter(entry => entry?.name !== SERVER_NAME),
+        current.sandbox,
+        current.agentId,
+    )).map(([name, spec]) => [name, spec.type === 'http'
+        ? { url: spec.url, ...(spec.headers ? { headers: spec.headers } : {}) }
+        : spec]);
+
     const json = JSON.stringify({
         mcpServers: {
+            ...Object.fromEntries(own),
             // A URL and no `transport` is how this CLI spells an HTTP server.
             // The address carries the token in its path rather than in a header,
             // which is what `mcp-host` grew a second way in for: a config file
@@ -776,10 +794,16 @@ function runTurn({ binary, args, directory, env, translator, onStart = () => {} 
             resolve(outcome);
         };
 
-        const timer = setTimeout(() => {
+        let timer = null;
+        const expire = () => {
             try { child?.kill(); } catch { /* already gone */ }
-            finish({ ok: false, message: 'Kimi Code did not finish that turn in time.' });
-        }, RUN_TIMEOUT);
+            finish({ ok: false, message: 'Kimi Code went quiet for half an hour, so the turn was ended.' });
+        };
+        const rewind = () => {
+            clearTimeout(timer);
+            timer = setTimeout(expire, IDLE_TIMEOUT);
+        };
+        rewind();
 
         try {
             child = spawn(binary, args, {
@@ -796,6 +820,7 @@ function runTurn({ binary, args, directory, env, translator, onStart = () => {} 
         onStart(child);
 
         child.stdout.on('data', (chunk) => {
+            rewind();
             buffer += chunk.toString('utf8');
             let index = buffer.indexOf('\n');
             while (index >= 0) {

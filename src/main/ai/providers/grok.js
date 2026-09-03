@@ -6,6 +6,7 @@ const spawn = require('cross-spawn');
 const { app } = require('electron');
 
 const mcpHost = require('../mcp-host');
+const mcpConfig = require('../mcp-config');
 const engine = require('./openai-compatible');
 
 /**
@@ -47,7 +48,14 @@ const API_URL = 'https://api.x.ai/v1';
 const LABEL = 'xAI';
 
 /** How long one headless run may take before it is given up on. */
-const RUN_TIMEOUT = 15 * 60 * 1000;
+/**
+ * How long a turn may go without a word from the CLI before it is given up
+ * on. Measured from the last line on stdout rather than from the start: a
+ * turn that is working is one that keeps talking, and one that reads and
+ * writes for forty minutes is a turn, not a hang. The run's own budget is
+ * the ceiling on the whole.
+ */
+const IDLE_TIMEOUT = 30 * 60 * 1000;
 
 /**
  * Grok Build's own tools, which act on this machine rather than on a server.
@@ -294,16 +302,21 @@ function workspace() {
  * a given release prefers is not worth pinning a provider's behaviour to, and
  * the one it ignores costs a few hundred bytes in a folder we own.
  */
-function writeMcpConfig(directory, url) {
+function writeMcpConfig(directory, url, { servers = [], sandbox = null, agentId = '' } = {}) {
+    // The agent's own servers go in beside ours, spawned through the same
+    // launcher Claude Code uses for them. One named like ours would be two
+    // tables with one name, which TOML refuses whole, so it is left out.
+    const own = (Array.isArray(servers) ? servers : []).filter(entry => entry?.name && entry.name !== SERVER_NAME);
     const json = JSON.stringify({
         mcpServers: {
+            ...mcpConfig.agentServers(own, sandbox, agentId),
             [SERVER_NAME]: { type: 'http', url },
         },
     }, null, 2);
 
     // The CLI's own spelling of an http server is the address alone; the
     // `type` key belongs to the JSON format and is not in its TOML.
-    const toml = `[mcp_servers.${SERVER_NAME}]\nurl = "${url}"\n`;
+    const toml = `${mcpConfig.toml(own, sandbox, agentId)}[mcp_servers.${SERVER_NAME}]\nurl = "${url}"\n`;
 
     fs.mkdirSync(path.join(directory, '.grok'), { recursive: true });
     fs.writeFileSync(path.join(directory, '.grok', 'config.toml'), toml, 'utf8');
@@ -601,10 +614,17 @@ function runTurn({ binary, args, directory, env, translator, onStart = () => {} 
             resolve(outcome);
         };
 
-        const timer = setTimeout(() => {
+        let timer = null;
+        const expire = () => {
             try { child?.kill(); } catch { /* already gone */ }
-            finish({ ok: false, message: 'Grok Build did not finish that turn in time.' });
-        }, RUN_TIMEOUT);
+            finish({ ok: false, message: 'Grok Build went quiet for half an hour, so the turn was ended.' });
+        };
+        // Wound again on every line it writes: see IDLE_TIMEOUT.
+        const rewind = () => {
+            clearTimeout(timer);
+            timer = setTimeout(expire, IDLE_TIMEOUT);
+        };
+        rewind();
 
         try {
             child = spawn(binary, args, {
@@ -621,6 +641,7 @@ function runTurn({ binary, args, directory, env, translator, onStart = () => {} 
         onStart(child);
 
         child.stdout.on('data', (chunk) => {
+            rewind();
             buffer += chunk.toString('utf8');
             let index = buffer.indexOf('\n');
             while (index >= 0) {
@@ -724,7 +745,7 @@ async function start(options) {
     const { tokenUrl, token } = await mcpHost.acquire({ toolContext, requestApproval, onEvent });
 
     try {
-        writeMcpConfig(directory, tokenUrl);
+        writeMcpConfig(directory, tokenUrl, { servers: settings.mcpServers, sandbox: settings.sandbox, agentId: settings.agentId });
     } catch (error) {
         await mcpHost.release(token);
         throw new Error(`The Grok Build configuration could not be written: ${error.message}`);

@@ -117,7 +117,7 @@ const CURATED = [
         command: 'npx',
         args: ['-y', '@playwright/mcp@latest', '{{headless}}'],
         fields: [
-            { key: 'headless', label: 'Hide the browser window', kind: 'arg', required: false, placeholder: '', help: 'Leave empty to watch it work. Type --headless for an unattended run.' },
+            { key: 'headless', label: 'Hide the browser window', kind: 'flag', flag: '--headless', required: false, placeholder: 'no', help: 'Leave empty, or say no, to watch it work. Say yes for an unattended run.' },
         ],
     },
     {
@@ -301,12 +301,18 @@ function get(id) {
  * Fill a template in. `values` is keyed by field key. Answers the server
  * record the registry keeps, or `{ error }` naming the first missing field.
  */
+/** Whether a value a person or an agent typed for a switch means on. */
+const isYes = (value) => /^(y|yes|true|on|1)$/i.test(String(value || '').trim());
+
 function instantiate(template, values = {}, { name = '' } = {}) {
     if (!template) return { error: 'No such template.' };
     const given = values && typeof values === 'object' ? values : {};
     const fill = (text) => String(text).replace(/\{\{(\w+)\}\}/g, (match, key) => {
         const field = (template.fields || []).find(entry => entry.key === key);
         const value = clean(given[key] ?? field?.default ?? '', 2000);
+        // A flag is a yes or a no, however it was said: "false" is not an
+        // argument to hand a server, it is the flag left out.
+        if (field?.kind === 'flag') return isYes(value) || value === field.flag ? field.flag : '';
         return value;
     });
 

@@ -23,8 +23,9 @@ terminals, SSH sessions and local folders are the tools it works with.
    MCP servers, logs) and its own settings (runtime, model, approvals,
    standing instructions). Conversations are tabs of the window, and sessions
    the agent opens arrive as tabs behind the conversation rather than in front
-   of it. Still to do: sessions and file views as panes beside the
-   conversation, and MCP servers for the runtimes other than Claude Code.
+   of it. The agent's MCP servers reach every runtime, spawned through one
+   launcher with a scrubbed environment. Still to do: sessions and file views
+   as panes beside the conversation.
 2. **Persistent memory.** Done in the first pass: a notebook per agent under
    `userData/memory`, written by the agent through `remember`, `recall` and
    `forget` and edited on the Memory page of the inventory. Every note is

@@ -321,6 +321,20 @@ async function run() {
         const json = JSON.parse(fs.readFileSync(path.join(directory, '.mcp.json'), 'utf8'));
         assert.strictEqual(json.mcpServers.remote.url, url);
         assert.strictEqual(json.mcpServers.remote.type, 'http');
+
+        // The agent's own servers go in beside ours; one named like ours does not.
+        provider.writeMcpConfig(directory, url, { servers: [
+            { name: 'Playwright', transport: 'stdio', command: 'npx', args: ['-y', '@playwright/mcp@latest'], env: {} },
+            { name: 'remote', transport: 'http', url: 'https://impostor.example/mcp' },
+        ] });
+        const withOwn = fs.readFileSync(path.join(directory, '.grok', 'config.toml'), 'utf8');
+        assert.ok(withOwn.includes('[mcp_servers.Playwright]'), 'the inventory server is written');
+        assert.ok(withOwn.includes('mcp-launch.js'), 'through the launcher');
+        assert.strictEqual((withOwn.match(/\[mcp_servers\.remote\]/g) || []).length, 1, 'ours once, the impostor never');
+        assert.ok(withOwn.includes(url));
+        const ownJson = JSON.parse(fs.readFileSync(path.join(directory, '.mcp.json'), 'utf8'));
+        assert.ok(ownJson.mcpServers.Playwright, 'and in the JSON spelling');
+        assert.strictEqual(ownJson.mcpServers.remote.url, url);
     } finally {
         fs.rmSync(directory, { recursive: true, force: true });
     }

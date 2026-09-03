@@ -73,6 +73,24 @@ async function main() {
     assert.ok(missing.error, 'a failed probe carries a reason');
     console.log(`  ok  stdio: missing command is reported (${missing.error})`);
 
+    // Windows: a `.cmd` shim, in a folder with a space in its name, and the
+    // same shim by its bare name through PATH, which is what `npx` is.
+    if (process.platform === 'win32') {
+        const spaced = fs.mkdtempSync(path.join(os.tmpdir(), 'cb probe space-'));
+        try {
+            const shim = path.join(spaced, 'echo-fixture.cmd');
+            fs.writeFileSync(shim, `@echo off\r\n"${process.execPath}" "${FIXTURE}" %*\r\n`);
+            const viaShim = await probe.probe({ transport: 'stdio', command: shim, args: [], env: {} });
+            assert.strictEqual(viaShim.ok, true, `a .cmd in a folder with a space: ${viaShim.error}`);
+            assert.deepStrictEqual(viaShim.tools, ['ping']);
+            const bare = await probe.probe({ transport: 'stdio', command: 'echo-fixture', args: [], env: { PATH: `${spaced};${process.env.PATH || ''}` } });
+            assert.strictEqual(bare.ok, true, `a bare name resolved through PATH and PATHEXT: ${bare.error}`);
+            console.log('  ok  windows: .cmd shims with spaces, and bare names through PATH');
+        } finally {
+            fs.rmSync(spaced, { recursive: true, force: true });
+        }
+    }
+
     // http: the header on the record reaches the server; two tools come back.
     const { server, url } = await serveHttp('t0k');
     try {

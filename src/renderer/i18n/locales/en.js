@@ -242,8 +242,7 @@ export default {
      * ---------------------------------------------------------------- */
     'mcp.empty': 'No MCP servers yet',
     'mcp.emptyNote': 'Add a server and its tools are handed to this agent alongside the app’s own.',
-    'mcp.note': 'Handed to Claude Code when it answers for this agent. The other runtimes do not '
-        + 'take these yet.',
+    'mcp.note': 'Handed to whichever runtime answers for this agent, alongside the app’s own tools.',
     'mcp.new': 'New server',
     'mcp.check': 'Check',
     'mcp.checkAll': 'Check all',

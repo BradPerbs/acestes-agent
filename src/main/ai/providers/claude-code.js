@@ -3,8 +3,6 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const catalog = require('../tools');
-const container = require('../container');
-const sandboxModule = require('../sandbox');
 
 /**
  * The Claude Code provider.
@@ -190,46 +188,9 @@ function claudeCandidates({
  */
 /**
  * The MCP servers from the agent's inventory, in the shape the SDK takes.
- *
- * A stdio server is a command to spawn; an http one is a URL. Keyed by name,
- * which is what the model sees the tools filed under.
+ * Shared with every other runtime: see mcp-config.js.
  */
-function agentServers(servers, sandbox = null, agentId = '') {
-    const out = {};
-    for (const entry of Array.isArray(servers) ? servers : []) {
-        if (!entry?.name) continue;
-        if (entry.transport === 'http') {
-            out[entry.name] = {
-                type: 'http',
-                url: entry.url,
-                ...(entry.headers && Object.keys(entry.headers).length ? { headers: { ...entry.headers } } : {}),
-            };
-        } else if (sandbox?.execution === 'container') {
-            // Inside the agent's container, where the folders it was granted
-            // are all it can see. Nothing of the host's environment goes in.
-            out[entry.name] = container.execSpec(agentId, entry);
-        } else {
-            // On the host, through a launcher of our own that sets the
-            // environment outright: the system's variables with anything
-            // that looks like a secret removed, plus what the user typed on
-            // the server's record. See mcp-launch.js for why the CLI cannot
-            // be asked to do this itself.
-            out[entry.name] = {
-                command: process.execPath,
-                args: [
-                    path.join(__dirname, '..', 'mcp-launch.js'),
-                    JSON.stringify({
-                        command: entry.command,
-                        args: entry.args || [],
-                        env: sandboxModule.safeEnv(process.env, entry.env || {}),
-                    }),
-                ],
-                env: { ELECTRON_RUN_AS_NODE: '1' },
-            };
-        }
-    }
-    return out;
-}
+const { agentServers } = require('../mcp-config');
 
 function findClaude(options = {}) {
     const platform = options.platform || process.platform;

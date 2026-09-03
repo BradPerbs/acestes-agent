@@ -380,6 +380,37 @@ const check = async (label, fn) => {
         await assert.rejects(() => openai.start({ settings: { apiKey: '' } }), /No API key/);
     });
 
+    console.log('\nmcp config');
+    const mcpConfig = require(path.join(ROOT, 'ai', 'mcp-config'));
+    const inventory = [
+        { name: 'Playwright', transport: 'stdio', command: 'npx', args: ['-y', '@playwright/mcp@latest'], env: { FOO: 'bar' } },
+        { name: 'context 7', transport: 'http', url: 'https://mcp.context7.com/mcp', headers: { Authorization: 'Bearer t' } },
+    ];
+
+    await check('the generic shape spawns stdio servers through the launcher and passes http ones through', () => {
+        const shaped = mcpConfig.agentServers(inventory);
+        assert.strictEqual(shaped.Playwright.command, process.execPath);
+        assert.ok(shaped.Playwright.args[0].endsWith('mcp-launch.js'));
+        const spec = JSON.parse(shaped.Playwright.args[1]);
+        assert.strictEqual(spec.command, 'npx');
+        assert.deepStrictEqual(spec.args, ['-y', '@playwright/mcp@latest']);
+        assert.strictEqual(spec.env.FOO, 'bar');
+        assert.strictEqual(shaped.Playwright.env.ELECTRON_RUN_AS_NODE, '1');
+        assert.deepStrictEqual(shaped['context 7'], { type: 'http', url: 'https://mcp.context7.com/mcp', headers: { Authorization: 'Bearer t' } });
+    });
+
+    await check('the TOML spelling is what Grok Build reads, and the Codex shape what its SDK takes', () => {
+        const toml = mcpConfig.toml(inventory);
+        assert.ok(toml.includes('[mcp_servers.Playwright]'));
+        assert.ok(toml.includes(`command = ${JSON.stringify(process.execPath)}`));
+        assert.ok(toml.includes('[mcp_servers.Playwright.env]\nELECTRON_RUN_AS_NODE = "1"'));
+        assert.ok(toml.includes('[mcp_servers."context 7"]\nurl = "https://mcp.context7.com/mcp"\n[mcp_servers."context 7".headers]\nAuthorization = "Bearer t"'));
+
+        const codex = mcpConfig.codex(inventory);
+        assert.strictEqual(codex.Playwright.command, process.execPath);
+        assert.deepStrictEqual(codex['context 7'], { url: 'https://mcp.context7.com/mcp', http_headers: { Authorization: 'Bearer t' } });
+    });
+
     console.log('\nmcp library');
 
     const library = require(path.join(ROOT, 'ai', 'mcp-library'));
