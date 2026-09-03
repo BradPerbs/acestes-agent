@@ -1503,6 +1503,7 @@ export default {
     'assistant.thisChat': 'This chat',
     'assistant.copyConversation': 'Copy conversation',
     'assistant.copyConversationHint': 'Everything, with every tool call and result, as Markdown',
+    'assistant.copied': 'Copied',
     'assistant.exportConversation': 'Save as Markdown…',
     'assistant.chatHistory': 'Chat history',
     'assistant.working': 'Working',
