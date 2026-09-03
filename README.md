@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="acestes.png" alt="Acestes Agent" width="1024">
+</p>
+
 <h1 align="center">Acestes Agent</h1>
 
 <p align="center">

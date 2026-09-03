@@ -1,5 +1,6 @@
 const { BrowserWindow, app, screen, shell } = require('electron');
 const path = require('path');
+const { windowIcon } = require('../app-icon');
 
 /**
  * The assistant's own windows.
@@ -99,6 +100,7 @@ function open(parent, conversationIds = []) {
         height,
         minWidth: 360,
         minHeight: 420,
+        ...windowIcon(),
         ...position,
         ...(process.platform === 'darwin'
             ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 19, y: 24 } }

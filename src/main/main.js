@@ -1,4 +1,5 @@
 const { app, BrowserWindow, screen, shell } = require('electron');
+const { windowIcon } = require('./app-icon');
 const fs = require('fs');
 const path = require('path');
 const ipc = require('./ipc');
@@ -64,6 +65,7 @@ function createWindow() {
         ...(state?.x !== undefined ? { x: state.x, y: state.y } : {}),
         minWidth: 900,
         minHeight: 600,
+        ...windowIcon(),
         // Everywhere but macOS the window is frameless and the title bar draws
         // its own three buttons. macOS keeps its traffic lights: a frameless
         // window there loses them outright, and nothing this app could draw

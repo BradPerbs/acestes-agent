@@ -67,6 +67,10 @@
                     "!README.md",
                     "!hello-helper.exe"
                 ]
+            },
+            {
+                "from": "build/icon.png",
+                "to": "icon.png"
             }
         ],
         "win": {
@@ -101,6 +105,10 @@
                         "**/*",
                         "!README.md"
                     ]
+                },
+                {
+                    "from": "build/icon.png",
+                    "to": "icon.png"
                 }
             ]
         },

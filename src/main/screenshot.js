@@ -1,6 +1,7 @@
 const { BrowserWindow, clipboard, dialog, screen, app, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { windowIcon } = require('./app-icon');
 
 // id -> { image, title, window }. Captures live only until their viewer closes.
 const captures = new Map();
@@ -57,6 +58,7 @@ function openViewer(id, parent) {
         height,
         minWidth: MIN_WIDTH,
         minHeight: MIN_HEIGHT,
+        ...windowIcon(),
         frame: false,
         backgroundColor: '#16161e',
         show: false,
