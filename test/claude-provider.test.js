@@ -153,10 +153,10 @@ async function run() {
 
     /* ---------------- The approval mode, on the CLI's own tools ---------------- */
 
-    const base = { autoApproveCommands: ['ls', 'git status'], blockedCommands: ['rm -rf'] };
-    const never = { ...base, approval: 'never' };
-    const always = { ...base, approval: 'always' };
-    const writes = { ...base, approval: 'writes' };
+    const policy = { autoApproveCommands: ['ls', 'git status'], blockedCommands: ['rm -rf'] };
+    const never = { ...policy, approval: 'never' };
+    const always = { ...policy, approval: 'always' };
+    const writes = { ...policy, approval: 'writes' };
 
     // "Never" waits for nothing, ours or the CLI's or a server's.
     assert.strictEqual(provider.nativeAutoApproved('Edit', { file_path: 'a.js' }, never), true);
