@@ -1642,6 +1642,7 @@ export default {
     'assistant.allowed': 'Allowed',
     'assistant.declined': 'Declined',
     'assistant.timedOut': 'Timed out',
+    'assistant.diffTooLarge': 'Too large to show here. Open the file to read the change.',
     'assistant.questionParked': 'The agent has moved on. Your answer is sent as a message.',
     'assistant.secretParked': 'The agent has moved on. Ask it to request the key again; it must not go in a message.',
     'assistant.secretPlaceholder': 'Stored as {name}',

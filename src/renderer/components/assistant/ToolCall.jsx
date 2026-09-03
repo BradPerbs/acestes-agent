@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ArrowDown01Icon } from 'hugeicons-react';
 import CopyButton from '../ui/CopyButton';
+import DiffView from './DiffView';
 import { translate, useT } from '../../i18n';
 
 /**
@@ -139,14 +140,16 @@ export function describeCall(name, input = {}) {
 
 export default function ToolCall({ item }) {
     const t = useT();
-    const [open, setOpen] = useState(item.status === 'error');
+    // An edit opens on its own: the change is the point of the row, and
+    // having to click to see what was done to a file is one click too many.
+    const [open, setOpen] = useState(item.status === 'error' || Boolean(item.diff));
     const summary = describeCall(item.name, item.input);
     const refused = REFUSED[item.approval?.status];
     const known = refused || TITLES[item.name];
     const title = known
         ? t(known)
         : (item.local ? item.name : item.name.replace(/_/g, ' '));
-    const expandable = Boolean(item.result);
+    const expandable = Boolean(item.result) || Boolean(item.diff);
 
     return (
         <div className="rounded-lg bg-gray-50 dark:bg-white/[0.035] overflow-hidden">
@@ -194,7 +197,15 @@ export default function ToolCall({ item }) {
                 )}
             </button>
 
-            {open && expandable && (
+            {open && item.diff && (
+                <DiffView
+                    diff={item.diff}
+                    path={item.input?.path || item.input?.file_path || item.input?.filePath || ''}
+                    className="border-t border-black/[0.06] dark:border-white/[0.06]"
+                />
+            )}
+
+            {open && item.result && (
                 // The button is a sibling of the scroller rather than a child
                 // of it: inside, it would scroll away with the first screen of
                 // output, which is the one place it must not be.

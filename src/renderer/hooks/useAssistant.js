@@ -105,6 +105,9 @@ function applyEvent(state, event) {
                 name: event.name,
                 local: event.local,
                 input: event.input || {},
+                // What an edit changes, worked out in the main process from
+                // the call's own arguments. Absent on everything else.
+                diff: event.diff || null,
                 status: 'running',
                 result: '',
                 isError: false,
@@ -140,6 +143,7 @@ function applyEvent(state, event) {
                 name: event.name,
                 title: event.title,
                 input: event.input || {},
+                diff: event.diff || null,
                 local: event.local,
                 readOnly: event.readOnly,
                 sessionId: event.sessionId || '',

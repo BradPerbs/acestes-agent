@@ -4,6 +4,7 @@ import Button from '../ui/Button';
 import CopyButton from '../ui/CopyButton';
 import TargetStack from './TargetStack';
 import { describeCall } from './ToolCall';
+import DiffView from './DiffView';
 import { approvalMarks, groupTargets } from '../../lib/approvals';
 import { useT } from '../../i18n';
 
@@ -234,7 +235,13 @@ export default function ApprovalRequest({ group, sessions = [], onRespond }) {
                 {/* Sunk rather than raised, and in the terminal font: it should
                     look like the thing the terminal is about to be handed, not
                     like another piece of the panel's furniture. */}
-                {summary.text && (
+                {/* An edit is shown as the change itself, since that is what
+                    is being approved: the file is only where it lands. */}
+                {item.diff ? (
+                    <div className="rounded-lg overflow-hidden bg-gray-50 dark:bg-black/30">
+                        <DiffView diff={item.diff} path={summary.text} />
+                    </div>
+                ) : summary.text && (
                     // Copyable, because "not like that" is a common answer to
                     // this card and the next thing you do is run a version of
                     // it yourself. The button sits outside the scroller for

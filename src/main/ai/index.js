@@ -4,6 +4,7 @@ const memory = require('./memory');
 const prompt = require('./prompt');
 const catalog = require('./tools');
 const secrets = require('./secrets');
+const diff = require('./diff');
 const archive = require('./archive');
 const searchModule = require('./search');
 const { readImages } = require('./images');
@@ -510,6 +511,19 @@ function emit(conversation, event) {
     // some other road is not repeated by the transcript.
     const stamped = secrets.scrubDeep({ ...event, at: Date.now() });
     if (stamped.input) stamped.input = catalog.redactInput(stamped.input);
+
+    // An edit carries what it changes, so the transcript and the approval
+    // card can show the change rather than two blobs of JSON. Worked out
+    // from the arguments, which every runtime's edit tool spells with the
+    // same two halves in it. See diff.js.
+    if ((stamped.type === 'tool-call' || stamped.type === 'approval-request') && !stamped.diff) {
+        try {
+            const change = diff.fromToolInput(stamped.name || stamped.rawName, stamped.input);
+            if (change) stamped.diff = change;
+        } catch (error) {
+            console.error('Could not describe an edit:', error.message);
+        }
+    }
 
     if (conversation.parentId && FORWARDED.has(stamped.type) && !stamped.via) {
         const parent = conversations.get(conversation.parentId);
