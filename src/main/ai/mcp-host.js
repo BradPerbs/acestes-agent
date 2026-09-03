@@ -163,7 +163,7 @@ function buildServer(McpServer, { toolContext, requestApproval, onEvent }) {
                 }
 
                 try {
-                    const result = await definition.handler(input || {}, context);
+                    const result = await catalog.invoke(definition, input || {}, context);
                     return {
                         content: [{ type: 'text', text: String(result.text ?? '') }],
                         isError: Boolean(result.isError),

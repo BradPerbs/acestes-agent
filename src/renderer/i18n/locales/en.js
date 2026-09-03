@@ -138,6 +138,7 @@ export default {
     'runs.filter.all': 'All',
     'runs.filter.live': 'Live',
     'runs.filter.failed': 'Failed',
+    'runs.copyTrace': 'Copy trace',
     'runs.emptyTitle': 'No runs yet',
     'runs.emptyNote': 'Every turn the agent works is recorded here with its tool calls, cost and outcome.',
     'nav.settings': 'Settings',
@@ -311,6 +312,7 @@ export default {
     'conversations.new': 'New conversation',
     'conversations.open': 'Open',
     'conversations.pin': 'Pin to top',
+    'conversations.export': 'Export as Markdown',
     'conversations.unpin': 'Unpin',
     'conversations.pinned': 'Pinned',
     'conversations.others': 'Recent',
@@ -783,6 +785,25 @@ export default {
         + 'stops and shows you the exact command and the host it would run on.',
     'settings.assistant.approval.never.note': 'Nothing stops for approval, including commands that '
         + 'delete data or restart services. Only sensible for hosts you can afford to break.',
+    'settings.assistant.autoRemember': 'Write down what it learned',
+    'settings.assistant.autoRememberDesc': 'After a turn that did real work, the agent takes one more turn to save '
+        + 'anything worth keeping to its memory. An extra turn, visible in the conversation.',
+    'settings.assistant.hooks': 'Hooks',
+    'settings.assistant.hooksDesc': 'Commands of yours that run around the agent\'s work, on this computer, inside '
+        + 'the folders it is granted. They apply whichever runtime the agent is on.',
+    'settings.assistant.hooks.event': 'When',
+    'settings.assistant.hooks.pre-tool': 'Before a tool call',
+    'settings.assistant.hooks.post-tool': 'After a tool call',
+    'settings.assistant.hooks.run-start': 'When a run starts',
+    'settings.assistant.hooks.run-end': 'When a run ends',
+    'settings.assistant.hooks.tools': 'Only these tools',
+    'settings.assistant.hooks.toolsPlaceholder': 'run_command, write_file (empty for all)',
+    'settings.assistant.hooks.enabled': 'Enabled',
+    'settings.assistant.hooks.command': 'Command',
+    'settings.assistant.hooks.add': 'Add a hook',
+    'settings.assistant.hooks.contract': 'The hook gets the event as JSON on stdin: event, tool, input, output, agentId, '
+        + 'conversationId, runId. A before-tool hook that exits with code 2 blocks the call, and what it printed is '
+        + 'what the agent reads. Hooks need at least one granted folder to run in.',
     'settings.assistant.localTools': 'Allow tools on this computer',
     'settings.assistant.localToolsDesc': 'Lets the assistant read and write local files and run '
         + 'local commands, each one stopping for approval first. Switch it off to keep the panel '

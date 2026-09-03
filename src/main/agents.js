@@ -33,6 +33,30 @@ const MAX_SERVERS = 30;
 const TRANSPORTS = new Set(['stdio', 'http']);
 
 /**
+ * When a hook runs. See ai/index.js `runHooks`: a command on this
+ * computer, inside the agent's folders, given the event as JSON on stdin.
+ * A pre-tool hook that exits 2 blocks the call with what it wrote to
+ * stderr; every other hook only observes.
+ */
+const HOOK_EVENTS = new Set(['pre-tool', 'post-tool', 'run-start', 'run-end']);
+const MAX_HOOKS = 20;
+
+function normalizeHook(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const event = HOOK_EVENTS.has(raw.event) ? raw.event : '';
+    const command = clean(raw.command, 2000);
+    if (!event || !command) return null;
+    return {
+        id: clean(raw.id, 80) || nextId('hook'),
+        event,
+        command,
+        // For the tool hooks: only these tools, or every tool when empty.
+        tools: Array.isArray(raw.tools) ? raw.tools.map(entry => clean(entry, 80)).filter(Boolean).slice(0, 40) : [],
+        enabled: raw.enabled === undefined ? true : Boolean(raw.enabled),
+    };
+}
+
+/**
  * The colours an agent can wear, by id. The renderer holds the actual
  * gradients (`lib/agent-colors.js`); this list only has to agree with it, so
  * an id nobody can draw is refused rather than stored.
@@ -117,6 +141,7 @@ function normalizeAgent(raw) {
         // which local folders it may touch, and whether its local footprint
         // runs in a container. See ai/sandbox.js.
         sandbox: sandboxModule.normalize(raw.sandbox),
+        hooks: Array.isArray(raw.hooks) ? raw.hooks.map(normalizeHook).filter(Boolean).slice(0, MAX_HOOKS) : [],
     };
 }
 
@@ -129,6 +154,7 @@ function fresh(name = DEFAULT_NAME, color = COLORS[0]) {
         settings: {},
         mcpServers: [],
         sandbox: sandboxModule.normalize(),
+        hooks: [],
     };
 }
 
@@ -175,7 +201,13 @@ function publicAgent(agent) {
         createdAt: agent.createdAt,
         mcpServers: agent.mcpServers.map(server => ({ ...server, env: { ...server.env } })),
         sandbox: sandboxModule.normalize(agent.sandbox),
+        hooks: (agent.hooks || []).map(hook => ({ ...hook, tools: [...hook.tools] })),
     };
+}
+
+/** The hooks one agent runs, enabled ones only. */
+function hooks(id) {
+    return (get(id)?.hooks || []).filter(hook => hook.enabled);
 }
 
 /** The envelope one agent works inside, as the tool layer reads it. */
@@ -225,7 +257,7 @@ function select(id) {
  * A new one is selected on creation: making an agent and then having to pick
  * it is two steps for one intention.
  */
-function save({ id, name, color, mcpServers, sandbox: envelope } = {}) {
+function save({ id, name, color, mcpServers, sandbox: envelope, hooks: hookList } = {}) {
     const current = load();
     const existing = id ? current.agents.find(agent => agent.id === id) : null;
 
@@ -234,6 +266,9 @@ function save({ id, name, color, mcpServers, sandbox: envelope } = {}) {
         if (COLORS.includes(color)) existing.color = color;
         if (Array.isArray(mcpServers)) {
             existing.mcpServers = mcpServers.map(normalizeServer).filter(Boolean).slice(0, MAX_SERVERS);
+        }
+        if (Array.isArray(hookList)) {
+            existing.hooks = hookList.map(normalizeHook).filter(Boolean).slice(0, MAX_HOOKS);
         }
         if (envelope && typeof envelope === 'object') {
             // A patch over what is there, so a page that only changes the
@@ -288,6 +323,7 @@ module.exports = {
     activeId,
     get,
     sandbox,
+    hooks,
     overrides,
     setOverrides,
     select,

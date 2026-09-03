@@ -94,9 +94,19 @@ suggested:
 - **It stays inside the fence.** Grant an agent a folder when you create it
   and it can list, read, search, edit and run commands there and nowhere
   else. Turn on the container and that fence becomes a wall.
+- **It works while you are away.** A job is a prompt on a schedule, on a
+  monitored host going down, on a webhook, or after a probe that decides
+  whether waking the agent is worth it. Every run is written down as it
+  goes, survives the app restarting, and stops on a card that waits for
+  you as long as it takes. The app stays up for its jobs after you close
+  the window.
+- **It can share the work.** The same check on twenty hosts is one fan-out,
+  a conversation per host and the reports gathered. A task that belongs to
+  another agent you set up is handed over with its own memory and rules.
 - **It asks before it breaks things.** You choose how much it does on its own:
   everything on approval, reads without asking, or full autonomy. A blocked
-  list stops the truly dangerous commands before they reach a server.
+  list stops the truly dangerous commands before they reach a server. Your
+  own hooks run around every tool call, on every runtime.
 - **It never shows you a password.** Credentials stay in the app's vault,
   encrypted. The agent names a host; the app makes the connection.
 

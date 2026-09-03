@@ -299,6 +299,132 @@ function trimHistory(messages, max = MAX_MESSAGES) {
     return [...head, ...rest];
 }
 
+/* ------------------------------------------------------------------ *
+ * Compaction
+ *
+ * Dropping the oldest messages loses the start of the task, which is the
+ * part that says what the task was. So before the cap bites, the middle
+ * of the conversation is summarised by the same model and folded into one
+ * message, with every tool call's command and outcome kept as a line of
+ * provenance. The most recent messages stay verbatim, because that is
+ * where the work is. Rules that must survive are in the system prompt
+ * already and are never entrusted to the summary.
+ *
+ * Triggered well before the window is full, as the harness literature
+ * says to: by message count here, since a local model's window is not
+ * known to this code, and by characters as a second guard.
+ * ------------------------------------------------------------------ */
+
+/** Compact once the history grows past this many messages ... */
+const COMPACT_AT = 48;
+/** ... or this many characters of content, whichever comes first. */
+const COMPACT_CHARS = 120000;
+/** How many recent messages stay verbatim after a compaction. */
+const KEEP_TAIL = 12;
+
+const SUMMARY_MARK = '[Earlier in this conversation, summarised]';
+
+function contentLength(message) {
+    const text = typeof message.content === 'string' ? message.content : JSON.stringify(message.content ?? '');
+    return text.length + JSON.stringify(message.tool_calls ?? '').length;
+}
+
+function needsCompaction(messages) {
+    if (messages.length >= COMPACT_AT) return true;
+    let total = 0;
+    for (const message of messages) total += contentLength(message);
+    return total >= COMPACT_CHARS;
+}
+
+/**
+ * Split a history into what to summarise and what to keep.
+ *
+ * The tail starts on a `user` or `assistant` message that is not a tool
+ * answer, so no `tool` message is left answering a call that was folded.
+ */
+function splitForCompaction(messages, keepTail = KEEP_TAIL) {
+    const head = messages[0]?.role === 'system' ? [messages[0]] : [];
+    const body = messages.slice(head.length);
+    if (body.length <= keepTail + 2) return { head, middle: [], tail: body };
+    let cut = body.length - keepTail;
+    while (cut > 0 && (body[cut].role === 'tool' || (body[cut].role === 'assistant' && body[cut - 1]?.role === 'assistant'))) cut -= 1;
+    return { head, middle: body.slice(0, cut), tail: body.slice(cut) };
+}
+
+/** The lines of provenance a summary must keep: what was run, what came back. */
+function provenance(middle) {
+    const lines = [];
+    const calls = new Map();
+    for (const message of middle) {
+        if (message.role === 'assistant' && Array.isArray(message.tool_calls)) {
+            for (const call of message.tool_calls) {
+                calls.set(call.id, `${call.function?.name || 'tool'} ${String(call.function?.arguments || '').slice(0, 200)}`);
+            }
+        } else if (message.role === 'tool') {
+            const what = calls.get(message.tool_call_id) || 'tool';
+            const outcome = String(message.content || '').replace(/\s+/g, ' ').slice(0, 160);
+            lines.push(`- ${what} → ${outcome}`);
+        }
+    }
+    return lines;
+}
+
+/** Fold a summary and the tail back into one history. Pure. */
+function foldHistory(messages, summary, keepTail = KEEP_TAIL) {
+    const { head, middle, tail } = splitForCompaction(messages, keepTail);
+    if (middle.length === 0) return messages;
+    const previous = middle[0]?.role === 'user' && String(middle[0].content || '').startsWith(SUMMARY_MARK) ? middle[0].content : '';
+    const folded = {
+        role: 'user',
+        content: `${SUMMARY_MARK}\n\n${previous ? `${previous.slice(SUMMARY_MARK.length).trim()}\n\n` : ''}${summary.trim()}\n\nTool calls in that span, in order:\n${provenance(middle).join('\n') || '- none'}`,
+    };
+    return [...head, folded, ...tail];
+}
+
+/** The request that writes the summary: the middle, and an instruction. */
+function summaryRequest(middle) {
+    const transcript = middle.map((message) => {
+        if (message.role === 'tool') return `TOOL RESULT: ${String(message.content || '').slice(0, 600)}`;
+        const calls = Array.isArray(message.tool_calls)
+            ? message.tool_calls.map(call => `CALL ${call.function?.name}(${String(call.function?.arguments || '').slice(0, 200)})`).join('\n')
+            : '';
+        return `${message.role.toUpperCase()}: ${String(message.content || '').slice(0, 1500)}${calls ? `\n${calls}` : ''}`;
+    }).join('\n\n');
+    return [
+        { role: 'system', content: 'You write a compact working summary of an agent conversation so the agent can continue it. Keep: the task as the user stated it, decisions taken, facts learned about the systems, what was tried and what happened, and what is still to do. Drop pleasantries. Write in plain prose with short lists, under 400 words.' },
+        { role: 'user', content: `Summarise this span of the conversation:\n\n${transcript.slice(0, 60000)}` },
+    ];
+}
+
+/**
+ * Compact in place if the history has grown enough, using the model to
+ * write the summary. Falls back to trimming if the summary request fails,
+ * which loses more than a summary would but never leaves the loop stuck.
+ */
+async function compactHistory(messages, { endpoint: target, model: name, extra: params, signal }) {
+    if (!needsCompaction(messages)) return false;
+    const { middle } = splitForCompaction(messages);
+    if (middle.length === 0) return false;
+    try {
+        const reply = await complete({
+            endpoint: target,
+            messages: summaryRequest(middle),
+            model: name,
+            tools: [],
+            extra: params,
+            signal,
+            onEvent: () => {},
+        });
+        const summary = String(reply.content || '').trim();
+        if (!summary) throw new Error('empty summary');
+        messages.splice(0, messages.length, ...foldHistory(messages, summary));
+        return true;
+    } catch {
+        messages.splice(0, messages.length, ...trimHistory(messages));
+        return false;
+    }
+}
+
 /** Whatever a tool handler returned, as the string a `tool` message carries. */
 function resultText(result) {
     const text = String(result?.text ?? '');
@@ -354,7 +480,7 @@ async function runTool({ call, toolContext, requestApproval, onEvent }) {
     }
 
     try {
-        const result = await definition.handler(input, context);
+        const result = await catalog.invoke(definition, input, context);
         const text = resultText(result);
         onEvent({ type: 'tool-result', id: call.id, text, isError: Boolean(result?.isError) });
         return text;
@@ -444,12 +570,19 @@ async function start({
 
         for (let step = 0; step < limit; step += 1) {
             if (stopped) return;
-            messages.splice(0, messages.length, ...trimHistory(messages));
 
             abort = new AbortController();
             const timer = setTimeout(() => abort?.abort(), REQUEST_TIMEOUT);
             let reply;
             try {
+                // Summarised before it is cut, so the start of the task is
+                // carried forward rather than dropped. See compactHistory.
+                const compacted = await compactHistory(messages, {
+                    endpoint: target, model: name, extra: extra(current), signal: abort.signal,
+                });
+                if (compacted) onEvent({ type: 'notice', tone: 'info', text: 'Earlier turns were summarised to keep the conversation within the model\'s context.' });
+                messages.splice(0, messages.length, ...trimHistory(messages));
+
                 reply = await complete({
                     endpoint: target,
                     messages,
@@ -622,5 +755,8 @@ module.exports = {
     createSseReader,
     createCollector,
     trimHistory,
-    _test: { histories, runTool },
+    foldHistory,
+    needsCompaction,
+    splitForCompaction,
+    _test: { histories, runTool, COMPACT_AT, KEEP_TAIL, SUMMARY_MARK },
 };

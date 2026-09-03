@@ -142,6 +142,18 @@ function RunRow({ run, onCancel, onRemove, t }) {
                                     <StopCircleIcon size={14} strokeWidth={2} /> {t('runs.stop')}
                                 </Button>
                             )}
+                            <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={async () => {
+                                    const trace = await window.api.runs.trace?.(run.id);
+                                    if (trace) {
+                                        try { await navigator.clipboard.writeText(JSON.stringify(trace, null, 2)); } catch { /* no clipboard */ }
+                                    }
+                                }}
+                            >
+                                {t('runs.copyTrace')}
+                            </Button>
                             {!live && (
                                 <Button size="sm" variant="ghost" onClick={() => onRemove(run.id)}>
                                     <Delete02Icon size={14} strokeWidth={2} /> {t('common.delete')}

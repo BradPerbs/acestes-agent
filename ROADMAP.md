@@ -49,8 +49,31 @@ terminals, SSH sessions and local folders are the tools it works with.
    a per-host network allowlist for the container (Docker has no egress
    filter of its own, so it needs a proxy), a search tool over the granted
    folders, and an unattended policy for scheduled runs (see 4).
-4. **Long-running tasks.** Background jobs with progress, resumable across app
-   restarts, surfaced in the agent timeline rather than a chat scrollback.
+4. **Long-running tasks.** Done in three passes, see `src/main/runs`. A run is
+   the unit of work: every turn, every job firing, every delegation is one,
+   written to `runs.db` (SQLite through `node:sqlite`, no native build) as
+   it goes, with each tool call a step written pending before the effect and
+   complete after. On launch, runs the last process left going are closed or
+   re-queued and tool steps that never reported are marked unknown, never
+   replayed. Jobs (`runs/jobs.js`, `runs/scheduler.js`) fire a prompt at a
+   time, on an interval, on a cron expression through Croner, on a monitored
+   host crossing, on a webhook, or after a heartbeat probe; a run started by
+   a job gets a policy (read-only, allowlist, park, full) folded into the
+   approval gate every provider already consults, and under park a write
+   stops the run and waits for the user with no timeout. Backoff, overlap,
+   missed ticks and delivery (notification, webhook, file) follow the
+   reference harnesses. Sessions no longer need a window (`ai/headless.js`),
+   the app stays up for its jobs with a tray icon, and the Runs and Jobs
+   pages show it all. Delegation is a child run: `delegate` hands a brief to
+   another agent, `fan_out` runs it once per host, two levels deep at most,
+   with the child's questions drawn on the parent. Hooks (before and after a
+   tool, at run start and end) run the user's own command around every
+   provider. The OpenAI-compatible path compacts its history by summary
+   before it cuts. A run is readable as an OpenTelemetry-shaped span tree,
+   and a conversation exports as Markdown. Still to do: a risk tier per host
+   under the full policy, wait-and-poll for long commands, SFTP transfer
+   between local and remote, and an OTLP exporter once the conventions are
+   stable.
 5. **Skills / playbooks.** Reuse the snippet + specs library as the place where
    reusable procedures live, and let the agent be handed them. Done in the
    first pass: the agent can look through its own bag (`list_snippets`,

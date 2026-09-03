@@ -394,6 +394,63 @@ function usage({ agentId = '', since = 0 } = {}) {
     };
 }
 
+/**
+ * A run as a span tree, in the shape the OpenTelemetry GenAI conventions
+ * describe: `invoke_agent` at the root, a `chat` span per turn, an
+ * `execute_tool` span per call, nested. The conventions are still marked
+ * Development, so nothing here is exported anywhere; it is the shape the
+ * major coding agents already emit, and the shape a usage page reads.
+ */
+function trace(runId) {
+    const run = get(runId);
+    if (!run) return null;
+    const all = steps(runId);
+    const root = {
+        name: 'invoke_agent',
+        attributes: {
+            'gen_ai.operation.name': 'invoke_agent',
+            'gen_ai.agent.id': run.agentId,
+            'acestes.run.id': run.id,
+            'acestes.run.kind': run.kind,
+            'acestes.run.status': run.status,
+            'gen_ai.usage.cost_usd': run.costUsd,
+            'acestes.run.tool_calls': run.toolCalls,
+        },
+        startTime: run.startedAt || run.createdAt,
+        endTime: run.endedAt || null,
+        children: [],
+    };
+    let turn = null;
+    for (const step of all) {
+        if (step.kind === 'turn') {
+            turn = {
+                name: 'chat',
+                attributes: { 'gen_ai.operation.name': 'chat', 'acestes.step.status': step.status },
+                startTime: step.startedAt,
+                endTime: step.endedAt,
+                children: [],
+            };
+            root.children.push(turn);
+            continue;
+        }
+        const span = {
+            name: step.kind === 'tool' ? 'execute_tool' : step.kind,
+            attributes: {
+                'gen_ai.operation.name': step.kind === 'tool' ? 'execute_tool' : step.kind,
+                'gen_ai.tool.name': step.name,
+                'acestes.step.status': step.status,
+                'gen_ai.tool.call.arguments': step.input,
+                'gen_ai.tool.call.result': step.output.slice(0, 2000),
+            },
+            startTime: step.startedAt,
+            endTime: step.endedAt,
+            children: [],
+        };
+        (turn || root).children.push(span);
+    }
+    return root;
+}
+
 function remove(runId) {
     const db = database.open();
     db.prepare('DELETE FROM steps WHERE run_id = ?').run(runId);
@@ -426,6 +483,7 @@ module.exports = {
     recover,
     unknownSteps,
     usage,
+    trace,
     remove,
     normalizePolicy,
     KINDS,

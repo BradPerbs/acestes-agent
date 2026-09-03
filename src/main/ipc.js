@@ -1440,6 +1440,24 @@ function register(getWindow) {
     handle('ai-conversation-pin', (event, { conversationId, pinned } = {}) =>
         assistant.pin(String(conversationId || ''), Boolean(pinned)));
     handle('ai-conversation-close', (event, conversationId) => assistant.close(conversationId));
+    // A conversation as Markdown, saved where the user says.
+    handle('ai-conversation-export', async (event, conversationId) => {
+        const markdown = assistant.exportMarkdown(conversationId);
+        if (!markdown) return { success: false, message: 'That conversation is gone' };
+        const title = markdown.split('\n')[0].replace(/^#\s*/, '').replace(/[^\w\s-]+/g, '').trim().slice(0, 60) || 'conversation';
+        const { canceled, filePath } = await dialog.showSaveDialog(getWindow(), {
+            title: 'Export conversation',
+            defaultPath: `${title}.md`,
+            filters: [{ name: 'Markdown', extensions: ['md'] }],
+        });
+        if (canceled || !filePath) return { success: false, canceled: true };
+        try {
+            fs.writeFileSync(filePath, markdown, 'utf8');
+            return { success: true, filePath };
+        } catch (error) {
+            return { success: false, message: error.message };
+        }
+    });
     handle('ai-scope', (event, payload) => assistant.setScope(payload?.conversationId, payload || {}));
     handle('ai-send', (event, payload) =>
         assistant.send(payload?.conversationId, payload?.text, payload?.images, payload?.mentions));
@@ -1461,6 +1479,7 @@ function register(getWindow) {
         return run ? { ...run, steps: runs.steps(runId) } : null;
     });
     handle('runs-usage', (event, filter) => runs.usage(filter || {}));
+    handle('runs-trace', (event, runId) => runs.trace(runId));
     handle('runs-cancel', (event, runId) => assistant.cancelRun(runId));
     handle('runs-remove', (event, runId) => runs.remove(runId));
 

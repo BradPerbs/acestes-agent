@@ -9,6 +9,7 @@ const memory = require('./memory');
 const local = require('./local');
 const inventoryTools = require('./inventory-tools');
 const jobTools = require('./job-tools');
+const delegationTools = require('./delegation-tools');
 
 // zod 4 exports both a namespace and a `z` binding depending on how it is
 // reached. Taking either keeps this working whichever the installed build is.
@@ -947,9 +948,43 @@ const TOOLS = [
      * Jobs: work on a schedule. See job-tools.js.
      * -------------------------------------------------------------- */
     ...jobTools.build({ z, ok, fail }),
+
+    /* -------------------------------------------------------------- *
+     * Delegation and fan-out. See delegation-tools.js.
+     * -------------------------------------------------------------- */
+    ...delegationTools.build({ z, ok, fail }),
 ];
 
 const BY_NAME = new Map(TOOLS.map(tool => [tool.name, tool]));
+
+/**
+ * Run a tool, with the hooks around it.
+ *
+ * The one place every provider hands a call to a handler, so the hooks the
+ * user wrote for the agent run for every runtime. A pre-tool hook may block
+ * the call, and its reason is what the model reads; a post-tool hook only
+ * observes. Hooks are the conversation's to supply, through `ctx.hooks`; a
+ * context without them (a test, a tool run from the page) is the plain call.
+ */
+async function invoke(definition, input, ctx) {
+    const hooks = typeof ctx?.hooks === 'function' ? ctx.hooks : null;
+    if (hooks) {
+        const before = await hooks('pre-tool', { tool: definition.name, input });
+        if (before?.blocked) {
+            return { text: before.message || `A hook blocked ${definition.name}.`, isError: true };
+        }
+    }
+    const result = await definition.handler(input, ctx);
+    if (hooks) {
+        await hooks('post-tool', {
+            tool: definition.name,
+            input,
+            output: String(result?.text ?? '').slice(0, 20000),
+            isError: Boolean(result?.isError),
+        });
+    }
+    return result;
+}
 
 /**
  * The input fields that are secrets, and a copy of an input with them masked.
@@ -1232,6 +1267,7 @@ function isAutoApproved(toolName, input, settings) {
 module.exports = {
     TOOLS,
     BY_NAME,
+    invoke,
     SECRET_FIELDS,
     redactInput,
     isAutoApproved,

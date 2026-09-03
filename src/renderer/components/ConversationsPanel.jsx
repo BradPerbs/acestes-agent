@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     Delete02Icon,
+    Download04Icon,
     HelpCircleIcon,
     PinIcon,
     PinOffIcon,
@@ -352,6 +353,18 @@ function ConversationsPanel({
                         ) : (
                             <PinIcon size={15} strokeWidth={1.5} />
                         )}
+                    </button>
+                    <button
+                        type="button"
+                        aria-label={t('conversations.export')}
+                        title={t('conversations.export')}
+                        onClick={() => window.api.ai.export?.(conversation.conversationId)}
+                        className={`${ROW_ACTION}
+                            opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100
+                            hover:bg-gray-900/[0.06] hover:text-gray-900
+                            dark:hover:bg-white/[0.08] dark:hover:text-white`}
+                    >
+                        <Download04Icon size={15} strokeWidth={1.5} />
                     </button>
                     <button
                         type="button"

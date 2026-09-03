@@ -285,9 +285,72 @@ function create(target = {}) {
         // Settings a job pins over the agent's: the model and effort it was
         // made with, so a changed default does not change what it costs.
         settingsPatch: null,
+        // For a conversation one agent opened to delegate to another: whose
+        // it is, and how deep the chain is. See delegateApiFor.
+        parentId: '',
+        depth: 0,
     });
     trim();
     return { conversationId: id, agentId, ...scope };
+}
+
+/* ------------------------------------------------------------------ *
+ * Hooks
+ *
+ * A command the user attached to the agent, run on this computer inside
+ * the agent's folders, with the event as JSON on its stdin. Four moments:
+ * before and after a tool call, and when a run starts and ends. A pre-tool
+ * hook that exits 2 blocks the call, and what it wrote is what the model
+ * reads. Everything else is observation. Hooks run for every provider,
+ * because they run here rather than in any of them.
+ * ------------------------------------------------------------------ */
+
+const HOOK_TIMEOUT = 30000;
+
+async function runHooks(conversation, event, payload = {}) {
+    let list;
+    try {
+        list = agents.hooks(conversation.agentId).filter(hook => (
+            hook.event === event && (hook.tools.length === 0 || !payload.tool || hook.tools.includes(payload.tool))
+        ));
+    } catch {
+        return { blocked: false };
+    }
+    if (list.length === 0) return { blocked: false };
+
+    const ctx = { agentId: conversation.agentId, sandbox: agents.sandbox(conversation.agentId) };
+    const message = JSON.stringify({
+        event,
+        ...payload,
+        input: payload.input ? catalog.redactInput(payload.input) : undefined,
+        agentId: conversation.agentId,
+        conversationId: conversation.id,
+        runId: conversation.runId || '',
+    });
+
+    for (const hook of list) {
+        let result;
+        try {
+            result = await local.run(ctx, hook.command, {
+                timeout: HOOK_TIMEOUT,
+                stdin: message,
+                env: { ACESTES_EVENT: event, ACESTES_TOOL: payload.tool || '', ACESTES_AGENT: conversation.agentId },
+            });
+        } catch (error) {
+            result = { success: false, message: error.message };
+        }
+        if (!result.success) {
+            console.error(`Hook "${hook.command}" could not run: ${result.message}`);
+            emit(conversation, { type: 'notice', tone: 'warn', text: `The ${event} hook could not run: ${result.message}` });
+            continue;
+        }
+        if (event === 'pre-tool' && result.exitCode === 2) {
+            const reason = `${result.stderr || ''}${result.stdout || ''}`.trim() || `A hook blocked ${payload.tool}.`;
+            emit(conversation, { type: 'notice', tone: 'warn', text: `Blocked by a hook: ${reason.slice(0, 300)}` });
+            return { blocked: true, message: `Blocked by the user's hook: ${reason.slice(0, 1000)}` };
+        }
+    }
+    return { blocked: false };
 }
 
 /**
@@ -365,11 +428,26 @@ function get(conversationId) {
  * push cannot drift apart: a panel restoring after a reload replays exactly
  * what a panel that stayed open received.
  */
+/**
+ * What a child conversation's parent is shown of it.
+ *
+ * A delegated run works in a conversation of its own that no window has
+ * open. Its questions would go unseen there, so they are drawn on the
+ * parent as well, marked with where they came from; the answer is by
+ * request id, which is global, so it lands whichever card it is given on.
+ */
+const FORWARDED = new Set(['approval-request', 'approval-settled', 'question-request', 'question-settled']);
+
 function emit(conversation, event) {
     const stamped = { ...event, at: Date.now() };
     // A tool call or an approval card carrying a password is masked here,
     // before it reaches the log, the file or a window. See `redactInput`.
     if (stamped.input) stamped.input = catalog.redactInput(stamped.input);
+
+    if (conversation.parentId && FORWARDED.has(stamped.type) && !stamped.via) {
+        const parent = conversations.get(conversation.parentId);
+        if (parent) emit(parent, { ...event, via: conversation.id, viaTitle: conversation.title || '' });
+    }
     conversation.updatedAt = stamped.at;
     conversation.events.push(stamped);
     if (conversation.events.length > MAX_EVENTS) {
@@ -748,6 +826,10 @@ function ensureProvider(conversation) {
             // What kind of run this is, so a scheduled run cannot schedule.
             runKind: conversation.runKind,
             jobs: jobsApiFor(conversation),
+            // The user's hooks, around every tool call. See runHooks.
+            hooks: (event, payload) => runHooks(conversation, event, payload),
+            // Handing work to another agent, or to many hosts. See delegateApiFor.
+            delegate: delegateApiFor(conversation),
             // The envelope, read fresh too: a folder granted or a container
             // switched on mid-run applies to the next call.
             sandbox: agents.sandbox(conversation.agentId),
@@ -899,12 +981,24 @@ function beginRun(conversation, { kind = 'interactive', trigger = { source: 'win
         runs.beginStep(runId, { kind: 'turn', name: 'turn' });
         conversation.runId = runId;
         emit(conversation, { type: 'run-started', runId, kind });
+        runHooks(conversation, 'run-start', { kind, title: conversation.title || '' }).catch(() => {});
         return runId;
     } catch (error) {
         console.error('Could not start a run:', error.message);
         return '';
     }
 }
+
+// conversationId -> resolve, for a parent waiting on a delegated run.
+const runWaiters = new Map();
+
+/**
+ * The follow-up that asks the agent to keep what it learned, when the
+ * setting is on and the turn did real work. Off by default; see settings.
+ */
+const REMEMBER_PROMPT = 'Before we move on: if this turn taught you anything worth keeping for next time '
+    + '(a fact about a machine or a project, how the user likes things done, what a fix turned out to be), '
+    + 'save it with remember, one fact per note. If there is nothing worth keeping, reply with exactly: nothing to keep.';
 
 /** The agent's last reply in a conversation, for a run's result. */
 function lastReply(conversation) {
@@ -934,13 +1028,25 @@ function endRun(conversation, status, detail = {}) {
         console.error('Could not close a run:', error.message);
     }
 
+    runHooks(conversation, 'run-end', { status, title: conversation.title || '', summary: lastReply(conversation).slice(0, 2000) }).catch(() => {});
+
+    // A parent waiting on this delegated run is told, whichever way it went.
+    const waiter = runWaiters.get(conversation.id);
+    if (waiter) {
+        runWaiters.delete(conversation.id);
+        waiter({ status, runId, summary: lastReply(conversation), reason: detail.reason || '' });
+    }
+
     if (unattended) {
         // The job's conversation is put down once its turn is over: the
         // process behind it is the expensive half, and the transcript stays
         // for the Runs page and the history menu. Delivery is the
         // scheduler's, through the run-ended hook.
         setTimeout(() => { park(conversation.id).catch(() => {}); }, 0);
-    } else if (status === 'done' && hasWindow() && !windowFocused()) {
+        return;
+    }
+
+    if (status === 'done' && hasWindow() && !windowFocused()) {
         // Finished while the person was elsewhere.
         toast({
             title: `${conversation.title || 'The agent'} is done`,
@@ -949,6 +1055,178 @@ function endRun(conversation, status, detail = {}) {
             runId,
         });
     }
+
+    // The built-in run-end hook: one more turn to write down what was
+    // learned, only after a turn that did real work, and never after itself.
+    if (status === 'done' && !conversation.remembering && resolved(conversation.agentId).autoRemember) {
+        let calls = 0;
+        try { calls = runs.get(runId)?.toolCalls || 0; } catch { calls = 0; }
+        if (calls >= 3) {
+            conversation.remembering = true;
+            setTimeout(() => {
+                send(conversation.id, REMEMBER_PROMPT)
+                    .catch(() => {})
+                    .finally(() => { conversation.remembering = false; });
+            }, 0);
+            return;
+        }
+    }
+    conversation.remembering = false;
+}
+
+/* ------------------------------------------------------------------ *
+ * Delegation
+ *
+ * One primitive: a conversation opens a child conversation, sends it a
+ * brief, and waits for its run to end. The child is another agent's when
+ * the brief names one, and the same agent's otherwise; a fan-out is the
+ * same thing once per host, each child pinned to its host, run a few at
+ * a time. A child never gets a looser policy than its parent, and the
+ * chain stops at two deep: a hand-off is where work goes silent, and a
+ * chain nobody is reading is already too long at three.
+ * ------------------------------------------------------------------ */
+
+const MAX_DELEGATION_DEPTH = 2;
+const FAN_OUT_CONCURRENCY = 4;
+const DELEGATION_TIMEOUT = 60 * 60 * 1000;
+
+function findAgent(nameOrId) {
+    const wanted = String(nameOrId || '').trim().toLowerCase();
+    if (!wanted) return null;
+    return agents.snapshot().agents.find(agent => agent.id === nameOrId || agent.name.toLowerCase() === wanted) || null;
+}
+
+async function runChild(parent, { agentId, brief, hostIds = [], title = '' }) {
+    const created = create({
+        agentId,
+        scope: hostIds.length ? 'targets' : (parent.scope === 'targets' ? 'targets' : 'global'),
+        hostIds: hostIds.length ? hostIds : parent.hostIds,
+        sessionIds: hostIds.length ? [] : parent.sessionIds,
+    });
+    const child = conversations.get(created.conversationId);
+    child.parentId = parent.id;
+    child.depth = (parent.depth || 0) + 1;
+    child.title = title || `${parent.title || 'Delegated'} → ${agents.get(agentId)?.name || 'agent'}`;
+    child.runKind = 'delegated';
+    child.runTrigger = { source: 'delegate', parentRunId: parent.runId || '', parentConversationId: parent.id };
+    // Never looser than the parent: the parent's policy, or, for a person's
+    // conversation, the agent's own settings, which are what the parent has.
+    child.runPolicy = parent.runPolicy || null;
+    child.settingsPatch = parent.settingsPatch || null;
+
+    const ended = new Promise((resolve) => {
+        runWaiters.set(child.id, resolve);
+        setTimeout(() => {
+            if (runWaiters.delete(child.id)) {
+                interrupt(child.id).catch(() => {});
+                resolve({ status: 'failed', reason: 'The delegated run took too long.', summary: lastReply(child) });
+            }
+        }, DELEGATION_TIMEOUT);
+    });
+
+    const sent = await send(child.id, brief);
+    if (!sent.success) {
+        runWaiters.delete(child.id);
+        return { conversationId: child.id, status: 'failed', reason: sent.message || 'The brief could not be sent.', summary: '' };
+    }
+    const outcome = await ended;
+    // The child's cost is the parent's cost.
+    try {
+        const childRun = runs.get(outcome.runId);
+        if (parent.runId && childRun) runs.tally(parent.runId, { costUsd: childRun.costUsd });
+    } catch { /* counted nowhere, which is the lesser harm */ }
+    setTimeout(() => { park(child.id).catch(() => {}); }, 0);
+    return { conversationId: child.id, agentId, ...outcome };
+}
+
+function delegateApiFor(conversation) {
+    const tooDeep = () => (conversation.depth || 0) >= MAX_DELEGATION_DEPTH;
+    return {
+        /** Hand a brief to an agent (by name) or to this one, and wait. */
+        run: async ({ agent = '', brief, title = '' }) => {
+            if (tooDeep()) return { error: `Delegation stops ${MAX_DELEGATION_DEPTH} levels deep. Do this part yourself.` };
+            const target = agent ? findAgent(agent) : agents.get(conversation.agentId);
+            if (!target) return { error: `There is no agent called "${agent}".` };
+            return runChild(conversation, { agentId: target.id, brief, title });
+        },
+        /** The same brief once per host, each child pinned to its host. */
+        fanOut: async ({ hostIds, brief, title = '' }) => {
+            if (tooDeep()) return { error: `Delegation stops ${MAX_DELEGATION_DEPTH} levels deep. Do this part yourself.` };
+            const hosts = store.getHosts();
+            const wanted = hostIds.map(id => hosts.find(host => host.id === id)).filter(Boolean);
+            if (wanted.length === 0) return { error: 'None of those host ids are saved.' };
+            const results = [];
+            let index = 0;
+            const worker = async () => {
+                while (index < wanted.length) {
+                    const host = wanted[index];
+                    index += 1;
+                    const outcome = await runChild(conversation, {
+                        agentId: conversation.agentId,
+                        brief: `On the host "${host.name}" (id ${host.id}), and only there:\n\n${brief}`,
+                        hostIds: [host.id],
+                        title: title ? `${title} · ${host.name}` : `${conversation.title || 'Fan-out'} · ${host.name}`,
+                    });
+                    results.push({ hostId: host.id, host: host.name, ...outcome });
+                }
+            };
+            await Promise.all(Array.from({ length: Math.min(FAN_OUT_CONCURRENCY, wanted.length) }, worker));
+            return { results };
+        },
+        agents: () => agents.snapshot().agents.map(agent => ({ id: agent.id, name: agent.name })),
+    };
+}
+
+/* ------------------------------------------------------------------ *
+ * Export
+ * ------------------------------------------------------------------ */
+
+/** A conversation as Markdown, for a ticket or a hand-over. */
+function exportMarkdown(conversationId) {
+    hydrate();
+    const conversation = conversations.get(conversationId);
+    if (!conversation) return null;
+    const agent = agents.get(conversation.agentId);
+    const lines = [
+        `# ${conversation.title || 'Conversation'}`,
+        '',
+        `Agent: ${agent?.name || conversation.agentId} · ${new Date(conversation.createdAt).toISOString()} · exported ${new Date().toISOString()}`,
+        '',
+    ];
+    const fence = (text) => `\`\`\`\n${String(text || '').replace(/```/g, '``​`')}\n\`\`\``;
+    for (const event of conversation.events) {
+        switch (event.type) {
+            case 'user-message':
+                lines.push('## You', '', event.text || '', '');
+                break;
+            case 'assistant-text':
+                lines.push('## Agent', '', event.text || '', '');
+                break;
+            case 'tool-call': {
+                const input = event.name === 'run_command' ? String(event.input?.command || '') : summarise(event.input);
+                lines.push(`**${event.name}** ${input ? `\`${input.replace(/`/g, '\'')}\`` : ''}`, '');
+                break;
+            }
+            case 'tool-result':
+                if (event.text) lines.push(fence(String(event.text).slice(0, 4000)), '');
+                break;
+            case 'approval-settled':
+                lines.push(`_Approval: ${event.status}_`, '');
+                break;
+            case 'question-request':
+                lines.push(`> **Agent asked:** ${event.question}`, '');
+                break;
+            case 'question-settled':
+                if (event.answer) lines.push(`> **Answer:** ${event.answer}`, '');
+                break;
+            case 'notice':
+                lines.push(`_${event.text}_`, '');
+                break;
+            default:
+                break;
+        }
+    }
+    return lines.join('\n');
 }
 
 /* ------------------------------------------------------------------ *
@@ -1674,6 +1952,7 @@ module.exports = {
     resumeJobRun,
     probeForJob,
     publicJob,
+    exportMarkdown,
     reconfigure,
     create,
     get,

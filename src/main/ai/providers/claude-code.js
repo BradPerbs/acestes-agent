@@ -426,7 +426,7 @@ function buildToolServer(sdk, toolContext, onEvent) {
         definition.shape,
         async (input) => {
             try {
-                const result = await definition.handler(input || {}, toolContext());
+                const result = await catalog.invoke(definition, input || {}, toolContext());
                 return {
                     content: [{ type: 'text', text: String(result.text ?? '') }],
                     isError: Boolean(result.isError),

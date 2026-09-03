@@ -9,6 +9,7 @@ import SegmentedControl from '../ui/SegmentedControl';
 import Button from '../ui/Button';
 import Reveal from '../ui/Reveal';
 import SandboxCard from './SandboxCard';
+import HooksCard from './HooksCard';
 import { useT } from '../../i18n';
 
 /**
@@ -395,6 +396,19 @@ export default function AssistantSection() {
 
                 <SettingRow
                     className={DIVIDED}
+                    title={t('settings.assistant.autoRemember')}
+                    description={t('settings.assistant.autoRememberDesc')}
+                    control={
+                        <Toggle
+                            ariaLabel={t('settings.assistant.autoRemember')}
+                            checked={Boolean(settings.autoRemember)}
+                            onChange={(value) => update({ autoRemember: value })}
+                        />
+                    }
+                />
+
+                <SettingRow
+                    className={DIVIDED}
                     title={t('settings.assistant.allowList')}
                     description={t('settings.assistant.allowListDesc')}
                 >
@@ -468,6 +482,7 @@ export default function AssistantSection() {
             </SettingCard>
 
             <SandboxCard agentId={settings.agentId} />
+            <HooksCard agentId={settings.agentId} />
 
             <div
                 ref={promptsRef}

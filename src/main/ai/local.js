@@ -371,7 +371,7 @@ async function search(ctx, { query, path: target = '', regex = false, glob = '',
  * the settings page both say so. Anyone who wants a wall turns the container
  * on.
  */
-async function run(ctx, command, { cwd = '', timeout = DEFAULT_TIMEOUT } = {}) {
+async function run(ctx, command, { cwd = '', timeout = DEFAULT_TIMEOUT, stdin = null, env = null } = {}) {
     const text = String(command || '').trim();
     if (!text) return { success: false, message: 'A command is needed.' };
 
@@ -380,7 +380,7 @@ async function run(ctx, command, { cwd = '', timeout = DEFAULT_TIMEOUT } = {}) {
         if (checked.error) return { success: false, message: checked.error };
         const problem = await ready(ctx);
         if (problem) return { success: false, message: problem };
-        return container.exec(ctx.agentId, text, { cwd: checked.path, timeout });
+        return container.exec(ctx.agentId, text, { cwd: checked.path, timeout, stdin });
     }
 
     const folders = ctx?.sandbox?.folders || [];
@@ -396,10 +396,19 @@ async function run(ctx, command, { cwd = '', timeout = DEFAULT_TIMEOUT } = {}) {
         const args = windows ? ['/d', '/s', '/c', text] : ['-c', text];
         let child;
         try {
-            child = spawner(shell, args, { cwd: grant.path, env: process.env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+            child = spawner(shell, args, {
+                cwd: grant.path,
+                env: env ? { ...process.env, ...env } : process.env,
+                windowsHide: true,
+                stdio: [stdin === null ? 'ignore' : 'pipe', 'pipe', 'pipe'],
+            });
         } catch (error) {
             resolve({ success: false, message: error.message });
             return;
+        }
+        if (stdin !== null && child.stdin) {
+            child.stdin.on('error', () => {});
+            child.stdin.end(String(stdin));
         }
         let out = '';
         let err = '';

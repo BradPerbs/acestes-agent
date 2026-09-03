@@ -132,6 +132,9 @@ const DEFAULTS = {
     // of things nobody here asked for is filler, and the useful ones are the
     // ones a particular person asks their particular fleet over and over.
     quickPrompts: [],
+    // After a turn that did real work, ask the agent to write down what is
+    // worth keeping. Off by default: it is an extra turn, and a visible one.
+    autoRemember: false,
 };
 
 const stateFile = () => path.join(app.getPath('userData'), 'assistant.json');
@@ -228,6 +231,7 @@ function sanitize(raw) {
         next.maxTurns = clampNumber(raw.maxTurns, DEFAULTS.maxTurns, 1, 200);
         next.transcriptLines = clampNumber(raw.transcriptLines, DEFAULTS.transcriptLines, 20, 2000);
         if ('allowLocalTools' in raw) next.allowLocalTools = Boolean(raw.allowLocalTools);
+        if ('autoRemember' in raw) next.autoRemember = Boolean(raw.autoRemember);
         if (Array.isArray(raw.autoApproveCommands)) {
             next.autoApproveCommands = raw.autoApproveCommands
                 .map(entry => String(entry || '').trim().toLowerCase())
@@ -319,7 +323,7 @@ function persist() {
 const PER_AGENT = [
     'provider', 'model', 'effort', 'approval', 'commandMode', 'maxTurns',
     'transcriptLines', 'allowLocalTools', 'autoApproveCommands',
-    'blockedCommands', 'quickPrompts', 'instructions',
+    'blockedCommands', 'quickPrompts', 'instructions', 'autoRemember',
 ];
 
 const pick = (source, keys) => Object.fromEntries(

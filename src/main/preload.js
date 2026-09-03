@@ -557,6 +557,8 @@ contextBridge.exposeInMainWorld('api', {
         // Keep a conversation at the top of the list, or let it go.
         pin: (conversationId, pinned) => ipcRenderer.invoke('ai-conversation-pin', { conversationId, pinned }),
         close: (conversationId) => ipcRenderer.invoke('ai-conversation-close', conversationId),
+        // Save the conversation as a Markdown file; main asks where.
+        export: (conversationId) => ipcRenderer.invoke('ai-conversation-export', conversationId),
         // Which servers the panel is pointed at: the session in front, every
         // host, or a pinned set of sessions and saved hosts.
         setScope: (conversationId, target) =>
@@ -628,6 +630,8 @@ contextBridge.exposeInMainWorld('api', {
         list: (filter) => ipcRenderer.invoke('runs-list', filter || {}),
         get: (runId) => ipcRenderer.invoke('runs-get', runId),
         usage: (filter) => ipcRenderer.invoke('runs-usage', filter || {}),
+        // The run as a span tree in the OpenTelemetry GenAI shape.
+        trace: (runId) => ipcRenderer.invoke('runs-trace', runId),
         cancel: (runId) => ipcRenderer.invoke('runs-cancel', runId),
         remove: (runId) => ipcRenderer.invoke('runs-remove', runId),
         onChange: (callback) => subscribe('runs-changed', callback),
