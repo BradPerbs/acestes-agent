@@ -301,6 +301,8 @@ function get(id) {
  * Fill a template in. `values` is keyed by field key. Answers the server
  * record the registry keeps, or `{ error }` naming the first missing field.
  */
+const secrets = require('./secrets');
+
 /** Whether a value a person or an agent typed for a switch means on. */
 const isYes = (value) => /^(y|yes|true|on|1)$/i.test(String(value || '').trim());
 
@@ -324,8 +326,16 @@ function instantiate(template, values = {}, { name = '' } = {}) {
     const env = {};
     const headers = {};
     for (const field of template.fields || []) {
-        const value = clean(given[field.key] ?? field.default ?? '', 2000);
+        let value = clean(given[field.key] ?? field.default ?? '', 2000);
         if (!value) continue;
+        // A token typed into a secret field goes to the encrypted store and
+        // the record keeps a reference, so agents.json never carries it. A
+        // reference typed in stays as it is. Where the store cannot encrypt
+        // the value is kept in the clear rather than lost.
+        if (field.secret && !/\{\{\s*secret:/.test(value)) {
+            const kept = secrets.set(`${template.id}.${field.key}`.replace(/[^A-Za-z0-9_.-]/g, '_').slice(0, 60), value);
+            if (kept.reference) value = kept.reference;
+        }
         if (field.kind === 'env') env[field.key] = value;
         if (field.kind === 'header') headers[field.key] = `${field.prefix || ''}${value}`;
     }

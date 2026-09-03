@@ -36,7 +36,9 @@ const SETTLED = {
 
 export default function QuestionRequest({ item, onAnswer }) {
     const t = useT();
-    const [note, setNote] = useState(null);
+    // A secret opens straight on its masked field: there are no options to
+    // pick from, and the value must not be typed anywhere else.
+    const [note, setNote] = useState(item.secret ? '' : null);
 
     const settled = SETTLED[item.status];
     if (settled) {
@@ -58,11 +60,13 @@ export default function QuestionRequest({ item, onAnswer }) {
 
     const sendNote = () => {
         const text = (note || '').trim();
-        if (text) onAnswer(item.requestId, text, false);
+        if (text) onAnswer(item.requestId, text, false, Boolean(item.secret));
     };
 
     // The agent stopped waiting, and said so; the card stays for the answer,
     // which then goes as a message rather than into the call that asked.
+    // Not for a secret: a message is where one must not go, so that card
+    // only says to ask again.
     const parked = item.status === 'parked';
 
     return (
@@ -83,11 +87,41 @@ export default function QuestionRequest({ item, onAnswer }) {
                 </p>
                 {parked && (
                     <p className="px-0.5 text-[11px] leading-snug text-gray-500 dark:text-gray-400">
-                        {t('assistant.questionParked')}
+                        {item.secret ? t('assistant.secretParked') : t('assistant.questionParked')}
                     </p>
                 )}
 
-                {note === null ? (
+                {item.secret && !parked && (
+                    <div className="rounded-lg transition-colors
+                        border border-gray-300 dark:border-white/[0.16]
+                        focus-within:border-gray-400 dark:focus-within:border-white/30">
+                        <input
+                            autoFocus
+                            type="password"
+                            autoComplete="off"
+                            value={note || ''}
+                            onChange={(event) => setNote(event.target.value)}
+                            onKeyDown={(event) => {
+                                if (event.key === 'Enter') {
+                                    event.preventDefault();
+                                    sendNote();
+                                }
+                            }}
+                            placeholder={t('assistant.secretPlaceholder', { name: item.secretName })}
+                            className="block w-full px-2.5 py-2 bg-transparent outline-none
+                                text-xs leading-relaxed text-gray-900 dark:text-white
+                                placeholder:text-gray-400 dark:placeholder:text-gray-600"
+                        />
+                        <div className="flex items-center justify-between gap-2 px-2.5 pb-1.5">
+                            <span className="text-[11px] text-gray-500 dark:text-gray-400">{t('assistant.secretHint')}</span>
+                            <Button size="sm" variant="primary" disabled={!(note || '').trim()} onClick={sendNote}>
+                                {t('assistant.send')}
+                            </Button>
+                        </div>
+                    </div>
+                )}
+
+                {item.secret ? null : note === null ? (
                     <div className="space-y-1.5">
                         {item.options.map((option, index) => (
                             <button

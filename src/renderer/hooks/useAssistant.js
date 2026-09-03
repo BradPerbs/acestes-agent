@@ -203,6 +203,9 @@ function applyEvent(state, event) {
                 requestId: event.requestId,
                 question: event.question || '',
                 options: event.options || [],
+                // A secret is typed into a masked field and never shown back.
+                secret: Boolean(event.secret),
+                secretName: event.secretName || '',
                 status: 'pending',
                 answer: '',
             });
@@ -445,20 +448,22 @@ export default function useAssistant({
     // ref so a question the agent stopped waiting on can still be answered.
     const sendRef = useRef(null);
 
-    const answer = useCallback(async (requestId, text, chosen = false) => {
+    const answer = useCallback(async (requestId, text, chosen = false, secret = false) => {
         const reply = String(text || '').trim();
         setState(previous => applyEvent(previous, {
             type: 'question-settled',
             requestId,
             status: reply ? 'answered' : 'dismissed',
-            answer: reply,
+            // A secret is never in the transcript, not even this window's copy.
+            answer: secret && reply ? '••••' : reply,
             at: Date.now(),
         }));
         const taken = await window.api.ai.answer(requestId, reply, chosen);
         // Nobody was waiting any more: the agent handed the turn back while
         // the card sat there. The answer goes as the next message instead,
-        // which is what the agent was told would happen.
-        if (taken === false && reply) await sendRef.current?.(reply);
+        // which is what the agent was told would happen. Never a secret,
+        // though: a message is exactly where one must not go.
+        if (taken === false && reply && !secret) await sendRef.current?.(reply);
     }, []);
 
     /* The live stream. */

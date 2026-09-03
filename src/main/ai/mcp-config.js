@@ -1,6 +1,7 @@
 const path = require('path');
 const sandboxModule = require('./sandbox');
 const container = require('./container');
+const secrets = require('./secrets');
 
 /**
  * The MCP servers from an agent's inventory, in the shapes the runtimes
@@ -24,14 +25,18 @@ function agentServers(servers, sandbox = null, agentId = '') {
     const out = {};
     for (const entry of Array.isArray(servers) ? servers : []) {
         if (!entry?.name) continue;
+        // A `{{secret:name}}` on the record becomes the value here, at the
+        // moment the server is handed to a runtime, and nowhere earlier.
+        const env = secrets.resolveObject(entry.env || {});
+        const headers = secrets.resolveObject(entry.headers || {});
         if (entry.transport === 'http') {
             out[entry.name] = {
                 type: 'http',
-                url: entry.url,
-                ...(entry.headers && Object.keys(entry.headers).length ? { headers: { ...entry.headers } } : {}),
+                url: secrets.resolve(entry.url),
+                ...(Object.keys(headers).length ? { headers } : {}),
             };
         } else if (sandbox?.execution === 'container') {
-            out[entry.name] = container.execSpec(agentId, entry);
+            out[entry.name] = container.execSpec(agentId, { ...entry, env });
         } else {
             out[entry.name] = {
                 command: process.execPath,
@@ -39,8 +44,8 @@ function agentServers(servers, sandbox = null, agentId = '') {
                     path.join(__dirname, 'mcp-launch.js'),
                     JSON.stringify({
                         command: entry.command,
-                        args: entry.args || [],
-                        env: sandboxModule.safeEnv(process.env, entry.env || {}),
+                        args: (entry.args || []).map(secrets.resolve),
+                        env: sandboxModule.safeEnv(process.env, env),
                     }),
                 ],
                 env: { ELECTRON_RUN_AS_NODE: '1' },

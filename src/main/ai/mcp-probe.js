@@ -6,6 +6,7 @@ const { SSEClientTransport } = require('@modelcontextprotocol/sdk/client/sse.js'
 
 const agents = require('../agents');
 const sandboxModule = require('./sandbox');
+const secrets = require('./secrets');
 
 /**
  * Whether an agent's MCP servers can actually be reached.
@@ -55,8 +56,8 @@ function withTimeout(promise, ms, what) {
 /** The transports to try for a server, in order. */
 function transportsFor(server) {
     if (server.transport === 'http') {
-        const headers = { ...(server.headers || {}) };
-        const url = new URL(server.url);
+        const headers = secrets.resolveObject(server.headers || {});
+        const url = new URL(secrets.resolve(server.url));
         return [
             () => new StreamableHTTPClientTransport(url, { requestInit: { headers } }),
             () => new SSEClientTransport(url, {
@@ -73,8 +74,8 @@ function transportsFor(server) {
             path.join(__dirname, 'mcp-launch.js'),
             JSON.stringify({
                 command: server.command,
-                args: server.args || [],
-                env: sandboxModule.safeEnv(process.env, server.env || {}),
+                args: (server.args || []).map(secrets.resolve),
+                env: sandboxModule.safeEnv(process.env, secrets.resolveObject(server.env || {})),
             }),
         ],
         env: { ...getDefaultEnvironment(), ELECTRON_RUN_AS_NODE: '1' },

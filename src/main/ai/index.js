@@ -3,6 +3,7 @@ const agents = require('../agents');
 const memory = require('./memory');
 const prompt = require('./prompt');
 const catalog = require('./tools');
+const secrets = require('./secrets');
 const archive = require('./archive');
 const searchModule = require('./search');
 const { readImages } = require('./images');
@@ -60,7 +61,12 @@ const MAX_EVENTS = 4000;
 const MAX_CONVERSATIONS = 20;
 
 /** How long a tool call waits for a person before it gives up. */
-const APPROVAL_TIMEOUT = 10 * 60 * 1000;
+/**
+ * How long an approval card holds a turn before it is answered "no". The
+ * tool server keeps the runtime alive for as long as the card is up, so
+ * this is only about how long a conversation may sit blocked on one call.
+ */
+const APPROVAL_TIMEOUT = 45 * 60 * 1000;
 /** How long a question to the user holds the turn before the turn is handed back. */
 const QUESTION_WAIT = 15 * 60 * 1000;
 
@@ -449,9 +455,12 @@ function get(conversationId) {
 const FORWARDED = new Set(['approval-request', 'approval-settled', 'question-request', 'question-settled']);
 
 function emit(conversation, event) {
-    const stamped = { ...event, at: Date.now() };
     // A tool call or an approval card carrying a password is masked here,
     // before it reaches the log, the file or a window. See `redactInput`.
+    // Then every value in the secrets store is masked wherever it appears,
+    // in an input, a result, a reply: a secret that reached the agent by
+    // some other road is not repeated by the transcript.
+    const stamped = secrets.scrubDeep({ ...event, at: Date.now() });
     if (stamped.input) stamped.input = catalog.redactInput(stamped.input);
 
     if (conversation.parentId && FORWARDED.has(stamped.type) && !stamped.via) {
@@ -636,7 +645,11 @@ function requestApproval(conversation, { toolName, name, input, local }) {
         };
 
         const timer = parked ? null : setTimeout(() => {
-            settle({ approved: false, message: 'That request timed out waiting for an answer.' }, 'expired');
+            settle({
+                approved: false,
+                message: 'The user has not answered this approval in 45 minutes. Do not ask again: end your turn, '
+                    + 'saying in one line what is waiting for their go-ahead, and call it when they say so.',
+            }, 'expired');
         }, APPROVAL_TIMEOUT);
 
         pendingApprovals.set(requestId, { resolve: settle, timer, conversationId: conversation.id });
@@ -689,17 +702,29 @@ function requestApproval(conversation, { toolName, name, input, local }) {
  * carries: a question and its options rather than a tool call, and the
  * answer is text rather than a verdict.
  */
-function requestQuestion(conversation, { question, options = [] }) {
+function requestQuestion(conversation, { question, options = [], secret = '' }) {
     return new Promise((resolve) => {
         const requestId = nextId('ask');
+        // A secret answer is stored under this name and never reaches the
+        // agent: it gets a reference, the transcript gets a mask.
+        const name = secret && secrets.NAME.test(String(secret).trim()) ? String(secret).trim() : '';
 
         const settle = (reply, status) => {
             const entry = pendingQuestions.get(requestId);
             if (!entry) return;
             clearTimeout(entry.timer);
             pendingQuestions.delete(requestId);
-            emit(conversation, { type: 'question-settled', requestId, status, answer: reply.answer || '' });
-            resolve(reply);
+            let shown = reply.answer || '';
+            let outcome = reply;
+            if (name && reply.answered) {
+                const kept = secrets.set(name, reply.answer);
+                shown = secrets.MASK;
+                outcome = kept.error
+                    ? { answered: false, message: `The answer could not be stored: ${kept.error}` }
+                    : { answered: true, stored: true, name: kept.name, reference: kept.reference };
+            }
+            emit(conversation, { type: 'question-settled', requestId, status, answer: shown });
+            resolve(outcome);
         };
 
         // Not an error when the person is away: the turn is handed back with
@@ -721,7 +746,10 @@ function requestQuestion(conversation, { question, options = [] }) {
             type: 'question-request',
             requestId,
             question: String(question || '').slice(0, 500),
-            options: options.slice(0, 6),
+            // A secret is typed, not picked: the options would be values.
+            options: name ? [] : options.slice(0, 6),
+            secret: Boolean(name),
+            secretName: name,
         });
     });
 }
@@ -865,6 +893,16 @@ function ensureProvider(conversation) {
             searchConversations: (args) => search({ ...args, agentId: conversation.agentId }),
             // A question to the person, answered on a card. See requestQuestion.
             askUser: (payload) => requestQuestion(conversation, payload || {}),
+            // The secrets store, minus reading: the agent lists names,
+            // resolves references at the moment of use, and deletes on
+            // request. The values never come this way.
+            secrets: {
+                list: secrets.list,
+                remove: secrets.remove,
+                resolve: secrets.resolve,
+                resolveObject: secrets.resolveObject,
+                unresolved: secrets.unresolved,
+            },
             sessionAction: async (payload) => {
                 // Through a window when there is one, so the person sees the
                 // tab open; through the main process when there is none. A
@@ -2094,6 +2132,7 @@ module.exports = {
     publicJob,
     exportMarkdown,
     setConversationModel,
+    secrets,
     resolveModel,
     reconfigure,
     create,

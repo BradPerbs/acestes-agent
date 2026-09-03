@@ -1535,6 +1535,14 @@ function register(getWindow) {
 
     /* ---------------- Agents ---------------- */
 
+    /* ---------------- Secrets ---------------- */
+
+    // Names only ever cross the bridge. A value goes in once, from the
+    // settings page or a question card, and comes back to nobody.
+    handle('secrets-list', () => assistant.secrets.list());
+    handle('secrets-set', (event, { name, value } = {}) => assistant.secrets.set(String(name || ''), String(value ?? '')));
+    handle('secrets-remove', (event, name) => assistant.secrets.remove(String(name || '')));
+
     handle('agents-list', () => agents.snapshot());
     handle('agents-select', (event, id) => {
         const result = agents.select(String(id || ''));

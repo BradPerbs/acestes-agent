@@ -633,6 +633,17 @@ contextBridge.exposeInMainWorld('api', {
      * Runs: the units of work, interactive or scheduled, with their steps.
      * See main/runs. `onChange` fires on any change to any run.
      */
+    /**
+     * The secrets store: API keys and tokens by name. Names and dates come
+     * back; values never do. A value is set once and used by the app, in
+     * the main process, where a record refers to it as {{secret:name}}.
+     */
+    secrets: {
+        list: () => ipcRenderer.invoke('secrets-list'),
+        set: (name, value) => ipcRenderer.invoke('secrets-set', { name, value }),
+        remove: (name) => ipcRenderer.invoke('secrets-remove', name),
+    },
+
     runs: {
         list: (filter) => ipcRenderer.invoke('runs-list', filter || {}),
         get: (runId) => ipcRenderer.invoke('runs-get', runId),

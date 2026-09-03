@@ -6,6 +6,35 @@ const snippetConfig = require('../snippet-config');
 const proxyConfig = require('../proxy-config');
 const mcpLibrary = require('./mcp-library');
 const mcpProbe = require('./mcp-probe');
+const secrets = require('./secrets');
+
+/** An env or header name that is plainly a credential. */
+const SECRET_LIKE = /(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH)/i;
+
+/**
+ * Credentials in a server's env or headers moved into the secrets store,
+ * leaving references on the record. A value the agent typed in the clear
+ * lands encrypted rather than in agents.json; a reference it wrote stays
+ * as it is. The store's reply tells the agent what became of each.
+ */
+function vaultCredentials(serverName, map) {
+    const out = {};
+    const moved = [];
+    for (const [key, raw] of Object.entries(map || {})) {
+        const value = String(raw ?? '');
+        if (value && SECRET_LIKE.test(key) && !/\{\{\s*secret:/.test(value)) {
+            const name = `${serverName}.${key}`.replace(/[^A-Za-z0-9_.-]/g, '_').slice(0, 60);
+            const kept = secrets.set(name, value);
+            if (kept.reference) {
+                out[key] = kept.reference;
+                moved.push(name);
+                continue;
+            }
+        }
+        out[key] = value;
+    }
+    return { map: out, moved };
+}
 
 /**
  * The agent's kit: the tools that let it look through its own inventory and
@@ -350,9 +379,11 @@ function build({ z, ok, fail, hostInScope, publicHost, agentHosts }) {
                 if (input.username !== undefined) patch.username = clean(input.username, 120);
                 if (input.protocol !== undefined) patch.protocol = input.protocol;
                 if (input.authMethod !== undefined) patch.authMethod = input.authMethod;
-                if (input.password !== undefined) patch.password = input.password;
-                if (input.privateKey !== undefined) patch.privateKey = input.privateKey;
-                if (input.passphrase !== undefined) patch.passphrase = input.passphrase;
+                // A reference to a stored secret is resolved here, once, and
+                // the store encrypts the value the way it does one the user typed.
+                if (input.password !== undefined) patch.password = secrets.resolve(input.password);
+                if (input.privateKey !== undefined) patch.privateKey = secrets.resolve(input.privateKey);
+                if (input.passphrase !== undefined) patch.passphrase = secrets.resolve(input.passphrase);
                 if (input.keychainKeyId !== undefined) patch.keychainKeyId = clean(input.keychainKeyId, 80);
                 if (input.tags !== undefined) patch.tags = input.tags;
                 if (input.folderId !== undefined) patch.folderId = clean(input.folderId, 80);
@@ -425,7 +456,7 @@ function build({ z, ok, fail, hostInScope, publicHost, agentHosts }) {
                 // through it: the normaliser drops fields it does not know,
                 // and the store merges a stored one back in when none is sent.
                 const saved = store.saveProxy(input.password !== undefined
-                    ? { ...record, password: input.password }
+                    ? { ...record, password: secrets.resolve(input.password) }
                     : record);
                 changed(ctx, 'proxies');
                 return ok({ saved: existing ? 'updated' : 'created', proxy: publicProxy(saved) });
@@ -570,6 +601,18 @@ function build({ z, ok, fail, hostInScope, publicHost, agentHosts }) {
                     ...(input.headers !== undefined ? { headers: input.headers } : {}),
                 };
                 if (!draft.transport) draft.transport = 'stdio';
+                // Credentials go to the secrets store; the record keeps references.
+                const vaulted = [];
+                if (draft.env) {
+                    const kept = vaultCredentials(name, draft.env);
+                    draft.env = kept.map;
+                    vaulted.push(...kept.moved);
+                }
+                if (draft.headers) {
+                    const kept = vaultCredentials(name, draft.headers);
+                    draft.headers = kept.map;
+                    vaulted.push(...kept.moved);
+                }
                 if (draft.transport === 'stdio' && !clean(draft.command)) return fail('A stdio server needs a command.');
                 if (draft.transport === 'http' && !/^https?:\/\//i.test(String(draft.url || ''))) {
                     return fail('An http server needs a URL starting with http:// or https://.');
@@ -593,6 +636,7 @@ function build({ z, ok, fail, hostInScope, publicHost, agentHosts }) {
                 return ok({
                     saved: existing ? 'updated' : 'created',
                     server: publicServer(saved),
+                    ...(vaulted.length ? { secretsStored: vaulted, secretsNote: 'Those values went into the encrypted store; the record holds references.' } : {}),
                     reachable: status.ok,
                     ...(status.ok
                         ? { tools: status.tools, serverName: status.name, serverVersion: status.version }

@@ -758,11 +758,18 @@ const TOOLS = [
             command: z.string().describe('The command line to run.'),
             cwd: z.string().optional().describe('Working directory, inside a granted folder. Defaults to the first granted folder, or /workspace in a container.'),
             timeout: z.number().int().min(1000).max(600000).optional().describe('Milliseconds to wait before stopping it. Default 60000.'),
+            env: z.record(z.string(), z.string()).optional()
+                .describe('Environment variables for this command. This is where a secret goes: a value may be a reference '
+                    + 'such as {{secret:webshare}}, which the app fills in at launch, so the command line itself stays clean.'),
         },
         handler: async (input, ctx) => {
+            const env = input.env && ctx.secrets ? ctx.secrets.resolveObject(input.env) : (input.env || null);
+            const missing = ctx.secrets ? Object.values(input.env || {}).flatMap(value => ctx.secrets.unresolved(value)) : [];
+            if (missing.length) return fail(`No stored secret is named ${missing.map(name => `"${name}"`).join(', ')}. Ask the user for it with ask_user and a secret name.`);
             const result = await local.run(ctx, input.command, {
                 cwd: input.cwd || '',
                 timeout: input.timeout || local.DEFAULT_TIMEOUT,
+                env: env && Object.keys(env).length ? env : null,
             });
             if (!result.success) {
                 return fail([result.message, result.stdout, result.stderr].filter(Boolean).join('\n'));
@@ -927,13 +934,56 @@ const TOOLS = [
             question: z.string().min(1).max(500).describe('The question, one or two sentences.'),
             options: z.array(z.string().min(1).max(120)).min(0).max(6).optional()
                 .describe('Answers to offer, in the order to show them. Omit for a free-text answer.'),
+            secret: z.string().max(60).optional()
+                .describe('When the answer is a password, an API key or a token: the name to store it under, e.g. "webshare". '
+                    + 'The user types it into a masked field, the app stores it encrypted, and you get a reference '
+                    + '{{secret:name}} instead of the value. Use the reference in env, headers or passwords; the app fills it in.'),
         },
         handler: async (input, ctx) => {
             if (typeof ctx.askUser !== 'function') return fail('There is no one to ask here.');
             const options = (input.options || []).map(option => String(option).trim()).filter(Boolean).slice(0, 6);
-            const reply = await ctx.askUser({ question: input.question, options });
+            const reply = await ctx.askUser({ question: input.question, options, secret: input.secret || '' });
             if (!reply.answered) return fail(reply.message || 'The user did not answer.');
+            if (reply.stored) {
+                return ok({
+                    stored: true,
+                    name: reply.name,
+                    reference: reply.reference,
+                    note: 'The value is in the encrypted store and was not shown to you. Put the reference where the value '
+                        + 'is needed: the env of run_local_command, the env or headers of save_mcp_server, the password of '
+                        + 'save_proxy or save_host. Never write the value out yourself.',
+                });
+            }
             return ok({ answer: reply.answer, chosen: reply.chosen || undefined });
+        },
+    },
+
+    {
+        name: 'list_secrets',
+        title: 'List the stored secrets',
+        readOnly: true,
+        description:
+            'The names of the secrets in the encrypted store, with the reference to use for each. Never the values. '
+            + 'Check here before asking the user for a key they may already have given.',
+        shape: {},
+        handler: async (input, ctx) => {
+            if (!ctx.secrets) return fail('There is no secrets store here.');
+            return ok({ secrets: ctx.secrets.list().map(entry => ({ name: entry.name, reference: entry.reference })) });
+        },
+    },
+
+    {
+        name: 'delete_secret',
+        title: 'Delete a stored secret',
+        readOnly: false,
+        description: 'Remove one secret from the encrypted store by name. Only when the user asked for it to go.',
+        shape: {
+            name: z.string().min(1).max(60).describe('The name, as list_secrets shows it.'),
+        },
+        handler: async (input, ctx) => {
+            if (!ctx.secrets) return fail('There is no secrets store here.');
+            const result = ctx.secrets.remove(input.name);
+            return result.removed ? ok({ removed: true, name: result.name }) : fail(`There is no secret named "${input.name}".`);
         },
     },
 
