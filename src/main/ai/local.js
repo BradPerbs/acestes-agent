@@ -96,7 +96,34 @@ async function list(ctx, target) {
  * Reading
  * ------------------------------------------------------------------ */
 
-async function read(ctx, target) {
+/**
+ * A slice of what was read, by line, and a note of where it sits.
+ *
+ * Reading a hundred-line stretch out of the middle of a long file is the
+ * commonest thing an agent does with a file it is about to edit, and
+ * without it the only way through is the whole file or a shell command.
+ * The numbers are one-based, as every editor and every error message
+ * counts them, and each line comes back prefixed with its number so the
+ * agent can quote a passage back without counting.
+ */
+function slice(content, { offset = 0, limit = 0 } = {}) {
+    if (!offset && !limit) return { content, from: 1 };
+    const first = Math.max(1, Number(offset) || 1);
+    // No limit is the rest of the file, not one line of it.
+    const count = limit ? Math.max(1, Number(limit)) : 0;
+    const lines = content.split('\n');
+    const taken = lines.slice(first - 1, count ? first - 1 + count : undefined);
+    return {
+        content: taken.join('\n'),
+        from: first,
+        to: first + taken.length - 1,
+        lines: lines.length,
+        // Said plainly, so an agent that asked past the end knows it did.
+        ...(first > lines.length ? { past: true } : {}),
+    };
+}
+
+async function read(ctx, target, options = {}) {
     if (containerised(ctx)) {
         const checked = sandboxModule.containerPath(ctx.sandbox, target);
         if (checked.error) return { error: checked.error };
@@ -105,7 +132,11 @@ async function read(ctx, target) {
         const result = await container.exec(ctx.agentId, `head -c ${MAX_FILE_BYTES} -- ${shellQuote(checked.path)}`);
         if (!result.success) return { error: result.message };
         if (result.exitCode !== 0) return { error: result.stderr.trim() || `read exited with ${result.exitCode}` };
-        return { path: checked.path, content: result.stdout, truncated: result.stdout.length >= MAX_FILE_BYTES };
+        return {
+            path: checked.path,
+            ...slice(result.stdout, options),
+            truncated: result.stdout.length >= MAX_FILE_BYTES,
+        };
     }
 
     const grant = sandboxModule.grantFor(ctx.sandbox, target);
@@ -117,7 +148,11 @@ async function read(ctx, target) {
         if (stat.isDirectory()) return { error: `"${grant.path}" is a directory. Use list_local_directory.` };
         const buffer = Buffer.alloc(Math.min(stat.size, MAX_FILE_BYTES));
         const got = fs.readSync(handle, buffer, 0, buffer.length, 0);
-        return { path: grant.path, content: buffer.subarray(0, got).toString('utf8'), truncated: stat.size > MAX_FILE_BYTES };
+        return {
+            path: grant.path,
+            ...slice(buffer.subarray(0, got).toString('utf8'), options),
+            truncated: stat.size > MAX_FILE_BYTES,
+        };
     } catch (error) {
         return { error: error.message };
     } finally {
@@ -169,20 +204,45 @@ async function write(ctx, target, content) {
  * road is the same one.
  * ------------------------------------------------------------------ */
 
+/** How many of a text's line breaks are Windows ones. */
+const crlfCount = (text) => (text.match(/\r\n/g) || []).length;
+const toLf = (text) => text.replace(/\r\n/g, '\n');
+const toCrlf = (text) => toLf(text).replace(/\n/g, '\r\n');
+
+/**
+ * Replace a passage of a file with another.
+ *
+ * Matched on the text with its line endings normalised, and written back
+ * with the file's own. A model writes `\n` because that is what text is,
+ * and half the files in a repository checked out on Windows have `\r\n` in
+ * them: matching literally meant "the text to replace was not found" on a
+ * passage the agent had just read and copied exactly, and the way around it
+ * was to rewrite the whole file, which changed every line ending in it and
+ * buried the real change in a whitespace diff.
+ */
 function applyEdit(content, oldText, newText, { all = false } = {}) {
     if (!oldText) return { error: 'Say which text to replace: `old` is empty.' };
+
+    // The file's own ending, by weight of evidence: a file that is mostly
+    // CRLF keeps CRLF, whatever the passage coming in uses.
+    const windows = crlfCount(content) > 0 && crlfCount(content) >= (toLf(content).split('\n').length - 1) / 2;
+    const flat = toLf(content);
+    const needle = toLf(oldText);
+    const replacement = toLf(newText);
+
     let count = 0;
-    let at = content.indexOf(oldText);
+    let at = flat.indexOf(needle);
     while (at !== -1) {
         count += 1;
-        at = content.indexOf(oldText, at + oldText.length);
+        at = flat.indexOf(needle, at + needle.length);
     }
     if (count === 0) return { error: 'The text to replace was not found. Read the file again and copy it exactly, whitespace included.' };
     if (count > 1 && !all) {
         return { error: `The text to replace appears ${count} times. Include more of the surrounding lines so it matches once, or pass all: true to replace every occurrence.` };
     }
-    const next = all ? content.split(oldText).join(newText) : content.replace(oldText, () => newText);
-    return { content: next, replaced: count };
+
+    const edited = all ? flat.split(needle).join(replacement) : flat.replace(needle, () => replacement);
+    return { content: windows ? toCrlf(edited) : edited, replaced: count };
 }
 
 async function edit(ctx, target, oldText, newText, options = {}) {
@@ -226,10 +286,10 @@ function looksBinary(buffer) {
 function globToRegExp(glob) {
     const escaped = String(glob)
         .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-        .replace(/\*\*/g, ' ')
+        .replace(/\*\*/g, '\u0000')
         .replace(/\*/g, '[^/\\\\]*')
         .replace(/\?/g, '[^/\\\\]')
-        .replace(/ /g, '.*');
+        .replace(/\u0000/g, '.*');
     return new RegExp(`^${escaped}$`, process.platform === 'win32' ? 'i' : '');
 }
 
@@ -335,10 +395,12 @@ async function search(ctx, { query, path: target = '', regex = false, glob = '',
         }
         if (stat.isDirectory()) walk(root.path);
         else {
-            // A single file named as the target.
+            // A single file named as the target. Counted and capped like
+            // one met on a walk, so the report says what was read.
             const parent = path.dirname(root.path);
             const name = path.basename(root.path);
-            if (!fileFilter || fileFilter.test(name)) {
+            if ((!fileFilter || fileFilter.test(name)) && stat.size <= MAX_SEARCH_FILE_BYTES) {
+                scanned += 1;
                 const buffer = fs.readFileSync(root.path);
                 if (!looksBinary(buffer)) {
                     buffer.toString('utf8').split('\n').forEach((line, index) => {

@@ -717,12 +717,16 @@ const TOOLS = [
         readOnly: true,
         description:
             'Read a text file on the user\'s own computer, inside a folder the user has granted this '
-            + 'agent. Returns at most the first 120 KB. Refused outside the granted folders.',
+            + 'agent. Give `offset` and `limit` to read a stretch of it by line rather than the whole '
+            + 'thing, which is what you want for a long file: offset is the first line, counting from 1. '
+            + 'Returns at most 120 KB. Refused outside the granted folders.',
         shape: {
             path: z.string().describe('Absolute path of the file, or a path under /workspace inside a container.'),
+            offset: z.number().int().min(1).optional().describe('The first line to return, counting from 1. Omit for the start of the file.'),
+            limit: z.number().int().min(1).max(5000).optional().describe('How many lines to return. Omit for the rest of the file.'),
         },
         handler: async (input, ctx) => {
-            const result = await local.read(ctx, input.path);
+            const result = await local.read(ctx, input.path, { offset: input.offset, limit: input.limit });
             return result.error ? fail(result.error) : ok(result);
         },
     },
@@ -757,7 +761,10 @@ const TOOLS = [
         shape: {
             command: z.string().describe('The command line to run.'),
             cwd: z.string().optional().describe('Working directory, inside a granted folder. Defaults to the first granted folder, or /workspace in a container.'),
-            timeout: z.number().int().min(1000).max(600000).optional().describe('Milliseconds to wait before stopping it. Default 60000.'),
+            // A number under a thousand is read as seconds. Nobody wants a
+            // 30ms timeout, and refusing `timeout: 30` outright cost a whole
+            // turn to a validation message about milliseconds.
+            timeout: z.number().int().min(1).max(600000).optional().describe('How long to wait before stopping it. Milliseconds, or seconds if under 1000. Default 60 seconds.'),
             env: z.record(z.string(), z.string()).optional()
                 .describe('Environment variables for this command. This is where a secret goes: a value may be a reference '
                     + 'such as {{secret:webshare}}, which the app fills in at launch, so the command line itself stays clean.'),
@@ -768,7 +775,7 @@ const TOOLS = [
             if (missing.length) return fail(`No stored secret is named ${missing.map(name => `"${name}"`).join(', ')}. Ask the user for it with ask_user and a secret name.`);
             const result = await local.run(ctx, input.command, {
                 cwd: input.cwd || '',
-                timeout: input.timeout || local.DEFAULT_TIMEOUT,
+                timeout: millis(input.timeout),
                 env: env && Object.keys(env).length ? env : null,
             });
             if (!result.success) {
@@ -1074,6 +1081,13 @@ async function invoke(definition, input, ctx) {
  * conversation, and the handler is the only thing that sees the real value.
  */
 const SECRET_FIELDS = ['password', 'privateKey', 'passphrase', 'secret'];
+
+/** A wait in milliseconds, from a number that may have been meant as seconds. */
+function millis(value) {
+    const given = Number(value) || 0;
+    if (given <= 0) return local.DEFAULT_TIMEOUT;
+    return given < 1000 ? given * 1000 : given;
+}
 
 function redactInput(input) {
     if (!input || typeof input !== 'object') return input;

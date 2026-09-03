@@ -154,6 +154,57 @@ async function run() {
         assert.ok(ran.stdout.trim().toLowerCase().endsWith(path.basename(dir).toLowerCase()));
     });
 
+    await check('a file can be read a stretch at a time, by line', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cb-test-slice-'));
+        const ctx = { agentId: 'a', sandbox: sandbox.normalize({ folders: [{ path: dir, mode: 'write' }] }) };
+        const file = path.join(dir, 'long.txt');
+        const body = Array.from({ length: 200 }, (unused, index) => `line ${index + 1}`).join('\n');
+        await local.write(ctx, file, body);
+
+        const whole = await local.read(ctx, file);
+        assert.strictEqual(whole.content.split('\n').length, 200, 'no offset is the whole file, as before');
+
+        const middle = await local.read(ctx, file, { offset: 100, limit: 5 });
+        assert.strictEqual(middle.content, 'line 100\nline 101\nline 102\nline 103\nline 104');
+        assert.strictEqual(middle.from, 100);
+        assert.strictEqual(middle.to, 104);
+        assert.strictEqual(middle.lines, 200, 'and it says how long the file is');
+
+        const tail = await local.read(ctx, file, { offset: 198 });
+        assert.strictEqual(tail.content, 'line 198\nline 199\nline 200', 'no limit is the rest of it');
+
+        const past = await local.read(ctx, file, { offset: 500, limit: 10 });
+        assert.strictEqual(past.content, '');
+        assert.strictEqual(past.past, true, 'asking past the end says so rather than looking empty');
+        fs.rmSync(dir, { recursive: true, force: true });
+    });
+
+    await check('an edit matches across line endings and keeps the file\'s own', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cb-test-crlf-'));
+        const ctx = { agentId: 'a', sandbox: sandbox.normalize({ folders: [{ path: dir, mode: 'write' }] }) };
+        const file = path.join(dir, 'windows.js');
+        fs.writeFileSync(file, 'const a = 1;\r\nconst b = 2;\r\nconst c = 3;\r\n');
+
+        // What a model writes is `\n`, whatever the file on disk uses.
+        const done = await local.edit(ctx, file, 'const b = 2;', 'const b = 20;');
+        assert.ok(!done.error, done.error);
+        const after = fs.readFileSync(file, 'utf8');
+        assert.ok(after.includes('const b = 20;'));
+        assert.strictEqual(after, 'const a = 1;\r\nconst b = 20;\r\nconst c = 3;\r\n', 'every ending is still CRLF');
+
+        // A passage spanning lines, still with `\n`.
+        const spanning = await local.edit(ctx, file, 'const a = 1;\nconst b = 20;', 'const a = 10;\nconst b = 200;');
+        assert.ok(!spanning.error, spanning.error);
+        assert.strictEqual(fs.readFileSync(file, 'utf8'), 'const a = 10;\r\nconst b = 200;\r\nconst c = 3;\r\n');
+
+        // A file that is LF stays LF.
+        const unix = path.join(dir, 'unix.js');
+        fs.writeFileSync(unix, 'a\nb\nc\n');
+        await local.edit(ctx, unix, 'b', 'B');
+        assert.strictEqual(fs.readFileSync(unix, 'utf8'), 'a\nB\nc\n');
+        fs.rmSync(dir, { recursive: true, force: true });
+    });
+
     await check('edit replaces one exact passage and refuses an ambiguous or missing one', async () => {
         const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cb-test-edit-'));
         const ctx = { agentId: 'a', sandbox: sandbox.normalize({ folders: [{ path: dir, mode: 'write' }] }) };
@@ -194,6 +245,10 @@ async function run() {
         const regex = await local.search(ctx, { query: '^server_\\w+', regex: true });
         assert.strictEqual(regex.matches.length, 1);
         assert.strictEqual(regex.matches[0].text, 'server_name web');
+
+        const single = await local.search(ctx, { query: '80', path: path.join(dir, 'a.conf') });
+        assert.strictEqual(single.matches.length, 1);
+        assert.strictEqual(single.filesScanned, 1, 'a file named as the target counts as read');
 
         const outside = await local.search(ctx, { query: '80', path: os.tmpdir() });
         assert.ok(outside.error, 'a path outside the grant is refused');
