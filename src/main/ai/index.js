@@ -257,6 +257,10 @@ function create(target = {}) {
 
     const id = nextId('conv');
     const scope = normalizeScope(target);
+    // Room is made before the new one goes in, never after: with the list
+    // at its cap, trimming afterwards took the youngest untitled one, which
+    // was this one, and the first message into it found it gone.
+    trim();
     // Whose conversation this is: the agent the panel named, else the one
     // selected, since that is who a new chat is to.
     const agentId = agents.get(target.agentId)?.id || agents.activeId();
@@ -300,7 +304,6 @@ function create(target = {}) {
         parentId: '',
         depth: 0,
     });
-    trim();
     return { conversationId: id, agentId, ...scope };
 }
 
@@ -416,8 +419,12 @@ function trim() {
     let excess = conversations.size - MAX_CONVERSATIONS;
     if (excess <= 0) return;
 
+    // A conversation opened in the last minute is one somebody is about to
+    // type into, whatever the list looks like.
+    const fresh = Date.now() - 60 * 1000;
     const parked = [...conversations.values()]
         .filter(conversation => !conversation.session && !conversation.starting && !conversation.busy)
+        .filter(conversation => !(conversation.createdAt > fresh && conversation.events.length === 0))
         // Untitled first, then oldest. Nothing was ever said in an untitled
         // one: the panel opens a conversation the moment it is mounted, and a
         // scratch conversation nobody typed into should not be able to push a
