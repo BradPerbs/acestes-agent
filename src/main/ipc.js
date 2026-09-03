@@ -1498,6 +1498,8 @@ function register(getWindow) {
     handle('jobs-run-now', (event, jobId) => scheduler.runNow(jobId));
     // The token is shown once, to be pasted where the webhook is sent from.
     handle('jobs-token', (event, jobId) => jobs.get(jobId)?.token || '');
+    // "grok 4.6 xhigh" to a runtime, a model and an effort, for the dialog.
+    handle('jobs-resolve-model', (event, { agentId, query } = {}) => assistant.resolveModel(agentId, query));
 
     /* ---------------- Agents ---------------- */
 

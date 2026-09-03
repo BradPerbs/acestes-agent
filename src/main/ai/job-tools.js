@@ -12,9 +12,87 @@
  */
 
 function build({ z, ok, fail }) {
-    const api = (ctx) => (ctx?.jobs && typeof ctx.jobs.create === 'function' ? ctx.jobs : null);
+    const api = (ctx) => (ctx?.jobs && typeof ctx.jobs.create === 'function'
+        ? { resolveModel: async () => ({ error: 'Model lookup is not available here.' }), startTask: async () => ({ error: 'Background tasks are not available here.' }), ...ctx.jobs }
+        : null);
+
+    /** The policy an agent-made job gets: parked unless the user asked for more. */
+    const policyFor = (input) => {
+        if (input.approvals === 'read-only') return 'read-only';
+        if (input.autonomous === true) return 'full';
+        return 'park';
+    };
 
     return [
+        {
+            name: 'start_task',
+            title: 'Start a background task',
+            readOnly: false,
+            description:
+                'Start a task now, in the background, in a run of its own that keeps going after this '
+                + 'conversation moves on. Use it when the user says "work on X in the background", or names '
+                + 'a model or runtime to do it on ("using grok 4.6 xhigh", "with codex", "on opus"). The model '
+                + 'is looked up across the runtimes this agent has switched on; write it the way the user said '
+                + 'it. Write the task as a complete brief, with the goal and what a good result looks like. The '
+                + 'run waits for the user before changing anything unless the user said to do it without '
+                + 'asking, in which case pass autonomous: true. The result is delivered to the user and is on '
+                + 'the Runs page.',
+            shape: {
+                task: z.string().min(1).max(20000).describe('The brief, complete in itself.'),
+                title: z.string().max(120).optional().describe('A short name for the run. Defaults to the first line of the task.'),
+                model: z.string().max(120).optional().describe('The model and effort as the user named them, e.g. "grok 4.6 xhigh", "opus", "gpt-5 codex high". Omit for the agent\'s default.'),
+                autonomous: z.boolean().optional().describe('Only when the user said to do it without asking: nothing waits for approval. The blocked list still applies.'),
+                approvals: z.enum(['read-only']).optional().describe('read-only for a task that only reports.'),
+                notify: z.boolean().optional().describe('Notify the user when it ends. Defaults to true.'),
+                budget: z.object({
+                    maxToolCalls: z.number().int().min(1).max(500).optional(),
+                    maxCostUsd: z.number().min(0.01).max(100).optional(),
+                    maxMinutes: z.number().int().min(1).max(600).optional(),
+                }).optional().describe('Ceilings for the run.'),
+            },
+            handler: async (input, ctx) => {
+                const jobs = api(ctx);
+                if (!jobs) return fail('Background tasks are not available here.');
+
+                let pinned = {};
+                let note = '';
+                if (input.model) {
+                    const found = await jobs.resolveModel(input.model);
+                    if (found.error) {
+                        return fail(found.candidates?.length
+                            ? `${found.error} Closest: ${found.candidates.map(entry => `${entry.label} (${entry.provider})`).join(', ')}.`
+                            : found.error);
+                    }
+                    pinned = { provider: found.provider, model: found.model, effort: found.effort };
+                    if (found.effortDropped) {
+                        note = `${found.label} does not offer "${found.effortDropped}" effort${found.effortOffered.length ? `; it offers ${found.effortOffered.join(', ')}` : ''}. The run uses the default.`;
+                    }
+                }
+
+                const title = input.title || input.task.split('\n')[0].slice(0, 80);
+                const result = await jobs.startTask({
+                    name: title,
+                    prompt: input.task,
+                    ...pinned,
+                    policy: { approvals: policyFor(input), budget: input.budget || {} },
+                    delivery: { notify: input.notify !== false },
+                });
+                if (result.error) return fail(result.error);
+                return ok({
+                    started: true,
+                    runId: result.runId,
+                    conversationId: result.conversationId,
+                    title,
+                    runtime: pinned.provider || 'the agent\'s default',
+                    model: pinned.model || 'the agent\'s default',
+                    effort: pinned.effort || 'default',
+                    approvals: policyFor(input),
+                    ...(note ? { note } : {}),
+                    hint: 'It is running in its own conversation; the user will be told when it ends, and can watch it on the Runs page.',
+                });
+            },
+        },
+
         {
             name: 'schedule_job',
             title: 'Schedule a job',
@@ -33,6 +111,8 @@ function build({ z, ok, fail }) {
                 prompt: z.string().min(1).max(20000).describe('What to do when the job fires, written as instructions to yourself.'),
                 timezone: z.string().max(80).optional().describe('IANA timezone for a cron expression, e.g. Europe/Rome.'),
                 approvals: z.enum(['read-only', 'park']).optional().describe('read-only reports only; park (default) waits for the user on a change.'),
+                autonomous: z.boolean().optional().describe('Only when the user said the job should act without asking: nothing waits for approval. The blocked list still applies.'),
+                model: z.string().max(120).optional().describe('The model and effort to run on, as the user named them, e.g. "grok 4.6 xhigh". Omit for the agent\'s default.'),
                 probe: z.string().max(2000).optional().describe('For a heartbeat: a local command run first. Wakes you only if it prints something or exits non-zero. Print SKIP to stay quiet.'),
                 notify: z.boolean().optional().describe('Whether the user gets a notification when a run ends. Defaults to true.'),
                 budget: z.object({
@@ -52,11 +132,18 @@ function build({ z, ok, fail }) {
                 } else if (input.timezone && !/^(in|every|at)\s/i.test(String(schedule))) {
                     schedule = { kind: 'cron', expr: schedule, tz: input.timezone };
                 }
+                let pinned = {};
+                if (input.model) {
+                    const found = await jobs.resolveModel(input.model);
+                    if (found.error) return fail(found.error);
+                    pinned = { provider: found.provider, model: found.model, effort: found.effort };
+                }
                 const result = jobs.create({
                     name: input.name,
                     schedule,
                     prompt: input.prompt,
-                    policy: { approvals: input.approvals || 'park', budget: input.budget || {} },
+                    ...pinned,
+                    policy: { approvals: policyFor(input), budget: input.budget || {} },
                     delivery: { notify: input.notify !== false },
                 });
                 if (result.error) return fail(result.error);
@@ -67,6 +154,7 @@ function build({ z, ok, fail }) {
                     schedule: result.job.scheduleText,
                     nextRunAt: result.job.nextRunAt ? new Date(result.job.nextRunAt).toISOString() : null,
                     approvals: result.job.policy.approvals,
+                    ...(pinned.model ? { runtime: pinned.provider, model: pinned.model, effort: pinned.effort || 'default' } : {}),
                 });
             },
         },

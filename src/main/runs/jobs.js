@@ -245,6 +245,7 @@ function rowToJob(row) {
         prompt: row.prompt,
         session: row.session,
         policy: parse(row.policy),
+        provider: row.provider || '',
         model: row.model,
         effort: row.effort,
         delivery: parse(row.delivery),
@@ -297,6 +298,7 @@ function create(raw = {}, now = Date.now()) {
         prompt,
         session,
         policy: normalizePolicy(raw.policy),
+        provider: clean(raw.provider, 40),
         model: clean(raw.model, 160),
         effort: clean(raw.effort, 20),
         delivery: normalizeDelivery(raw.delivery),
@@ -309,11 +311,11 @@ function create(raw = {}, now = Date.now()) {
 
     const db = database.open();
     db.prepare(`
-        INSERT INTO jobs (id, agent_id, name, enabled, schedule, prompt, session, policy, model, effort, delivery, missed,
+        INSERT INTO jobs (id, agent_id, name, enabled, schedule, prompt, session, policy, provider, model, effort, delivery, missed,
                           keep_after_run, created_by, token, next_run_at, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(job.id, job.agentId, job.name, job.enabled ? 1 : 0, json(job.schedule), job.prompt, job.session,
-        json(job.policy), job.model, job.effort, json(job.delivery), job.missed, job.keepAfterRun ? 1 : 0,
+        json(job.policy), job.provider, job.model, job.effort, json(job.delivery), job.missed, job.keepAfterRun ? 1 : 0,
         job.createdBy, job.token, next, now, now);
     const saved = get(job.id);
     notify('jobs-changed', { jobId: job.id, agentId });
@@ -344,6 +346,7 @@ function update(jobId, patch = {}, now = Date.now()) {
     if (patch.enabled !== undefined) next.enabled = Boolean(patch.enabled);
     if (patch.session !== undefined) next.session = SESSIONS.has(patch.session) ? patch.session : (clean(patch.session, 80) || 'isolated');
     if (patch.policy !== undefined) next.policy = normalizePolicy(patch.policy);
+    if (patch.provider !== undefined) next.provider = clean(patch.provider, 40);
     if (patch.model !== undefined) next.model = clean(patch.model, 160);
     if (patch.effort !== undefined) next.effort = clean(patch.effort, 20);
     if (patch.delivery !== undefined) next.delivery = normalizeDelivery({ ...existing.delivery, ...patch.delivery });
@@ -354,11 +357,11 @@ function update(jobId, patch = {}, now = Date.now()) {
     const nextRun = next.enabled ? nextRunAt(next, now) : null;
     const db = database.open();
     db.prepare(`
-        UPDATE jobs SET name = ?, enabled = ?, schedule = ?, prompt = ?, session = ?, policy = ?, model = ?, effort = ?,
+        UPDATE jobs SET name = ?, enabled = ?, schedule = ?, prompt = ?, session = ?, policy = ?, provider = ?, model = ?, effort = ?,
                         delivery = ?, missed = ?, keep_after_run = ?, token = ?, last_run_at = ?, run_count = ?, failures = ?,
                         next_run_at = ?, updated_at = ?
         WHERE id = ?
-    `).run(next.name, next.enabled ? 1 : 0, json(next.schedule), next.prompt, next.session, json(next.policy), next.model,
+    `).run(next.name, next.enabled ? 1 : 0, json(next.schedule), next.prompt, next.session, json(next.policy), next.provider, next.model,
         next.effort, json(next.delivery), next.missed, next.keepAfterRun ? 1 : 0, next.token, next.lastRunAt, next.runCount,
         next.failures, nextRun, now, jobId);
     const saved = get(jobId);

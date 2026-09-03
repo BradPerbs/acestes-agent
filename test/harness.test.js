@@ -208,6 +208,90 @@ const check = async (label, fn) => {
         assert.strictEqual(refused.isError, true, 'a probe needs an interval');
     });
 
+    console.log('\nmodel matching');
+
+    const modelMatch = require(path.join(ROOT, 'ai', 'model-match'));
+    const catalogs = [
+        { provider: 'claude-code', rows: [
+            { value: 'claude-opus-5', label: 'Opus 5', effort: ['low', 'medium', 'high', 'max'], preferred: true },
+            { value: 'claude-sonnet-5', label: 'Sonnet 5', effort: ['low', 'medium', 'high'] },
+        ] },
+        { provider: 'grok', rows: [
+            { value: 'grok-4.6', label: 'Grok 4.6', effort: ['low', 'high', 'xhigh'] },
+            { value: 'grok-4.6-fast', label: 'Grok 4.6 Fast', effort: ['low', 'high'] },
+            { value: 'grok-4', label: 'Grok 4', effort: [] },
+        ] },
+        { provider: 'opencode', rows: [
+            { value: 'anthropic/claude-opus-5', label: 'Opus 5', effort: ['high'] },
+        ] },
+    ];
+    const order = ['claude-code', 'grok', 'opencode'];
+
+    await check('"grok 4.6 xhigh" finds the model on Grok with its effort', () => {
+        const found = modelMatch.matchModel(catalogs, 'grok 4.6 xhigh', { providerOrder: order });
+        assert.strictEqual(found.provider, 'grok');
+        assert.strictEqual(found.model, 'grok-4.6');
+        assert.strictEqual(found.effort, 'xhigh');
+        assert.strictEqual(found.error, undefined);
+    });
+
+    await check('the tighter name wins, and the runtime word narrows the search', () => {
+        assert.strictEqual(modelMatch.matchModel(catalogs, 'grok 4', { providerOrder: order }).model, 'grok-4');
+        assert.strictEqual(modelMatch.matchModel(catalogs, 'grok 4.6 fast high', { providerOrder: order }).model, 'grok-4.6-fast');
+        const onOpencode = modelMatch.matchModel(catalogs, 'opus on opencode', { providerOrder: order });
+        assert.strictEqual(onOpencode.provider, 'opencode');
+        assert.strictEqual(onOpencode.model, 'anthropic/claude-opus-5');
+    });
+
+    await check('a name two runtimes offer is reported as ambiguous, not guessed', () => {
+        const found = modelMatch.matchModel(catalogs, 'opus', { providerOrder: order });
+        assert.ok(found.error && /more than one runtime/.test(found.error));
+        assert.ok(found.candidates.length >= 2);
+    });
+
+    await check('an effort the model does not offer is dropped and named', () => {
+        const found = modelMatch.matchModel(catalogs, 'sonnet 5 ultra', { providerOrder: order });
+        assert.strictEqual(found.model, 'claude-sonnet-5');
+        assert.strictEqual(found.effort, '');
+        assert.strictEqual(found.effortDropped, 'ultra');
+        assert.deepStrictEqual(found.effortOffered, ['low', 'medium', 'high']);
+    });
+
+    await check('only a runtime, or only an effort, picks that runtime\'s preferred model', () => {
+        const claude = modelMatch.matchModel(catalogs, 'on claude', { providerOrder: order });
+        assert.strictEqual(claude.provider, 'claude-code');
+        assert.strictEqual(claude.model, 'claude-opus-5');
+        assert.ok(modelMatch.matchModel(catalogs, 'gemini ultra', { providerOrder: order }).error);
+        assert.ok(modelMatch.matchModel(catalogs, '', { providerOrder: order }).error);
+    });
+
+    await check('start_task resolves the model, pins it on a one-shot job, and parks unless told otherwise', async () => {
+        const calls = [];
+        const ctx = { jobs: {
+            create: () => ({}), list: () => [], update: () => ({}), remove: () => ({}), runNow: async () => ({}),
+            resolveModel: async (query) => (query.includes('grok')
+                ? { provider: 'grok', model: 'grok-4.6', label: 'Grok 4.6', effort: 'xhigh', effortOffered: ['xhigh'], candidates: [] }
+                : { error: 'No model matching that.', candidates: [{ provider: 'grok', model: 'grok-4.6', label: 'Grok 4.6' }] }),
+            startTask: async (spec) => { calls.push(spec); return { job: { id: 'j1' }, runId: 'run-1', conversationId: 'conv-1' }; },
+        } };
+        const tool = tools.BY_NAME.get('start_task');
+        const started = JSON.parse((await tool.handler({ task: 'Refactor the auth module\nkeep tests green', model: 'grok 4.6 xhigh' }, ctx)).text);
+        assert.strictEqual(started.runId, 'run-1');
+        assert.strictEqual(started.approvals, 'park');
+        assert.strictEqual(calls[0].provider, 'grok');
+        assert.strictEqual(calls[0].model, 'grok-4.6');
+        assert.strictEqual(calls[0].effort, 'xhigh');
+        assert.strictEqual(calls[0].name, 'Refactor the auth module');
+
+        const free = JSON.parse((await tool.handler({ task: 'Tidy up', autonomous: true }, ctx)).text);
+        assert.strictEqual(free.approvals, 'full');
+        assert.strictEqual(calls[1].model, undefined, 'no pin when no model was named');
+
+        const missing = await tool.handler({ task: 'x', model: 'gemini' }, ctx);
+        assert.strictEqual(missing.isError, true);
+        assert.ok(/Closest: Grok 4.6 \(grok\)/.test(missing.text));
+    });
+
     console.log(`\n${passed} passed, ${failed} failed`);
     db.close();
     fs.rmSync(userData, { recursive: true, force: true });

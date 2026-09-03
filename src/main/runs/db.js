@@ -87,6 +87,9 @@ const MIGRATIONS = [
     CREATE INDEX jobs_agent ON jobs (agent_id, updated_at DESC);
     CREATE INDEX jobs_due ON jobs (enabled, next_run_at);
     `,
+    `
+    ALTER TABLE jobs ADD COLUMN provider TEXT NOT NULL DEFAULT '';
+    `,
 ];
 
 function file() {

@@ -55,6 +55,10 @@ const emptyDraft = () => ({
     file: '',
     missed: 'skip',
     keepAfterRun: false,
+    // The runtime, model and effort the run is pinned to, as the user typed
+    // them ("grok 4.6 xhigh") and as main resolved them.
+    modelQuery: '',
+    pinned: null,
 });
 
 function draftFrom(job) {
@@ -83,6 +87,8 @@ function draftFrom(job) {
         file: job.delivery?.file || '',
         missed: job.missed || 'skip',
         keepAfterRun: Boolean(job.keepAfterRun),
+        modelQuery: job.model ? [job.model, job.effort].filter(Boolean).join(' ') : '',
+        pinned: job.model ? { provider: job.provider || '', model: job.model, label: job.model, effort: job.effort || '' } : null,
     };
 }
 
@@ -117,6 +123,9 @@ function specFrom(draft, agentId) {
         delivery: { notify: draft.notify, webhook: draft.webhook, file: draft.file },
         missed: draft.missed,
         keepAfterRun: draft.keepAfterRun,
+        provider: draft.pinned?.provider || '',
+        model: draft.pinned?.model || '',
+        effort: draft.pinned?.effort || '',
     };
 }
 
@@ -125,7 +134,34 @@ function JobDialog({ job, agentId, hosts, onClose, onSaved }) {
     const [draft, setDraft] = useState(() => draftFrom(job));
     const [error, setError] = useState('');
     const [saving, setSaving] = useState(false);
+    const [resolving, setResolving] = useState(false);
+    const [modelNote, setModelNote] = useState('');
     const set = (key, value) => setDraft(current => ({ ...current, [key]: value }));
+
+    /** "grok 4.6 xhigh" to a runtime, a model and an effort, through main. */
+    const resolveModel = async () => {
+        const query = draft.modelQuery.trim();
+        if (!query) {
+            set('pinned', null);
+            setModelNote('');
+            return;
+        }
+        setResolving(true);
+        try {
+            const found = await window.api.jobs.resolveModel(agentId, query);
+            if (found?.error) {
+                set('pinned', null);
+                setModelNote(found.error);
+                return;
+            }
+            set('pinned', { provider: found.provider, model: found.model, label: found.label, effort: found.effort });
+            setModelNote(found.effortDropped
+                ? t('jobs.effortDropped', { effort: found.effortDropped, offered: (found.effortOffered || []).join(', ') || '—' })
+                : '');
+        } finally {
+            setResolving(false);
+        }
+    };
 
     const submit = async () => {
         if (saving) return;
@@ -235,6 +271,28 @@ function JobDialog({ job, agentId, hosts, onClose, onSaved }) {
                     <textarea rows={5} value={draft.prompt} onChange={e => set('prompt', e.target.value)} className={`${FIELD_CLASS} resize-y`} placeholder={t('jobs.promptPlaceholder')} />
                 </Field>
 
+                <Field
+                    label={t('jobs.model')}
+                    hint={modelNote || (draft.pinned
+                        ? t('jobs.modelPinned', { model: draft.pinned.label || draft.pinned.model, runtime: draft.pinned.provider, effort: draft.pinned.effort || 'default' })
+                        : t('jobs.modelHint'))}
+                >
+                    <div className="flex items-center gap-2">
+                        <input
+                            type="text"
+                            value={draft.modelQuery}
+                            onChange={e => set('modelQuery', e.target.value)}
+                            onBlur={resolveModel}
+                            onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); resolveModel(); } }}
+                            className={`${FIELD_CLASS} flex-1`}
+                            placeholder="grok 4.6 xhigh"
+                        />
+                        <Button size="sm" variant="secondary" onClick={resolveModel} disabled={resolving}>
+                            {t('jobs.modelResolve')}
+                        </Button>
+                    </div>
+                </Field>
+
                 <div className="grid grid-cols-2 gap-3">
                     <Field label={t('jobs.approvals')} hint={t(`jobs.approvals.${draft.approvals}.note`)}>
                         <Select
@@ -326,6 +384,9 @@ function JobRow({ job, onEdit, onToggle, onRun, onRemove, onCopyToken, t }) {
                 <div className="flex flex-wrap items-center gap-x-3 text-xs text-gray-500">
                     <span className="flex items-center gap-1"><Clock01Icon size={12} strokeWidth={2} /> {job.scheduleText}</span>
                     <span>{t(`jobs.approvals.${job.policy?.approvals || 'park'}`)}</span>
+                    {job.model && (
+                        <span className="font-jetbrains">{[job.provider, job.model, job.effort].filter(Boolean).join(' · ')}</span>
+                    )}
                     {job.enabled && job.nextRunAt && <span>{t('jobs.next', { when: when(job.nextRunAt) })}</span>}
                     {job.lastStatus && (
                         <span className={STATUS_TONE[job.lastStatus] || ''}>

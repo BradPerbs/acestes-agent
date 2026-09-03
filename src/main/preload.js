@@ -648,6 +648,9 @@ contextBridge.exposeInMainWorld('api', {
         remove: (id) => ipcRenderer.invoke('jobs-remove', id),
         runNow: (id) => ipcRenderer.invoke('jobs-run-now', id),
         token: (id) => ipcRenderer.invoke('jobs-token', id),
+        // A model the way a person names it, resolved across the agent's
+        // runtimes: `{ provider, model, label, effort }` or `{ error }`.
+        resolveModel: (agentId, query) => ipcRenderer.invoke('jobs-resolve-model', { agentId, query }),
         onChange: (callback) => subscribe('jobs-changed', callback),
     },
 

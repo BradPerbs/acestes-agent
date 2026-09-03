@@ -15,6 +15,7 @@ const jobs = require('../runs/jobs');
 const scheduler = require('../runs/scheduler');
 const headless = require('./headless');
 const local = require('./local');
+const modelMatch = require('./model-match');
 const ssh = require('../ssh');
 
 /**
@@ -369,7 +370,13 @@ async function runHooks(conversation, event, payload = {}) {
  * existing gate is the only gate.
  */
 function effectiveSettings(conversation) {
-    const base = { ...resolved(conversation.agentId), ...(conversation.settingsPatch || {}) };
+    const patch = conversation.settingsPatch || {};
+    // A pinned runtime is resolved as that runtime, key and all, not as the
+    // agent's default with a name swapped in.
+    const agentSettings = patch.provider && PROVIDERS[patch.provider]
+        ? resolvedFor(patch.provider, conversation.agentId)
+        : resolved(conversation.agentId);
+    const base = { ...agentSettings, ...(patch.model ? { model: patch.model } : {}), ...(patch.effort ? { effort: patch.effort } : {}) };
     const policy = conversation.runPolicy;
     if (!policy || !policy.approvals || policy.approvals === 'inherit') return base;
     switch (policy.approvals) {
@@ -1286,6 +1293,7 @@ async function startJobRun(job, { context = '', source = 'schedule', resumeRun =
     conversation.runPolicy = runs.normalizePolicy(job.policy);
     conversation.jobId = job.id;
     conversation.settingsPatch = {
+        ...(job.provider ? { provider: job.provider } : {}),
         ...(job.model ? { model: job.model } : {}),
         ...(job.effort ? { effort: job.effort } : {}),
     };
@@ -1329,10 +1337,54 @@ function probeForJob(job, probe) {
  * bag, and refused outright from a run a job started: a job that makes
  * jobs is how a scheduler eats a machine.
  */
+/**
+ * Which model a person meant, across the runtimes the agent has on.
+ *
+ * Each runtime's list is asked for (cached after the first time), and the
+ * query is matched against all of them: "grok 4.6 xhigh" finds the row on
+ * Grok, "opus" on Claude Code, and a name two runtimes both offer is
+ * reported as ambiguous rather than guessed.
+ */
+async function resolveModel(agentId, query) {
+    const enabled = settings.get(agentId).providers || [];
+    const catalogs = [];
+    for (const provider of enabled) {
+        let rows = null;
+        try {
+            rows = await models({ provider });
+        } catch {
+            rows = null;
+        }
+        catalogs.push({ provider, rows: rows || [] });
+    }
+    return modelMatch.matchModel(catalogs, query, { providerOrder: enabled });
+}
+
 function jobsApiFor(conversation) {
     const refuse = () => ({ error: 'A run started by a job cannot manage jobs. Ask the user to do it from the Jobs page.' });
     const unattended = () => conversation.runKind !== 'interactive';
     return {
+        resolveModel: (query) => resolveModel(conversation.agentId, query),
+        /**
+         * Start a run now, in the background, on the model the user named.
+         * A one-shot job fired at once: it gets the job machinery (policy,
+         * budget, delivery, a conversation of its own, the Runs page) and
+         * the record goes when the run is done; the run stays.
+         */
+        startTask: async (spec) => {
+            if (unattended()) return refuse();
+            const result = jobs.create({
+                ...spec,
+                agentId: conversation.agentId,
+                createdBy: 'agent',
+                schedule: { kind: 'at', at: Date.now() },
+                keepAfterRun: false,
+            });
+            if (result.error) return result;
+            const started = await scheduler.runNow(result.job.id);
+            if (started?.error) return { error: started.error };
+            return { job: publicJob(jobs.get(result.job.id) || result.job), runId: started.runId || '', conversationId: started.conversationId || '' };
+        },
         list: () => jobs.list({ agentId: conversation.agentId }).map(publicJob),
         create: (spec) => {
             if (unattended()) return refuse();
@@ -1953,6 +2005,7 @@ module.exports = {
     probeForJob,
     publicJob,
     exportMarkdown,
+    resolveModel,
     reconfigure,
     create,
     get,
