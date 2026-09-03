@@ -112,6 +112,30 @@ check('a secret in a tool input is masked before it becomes an event', () => {
     assert.strictEqual(tools.redactInput(plain), plain, 'nothing to mask, nothing copied');
 });
 
+check('the approval mode reaches the runtimes\' own tools, whatever they call them', () => {
+    // The three spellings in play: Claude Code's, OpenCode's, Grok's.
+    for (const read of ['Read', 'read', 'read_file', 'Grep', 'grep', 'list_dir', 'WebFetch', 'webfetch']) {
+        assert.strictEqual(tools.nativeAutoApproved(read, {}, balanced), true, `${read} only looks`);
+        assert.strictEqual(tools.nativeAutoApproved(read, {}, asking), false, `${read} still waits under "always"`);
+    }
+    for (const write of ['Edit', 'edit', 'Write', 'write', 'patch', 'MultiEdit', 'search_replace']) {
+        assert.strictEqual(tools.nativeAutoApproved(write, {}, balanced), false, `${write} changes something`);
+        assert.strictEqual(tools.nativeAutoApproved(write, {}, open), true, `${write} does not wait under "never"`);
+    }
+    // A shell is judged by the allow list, whichever runtime's shell it is.
+    for (const shell of ['Bash', 'bash', 'run_terminal_command']) {
+        assert.strictEqual(tools.nativeAutoApproved(shell, { command: 'ls -la' }, balanced), true);
+        assert.strictEqual(tools.nativeAutoApproved(shell, { command: 'rm -rf /srv' }, balanced), false);
+        assert.strictEqual(tools.nativeAutoApproved(shell, { command: 'ls; rm x' }, balanced), false, 'chained is judged whole');
+    }
+    // An MCP tool is a read when its name says so.
+    assert.strictEqual(tools.nativeAutoApproved('mcp__Playwright__browser_snapshot', {}, balanced), true);
+    assert.strictEqual(tools.nativeAutoApproved('mcp__Playwright__browser_click', {}, balanced), false);
+    assert.strictEqual(tools.nativeAutoApproved('mcp__github__list_issues', {}, balanced), true);
+    // A name nobody has taught it is a change, and a change asks.
+    assert.strictEqual(tools.nativeAutoApproved('DeployToProduction', {}, balanced), false);
+});
+
 check('under "ask every time" nothing runs unattended', () => {
     assert.strictEqual(tools.isAutoApproved('list_hosts', {}, asking), false);
     assert.strictEqual(tools.isAutoApproved('read_terminal', {}, asking), false);

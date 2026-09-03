@@ -1299,6 +1299,58 @@ const blockedMessage = (rule) =>
     + 'and why, and let them run it themselves or change the list in Settings.';
 
 /**
+ * The runtimes' own tools that only look, across the three naming
+ * conventions: Claude Code's `Read`, OpenCode's `read`, Grok's `read_file`.
+ * Compared in lower case with the underscores kept.
+ */
+const NATIVE_READS = new Set([
+    'read', 'read_file', 'glob', 'grep', 'ls', 'list', 'list_dir', 'list_directory',
+    'notebookread', 'bashoutput', 'get_command_or_subagent_output',
+    'webfetch', 'web_fetch', 'websearch', 'web_search', 'search_tool',
+    'todowrite', 'todoread', 'todo_write', 'task', 'exitplanmode',
+]);
+
+/** The runtimes' own shells, which are judged by the allow list like any command. */
+const NATIVE_SHELLS = new Set(['bash', 'run_terminal_command', 'shell']);
+
+/** An MCP tool whose name says it only looks: `browser_snapshot`, `list_issues`, `get_page`. */
+const READ_NAME = /^(list|get|read|search|find|fetch|query|describe|show|check|health)[_a-z0-9]*$|^browser_(snapshot|take_screenshot|console_messages|network_requests?|find|tabs)$|^healthcheck$/;
+
+/** The bare tool of an MCP name, however the runtime spells the prefix. */
+function bareMcpName(toolName) {
+    const doubled = toolName.lastIndexOf('__');
+    if (toolName.startsWith('mcp__') && doubled > 0) return toolName.slice(doubled + 2);
+    return '';
+}
+
+/**
+ * Whether one of the runtime's own tools can go ahead without asking.
+ *
+ * The approval mode is the user's answer for the whole agent, and it has to
+ * mean the same thing whoever is holding the keyboard: their tools or ours,
+ * this runtime or the next. Nothing waits under "never", everything waits
+ * under "always", and under the default a read runs and a change stops, with
+ * the runtime's shell judged by the same allow list as a command on a server.
+ *
+ * A name this does not recognise is a change, and a change asks. That is the
+ * case that matters: a runtime grows a tool, nobody revisits this, and the
+ * safe answer is the one that puts a card in front of a person.
+ */
+function nativeAutoApproved(toolName, input, settings) {
+    if (settings.approval === 'never') return true;
+    if (settings.approval === 'always') return false;
+
+    const name = String(toolName || '').toLowerCase();
+    if (NATIVE_READS.has(name)) return true;
+    if (NATIVE_SHELLS.has(name)) {
+        return isAutoApproved('run_command', { command: input?.command ?? input?.cmd ?? '' }, settings);
+    }
+    const bare = bareMcpName(String(toolName || ''));
+    if (bare) return READ_NAME.test(bare.toLowerCase());
+    return false;
+}
+
+/**
  * Whether a call can go ahead without asking, under the current policy.
  *
  * A tool the catalog does not know is never auto-approved. That is the case
@@ -1348,6 +1400,7 @@ module.exports = {
     SECRET_FIELDS,
     redactInput,
     isAutoApproved,
+    nativeAutoApproved,
     blockedReason,
     blockedMessage,
     resolveSession,

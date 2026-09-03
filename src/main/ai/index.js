@@ -478,10 +478,25 @@ function scrubHistory() {
             if (clean !== event) changed = true;
             return clean;
         });
+        // The title is the first message, cut short: a key pasted as the
+        // opening line was the title of the conversation in every list.
+        const title = secrets.scrub(conversation.title || '');
+        if (title !== (conversation.title || '')) {
+            conversation.title = title;
+            changed = true;
+        }
         if (changed) {
             touched += 1;
             notify('ai-history-scrubbed', { conversationId: conversation.id });
         }
+    }
+    // The runs log keeps its own copy of every title, and of every tool
+    // call's arguments and output.
+    try {
+        runs.scrubTitles(secrets.scrub);
+        runs.scrubSteps(secrets.scrub);
+    } catch (error) {
+        console.error('Could not scrub the runs log:', error.message);
     }
     if (touched > 0) archive.save();
     return touched;
@@ -934,7 +949,9 @@ function ensureProvider(conversation) {
                 remove: secrets.remove,
                 resolve: secrets.resolve,
                 resolveObject: secrets.resolveObject,
+                resolveDeep: secrets.resolveDeep,
                 unresolved: secrets.unresolved,
+                unresolvedDeep: secrets.unresolvedDeep,
                 // Storing one the agent already holds, which is the case for
                 // a key pasted into chat. Once stored it is masked out of
                 // every event already recorded, this conversation's included.
@@ -1205,7 +1222,7 @@ async function runChild(parent, { agentId, brief, hostIds = [], title = '' }) {
     const child = conversations.get(created.conversationId);
     child.parentId = parent.id;
     child.depth = (parent.depth || 0) + 1;
-    child.title = title || `${parent.title || 'Delegated'} → ${agents.get(agentId)?.name || 'agent'}`;
+    child.title = secrets.scrub(title || `${parent.title || 'Delegated'} → ${agents.get(agentId)?.name || 'agent'}`);
     child.runKind = 'delegated';
     child.runTrigger = { source: 'delegate', parentRunId: parent.runId || '', parentConversationId: parent.id };
     // Never looser than the parent: the parent's policy, or, for a person's
@@ -1316,6 +1333,28 @@ function exportMarkdown(conversationId, { full = false } = {}) {
     const resultCap = full ? 20000 : 4000;
     const fence = (text, lang = '') => `\`\`\`${lang}\n${String(text || '').replace(/```/g, '``​`')}\n\`\`\``;
     const stamp = (event) => (full && event.at ? ` <sub>${new Date(event.at).toISOString().slice(11, 19)}</sub>` : '');
+
+    /**
+     * A result printed under the call it answers, rather than where it fell.
+     *
+     * An agent that makes three calls at once produces three calls and then
+     * three results, and in a flat transcript each result reads as the answer
+     * to the call above it, which is the one before. Someone debugging from
+     * an export then reasons about the wrong pair. Both events carry the
+     * call's id, so they are put back together here.
+     */
+    const resultFor = new Map();
+    for (const event of conversation.events) {
+        if (event.type === 'tool-result' && event.id) resultFor.set(event.id, event);
+    }
+    const printed = new Set();
+    const pushResult = (event) => {
+        if (!event?.text) return;
+        const text = String(event.text);
+        lines.push(fence(text.slice(0, resultCap)), '');
+        if (text.length > resultCap) lines.push(`_… ${text.length - resultCap} more characters not shown._`, '');
+    };
+
     for (const event of conversation.events) {
         switch (event.type) {
             case 'user-message':
@@ -1330,19 +1369,24 @@ function exportMarkdown(conversationId, { full = false } = {}) {
                     if (event.input && Object.keys(event.input).length) {
                         lines.push(fence(JSON.stringify(event.input, null, 2), 'json'), '');
                     }
-                    break;
+                } else {
+                    const input = event.name === 'run_command' ? String(event.input?.command || '') : summarise(event.input);
+                    lines.push(`**${event.name}** ${input ? `\`${input.replace(/`/g, '\'')}\`` : ''}`, '');
                 }
-                const input = event.name === 'run_command' ? String(event.input?.command || '') : summarise(event.input);
-                lines.push(`**${event.name}** ${input ? `\`${input.replace(/`/g, '\'')}\`` : ''}`, '');
+                // Its own answer, here, whether or not other calls were made
+                // in between.
+                const answer = resultFor.get(event.id);
+                if (answer) {
+                    printed.add(answer);
+                    pushResult(answer);
+                }
                 break;
             }
-            case 'tool-result': {
-                if (!event.text) break;
-                const text = String(event.text);
-                lines.push(fence(text.slice(0, resultCap)), '');
-                if (text.length > resultCap) lines.push(`_… ${text.length - resultCap} more characters not shown._`, '');
+            case 'tool-result':
+                // Only the ones no call claimed: a result from a call this
+                // conversation no longer holds is still worth reading.
+                if (!printed.has(event)) pushResult(event);
                 break;
-            }
             case 'error':
                 lines.push(`> **Error:** ${event.text || event.message || ''}`, '');
                 break;
@@ -1588,11 +1632,14 @@ function recordRunEvent(conversation, event) {
     if (!runId) return;
     try {
         switch (event.type) {
+            // Masked the way the transcript is: the runs log is read on the
+            // Runs page and by the trace, and a password typed into a form
+            // was in it in the clear.
             case 'tool-call': {
                 runs.beginStep(runId, {
                     kind: 'tool',
                     name: event.name,
-                    input: catalog.redactInput(event.input),
+                    input: secrets.scrubDeep(catalog.redactInput(event.input)),
                 });
                 runs.tally(runId, { toolCalls: 1 });
                 stopIfOverBudget(conversation);
@@ -1600,7 +1647,7 @@ function recordRunEvent(conversation, event) {
             }
             case 'tool-result': {
                 const step = runs.openStep(runId, 'tool', event.name || '');
-                if (step) runs.endStep(runId, step.seq, { status: event.isError ? 'failed' : 'complete', output: event.text || '' });
+                if (step) runs.endStep(runId, step.seq, { status: event.isError ? 'failed' : 'complete', output: secrets.scrub(event.text || '') });
                 break;
             }
             case 'result': {
@@ -1745,7 +1792,9 @@ async function send(conversationId, text, attachments = [], tagged = []) {
     }
 
     if (!conversation.title) {
-        conversation.title = (body || mentions[0]?.name || images[0].name).replace(/\s+/g, ' ').slice(0, 80);
+        // Scrubbed like the message itself: the first line is the title in
+        // every list, and "my api key is ..." is a common first line.
+        conversation.title = secrets.scrub((body || mentions[0]?.name || images[0].name).replace(/\s+/g, ' ').slice(0, 80));
     }
 
     // The transcript keeps what was tagged and not what it said: the records

@@ -284,33 +284,12 @@ const LOCAL_TOOLS = [
     'Task', 'TodoWrite', 'SlashCommand', 'ExitPlanMode',
 ];
 
-/** The CLI's own tools that only look. */
-const NATIVE_READS = new Set([
-    'Read', 'Glob', 'Grep', 'LS', 'NotebookRead', 'BashOutput',
-    'WebFetch', 'WebSearch', 'TodoWrite', 'TodoRead', 'Task',
-]);
-
-/** An MCP tool whose name says it only looks: `browser_snapshot`, `list_issues`, `get_page`. */
-const READ_NAME = /^(list|get|read|search|find|fetch|query|describe|show|check|health)[_a-z]*$|^browser_(snapshot|take_screenshot|console_messages|network_requests?|find|tabs)$|^healthcheck$/;
-
 /**
  * The approval mode, applied to the CLI's own tools and to the agent's MCP
- * servers the way `isAutoApproved` applies it to ours. Nothing waits under
- * "never"; everything waits under "always"; under the default a read runs
- * and a change stops, with the CLI's shell judged by the same allow list as
- * a command on a server.
+ * servers the way it applies to ours. One rule for every runtime, in the
+ * catalog: see `nativeAutoApproved` there.
  */
-function nativeAutoApproved(toolName, input, settings) {
-    if (settings.approval === 'never') return true;
-    if (settings.approval === 'always') return false;
-    if (NATIVE_READS.has(toolName)) return true;
-    if (toolName === 'Bash') return catalog.isAutoApproved('run_command', { command: input?.command || '' }, settings);
-    if (toolName.startsWith('mcp__')) {
-        const bare = toolName.slice(toolName.lastIndexOf('__') + 2);
-        return READ_NAME.test(bare);
-    }
-    return false;
-}
+const nativeAutoApproved = catalog.nativeAutoApproved;
 
 /**
  * The tools that reach the web, kept apart from the list above on purpose.
@@ -563,6 +542,14 @@ async function start({
     const key = settings.apiKey;
     if (key) env.ANTHROPIC_API_KEY = key;
 
+    /** Tool arguments with every stored secret reference resolved, and the names of any that are not stored. */
+    const fillSecrets = (toolInput) => {
+        const store = toolContext()?.secrets;
+        if (!store?.resolveDeep || !store.unresolvedDeep) return { input: toolInput, missing: [] };
+        const missing = store.unresolvedDeep(toolInput);
+        return { input: missing.length > 0 ? toolInput : store.resolveDeep(toolInput), missing };
+    };
+
     const options = {
         systemPrompt,
         // The agent's own MCP servers first and the app's tools last, so a
@@ -598,12 +585,27 @@ async function start({
                         return { behavior: 'deny', message: catalog.blockedMessage(blocked) };
                     }
                 }
+                // A `{{secret:name}}` in the arguments for one of the agent's
+                // own MCP servers is filled in here, after the card and
+                // before the server, so a password typed into a browser form
+                // is a reference in the model's context and in the
+                // transcript, and the value only where it is typed. Only for
+                // those servers: the CLI's own tools write files and run
+                // shells, where a secret has no business being spelled out.
+                const filled = toolName.startsWith('mcp__') ? fillSecrets(toolInput) : { input: toolInput, missing: [] };
+                if (filled.missing.length > 0) {
+                    return {
+                        behavior: 'deny',
+                        message: `No secret is stored under ${filled.missing.map(name => `"${name}"`).join(', ')}. `
+                            + 'Check list_secrets, or ask the user for it with ask_user and a secret name, then call this again.',
+                    };
+                }
                 if (nativeAutoApproved(toolName, toolInput, current)) {
-                    return { behavior: 'allow', updatedInput: toolInput };
+                    return { behavior: 'allow', updatedInput: filled.input };
                 }
                 const verdict = await requestApproval({ toolName, name: toolName, input: toolInput, local: true });
                 return verdict.approved
-                    ? { behavior: 'allow', updatedInput: toolInput }
+                    ? { behavior: 'allow', updatedInput: filled.input }
                     : { behavior: 'deny', message: verdict.message || 'The user declined that.' };
             }
 

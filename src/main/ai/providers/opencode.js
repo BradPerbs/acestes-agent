@@ -553,16 +553,25 @@ async function start({
         const remote = String(permission.type || '').startsWith(`${SERVER_NAME}_`);
         let approved = remote;
         if (!remote && current.allowLocalTools) {
-            const verdict = await requestApproval({
-                toolName: permission.type || permission.title || 'tool',
-                name: permission.type || 'tool',
-                input: {
-                    ...(permission.metadata || {}),
-                    ...(permission.pattern ? { pattern: permission.pattern } : {}),
-                },
-                local: true,
-            });
-            approved = verdict.approved;
+            const input = {
+                ...(permission.metadata || {}),
+                ...(permission.pattern ? { pattern: permission.pattern } : {}),
+            };
+            // The approval mode applies to OpenCode's own tools as it does to
+            // ours: under "never" nothing waits, and a read under the default
+            // is not worth a card. Without this every grep and every file read
+            // stopped the run, whatever the user had chosen.
+            if (catalog.nativeAutoApproved(permission.type || '', input, current)) {
+                approved = true;
+            } else {
+                const verdict = await requestApproval({
+                    toolName: permission.type || permission.title || 'tool',
+                    name: permission.type || 'tool',
+                    input,
+                    local: true,
+                });
+                approved = verdict.approved;
+            }
         }
         try {
             await client.postSessionIdPermissionsPermissionId({
