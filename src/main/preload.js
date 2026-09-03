@@ -557,6 +557,9 @@ contextBridge.exposeInMainWorld('api', {
         // Keep a conversation at the top of the list, or let it go.
         pin: (conversationId, pinned) => ipcRenderer.invoke('ai-conversation-pin', { conversationId, pinned }),
         close: (conversationId) => ipcRenderer.invoke('ai-conversation-close', conversationId),
+        // Pin one conversation to a runtime, model and effort, or change the
+        // pin it has. Answers `{ pinned }`, the patch as kept.
+        setModel: (conversationId, patch) => ipcRenderer.invoke('ai-conversation-model', { conversationId, patch }),
         // Save the conversation as a Markdown file; main asks where.
         export: (conversationId) => ipcRenderer.invoke('ai-conversation-export', conversationId),
         // The same Markdown as text, for the clipboard. `{ full: true }` adds

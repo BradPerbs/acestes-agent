@@ -1384,7 +1384,12 @@ function probeForJob(job, probe) {
  * Grok, "opus" on Claude Code, and a name two runtimes both offer is
  * reported as ambiguous rather than guessed.
  */
-async function resolveModel(agentId, query) {
+/**
+ * The live model rows of every runtime this agent has on, one catalog each.
+ * What the runtimes report now, not a list anyone typed: this is what the
+ * agent reads before it names a model.
+ */
+async function catalogsFor(agentId) {
     const enabled = settings.get(agentId).providers || [];
     const catalogs = [];
     for (const provider of enabled) {
@@ -1396,7 +1401,35 @@ async function resolveModel(agentId, query) {
         }
         catalogs.push({ provider, rows: rows || [] });
     }
-    return modelMatch.matchModel(catalogs, query, { providerOrder: enabled });
+    return catalogs;
+}
+
+async function resolveModel(agentId, query) {
+    const enabled = settings.get(agentId).providers || [];
+    return modelMatch.matchModel(await catalogsFor(agentId), query, { providerOrder: enabled });
+}
+
+/**
+ * Pin a conversation to a runtime, a model and an effort, or change the pin
+ * it has. This is what the composer's chip changes in a conversation a task
+ * started on a named model: the pin, not the agent's default behind it. A
+ * session already open on another runtime is restarted on the next query.
+ */
+function setConversationModel(conversationId, patch = {}) {
+    hydrate();
+    const conversation = conversations.get(conversationId);
+    if (!conversation) return { error: 'No such conversation.' };
+    const current = conversation.settingsPatch || {};
+    const next = {};
+    const provider = patch.provider !== undefined ? patch.provider : current.provider;
+    if (provider && PROVIDERS[provider]) next.provider = provider;
+    const model = patch.model !== undefined ? patch.model : current.model;
+    if (model) next.model = String(model).slice(0, 120);
+    const effort = patch.effort !== undefined ? patch.effort : current.effort;
+    if (effort) next.effort = String(effort).slice(0, 20);
+    conversation.settingsPatch = Object.keys(next).length ? next : null;
+    if (conversation.session) conversation.needsRestart = true;
+    return { pinned: conversation.settingsPatch };
 }
 
 function jobsApiFor(conversation) {
@@ -1404,6 +1437,7 @@ function jobsApiFor(conversation) {
     const unattended = () => conversation.runKind !== 'interactive';
     return {
         resolveModel: (query) => resolveModel(conversation.agentId, query),
+        listModels: () => catalogsFor(conversation.agentId),
         /**
          * Start a run now, in the background, on the model the user named.
          * A one-shot job fired at once: it gets the job machinery (policy,
@@ -1781,6 +1815,10 @@ function history(conversationId) {
         costUsd: conversation.costUsd,
         title: conversation.title,
         agentId: conversation.agentId,
+        // The runtime, model and effort this conversation is pinned to, when
+        // a task or a job started it on a named one. Null means the agent's
+        // own settings, which is what the composer shows otherwise.
+        pinned: conversation.settingsPatch || null,
     };
 }
 
@@ -2044,6 +2082,7 @@ module.exports = {
     probeForJob,
     publicJob,
     exportMarkdown,
+    setConversationModel,
     resolveModel,
     reconfigure,
     create,

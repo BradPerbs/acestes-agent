@@ -338,6 +338,17 @@ export default function AssistantConversation({
         setSettings(next);
     }, []);
 
+    // A conversation a task or a job started on a named model is pinned to
+    // it, and the chip says so: what is answering here, not the agent's
+    // default behind it. A change from the chip then moves the pin, and
+    // leaves the agent's settings where they were.
+    const pinned = assistant.pinned;
+    const shownSettings = useMemo(
+        () => (settings && pinned ? { ...settings, ...pinned } : settings),
+        [settings, pinned],
+    );
+    const changeModel = useCallback((patch) => (pinned ? assistant.pinModel(patch) : changeSettings(patch)), [pinned, assistant.pinModel, changeSettings]);
+
     // `preventScroll` because the card is mounted at its full width inside a
     // column that is still only a rail wide, and clipped to it. Focusing the
     // composer without it makes the browser scroll the clip box sideways to
@@ -978,14 +989,14 @@ export default function AssistantConversation({
                                 hasStoredKey={Boolean(settings?.hasApiKey)}
                             />
 
-                            {settings && (
+                            {shownSettings && (
                                 <ModelMenu
-                                    settings={settings}
+                                    settings={shownSettings}
                                     catalogs={catalogs}
                                     providers={providers}
                                     loading={readingModels}
                                     onRefresh={() => readModels(providers, { refresh: true })}
-                                    onChange={changeSettings}
+                                    onChange={changeModel}
                                 />
                             )}
 

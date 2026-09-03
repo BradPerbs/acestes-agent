@@ -327,6 +327,7 @@ export default function useAssistant({
     onConversationChange,
 }) {
     const [state, setState] = useState(INITIAL);
+    const [pinned, setPinned] = useState(null);
     const [conversationId, setConversationId] = useState('');
     const [starting, setStarting] = useState(true);
     const [failure, setFailure] = useState('');
@@ -390,6 +391,7 @@ export default function useAssistant({
                     if (past?.found) {
                         adopt(given);
                         setState(past.events.reduce(applyEvent, INITIAL));
+                        setPinned(past.pinned || null);
                         setStarting(false);
                         return;
                     }
@@ -577,6 +579,7 @@ export default function useAssistant({
         const created = await window.api.ai.start(targetRef.current);
         adopt(created.conversationId);
         setState(INITIAL);
+        setPinned(null);
     }, [conversationId, adopt]);
 
     /** Go back to an earlier conversation, replaying it through the reducer. */
@@ -591,7 +594,18 @@ export default function useAssistant({
         if (conversationId) await window.api.ai.park(conversationId);
         adopt(id);
         setState(past.events.reduce(applyEvent, INITIAL));
+        setPinned(past.pinned || null);
     }, [conversationId, refreshConversations, adopt]);
+
+    /**
+     * Change what this conversation is pinned to. Only meaningful in one that
+     * is pinned: the composer's chip goes to the agent's settings otherwise.
+     */
+    const pinModel = useCallback(async (patch) => {
+        if (!conversationId) return;
+        const result = await window.api.ai.setModel?.(conversationId, patch);
+        if (result && !result.error) setPinned(result.pinned || null);
+    }, [conversationId]);
 
     /**
      * Throw one away for good. Deleting the conversation being read leaves the
@@ -618,6 +632,10 @@ export default function useAssistant({
         rateLimit: state.rateLimit,
         conversationId,
         conversations,
+        // The runtime, model and effort this conversation is pinned to, or
+        // null for the agent's own settings.
+        pinned,
+        pinModel,
         starting,
         failure,
         send,

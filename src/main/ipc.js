@@ -1453,6 +1453,9 @@ function register(getWindow) {
     handle('ai-conversation-pin', (event, { conversationId, pinned } = {}) =>
         assistant.pin(String(conversationId || ''), Boolean(pinned)));
     handle('ai-conversation-close', (event, conversationId) => assistant.close(conversationId));
+    // The runtime, model and effort one conversation is pinned to.
+    handle('ai-conversation-model', (event, { conversationId, patch } = {}) =>
+        assistant.setConversationModel(String(conversationId || ''), patch || {}));
     // A conversation as Markdown text, for the clipboard. `full` is the
     // debugging cut: settings, every tool input, results untruncated.
     handle('ai-conversation-markdown', (event, { conversationId, full } = {}) =>

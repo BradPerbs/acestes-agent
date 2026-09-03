@@ -281,6 +281,45 @@ const check = async (label, fn) => {
         assert.ok(modelMatch.matchModel(catalogs, '', { providerOrder: order }).error);
     });
 
+    await check('list_models reports what the runtimes say, and start_task pins exactly what was listed', async () => {
+        const live = [
+            { provider: 'claude-code', rows: [
+                { value: 'claude-fable-5-1[1m]', label: 'Fable', resolved: 'claude-fable-5-1', effort: ['low', 'high', 'xhigh'], preferred: true },
+                { value: 'sonnet', label: 'Sonnet', resolved: 'claude-sonnet-5', effort: ['low', 'high'] },
+            ] },
+            { provider: 'grok', rows: [{ value: 'grok-4.6', label: 'Grok 4.6', effort: ['high', 'xhigh'] }] },
+        ];
+        const calls = [];
+        const ctx = { jobs: {
+            create: () => ({}), list: () => [], update: () => ({}), remove: () => ({}), runNow: async () => ({}),
+            listModels: async () => live,
+            resolveModel: async () => ({ error: 'should not be asked when provider is given' }),
+            startTask: async (spec) => { calls.push(spec); return { job: { id: 'j1' }, runId: 'run-1', conversationId: 'conv-1' }; },
+        } };
+
+        const listed = JSON.parse((await tools.BY_NAME.get('list_models').handler({}, ctx)).text);
+        assert.deepStrictEqual(listed.runtimes.map(entry => entry.provider), ['claude-code', 'grok']);
+        assert.deepStrictEqual(listed.runtimes[0].models[0], { value: 'claude-fable-5-1[1m]', label: 'Fable', efforts: ['low', 'high', 'xhigh'], default: true });
+
+        const start = tools.BY_NAME.get('start_task');
+        const started = JSON.parse((await start.handler({ task: 'Say which model you are', provider: 'claude-code', model: 'claude-fable-5-1[1m]', effort: 'xhigh' }, ctx)).text);
+        assert.strictEqual(started.runId, 'run-1');
+        assert.strictEqual(calls[0].provider, 'claude-code');
+        assert.strictEqual(calls[0].model, 'claude-fable-5-1[1m]');
+        assert.strictEqual(calls[0].effort, 'xhigh');
+
+        // A value the list does not carry is refused, not guessed at.
+        const refused = await start.handler({ task: 'x', provider: 'claude-code', model: 'claude-fable-5.1' }, ctx);
+        assert.ok(refused.isError && /list_models/.test(refused.text), refused.text);
+        // So is a runtime the agent has not switched on.
+        const off = await start.handler({ task: 'x', provider: 'codex', model: 'gpt-5' }, ctx);
+        assert.ok(off.isError && /not switched on/.test(off.text), off.text);
+        // An effort the model does not offer is dropped and said so.
+        const dropped = JSON.parse((await start.handler({ task: 'x', provider: 'claude-code', model: 'sonnet', effort: 'xhigh' }, ctx)).text);
+        assert.strictEqual(calls[calls.length - 1].effort, undefined);
+        assert.ok(/does not offer/.test(dropped.note || ''), JSON.stringify(dropped));
+    });
+
     await check('start_task resolves the model, pins it on a one-shot job, and parks unless told otherwise', async () => {
         const calls = [];
         const ctx = { jobs: {
