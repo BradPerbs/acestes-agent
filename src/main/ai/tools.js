@@ -959,6 +959,33 @@ const TOOLS = [
     },
 
     {
+        name: 'save_secret',
+        title: 'Store a secret',
+        readOnly: true,
+        description:
+            'Put a secret you already have into the encrypted store under a name, so it is never asked for '
+            + 'again: an API key or token the user pasted into chat, or one you were given by a service. '
+            + 'From then on refer to it as {{secret:name}} in env, headers and passwords, and never write '
+            + 'the value out again. Every copy of the value in the transcript is masked once it is stored. '
+            + 'Prefer ask_user with a secret name when the user has not given it yet.',
+        shape: {
+            name: z.string().min(1).max(60).describe('A clear name: the service, e.g. "webshare", "github", "2captcha".'),
+            secret: z.string().min(1).max(4000).describe('The value to store.'),
+        },
+        handler: async (input, ctx) => {
+            if (!ctx.secrets?.set) return fail('There is no secrets store here.');
+            const kept = ctx.secrets.set(input.name, input.secret);
+            if (kept.error) return fail(kept.error);
+            return ok({
+                stored: true,
+                name: kept.name,
+                reference: kept.reference,
+                note: 'Use the reference from now on. The value itself is masked everywhere it appeared.',
+            });
+        },
+    },
+
+    {
         name: 'list_secrets',
         title: 'List the stored secrets',
         readOnly: true,
@@ -1046,7 +1073,7 @@ async function invoke(definition, input, ctx) {
  * hold the secret, so it is masked once, where an event enters the
  * conversation, and the handler is the only thing that sees the real value.
  */
-const SECRET_FIELDS = ['password', 'privateKey', 'passphrase'];
+const SECRET_FIELDS = ['password', 'privateKey', 'passphrase', 'secret'];
 
 function redactInput(input) {
     if (!input || typeof input !== 'object') return input;

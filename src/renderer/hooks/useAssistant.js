@@ -466,6 +466,19 @@ export default function useAssistant({
         if (taken === false && reply && !secret) await sendRef.current?.(reply);
     }, []);
 
+    /* A secret stored mid-conversation was masked out of its past: replay it. */
+    useEffect(() => {
+        if (!enabled || !window.api.ai.onHistoryScrubbed) return undefined;
+        return window.api.ai.onHistoryScrubbed(({ conversationId: id }) => {
+            if (id !== conversationRef.current) return;
+            window.api.ai.history(id).then((past) => {
+                if (past?.found && id === conversationRef.current) {
+                    setState(previous => ({ ...past.events.reduce(applyEvent, INITIAL), busy: previous.busy, draft: previous.draft }));
+                }
+            }).catch(() => {});
+        });
+    }, [enabled]);
+
     /* The live stream. */
     useEffect(() => {
         if (!enabled) return undefined;

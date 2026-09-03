@@ -102,7 +102,7 @@ check('the tools that change things are not marked read only', () => {
 });
 
 check('a secret in a tool input is masked before it becomes an event', () => {
-    const input = { name: 'db-01', address: '10.0.0.2', password: 'hunter2', privateKey: 'PRIVATE', passphrase: 'pp' };
+    const input = { name: 'db-01', address: '10.0.0.2', password: 'hunter2', privateKey: 'PRIVATE', passphrase: 'pp', secret: 'tok-1234' };
     const masked = tools.redactInput(input);
     assert.strictEqual(masked.name, 'db-01');
     assert.strictEqual(masked.address, '10.0.0.2');

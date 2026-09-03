@@ -582,6 +582,9 @@ contextBridge.exposeInMainWorld('api', {
 
         // Every message, tool call and result for a conversation.
         onEvent: (callback) => subscribe('ai-event', callback),
+        // A secret was stored and masked out of a conversation's past: the
+        // window holding it reads the transcript again.
+        onHistoryScrubbed: (callback) => subscribe('ai-history-scrubbed', callback),
 
         // A tool call waiting on the user. The panel draws it; the answer goes
         // back on the matching request id.

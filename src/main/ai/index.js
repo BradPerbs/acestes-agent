@@ -461,6 +461,32 @@ function get(conversationId) {
  */
 const FORWARDED = new Set(['approval-request', 'approval-settled', 'question-request', 'question-settled']);
 
+/**
+ * Mask a newly stored secret out of everything already recorded.
+ *
+ * `emit` scrubs what is recorded from now on; this is for the copies that
+ * were written before the store knew the value, such as the user's own
+ * message that pasted a key. Every open window is told to read the
+ * conversation again, so its copy is refreshed too.
+ */
+function scrubHistory() {
+    let touched = 0;
+    for (const conversation of conversations.values()) {
+        let changed = false;
+        conversation.events = conversation.events.map((event) => {
+            const clean = secrets.scrubDeep(event);
+            if (clean !== event) changed = true;
+            return clean;
+        });
+        if (changed) {
+            touched += 1;
+            notify('ai-history-scrubbed', { conversationId: conversation.id });
+        }
+    }
+    if (touched > 0) archive.save();
+    return touched;
+}
+
 function emit(conversation, event) {
     // A tool call or an approval card carrying a password is masked here,
     // before it reaches the log, the file or a window. See `redactInput`.
@@ -909,6 +935,14 @@ function ensureProvider(conversation) {
                 resolve: secrets.resolve,
                 resolveObject: secrets.resolveObject,
                 unresolved: secrets.unresolved,
+                // Storing one the agent already holds, which is the case for
+                // a key pasted into chat. Once stored it is masked out of
+                // every event already recorded, this conversation's included.
+                set: (name, value) => {
+                    const kept = secrets.set(name, value);
+                    if (kept.stored) scrubHistory();
+                    return kept;
+                },
             },
             sessionAction: async (payload) => {
                 // Through a window when there is one, so the person sees the
