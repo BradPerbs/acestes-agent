@@ -37,6 +37,7 @@ const runs = require('./runs');
 const jobs = require('./runs/jobs');
 const scheduler = require('./runs/scheduler');
 const mcpLibrary = require('./ai/mcp-library');
+const mcpProbe = require('./ai/mcp-probe');
 const proxy = require('./proxy');
 const { parseAddress } = require('./address');
 const { describeTunnel } = require('./tunnel-config');
@@ -243,7 +244,12 @@ function register(getWindow) {
         hostId: alert.hostId,
         detail: `${alert.name} (${alert.address}) is ${alert.event === 'host-online' ? 'back online' : 'offline'}${alert.message ? `: ${alert.message}` : ''}.`,
     }));
-    agents.setNotifier(notify);
+    // The agent list is drawn in every window, and a conversation lifted
+    // into its own window can change it: an agent adding an MCP server to
+    // itself has to show up on the main window's MCP page as it happens.
+    agents.setNotifier(broadcast);
+    agents.watch();
+    mcpProbe.setNotifier(broadcast);
     memory.setNotifier(notify);
     aiWindows.setMainNotifier(notify);
     tunnels.setNotifier(notify);
@@ -1530,7 +1536,29 @@ function register(getWindow) {
         notify('ai-settings', assistant.settings.get());
         return result;
     });
-    handle('agents-save', (event, payload) => agents.save(payload || {}));
+    handle('agents-save', (event, payload) => {
+        // A server whose definition changed has to be asked again before
+        // the page can say anything about it; a status earned by the old
+        // command would be a lie about the new one.
+        const before = payload?.id ? (agents.get(payload.id)?.mcpServers || []).map(server => ({ ...server })) : [];
+        const result = agents.save(payload || {});
+        if (payload?.id && Array.isArray(payload.mcpServers)) {
+            const after = agents.get(payload.id)?.mcpServers || [];
+            for (const server of before) {
+                const now = after.find(entry => entry.id === server.id);
+                if (!now || JSON.stringify(now) !== JSON.stringify(server)) mcpProbe.forget(server.id);
+            }
+        }
+        return result;
+    });
+    // Whether the agent's MCP servers answer: what is already known, and a
+    // fresh handshake with one of them or with all.
+    handle('agents-server-statuses', (event, agentId) => mcpProbe.known(String(agentId || '')));
+    handle('agents-server-check', (event, { agentId, serverId } = {}) => (
+        serverId
+            ? mcpProbe.check(String(agentId || ''), String(serverId))
+            : mcpProbe.checkAll(String(agentId || ''))
+    ));
     handle('agents-remove', (event, id) => {
         const gone = String(id || '');
         const result = agents.remove(gone);

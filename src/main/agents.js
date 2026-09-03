@@ -67,9 +67,50 @@ const filePath = () => path.join(app.getPath('userData'), 'agents.json');
 
 let state = null;
 let notify = () => {};
+// The file's text as this process last read or wrote it, so a change on disk
+// that is not ours can be told from the echo of our own save.
+let lastWritten = '';
 
 function setNotifier(fn) {
     notify = fn;
+}
+
+/**
+ * Follow the file for edits made by anything other than this module: an
+ * agent with a hand on the folder, a sync, a person in an editor. The
+ * registry is otherwise a cache read once at startup, and a change it did
+ * not make would not reach a window until the next launch.
+ */
+function watch() {
+    let timer = null;
+    const settle = () => {
+        clearTimeout(timer);
+        timer = setTimeout(reloadIfChanged, 300);
+    };
+    try {
+        fs.mkdirSync(path.dirname(filePath()), { recursive: true });
+        const watcher = fs.watch(path.dirname(filePath()), (event, file) => {
+            if (file && file !== path.basename(filePath())) return;
+            settle();
+        });
+        watcher.on('error', () => {});
+        return () => watcher.close();
+    } catch {
+        return () => {};
+    }
+}
+
+function reloadIfChanged() {
+    let text = '';
+    try {
+        text = fs.readFileSync(filePath(), 'utf8');
+    } catch {
+        return;
+    }
+    if (text === lastWritten) return;
+    state = null;
+    load();
+    notify('agents-changed', snapshot());
 }
 
 const clean = (value, max = MAX_NAME) => String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
@@ -176,7 +217,9 @@ function load() {
 
     let parsed = null;
     try {
-        parsed = JSON.parse(fs.readFileSync(filePath(), 'utf8'));
+        const text = fs.readFileSync(filePath(), 'utf8');
+        lastWritten = text;
+        parsed = JSON.parse(text);
     } catch {
         // Missing or unreadable: one agent, made below.
     }
@@ -199,7 +242,9 @@ function load() {
 function persist() {
     try {
         fs.mkdirSync(path.dirname(filePath()), { recursive: true });
-        fs.writeFileSync(filePath(), JSON.stringify(state, null, 2));
+        const text = JSON.stringify(state, null, 2);
+        lastWritten = text;
+        fs.writeFileSync(filePath(), text);
     } catch (error) {
         console.error('Could not save the agents:', error.message);
     }
@@ -332,6 +377,7 @@ function remove(id) {
 
 module.exports = {
     setNotifier,
+    watch,
     snapshot,
     activeId,
     get,

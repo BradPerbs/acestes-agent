@@ -683,6 +683,13 @@ contextBridge.exposeInMainWorld('api', {
         save: (agent) => ipcRenderer.invoke('agents-save', agent),
         remove: (id) => ipcRenderer.invoke('agents-remove', id),
         onChange: (callback) => subscribe('agents-changed', callback),
+        // Whether the agent's MCP servers answer. `serverStatuses` is what
+        // is already known; `checkServer` performs the handshake, for one
+        // server or (without a serverId) all of them; every result is also
+        // pushed through `onServerStatus`.
+        serverStatuses: (agentId) => ipcRenderer.invoke('agents-server-statuses', agentId),
+        checkServer: (payload) => ipcRenderer.invoke('agents-server-check', payload || {}),
+        onServerStatus: (callback) => subscribe('mcp-status', callback),
         // The MCP library: curated templates, the official registry, and a
         // template filled in as a server record ready to put on the agent.
         library: (filter) => ipcRenderer.invoke('mcp-library-list', filter || {}),

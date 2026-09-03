@@ -5,6 +5,7 @@ const keygen = require('../keygen');
 const snippetConfig = require('../snippet-config');
 const proxyConfig = require('../proxy-config');
 const mcpLibrary = require('./mcp-library');
+const mcpProbe = require('./mcp-probe');
 
 /**
  * The agent's kit: the tools that let it look through its own inventory and
@@ -584,10 +585,21 @@ function build({ z, ok, fail, hostInScope, publicHost, agentHosts }) {
                     server => server.name.toLowerCase() === name.toLowerCase(),
                 );
                 if (!saved) return fail('The server definition was not accepted.');
+                changed(ctx, 'mcp');
+
+                // Shake hands with it now, so a wrong command or a stale
+                // token is found here rather than at the next conversation.
+                const status = await mcpProbe.check(agent.id, saved.id);
                 return ok({
                     saved: existing ? 'updated' : 'created',
                     server: publicServer(saved),
-                    note: 'Its tools become available when the conversation next starts.',
+                    reachable: status.ok,
+                    ...(status.ok
+                        ? { tools: status.tools, serverName: status.name, serverVersion: status.version }
+                        : { problem: status.error }),
+                    note: status.ok
+                        ? 'Its tools become available when the conversation next starts.'
+                        : 'It was saved, but it did not answer the handshake. Fix the definition, or tell the user what it needs.',
                 });
             },
         },
