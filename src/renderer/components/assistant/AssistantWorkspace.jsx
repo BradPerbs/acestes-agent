@@ -7,6 +7,8 @@ import {
     LinkSquare02Icon,
     ArrowMoveDownLeftIcon,
     Layers01Icon,
+    Copy01Icon,
+    Download04Icon,
 } from 'hugeicons-react';
 import Tooltip from '../ui/Tooltip';
 import ContextMenu from '../ui/ContextMenu';
@@ -491,6 +493,21 @@ export default function AssistantWorkspace({
         await refreshConversations();
     }, [tabs, dropTabs, refreshConversations]);
 
+    /**
+     * The conversation as Markdown, on the clipboard. The browser's
+     * clipboard first, which a click in a packaged app is allowed to use,
+     * and the main process's when it is not.
+     */
+    const copyConversation = useCallback(async (conversationId) => {
+        const text = await window.api.ai.markdown?.(conversationId, { full: true });
+        if (!text) return;
+        try {
+            await navigator.clipboard.writeText(text);
+        } catch {
+            await window.api.clipboard?.writeText?.(text).catch(() => {});
+        }
+    }, []);
+
     // Another window has opened one of these, so it goes from here: neither
     // parked nor closed, since the other window is carrying it on. The tabs
     // are read through a ref so the subscription is made once.
@@ -602,9 +619,36 @@ export default function AssistantWorkspace({
             ? conversations
             : [{ conversationId: activeConversationId, title: '', updatedAt: Date.now() }];
 
+        // The conversation in front, as text. The copy is the debugging
+        // cut, everything the agent saw and did, because the reason to
+        // copy a chat rather than save it is to paste it into a bug report
+        // or another chat and say "look at this".
+        const chat = activeConversationId ? [{
+            heading: t('assistant.thisChat'),
+            value: '',
+            onChange: (value) => {
+                if (value === 'copy') copyConversation(activeConversationId);
+                if (value === 'export') window.api.ai.export?.(activeConversationId);
+            },
+            options: [
+                {
+                    value: 'copy',
+                    label: t('assistant.copyConversation'),
+                    hint: t('assistant.copyConversationHint'),
+                    icon: <Copy01Icon size={14} strokeWidth={1.5} />,
+                },
+                {
+                    value: 'export',
+                    label: t('assistant.exportConversation'),
+                    icon: <Download04Icon size={14} strokeWidth={1.5} />,
+                },
+            ],
+        }] : [];
+
         // The short list first. The chats can run to twenty and scroll, and
         // the moves between windows should not be at the bottom of that.
         return [
+            ...chat,
             {
                 heading: t('assistant.windows'),
                 value: '',
@@ -625,7 +669,7 @@ export default function AssistantWorkspace({
         ];
     }, [
         tabs, activeId, activeConversationId, detached, conversations, onClose,
-        detachTabs, detachEach, reattach, openConversation, removeConversation, t,
+        detachTabs, detachEach, reattach, openConversation, removeConversation, copyConversation, t,
     ]);
 
     /* ------------------------------------------------------------------ *

@@ -559,6 +559,10 @@ contextBridge.exposeInMainWorld('api', {
         close: (conversationId) => ipcRenderer.invoke('ai-conversation-close', conversationId),
         // Save the conversation as a Markdown file; main asks where.
         export: (conversationId) => ipcRenderer.invoke('ai-conversation-export', conversationId),
+        // The same Markdown as text, for the clipboard. `{ full: true }` adds
+        // the settings, every tool input and untruncated results.
+        markdown: (conversationId, options) =>
+            ipcRenderer.invoke('ai-conversation-markdown', { conversationId, ...(options || {}) }),
         // Which servers the panel is pointed at: the session in front, every
         // host, or a pinned set of sessions and saved hosts.
         setScope: (conversationId, target) =>

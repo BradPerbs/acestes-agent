@@ -1453,6 +1453,10 @@ function register(getWindow) {
     handle('ai-conversation-pin', (event, { conversationId, pinned } = {}) =>
         assistant.pin(String(conversationId || ''), Boolean(pinned)));
     handle('ai-conversation-close', (event, conversationId) => assistant.close(conversationId));
+    // A conversation as Markdown text, for the clipboard. `full` is the
+    // debugging cut: settings, every tool input, results untruncated.
+    handle('ai-conversation-markdown', (event, { conversationId, full } = {}) =>
+        assistant.exportMarkdown(String(conversationId || ''), { full: Boolean(full) }) || '');
     // A conversation as Markdown, saved where the user says.
     handle('ai-conversation-export', async (event, conversationId) => {
         const markdown = assistant.exportMarkdown(conversationId);

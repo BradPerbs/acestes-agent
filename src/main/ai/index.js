@@ -1190,8 +1190,16 @@ function delegateApiFor(conversation) {
  * Export
  * ------------------------------------------------------------------ */
 
-/** A conversation as Markdown, for a ticket or a hand-over. */
-function exportMarkdown(conversationId) {
+/**
+ * A conversation as Markdown, for a ticket or a hand-over.
+ *
+ * `full` is the debugging cut: the runtime, model and policy the turn ran
+ * under, every tool input as it was sent, and results as they came back
+ * rather than the first screen of them. Inputs are the stored events'
+ * inputs, which were redacted on the way in, so a password the agent set on
+ * a host is a mask here as everywhere else.
+ */
+function exportMarkdown(conversationId, { full = false } = {}) {
     hydrate();
     const conversation = conversations.get(conversationId);
     if (!conversation) return null;
@@ -1202,22 +1210,51 @@ function exportMarkdown(conversationId) {
         `Agent: ${agent?.name || conversation.agentId} · ${new Date(conversation.createdAt).toISOString()} · exported ${new Date().toISOString()}`,
         '',
     ];
-    const fence = (text) => `\`\`\`\n${String(text || '').replace(/```/g, '``​`')}\n\`\`\``;
+    if (full) {
+        const current = effectiveSettings(conversation);
+        const scope = conversation.scope || {};
+        lines.push(
+            `Runtime: ${current.provider || '?'} · model ${current.model || 'default'} · effort ${current.effort || 'default'}`,
+            `Approvals: ${current.approval || '?'}${conversation.runPolicy?.approvals ? ` (run policy ${conversation.runPolicy.approvals})` : ''}`
+                + ` · kind ${conversation.runKind || 'chat'}${conversation.jobId ? ` · job ${conversation.jobId}` : ''}`,
+            `Scope: ${scope.mode || 'front'}${Array.isArray(scope.targets) && scope.targets.length ? ` · ${scope.targets.length} targets` : ''}`,
+            `Servers: ${(agent?.mcpServers || []).map(server => server.name).join(', ') || 'none'}`,
+            `Conversation: ${conversation.id}${conversation.runId ? ` · run ${conversation.runId}` : ''}`,
+            '',
+        );
+    }
+    const resultCap = full ? 20000 : 4000;
+    const fence = (text, lang = '') => `\`\`\`${lang}\n${String(text || '').replace(/```/g, '``​`')}\n\`\`\``;
+    const stamp = (event) => (full && event.at ? ` <sub>${new Date(event.at).toISOString().slice(11, 19)}</sub>` : '');
     for (const event of conversation.events) {
         switch (event.type) {
             case 'user-message':
-                lines.push('## You', '', event.text || '', '');
+                lines.push(`## You${stamp(event)}`, '', event.text || '', '');
                 break;
             case 'assistant-text':
-                lines.push('## Agent', '', event.text || '', '');
+                lines.push(`## Agent${stamp(event)}`, '', event.text || '', '');
                 break;
             case 'tool-call': {
+                if (full) {
+                    lines.push(`**${event.name}**${stamp(event)}`, '');
+                    if (event.input && Object.keys(event.input).length) {
+                        lines.push(fence(JSON.stringify(event.input, null, 2), 'json'), '');
+                    }
+                    break;
+                }
                 const input = event.name === 'run_command' ? String(event.input?.command || '') : summarise(event.input);
                 lines.push(`**${event.name}** ${input ? `\`${input.replace(/`/g, '\'')}\`` : ''}`, '');
                 break;
             }
-            case 'tool-result':
-                if (event.text) lines.push(fence(String(event.text).slice(0, 4000)), '');
+            case 'tool-result': {
+                if (!event.text) break;
+                const text = String(event.text);
+                lines.push(fence(text.slice(0, resultCap)), '');
+                if (text.length > resultCap) lines.push(`_… ${text.length - resultCap} more characters not shown._`, '');
+                break;
+            }
+            case 'error':
+                lines.push(`> **Error:** ${event.text || event.message || ''}`, '');
                 break;
             case 'approval-settled':
                 lines.push(`_Approval: ${event.status}_`, '');
