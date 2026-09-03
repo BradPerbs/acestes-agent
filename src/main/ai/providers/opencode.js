@@ -122,17 +122,40 @@ function desktopCandidates({
     return found;
 }
 
+/**
+ * Whether the archive is there.
+ *
+ * Under Electron, `fs` treats an app.asar as a directory it can read into,
+ * and `accessSync` on the archive itself answers ENOENT for the root of
+ * it. `statSync` answers, as a directory. Under plain Node it is a file.
+ * Either answer means the archive exists; only a throw means it does not.
+ */
+function archivePresent(target, { accessSync = fs.accessSync, statSync = fs.statSync } = {}) {
+    try {
+        accessSync(target, fs.constants.F_OK);
+        return true;
+    } catch {
+        // The shim's ENOENT, or a real one: stat tells them apart.
+    }
+    try {
+        statSync(target);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
 /** The desktop app's executable and archive, when both are there. */
 function findOpenCodeDesktop(options = {}) {
     const accessSync = options.accessSync || fs.accessSync;
+    const statSync = options.statSync || (options.accessSync ? () => { throw new Error('missing'); } : fs.statSync);
     for (const candidate of desktopCandidates(options)) {
         try {
             accessSync(candidate.exe, fs.constants.F_OK);
-            accessSync(candidate.asar, fs.constants.F_OK);
-            return candidate;
         } catch {
-            // Keep looking.
+            continue;
         }
+        if (archivePresent(candidate.asar, { accessSync, statSync })) return candidate;
     }
     return null;
 }
