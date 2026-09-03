@@ -106,12 +106,21 @@ export function IconButton({
     size = 'md',
     icon,
     title,
+    // `label` and a child glyph are what three separate callers reached for
+    // before either was accepted, and being wrong about it drew a blank
+    // square with no bubble on it: a button that says nothing and explains
+    // nothing. `icon` and `title` are still the names, and these are here so
+    // that guessing produces a working button rather than an invisible one.
+    label,
+    children,
     hint,
     tooltipPlacement = 'bottom',
     type = 'button',
     className = '',
     ...rest
 }) {
+    const glyph = icon ?? children;
+    const bubble = title ?? label;
     const button = (
         <button
             type={type}
@@ -120,17 +129,17 @@ export function IconButton({
                 ICON_SIZES[size] || ICON_SIZES.md,
                 VARIANTS[variant] || VARIANTS.subtle,
                 // Only when there is no wrapper to carry it, see below.
-                title ? '' : className,
+                bubble ? '' : className,
             ].join(' ')}
             {...rest}
         >
-            {icon}
+            {glyph}
         </button>
     );
 
     // Unlabelled and unexplained is a real state: a button whose glyph says it
     // all. It just does not get a bubble, and Tooltip would name it '' anyway.
-    if (!title) return button;
+    if (!bubble) return button;
 
     /**
      * `className` goes on the wrapper rather than the button.
@@ -143,7 +152,7 @@ export function IconButton({
      * and drawn in the corner of the window.
      */
     return (
-        <Tooltip label={title} hint={hint} placement={tooltipPlacement} className={className}>
+        <Tooltip label={bubble} hint={hint} placement={tooltipPlacement} className={className}>
             {button}
         </Tooltip>
     );

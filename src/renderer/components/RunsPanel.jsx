@@ -246,9 +246,7 @@ function RunsPanel({ agentId = '' }) {
                             {t(`runs.filter.${id}`)}
                         </button>
                     ))}
-                    <IconButton label={t('common.refresh')} onClick={load}>
-                        <RefreshIcon size={16} strokeWidth={2} />
-                    </IconButton>
+                    <IconButton title={t('common.refresh')} icon={<RefreshIcon size={16} strokeWidth={2} />} onClick={load} />
                 </div>
             </div>
 

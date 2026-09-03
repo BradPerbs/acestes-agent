@@ -402,9 +402,9 @@ function JobRow({ job, onEdit, onToggle, onRun, onRemove, onCopyToken, t }) {
                 </div>
             </div>
             <div className="flex items-center gap-0.5 shrink-0">
-                <IconButton label={t('jobs.runNow')} onClick={() => onRun(job)}><PlayIcon size={15} strokeWidth={2} /></IconButton>
-                <IconButton label={t('common.edit')} onClick={() => onEdit(job)}><PencilEdit02Icon size={15} strokeWidth={2} /></IconButton>
-                <IconButton label={t('common.delete')} onClick={() => onRemove(job)}><Delete02Icon size={15} strokeWidth={2} /></IconButton>
+                <IconButton title={t('jobs.runNow')} icon={<PlayIcon size={15} strokeWidth={2} />} onClick={() => onRun(job)} />
+                <IconButton title={t('common.edit')} icon={<PencilEdit02Icon size={15} strokeWidth={2} />} onClick={() => onEdit(job)} />
+                <IconButton title={t('common.delete')} icon={<Delete02Icon size={15} strokeWidth={2} />} onClick={() => onRemove(job)} />
             </div>
         </div>
     );

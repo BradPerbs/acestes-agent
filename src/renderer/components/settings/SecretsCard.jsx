@@ -90,7 +90,7 @@ export default function SecretsCard() {
                             </div>
                             <IconButton
                                 size="sm"
-                                aria-label={t('common.deleteNamed', { name: entry.name })}
+                                title={t('common.deleteNamed', { name: entry.name })}
                                 icon={<Delete02Icon size={14} strokeWidth={1.5} />}
                                 onClick={() => remove(entry)}
                             />

@@ -72,9 +72,11 @@ export default function HooksCard({ agentId }) {
                                     />
                                 )}
                                 <Toggle checked={hook.enabled} onChange={(value) => patch(index, { enabled: value })} ariaLabel={t('settings.assistant.hooks.enabled')} />
-                                <IconButton label={t('common.delete')} onClick={() => save(hooks.filter((entry, at) => at !== index))}>
-                                    <Delete02Icon size={15} strokeWidth={2} />
-                                </IconButton>
+                                <IconButton
+                                    title={t('common.delete')}
+                                    icon={<Delete02Icon size={15} strokeWidth={2} />}
+                                    onClick={() => save(hooks.filter((entry, at) => at !== index))}
+                                />
                             </div>
                             <input
                                 type="text"
