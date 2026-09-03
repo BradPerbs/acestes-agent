@@ -8,15 +8,21 @@ const fs = require('fs');
  * A packaged build carries its icon in the executable (Windows), the bundle
  * (macOS) or the desktop entry (Linux), so the windows inherit it without
  * being told. A dev run is plain `electron .`, whose windows show Electron's
- * own logo unless each is handed the icon, which is what this is for. The
- * file is the same `build/icon.png` electron-builder packages from, copied
- * into the resources folder of a packaged app for the Linux case, where the
- * window manager wants the window itself to say.
+ * own logo unless each is handed the icon, which is what this is for.
+ *
+ * Windows gets the `.ico`. Handed the 1024px PNG it dutifully sets it on the
+ * window, then the taskbar draws Electron's logo anyway: the shell wants an
+ * icon at the sizes it actually paints, 16 to 256, and an oversized single
+ * bitmap is one it quietly refuses. Everywhere else the PNG is the right file.
+ * Both sit in `build/` for a dev run and are copied into the resources folder
+ * of a packaged app, for the Linux case where the window manager wants the
+ * window itself to say.
  */
 function appIconPath() {
+    const file = process.platform === 'win32' ? 'icon.ico' : 'icon.png';
     const candidate = app.isPackaged
-        ? path.join(process.resourcesPath, 'icon.png')
-        : path.join(__dirname, '..', '..', 'build', 'icon.png');
+        ? path.join(process.resourcesPath, file)
+        : path.join(__dirname, '..', '..', 'build', file);
     return fs.existsSync(candidate) ? candidate : null;
 }
 

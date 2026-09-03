@@ -42,3 +42,7 @@ no configuration changes with it.
 The same file is also copied into the package as `icon.png` (see
 `extraResources`) and handed to every BrowserWindow by `src/main/app-icon.js`,
 which is what puts it on a dev run's windows, where nothing else would.
+Windows gets `build/icon.ico` instead, built from the PNG at 16 to 256px:
+handed the 1024px PNG the window accepts it but the taskbar keeps drawing
+Electron's logo, since the shell wants the sizes it paints and refuses an
+oversized bitmap. Regenerate the ico whenever the PNG changes.
