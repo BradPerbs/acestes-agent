@@ -634,6 +634,20 @@ contextBridge.exposeInMainWorld('api', {
     },
 
     /**
+     * Jobs: prompts on a schedule, run with nobody watching. See main/runs/jobs.
+     * `create` and `update` answer `{ job }` or `{ error }`.
+     */
+    jobs: {
+        list: (filter) => ipcRenderer.invoke('jobs-list', filter || {}),
+        create: (spec) => ipcRenderer.invoke('jobs-create', spec || {}),
+        update: (id, patch) => ipcRenderer.invoke('jobs-update', { id, patch: patch || {} }),
+        remove: (id) => ipcRenderer.invoke('jobs-remove', id),
+        runNow: (id) => ipcRenderer.invoke('jobs-run-now', id),
+        token: (id) => ipcRenderer.invoke('jobs-token', id),
+        onChange: (callback) => subscribe('jobs-changed', callback),
+    },
+
+    /**
      * The inventory, as the agent changes it. Its tools write hosts, snippets
      * and proxies straight to the store, so a window has to be told to read
      * a collection again: `{ kind: 'hosts' | 'snippets' | 'proxies' | 'keys', agentId }`.

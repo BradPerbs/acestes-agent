@@ -10,6 +10,7 @@ import ProxiesPanel from './ProxiesPanel';
 import SnippetsPanel from './SnippetsPanel';
 import LogsPanel from './LogsPanel';
 import RunsPanel from './RunsPanel';
+import JobsPanel from './JobsPanel';
 import SettingsPanel from './settings/SettingsPanel';
 
 function HomeView({
@@ -164,6 +165,10 @@ function HomeView({
 
             {activeNav === 'snippets' && (
                 <SnippetsPanel isActive={isActive} reachedForPage={reachedForPage} allHosts={allHosts} agentId={agentId} />
+            )}
+
+            {activeNav === 'jobs' && (
+                <JobsPanel agentId={agentId} hosts={allHosts} />
             )}
 
             {activeNav === 'runs' && (

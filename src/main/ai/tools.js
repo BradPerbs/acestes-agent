@@ -8,6 +8,7 @@ const terminalRun = require('./terminal-run');
 const memory = require('./memory');
 const local = require('./local');
 const inventoryTools = require('./inventory-tools');
+const jobTools = require('./job-tools');
 
 // zod 4 exports both a namespace and a `z` binding depending on how it is
 // reached. Taking either keeps this working whichever the installed build is.
@@ -941,6 +942,11 @@ const TOOLS = [
      * fence hosts the same way list_hosts does.
      * -------------------------------------------------------------- */
     ...inventoryTools.build({ z, ok, fail, hostInScope, publicHost, agentHosts }),
+
+    /* -------------------------------------------------------------- *
+     * Jobs: work on a schedule. See job-tools.js.
+     * -------------------------------------------------------------- */
+    ...jobTools.build({ z, ok, fail }),
 ];
 
 const BY_NAME = new Map(TOOLS.map(tool => [tool.name, tool]));

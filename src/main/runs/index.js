@@ -38,9 +38,17 @@ const DEFAULT_POLICY = Object.freeze({
 
 let notify = () => {};
 let counter = 0;
+// Who to tell when a run reaches a terminal state: the scheduler, so a job
+// can count the outcome and deliver it. Kept here so the scheduler need not
+// be required by the assistant core, nor the core by the scheduler.
+const endedHooks = [];
 
 function setNotifier(fn) {
     notify = fn || (() => {});
+}
+
+function onEnded(fn) {
+    if (typeof fn === 'function') endedHooks.push(fn);
 }
 
 function nextId() {
@@ -185,6 +193,15 @@ function setStatus(runId, status, patch = {}) {
     db.prepare(`UPDATE runs SET ${sets.join(', ')} WHERE id = ?`).run(...values);
     const run = get(runId);
     if (run) notify('runs-changed', { runId, agentId: run.agentId, status });
+    if (run && (status === 'done' || status === 'failed' || status === 'cancelled')) {
+        for (const hook of endedHooks) {
+            try {
+                hook(run);
+            } catch (error) {
+                console.error('A run-ended hook failed:', error.message);
+            }
+        }
+    }
     return run;
 }
 
@@ -387,6 +404,7 @@ function remove(runId) {
 
 module.exports = {
     setNotifier,
+    onEnded,
     create,
     get,
     steps,

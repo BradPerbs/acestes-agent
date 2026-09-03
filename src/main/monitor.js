@@ -172,6 +172,13 @@ function publish() {
     notify('monitor-state', snapshot());
 }
 
+/** Hooks run when a host crosses between online and offline. See announce. */
+const alertHooks = [];
+
+function onAlert(fn) {
+    if (typeof fn === 'function') alertHooks.push(fn);
+}
+
 /**
  * Raise a Windows notification, if the settings and the platform allow one.
  *
@@ -218,6 +225,23 @@ function toast(title, body) {
  */
 function announce(entry, state, { downtime = 0 } = {}) {
     const where = entry.address;
+
+    // Jobs can wait on a crossing. Told before the toast, so a job that
+    // reacts is already on its way when the person reads the notification.
+    for (const hook of alertHooks) {
+        try {
+            hook({
+                event: state === 'offline' ? 'host-offline' : 'host-online',
+                hostId: entry.hostId,
+                name: entry.name,
+                address: where,
+                message: entry.message || '',
+                downtime,
+            });
+        } catch (error) {
+            console.error('A monitor alert hook failed:', error.message);
+        }
+    }
 
     if (state === 'offline') {
         const title = `${entry.name} is offline`;
@@ -620,4 +644,5 @@ module.exports = {
     checkNow,
     start,
     stop,
+    onAlert,
 };

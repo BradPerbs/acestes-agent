@@ -59,6 +59,34 @@ const MIGRATIONS = [
         PRIMARY KEY (run_id, seq)
     );
     `,
+    `
+    CREATE TABLE jobs (
+        id          TEXT PRIMARY KEY,
+        agent_id    TEXT NOT NULL,
+        name        TEXT NOT NULL,
+        enabled     INTEGER NOT NULL DEFAULT 1,
+        schedule    TEXT NOT NULL,
+        prompt      TEXT NOT NULL DEFAULT '',
+        session     TEXT NOT NULL DEFAULT 'isolated',
+        policy      TEXT NOT NULL DEFAULT '{}',
+        model       TEXT NOT NULL DEFAULT '',
+        effort      TEXT NOT NULL DEFAULT '',
+        delivery    TEXT NOT NULL DEFAULT '{}',
+        missed      TEXT NOT NULL DEFAULT 'skip',
+        keep_after_run INTEGER NOT NULL DEFAULT 0,
+        created_by  TEXT NOT NULL DEFAULT 'user',
+        token       TEXT NOT NULL DEFAULT '',
+        last_run_at INTEGER,
+        last_status TEXT NOT NULL DEFAULT '',
+        next_run_at INTEGER,
+        failures    INTEGER NOT NULL DEFAULT 0,
+        run_count   INTEGER NOT NULL DEFAULT 0,
+        created_at  INTEGER NOT NULL,
+        updated_at  INTEGER NOT NULL
+    );
+    CREATE INDEX jobs_agent ON jobs (agent_id, updated_at DESC);
+    CREATE INDEX jobs_due ON jobs (enabled, next_run_at);
+    `,
 ];
 
 function file() {

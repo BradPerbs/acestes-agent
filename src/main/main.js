@@ -5,8 +5,13 @@ const ipc = require('./ipc');
 const aiWindows = require('./ai/windows');
 const transport = require('./transport');
 const cloudSnapshot = require('./cloud-snapshot');
+const scheduler = require('./runs/scheduler');
+const tray = require('./tray');
 
 let mainWindow = null;
+// Set by the tray's Quit and by before-quit: the one way out once jobs
+// keep the process up after the window closes.
+let quitting = false;
 
 const getWindow = () => mainWindow;
 
@@ -135,21 +140,45 @@ app.whenReady().then(() => {
     ipc.register(getWindow);
     createWindow();
 
+    // The icon is there from the start, so the way to quit an app that
+    // stays up for its jobs is learned before it is needed.
+    tray.show({
+        onOpen: () => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                if (mainWindow.isMinimized()) mainWindow.restore();
+                mainWindow.show();
+                mainWindow.focus();
+            } else {
+                createWindow();
+            }
+        },
+        onQuit: () => {
+            quitting = true;
+            app.quit();
+        },
+    });
+
     app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });
 });
 
 app.on('before-quit', () => {
+    quitting = true;
     // A debounced upload that has not fired yet would be lost with the process,
     // so quitting right after an edit is the case worth flushing for. Best
     // effort: nothing here delays the quit waiting on the network.
     cloudSnapshot.flush();
+    scheduler.stop();
     transport.destroyAll();
 });
 
 app.on('window-all-closed', () => {
-    transport.destroyAll();
     ipc.cancelPendingPrompts();
+    // With a job on the books the process stays up, sessions and all: a
+    // scheduled run may need the one the agent left open. Without one the
+    // app quits as it always did, everywhere but macOS.
+    if (!quitting && scheduler.keepAlive()) return;
+    transport.destroyAll();
     if (process.platform !== 'darwin') app.quit();
 });

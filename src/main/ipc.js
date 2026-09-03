@@ -1,4 +1,4 @@
-const { ipcMain, dialog, app, shell, clipboard, powerMonitor, BrowserWindow } = require('electron');
+const { ipcMain, dialog, app, shell, clipboard, powerMonitor, BrowserWindow, Notification } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const store = require('./store');
@@ -34,6 +34,8 @@ const memory = require('./ai/memory');
 const container = require('./ai/container');
 const headless = require('./ai/headless');
 const runs = require('./runs');
+const jobs = require('./runs/jobs');
+const scheduler = require('./runs/scheduler');
 const proxy = require('./proxy');
 const { parseAddress } = require('./address');
 const { describeTunnel } = require('./tunnel-config');
@@ -191,9 +193,55 @@ function register(getWindow) {
     assistant.setNotifier(broadcast);
     // Whether any window is up, so the assistant can open a session through
     // a pane when there is one and headless when there is not.
-    assistant.setWindowProbe(() => BrowserWindow.getAllWindows().some(window => !window.isDestroyed()));
+    assistant.setWindowProbe(
+        () => BrowserWindow.getAllWindows().some(window => !window.isDestroyed()),
+        () => Boolean(BrowserWindow.getFocusedWindow()),
+    );
     headless.setNotifier(broadcast);
     runs.setNotifier(broadcast);
+    jobs.setNotifier(broadcast);
+
+    /**
+     * An OS notification from the assistant: a run finished while the
+     * window was elsewhere, or stopped on a question. Clicking it brings
+     * the window forward and opens the Runs page.
+     */
+    const toastFromAssistant = ({ title, body }) => {
+        try {
+            if (!Notification.isSupported()) return;
+            const notification = new Notification({ title: String(title || 'Acestes Agent'), body: String(body || '') });
+            notification.on('click', () => {
+                let window = getWindow();
+                if (!window || window.isDestroyed()) {
+                    window = BrowserWindow.getAllWindows().find(entry => !entry.isDestroyed()) || null;
+                }
+                if (!window) return;
+                if (window.isMinimized()) window.restore();
+                window.show();
+                window.focus();
+                window.webContents.send('ai-navigate', { nav: 'runs' });
+            });
+            notification.show();
+        } catch (error) {
+            console.error('Could not show a notification:', error.message);
+        }
+    };
+    assistant.setToaster(toastFromAssistant);
+
+    // The scheduler: fires jobs through the assistant, probes through the
+    // agent's local tools, and delivers results through the toast above.
+    scheduler.start({
+        runJob: (job, options) => assistant.startJobRun(job, options),
+        resumeRun: (run) => assistant.resumeJobRun(run),
+        probe: (job, probe) => assistant.probeForJob(job, probe),
+        notifyUser: toastFromAssistant,
+        jobsNotifier: broadcast,
+    });
+    // A monitored host crossing is a door a job can wait on.
+    monitor.onAlert((alert) => scheduler.event(alert.event, {
+        hostId: alert.hostId,
+        detail: `${alert.name} (${alert.address}) is ${alert.event === 'host-online' ? 'back online' : 'offline'}${alert.message ? `: ${alert.message}` : ''}.`,
+    }));
     agents.setNotifier(notify);
     memory.setNotifier(notify);
     aiWindows.setMainNotifier(notify);
@@ -1415,6 +1463,22 @@ function register(getWindow) {
     handle('runs-usage', (event, filter) => runs.usage(filter || {}));
     handle('runs-cancel', (event, runId) => assistant.cancelRun(runId));
     handle('runs-remove', (event, runId) => runs.remove(runId));
+
+    /* ---------------- Jobs ---------------- */
+
+    handle('jobs-list', (event, filter) => jobs.list(filter || {}).map(assistant.publicJob));
+    handle('jobs-create', (event, spec) => {
+        const result = jobs.create({ ...(spec || {}), createdBy: 'user' });
+        return result.error ? result : { job: assistant.publicJob(result.job) };
+    });
+    handle('jobs-update', (event, payload) => {
+        const result = jobs.update(payload?.id, payload?.patch || {});
+        return result.error ? result : { job: assistant.publicJob(result.job) };
+    });
+    handle('jobs-remove', (event, jobId) => jobs.remove(jobId));
+    handle('jobs-run-now', (event, jobId) => scheduler.runNow(jobId));
+    // The token is shown once, to be pasted where the webhook is sent from.
+    handle('jobs-token', (event, jobId) => jobs.get(jobId)?.token || '');
 
     /* ---------------- Agents ---------------- */
 

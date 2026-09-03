@@ -11,7 +11,10 @@ const store = require('../store');
 const transcript = require('../transcript');
 const activity = require('../activity');
 const runs = require('../runs');
+const jobs = require('../runs/jobs');
+const scheduler = require('../runs/scheduler');
 const headless = require('./headless');
+const local = require('./local');
 const ssh = require('../ssh');
 
 /**
@@ -74,9 +77,18 @@ let notify = () => {};
 // which is the safe reading: a session is then opened headless rather than
 // by asking a window that is not there.
 let hasWindow = () => false;
+let windowFocused = () => false;
+// An OS notification, provided by ipc, for a run that finished or stopped
+// on a question while nobody was looking at the window.
+let toast = () => {};
 
-function setWindowProbe(fn) {
+function setWindowProbe(fn, focused) {
     hasWindow = typeof fn === 'function' ? fn : () => false;
+    if (typeof focused === 'function') windowFocused = focused;
+}
+
+function setToaster(fn) {
+    toast = typeof fn === 'function' ? fn : () => {};
 }
 
 /**
@@ -146,7 +158,9 @@ function hydrate() {
     // driving it, and a tool step that never reported is marked unknown.
     // Scheduled runs will be picked up here instead once there are any.
     try {
-        runs.recover({ resumable: () => false });
+        // A job's run is worth resuming as long as its job still exists; the
+        // scheduler hands the re-queued ones back to `resumeJobRun`.
+        runs.recover({ resumable: run => run.kind !== 'interactive' && Boolean(run.jobId && jobs.get(run.jobId)) });
     } catch (error) {
         console.error('Could not recover the run log:', error.message);
     }
@@ -261,9 +275,56 @@ function create(target = {}) {
         pinned: false,
         createdAt: Date.now(),
         updatedAt: Date.now(),
+        // The run the current turn is written to, and what a run started
+        // here inherits. Interactive by default; a job sets its own.
+        runId: '',
+        runKind: 'interactive',
+        runTrigger: null,
+        runPolicy: null,
+        jobId: '',
+        // Settings a job pins over the agent's: the model and effort it was
+        // made with, so a changed default does not change what it costs.
+        settingsPatch: null,
     });
     trim();
     return { conversationId: id, agentId, ...scope };
+}
+
+/**
+ * The settings a conversation actually runs under.
+ *
+ * The agent's, with a job's pinned model over them, and the run's policy
+ * translated into the approval gate the providers already consult:
+ *
+ *   read-only   everything asks, and requestApproval refuses every write
+ *   allowlist   writes ask, except commands on the job's own list
+ *   park        writes ask, and the question waits for a person with no
+ *               timeout (see requestApproval)
+ *   full        nothing asks; the blocked list still applies
+ *
+ * Done here rather than in each provider so all of them get it, and so the
+ * existing gate is the only gate.
+ */
+function effectiveSettings(conversation) {
+    const base = { ...resolved(conversation.agentId), ...(conversation.settingsPatch || {}) };
+    const policy = conversation.runPolicy;
+    if (!policy || !policy.approvals || policy.approvals === 'inherit') return base;
+    switch (policy.approvals) {
+        case 'read-only':
+            return { ...base, approval: 'always' };
+        case 'allowlist':
+            return {
+                ...base,
+                approval: 'writes',
+                autoApproveCommands: (policy.tools || []).map(entry => String(entry).trim().toLowerCase()).filter(Boolean),
+            };
+        case 'park':
+            return { ...base, approval: 'writes' };
+        case 'full':
+            return { ...base, approval: 'never' };
+        default:
+            return base;
+    }
 }
 
 /**
@@ -446,25 +507,66 @@ function requestApproval(conversation, { toolName, name, input, local }) {
     return new Promise((resolve) => {
         const definition = catalog.BY_NAME.get(name);
         const requestId = nextId('approve');
+        const policy = conversation.runPolicy;
+
+        // A read-only run refuses every write before anyone is asked: there
+        // is no answer that would let it through, so a card would be a
+        // question with one button.
+        if (policy?.approvals === 'read-only' && !definition?.readOnly) {
+            resolve({ approved: false, message: 'This run is read-only: it may look but not change anything. Report what you would have done.' });
+            return;
+        }
+
+        // A job's run has nobody watching. Its question is parked: the run
+        // is marked so, the person is told, and there is no timeout, because
+        // the card is still there in the morning and the answer still counts.
+        const parked = Boolean(policy && policy.approvals !== 'inherit' && conversation.runId);
 
         const settle = (verdict, status) => {
             const entry = pendingApprovals.get(requestId);
             if (!entry) return;
-            clearTimeout(entry.timer);
+            if (entry.timer) clearTimeout(entry.timer);
             pendingApprovals.delete(requestId);
             // Recorded, not just sent. The request itself is in the event log,
             // so without this a window that reloads after answering replays the
             // card as though it were still waiting, and clicking it does
             // nothing because the id it names is long gone.
             emit(conversation, { type: 'approval-settled', requestId, status });
+            if (parked && conversation.runId && status !== 'expired') {
+                try {
+                    const run = runs.get(conversation.runId);
+                    if (run?.status === 'parked') {
+                        runs.start(conversation.runId);
+                        emit(conversation, { type: 'run-resumed', runId: conversation.runId });
+                    }
+                } catch (error) {
+                    console.error('Could not resume a parked run:', error.message);
+                }
+            }
             resolve(verdict);
         };
 
-        const timer = setTimeout(() => {
+        const timer = parked ? null : setTimeout(() => {
             settle({ approved: false, message: 'That request timed out waiting for an answer.' }, 'expired');
         }, APPROVAL_TIMEOUT);
 
         pendingApprovals.set(requestId, { resolve: settle, timer, conversationId: conversation.id });
+
+        if (parked) {
+            try {
+                const summary = name === 'run_command' ? String(input?.command || '') : summarise(catalog.redactInput(input));
+                runs.park(conversation.runId, `Waiting for approval: ${name} ${summary}`.slice(0, 400));
+                emit(conversation, { type: 'run-parked', runId: conversation.runId, name });
+                toast({
+                    title: `${conversation.title || 'A run'} is waiting for you`,
+                    body: `The agent wants to ${name.replace(/_/g, ' ')}${summary ? `: ${summary.slice(0, 120)}` : ''}`,
+                    conversationId: conversation.id,
+                    runId: conversation.runId,
+                });
+            } catch (error) {
+                console.error('Could not park a run:', error.message);
+            }
+        }
 
         const target = input?.session || conversation.boundSessionId || '';
         const info = target ? transcript.info(target) : null;
@@ -588,7 +690,7 @@ function ensureProvider(conversation) {
     if (conversation.session) return Promise.resolve(conversation.session);
     if (conversation.starting) return conversation.starting;
 
-    const current = resolved(conversation.agentId);
+    const current = effectiveSettings(conversation);
     const provider = PROVIDERS[current.provider];
     if (!provider) {
         return Promise.reject(new Error(`No provider named "${current.provider}" is available`));
@@ -630,7 +732,7 @@ function ensureProvider(conversation) {
         // mid-run takes effect on the next call rather than the next
         // conversation. The snapshot above is only for the options the SDK
         // fixes when the query starts.
-        getSettings: () => resolved(conversation.agentId),
+        getSettings: () => effectiveSettings(conversation),
         systemPrompt: prompt.build(context()),
         toolContext: () => ({
             scope: conversation.scope,
@@ -640,9 +742,12 @@ function ensureProvider(conversation) {
             // than the next conversation.
             sessionIds: conversation.sessionIds,
             hostIds: conversation.hostIds,
-            settings: resolved(conversation.agentId),
+            settings: effectiveSettings(conversation),
             // Whose inventory the host tools look in.
             agentId: conversation.agentId,
+            // What kind of run this is, so a scheduled run cannot schedule.
+            runKind: conversation.runKind,
+            jobs: jobsApiFor(conversation),
             // The envelope, read fresh too: a folder granted or a container
             // switched on mid-run applies to the next call.
             sandbox: agents.sandbox(conversation.agentId),
@@ -773,25 +878,42 @@ function handleProviderEvent(conversation, event) {
  * did, and stops it when a budget says so.
  * ------------------------------------------------------------------ */
 
-function beginRun(conversation, { kind = 'interactive', trigger = { source: 'window' }, policy, title } = {}) {
+function beginRun(conversation, { kind = 'interactive', trigger = { source: 'window' }, policy, title, resumeRunId = '' } = {}) {
     try {
-        const run = runs.create({
-            agentId: conversation.agentId,
-            kind,
-            trigger,
-            policy,
-            conversationId: conversation.id,
-            title: title || conversation.title || '',
-        });
-        runs.start(run.id);
-        runs.beginStep(run.id, { kind: 'turn', name: 'turn' });
-        conversation.runId = run.id;
-        emit(conversation, { type: 'run-started', runId: run.id, kind });
-        return run.id;
+        let runId = resumeRunId;
+        if (runId) {
+            runs.start(runId);
+        } else {
+            const run = runs.create({
+                agentId: conversation.agentId,
+                kind,
+                trigger,
+                policy,
+                conversationId: conversation.id,
+                jobId: conversation.jobId || '',
+                title: title || conversation.title || '',
+            });
+            runs.start(run.id);
+            runId = run.id;
+        }
+        runs.beginStep(runId, { kind: 'turn', name: 'turn' });
+        conversation.runId = runId;
+        emit(conversation, { type: 'run-started', runId, kind });
+        return runId;
     } catch (error) {
         console.error('Could not start a run:', error.message);
         return '';
     }
+}
+
+/** The agent's last reply in a conversation, for a run's result. */
+function lastReply(conversation) {
+    for (let index = conversation.events.length - 1; index >= 0; index -= 1) {
+        const event = conversation.events[index];
+        if (event.type === 'user-message') break;
+        if (event.type === 'assistant-text' && event.text) return String(event.text).slice(0, 4000);
+    }
+    return '';
 }
 
 /** Close the run a conversation is on, whichever way the turn ended. */
@@ -799,16 +921,173 @@ function endRun(conversation, status, detail = {}) {
     const runId = conversation.runId;
     if (!runId) return;
     conversation.runId = '';
+    const unattended = conversation.runKind !== 'interactive';
     try {
         const turn = runs.openStep(runId, 'turn');
         if (turn) runs.endStep(runId, turn.seq, { status: status === 'done' ? 'complete' : 'interrupted', output: detail.reason || '' });
-        if (status === 'done') runs.finish(runId, detail);
+        const result = { ...detail, summary: lastReply(conversation) };
+        if (status === 'done') runs.finish(runId, result);
         else if (status === 'cancelled') runs.cancel(runId, detail.reason || '');
-        else runs.fail(runId, detail.reason || '', detail);
+        else runs.fail(runId, detail.reason || '', result);
         emit(conversation, { type: status === 'done' ? 'run-finished' : status === 'cancelled' ? 'run-cancelled' : 'run-failed', runId, ...detail });
     } catch (error) {
         console.error('Could not close a run:', error.message);
     }
+
+    if (unattended) {
+        // The job's conversation is put down once its turn is over: the
+        // process behind it is the expensive half, and the transcript stays
+        // for the Runs page and the history menu. Delivery is the
+        // scheduler's, through the run-ended hook.
+        setTimeout(() => { park(conversation.id).catch(() => {}); }, 0);
+    } else if (status === 'done' && hasWindow() && !windowFocused()) {
+        // Finished while the person was elsewhere.
+        toast({
+            title: `${conversation.title || 'The agent'} is done`,
+            body: lastReply(conversation).replace(/\s+/g, ' ').slice(0, 200),
+            conversationId: conversation.id,
+            runId,
+        });
+    }
+}
+
+/* ------------------------------------------------------------------ *
+ * Jobs: the scheduler's way in
+ * ------------------------------------------------------------------ */
+
+const JOB_KINDS = { at: 'scheduled', every: 'scheduled', cron: 'scheduled', heartbeat: 'triggered', event: 'triggered', webhook: 'triggered' };
+
+/** The prompt a job's run starts with: the task, and what the door said. */
+function jobPrompt(job, { context = '', source = '', unknown = [] } = {}) {
+    const parts = [];
+    if (unknown.length) {
+        parts.push(
+            '<resumed>\nThis run was interrupted by the app closing and is resuming. The outcome of these tool calls '
+            + 'was lost, so they may or may not have happened. Check before repeating any of them:\n'
+            + `${unknown.map(step => `- ${step.name}: ${step.input}`).join('\n')}\n</resumed>`,
+        );
+    }
+    if (context) {
+        parts.push(`<trigger source="${source}">\n${context}\n</trigger>`);
+    }
+    parts.push(
+        `<job name="${job.name.replace(/"/g, '\'')}">\nThis is an unattended run started by a job, not a message from the user. `
+        + 'Do the task below, then finish with a short report of what you found and what you did: it is delivered to the user as the result. '
+        + (job.policy?.approvals === 'read-only'
+            ? 'This run is read-only: look, do not change anything, and say what you would have done.'
+            : job.policy?.approvals === 'park'
+                ? 'Anything that changes a system will wait for the user to approve it, possibly for hours; prefer to gather and report, and ask for a change only when it is the point of the task.'
+                : '')
+        + '\n</job>',
+    );
+    parts.push(job.prompt || 'Run the probe result above through your judgement and report.');
+    return parts.join('\n\n');
+}
+
+/**
+ * Start a run for a job: a conversation of its own, the job's policy and
+ * pinned model on it, and the prompt sent. Resolves once the turn has been
+ * sent; the outcome reaches the scheduler through the run-ended hook.
+ */
+async function startJobRun(job, { context = '', source = 'schedule', resumeRun = null } = {}) {
+    hydrate();
+    if (!agents.get(job.agentId)) return { error: 'The agent this job belongs to no longer exists.' };
+
+    let conversation;
+    if (job.session && job.session !== 'isolated' && conversations.has(job.session)) {
+        conversation = conversations.get(job.session);
+        if (conversation.busy) return { error: 'The conversation this job continues is busy.' };
+    } else {
+        const created = create({ agentId: job.agentId, scope: 'global' });
+        conversation = conversations.get(created.conversationId);
+    }
+
+    conversation.title = job.name;
+    conversation.runKind = JOB_KINDS[job.schedule?.kind] || 'scheduled';
+    conversation.runTrigger = { source, jobId: job.id };
+    conversation.runPolicy = runs.normalizePolicy(job.policy);
+    conversation.jobId = job.id;
+    conversation.settingsPatch = {
+        ...(job.model ? { model: job.model } : {}),
+        ...(job.effort ? { effort: job.effort } : {}),
+    };
+    // A pinned model applies from the next query; a conversation continued
+    // by a job may be holding a session on another one.
+    if (conversation.session) conversation.needsRestart = true;
+
+    const unknown = resumeRun ? runs.unknownSteps(resumeRun.id) : [];
+    if (resumeRun) {
+        // The turn is re-sent from scratch under the same run: the provider
+        // session that held the half-finished turn died with the process.
+        conversation.providerSessionId = '';
+        beginRun(conversation, { resumeRunId: resumeRun.id });
+    }
+
+    const sent = await send(conversation.id, jobPrompt(job, { context, source, unknown }));
+    if (!sent.success) return { error: sent.message || 'The prompt could not be sent.' };
+    return { runId: conversation.runId, conversationId: conversation.id };
+}
+
+/** A job's run re-queued on launch. The job decides the context afresh. */
+function resumeJobRun(run) {
+    const job = jobs.get(run.jobId);
+    if (!job) {
+        runs.fail(run.id, 'The job this run belonged to is gone.');
+        return Promise.resolve({ error: 'No such job' });
+    }
+    return startJobRun(job, { source: 'resume', resumeRun: run });
+}
+
+/** A heartbeat's probe: a local command inside the agent's own folders. */
+function probeForJob(job, probe) {
+    const ctx = { agentId: job.agentId, sandbox: agents.sandbox(job.agentId) };
+    return local.run(ctx, probe.command, { cwd: probe.cwd || '', timeout: 60000 });
+}
+
+/**
+ * What the schedule tools may do, on behalf of one conversation.
+ *
+ * Bound to the conversation's agent so a job always lands in the right
+ * bag, and refused outright from a run a job started: a job that makes
+ * jobs is how a scheduler eats a machine.
+ */
+function jobsApiFor(conversation) {
+    const refuse = () => ({ error: 'A run started by a job cannot manage jobs. Ask the user to do it from the Jobs page.' });
+    const unattended = () => conversation.runKind !== 'interactive';
+    return {
+        list: () => jobs.list({ agentId: conversation.agentId }).map(publicJob),
+        create: (spec) => {
+            if (unattended()) return refuse();
+            const result = jobs.create({ ...spec, agentId: conversation.agentId, createdBy: 'agent' });
+            return result.error ? result : { job: publicJob(result.job) };
+        },
+        update: (jobId, patch) => {
+            if (unattended()) return refuse();
+            const job = jobs.get(jobId);
+            if (!job || job.agentId !== conversation.agentId) return { error: 'No such job in your inventory.' };
+            const result = jobs.update(jobId, patch);
+            return result.error ? result : { job: publicJob(result.job) };
+        },
+        remove: (jobId) => {
+            if (unattended()) return refuse();
+            const job = jobs.get(jobId);
+            if (!job || job.agentId !== conversation.agentId) return { error: 'No such job in your inventory.' };
+            return { removed: jobs.remove(jobId) };
+        },
+        runNow: async (jobId) => {
+            if (unattended()) return refuse();
+            const job = jobs.get(jobId);
+            if (!job || job.agentId !== conversation.agentId) return { error: 'No such job in your inventory.' };
+            return scheduler.runNow(jobId);
+        },
+    };
+}
+
+/** A job as the agent and the page see it: no token. */
+function publicJob(job) {
+    if (!job) return null;
+    const { token, ...rest } = job;
+    return { ...rest, webhookUrl: scheduler.webhookUrl(job) };
 }
 
 function recordRunEvent(conversation, event) {
@@ -1389,7 +1668,12 @@ async function shutdown() {
 module.exports = {
     setNotifier,
     setWindowProbe,
+    setToaster,
     cancelRun,
+    startJobRun,
+    resumeJobRun,
+    probeForJob,
+    publicJob,
     reconfigure,
     create,
     get,
