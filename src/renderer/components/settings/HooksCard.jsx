@@ -3,6 +3,7 @@ import { PlusSignIcon, Delete02Icon } from 'hugeicons-react';
 import SettingCard from './ui/SettingCard';
 import Toggle from './ui/Toggle';
 import Button, { IconButton } from '../ui/Button';
+import Select from '../ui/Select';
 import { FIELD_CLASS } from '../ui/Field';
 import { useT } from '../../i18n';
 
@@ -52,14 +53,14 @@ export default function HooksCard({ agentId }) {
                     {hooks.map((hook, index) => (
                         <li key={hook.id} className="flex flex-col gap-2 rounded-lg px-3 py-2 bg-gray-50 dark:bg-neutral-800 border border-gray-200 dark:border-neutral-700">
                             <div className="flex items-center gap-2">
-                                <select
+                                <Select
                                     value={hook.event}
-                                    onChange={(event) => patch(index, { event: event.target.value })}
-                                    className={`${FIELD_CLASS} w-40`}
+                                    onChange={(next) => patch(index, { event: next })}
+                                    className={FIELD_CLASS}
+                                    containerClassName="w-44 shrink-0"
                                     aria-label={t('settings.assistant.hooks.event')}
-                                >
-                                    {EVENTS.map(event => <option key={event} value={event}>{t(`settings.assistant.hooks.${event}`)}</option>)}
-                                </select>
+                                    options={EVENTS.map(event => ({ value: event, label: t(`settings.assistant.hooks.${event}`) }))}
+                                />
                                 {(hook.event === 'pre-tool' || hook.event === 'post-tool') && (
                                     <input
                                         type="text"

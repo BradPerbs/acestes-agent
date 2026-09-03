@@ -3,6 +3,7 @@ import { PlusSignIcon, PlayIcon, Delete02Icon, PencilEdit02Icon, Copy01Icon, Clo
 import Dialog from './ui/Dialog';
 import Button, { IconButton } from './ui/Button';
 import Field, { FIELD_CLASS } from './ui/Field';
+import Select from './ui/Select';
 import EmptyFrame from './ui/EmptyFrame';
 import Toggle from './settings/ui/Toggle';
 import { useT } from '../i18n';
@@ -119,8 +120,6 @@ function specFrom(draft, agentId) {
     };
 }
 
-const SELECT = `${FIELD_CLASS}`;
-
 function JobDialog({ job, agentId, hosts, onClose, onSaved }) {
     const t = useT();
     const [draft, setDraft] = useState(() => draftFrom(job));
@@ -169,9 +168,13 @@ function JobDialog({ job, agentId, hosts, onClose, onSaved }) {
 
                 <div className="grid grid-cols-2 gap-3">
                     <Field label={t('jobs.kind')}>
-                        <select value={draft.kind} onChange={e => set('kind', e.target.value)} className={SELECT}>
-                            {SCHEDULE_KINDS.map(kind => <option key={kind} value={kind}>{t(`jobs.kind.${kind}`)}</option>)}
-                        </select>
+                        <Select
+                            value={draft.kind}
+                            onChange={(next) => set('kind', next)}
+                            className={FIELD_CLASS}
+                            aria-label={t('jobs.kind')}
+                            options={SCHEDULE_KINDS.map(kind => ({ value: kind, label: t(`jobs.kind.${kind}`) }))}
+                        />
                     </Field>
                     {(draft.kind === 'every' || draft.kind === 'heartbeat') && (
                         <Field label={t('jobs.every')}>
@@ -190,9 +193,13 @@ function JobDialog({ job, agentId, hosts, onClose, onSaved }) {
                     )}
                     {draft.kind === 'event' && (
                         <Field label={t('jobs.event')}>
-                            <select value={draft.event} onChange={e => set('event', e.target.value)} className={SELECT}>
-                                {EVENTS.map(event => <option key={event} value={event}>{t(`jobs.event.${event}`)}</option>)}
-                            </select>
+                            <Select
+                                value={draft.event}
+                                onChange={(next) => set('event', next)}
+                                className={FIELD_CLASS}
+                                aria-label={t('jobs.event')}
+                                options={EVENTS.map(event => ({ value: event, label: t(`jobs.event.${event}`) }))}
+                            />
                         </Field>
                     )}
                 </div>
@@ -208,10 +215,16 @@ function JobDialog({ job, agentId, hosts, onClose, onSaved }) {
                 )}
                 {draft.kind === 'event' && (
                     <Field label={t('jobs.host')}>
-                        <select value={draft.hostId} onChange={e => set('hostId', e.target.value)} className={SELECT}>
-                            <option value="">{t('jobs.anyHost')}</option>
-                            {hosts.map(host => <option key={host.id} value={host.id}>{host.name}</option>)}
-                        </select>
+                        <Select
+                            value={draft.hostId}
+                            onChange={(next) => set('hostId', next)}
+                            className={FIELD_CLASS}
+                            aria-label={t('jobs.host')}
+                            options={[
+                                { value: '', label: t('jobs.anyHost') },
+                                ...hosts.map(host => ({ value: host.id, label: host.name })),
+                            ]}
+                        />
                     </Field>
                 )}
                 {draft.kind === 'webhook' && job?.webhookUrl && (
@@ -224,9 +237,13 @@ function JobDialog({ job, agentId, hosts, onClose, onSaved }) {
 
                 <div className="grid grid-cols-2 gap-3">
                     <Field label={t('jobs.approvals')} hint={t(`jobs.approvals.${draft.approvals}.note`)}>
-                        <select value={draft.approvals} onChange={e => set('approvals', e.target.value)} className={SELECT}>
-                            {APPROVALS.map(value => <option key={value} value={value}>{t(`jobs.approvals.${value}`)}</option>)}
-                        </select>
+                        <Select
+                            value={draft.approvals}
+                            onChange={(next) => set('approvals', next)}
+                            className={FIELD_CLASS}
+                            aria-label={t('jobs.approvals')}
+                            options={APPROVALS.map(value => ({ value, label: t(`jobs.approvals.${value}`) }))}
+                        />
                     </Field>
                     {draft.approvals === 'allowlist' && (
                         <Field label={t('jobs.allowlist')}>
@@ -262,10 +279,16 @@ function JobDialog({ job, agentId, hosts, onClose, onSaved }) {
 
                 <div className="grid grid-cols-2 gap-3">
                     <Field label={t('jobs.missed')}>
-                        <select value={draft.missed} onChange={e => set('missed', e.target.value)} className={SELECT}>
-                            <option value="skip">{t('jobs.missed.skip')}</option>
-                            <option value="catchup">{t('jobs.missed.catchup')}</option>
-                        </select>
+                        <Select
+                            value={draft.missed}
+                            onChange={(next) => set('missed', next)}
+                            className={FIELD_CLASS}
+                            aria-label={t('jobs.missed')}
+                            options={[
+                                { value: 'skip', label: t('jobs.missed.skip') },
+                                { value: 'catchup', label: t('jobs.missed.catchup') },
+                            ]}
+                        />
                     </Field>
                     {draft.kind === 'at' && (
                         <label className="flex items-center justify-between gap-3 text-sm text-gray-800 dark:text-gray-200 pt-6">
