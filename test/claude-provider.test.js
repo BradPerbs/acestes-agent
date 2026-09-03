@@ -151,6 +151,34 @@ async function run() {
         statSync: () => ({ size: 1 }),
     }), '');
 
+    /* ---------------- The approval mode, on the CLI's own tools ---------------- */
+
+    const base = { autoApproveCommands: ['ls', 'git status'], blockedCommands: ['rm -rf'] };
+    const never = { ...base, approval: 'never' };
+    const always = { ...base, approval: 'always' };
+    const writes = { ...base, approval: 'writes' };
+
+    // "Never" waits for nothing, ours or the CLI's or a server's.
+    assert.strictEqual(provider.nativeAutoApproved('Edit', { file_path: 'a.js' }, never), true);
+    assert.strictEqual(provider.nativeAutoApproved('Bash', { command: 'npm test' }, never), true);
+    assert.strictEqual(provider.nativeAutoApproved('mcp__Playwright__browser_click', {}, never), true);
+    // "Always" waits for everything.
+    assert.strictEqual(provider.nativeAutoApproved('Read', { file_path: 'a.js' }, always), false);
+    assert.strictEqual(provider.nativeAutoApproved('mcp__Playwright__browser_snapshot', {}, always), false);
+    // The default: reads run, changes stop, the shell goes by the allow list.
+    assert.strictEqual(provider.nativeAutoApproved('Read', {}, writes), true);
+    assert.strictEqual(provider.nativeAutoApproved('Grep', {}, writes), true);
+    assert.strictEqual(provider.nativeAutoApproved('Edit', {}, writes), false);
+    assert.strictEqual(provider.nativeAutoApproved('Write', {}, writes), false);
+    assert.strictEqual(provider.nativeAutoApproved('Bash', { command: 'git status' }, writes), true);
+    assert.strictEqual(provider.nativeAutoApproved('Bash', { command: 'git push' }, writes), false);
+    assert.strictEqual(provider.nativeAutoApproved('Bash', { command: 'ls; rm x' }, writes), false);
+    assert.strictEqual(provider.nativeAutoApproved('mcp__Playwright__browser_snapshot', {}, writes), true);
+    assert.strictEqual(provider.nativeAutoApproved('mcp__Playwright__browser_take_screenshot', {}, writes), true);
+    assert.strictEqual(provider.nativeAutoApproved('mcp__Playwright__browser_click', {}, writes), false);
+    assert.strictEqual(provider.nativeAutoApproved('mcp__github__list_issues', {}, writes), true);
+    assert.strictEqual(provider.nativeAutoApproved('mcp__github__create_issue', {}, writes), false);
+
     console.log('claude-provider tests passed');
 }
 

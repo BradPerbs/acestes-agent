@@ -284,6 +284,34 @@ const LOCAL_TOOLS = [
     'Task', 'TodoWrite', 'SlashCommand', 'ExitPlanMode',
 ];
 
+/** The CLI's own tools that only look. */
+const NATIVE_READS = new Set([
+    'Read', 'Glob', 'Grep', 'LS', 'NotebookRead', 'BashOutput',
+    'WebFetch', 'WebSearch', 'TodoWrite', 'TodoRead', 'Task',
+]);
+
+/** An MCP tool whose name says it only looks: `browser_snapshot`, `list_issues`, `get_page`. */
+const READ_NAME = /^(list|get|read|search|find|fetch|query|describe|show|check|health)[_a-z]*$|^browser_(snapshot|take_screenshot|console_messages|network_requests?|find|tabs)$|^healthcheck$/;
+
+/**
+ * The approval mode, applied to the CLI's own tools and to the agent's MCP
+ * servers the way `isAutoApproved` applies it to ours. Nothing waits under
+ * "never"; everything waits under "always"; under the default a read runs
+ * and a change stops, with the CLI's shell judged by the same allow list as
+ * a command on a server.
+ */
+function nativeAutoApproved(toolName, input, settings) {
+    if (settings.approval === 'never') return true;
+    if (settings.approval === 'always') return false;
+    if (NATIVE_READS.has(toolName)) return true;
+    if (toolName === 'Bash') return catalog.isAutoApproved('run_command', { command: input?.command || '' }, settings);
+    if (toolName.startsWith('mcp__')) {
+        const bare = toolName.slice(toolName.lastIndexOf('__') + 2);
+        return READ_NAME.test(bare);
+    }
+    return false;
+}
+
 /**
  * The tools that reach the web, kept apart from the list above on purpose.
  * Reading a page is not touching this machine, and an assistant that cannot
@@ -560,6 +588,18 @@ async function start({
                         message: `${toolName} acts on the user's own computer, which this assistant is not set up to do. `
                             + 'Use the remote tools to work on the servers instead.',
                     };
+                }
+                // The blocked list applies to the CLI's own shell exactly as
+                // to ours, whatever the approval mode says.
+                if (toolName === 'Bash') {
+                    const blocked = catalog.blockedReason('run_local_command', { command: toolInput?.command || '' }, current);
+                    if (blocked) {
+                        onEvent({ type: 'tool-blocked', name: toolName, rule: blocked });
+                        return { behavior: 'deny', message: catalog.blockedMessage(blocked) };
+                    }
+                }
+                if (nativeAutoApproved(toolName, toolInput, current)) {
+                    return { behavior: 'allow', updatedInput: toolInput };
                 }
                 const verdict = await requestApproval({ toolName, name: toolName, input: toolInput, local: true });
                 return verdict.approved
@@ -838,6 +878,7 @@ module.exports = {
     listModels,
     detect,
     findClaude,
+    nativeAutoApproved,
     claudeCandidates,
     userContent,
     LOCAL_TOOLS,
