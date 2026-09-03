@@ -683,6 +683,11 @@ contextBridge.exposeInMainWorld('api', {
         save: (agent) => ipcRenderer.invoke('agents-save', agent),
         remove: (id) => ipcRenderer.invoke('agents-remove', id),
         onChange: (callback) => subscribe('agents-changed', callback),
+        // The MCP library: curated templates, the official registry, and a
+        // template filled in as a server record ready to put on the agent.
+        library: (filter) => ipcRenderer.invoke('mcp-library-list', filter || {}),
+        librarySearch: (query) => ipcRenderer.invoke('mcp-library-search', query || ''),
+        libraryInstantiate: (payload) => ipcRenderer.invoke('mcp-library-instantiate', payload || {}),
         // The sandbox: whether Docker can run this agent's container, a
         // reset of it, and the folder picker that grants a local folder.
         sandboxStatus: (id) => ipcRenderer.invoke('sandbox-status', id),

@@ -36,6 +36,7 @@ const headless = require('./ai/headless');
 const runs = require('./runs');
 const jobs = require('./runs/jobs');
 const scheduler = require('./runs/scheduler');
+const mcpLibrary = require('./ai/mcp-library');
 const proxy = require('./proxy');
 const { parseAddress } = require('./address');
 const { describeTunnel } = require('./tunnel-config');
@@ -1506,6 +1507,18 @@ function register(getWindow) {
     handle('jobs-token', (event, jobId) => jobs.get(jobId)?.token || '');
     // "grok 4.6 xhigh" to a runtime, a model and an effort, for the dialog.
     handle('jobs-resolve-model', (event, { agentId, query } = {}) => assistant.resolveModel(agentId, query));
+
+    /* ---------------- MCP library ---------------- */
+
+    handle('mcp-library-list', (event, filter) => mcpLibrary.list(filter || {}));
+    handle('mcp-library-search', (event, query) => mcpLibrary.search(query || ''));
+    // A template plus its values to a server record, without saving it: the
+    // page saves through agents-save like any other edit.
+    handle('mcp-library-instantiate', async (event, { template, values, name, fallback } = {}) => {
+        const found = await mcpLibrary.resolve(template, fallback || null);
+        if (!found) return { error: 'No such template.' };
+        return mcpLibrary.instantiate(found, values || {}, { name: name || '' });
+    });
 
     /* ---------------- Agents ---------------- */
 

@@ -199,7 +199,11 @@ function agentServers(servers, sandbox = null, agentId = '') {
     for (const entry of Array.isArray(servers) ? servers : []) {
         if (!entry?.name) continue;
         if (entry.transport === 'http') {
-            out[entry.name] = { type: 'http', url: entry.url };
+            out[entry.name] = {
+                type: 'http',
+                url: entry.url,
+                ...(entry.headers && Object.keys(entry.headers).length ? { headers: { ...entry.headers } } : {}),
+            };
         } else if (sandbox?.execution === 'container') {
             // Inside the agent's container, where the folders it was granted
             // are all it can see. Nothing of the host's environment goes in.

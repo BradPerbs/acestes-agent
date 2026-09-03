@@ -325,6 +325,96 @@ const check = async (label, fn) => {
         await assert.rejects(() => openai.start({ settings: { apiKey: '' } }), /No API key/);
     });
 
+    console.log('\nmcp library');
+
+    const library = require(path.join(ROOT, 'ai', 'mcp-library'));
+
+    await check('the curated shelf lists, filters and hides nothing secret', () => {
+        const all = library.list();
+        assert.ok(all.length >= 12);
+        assert.ok(all.every(template => template.fields.every(field => !('prefix' in field))), 'fields carry no values');
+        assert.deepStrictEqual(library.list({ category: 'web' }).map(t => t.id).sort(), ['brave-search', 'fetch', 'playwright']);
+        assert.strictEqual(library.list({ query: 'kube' })[0].id, 'kubernetes');
+        assert.strictEqual(library.get('nope'), null);
+    });
+
+    await check('a template becomes a server record with values in the right places', () => {
+        const fs = library.instantiate(library.CURATED.find(t => t.id === 'filesystem'), { root: 'C:\\site' });
+        assert.deepStrictEqual(fs.server.args, ['-y', '@modelcontextprotocol/server-filesystem', 'C:\\site']);
+        assert.strictEqual(fs.server.template, 'filesystem');
+        assert.ok(/needed/.test(library.instantiate(library.CURATED.find(t => t.id === 'filesystem'), {}).error));
+
+        const brave = library.instantiate(library.CURATED.find(t => t.id === 'brave-search'), { BRAVE_API_KEY: 'BSA123' }, { name: 'Brave' });
+        assert.strictEqual(brave.server.name, 'Brave');
+        assert.deepStrictEqual(brave.server.env, { BRAVE_API_KEY: 'BSA123' });
+
+        const github = library.instantiate(library.CURATED.find(t => t.id === 'github'), { Authorization: 'github_pat_x' });
+        assert.strictEqual(github.server.transport, 'http');
+        assert.strictEqual(github.server.url, 'https://api.githubcopilot.com/mcp/');
+        assert.deepStrictEqual(github.server.headers, { Authorization: 'Bearer github_pat_x' }, 'the prefix is kept out of what the user types');
+
+        const memory = library.instantiate(library.CURATED.find(t => t.id === 'memory'), {});
+        assert.deepStrictEqual(memory.server.env, {}, 'an optional field left empty sets nothing');
+
+        const custom = library.instantiate(library.CURATED.find(t => t.id === 'custom-http'), { url: 'nope' });
+        assert.ok(/http/.test(custom.error));
+    });
+
+    await check('a registry entry is read into the same template shape', () => {
+        const remote = library.fromRegistry({
+            server: {
+                name: 'io.github.acme/thing',
+                description: 'Acme things.',
+                remotes: [{ type: 'streamable-http', url: 'https://mcp.acme.dev/mcp', headers: [
+                    { name: 'Authorization', value: 'Bearer {acme_token}', isRequired: true, isSecret: true, description: 'Acme API token' },
+                ] }],
+            },
+            _meta: { 'io.modelcontextprotocol.registry/official': { status: 'active' } },
+        });
+        assert.strictEqual(remote.id, 'registry:io.github.acme/thing');
+        assert.strictEqual(remote.transport, 'http');
+        assert.strictEqual(remote.fields[0].kind, 'header');
+        assert.strictEqual(remote.fields[0].prefix, 'Bearer ');
+        const made = library.instantiate(remote, { Authorization: 'tok' });
+        assert.deepStrictEqual(made.server.headers, { Authorization: 'Bearer tok' });
+
+        const npm = library.fromRegistry({
+            server: {
+                name: 'io.github.acme/files',
+                description: 'Files.',
+                packages: [{
+                    registryType: 'npm', identifier: '@acme/files-mcp', version: '1.2.0', runtimeHint: 'npx',
+                    packageArguments: [{ type: 'positional', valueHint: 'root', description: 'Folder to serve', isRequired: true }],
+                    environmentVariables: [{ name: 'ACME_TOKEN', description: 'Token', isRequired: true, isSecret: true }],
+                }],
+            },
+        });
+        assert.strictEqual(npm.command, 'npx');
+        assert.deepStrictEqual(npm.args, ['-y', '@acme/files-mcp@1.2.0', '{{root}}']);
+        assert.deepStrictEqual(npm.fields.map(f => [f.key, f.kind]), [['root', 'arg'], ['ACME_TOKEN', 'env']]);
+        const built = library.instantiate(npm, { root: '/srv', ACME_TOKEN: 'abc' });
+        assert.deepStrictEqual(built.server.args, ['-y', '@acme/files-mcp@1.2.0', '/srv']);
+        assert.deepStrictEqual(built.server.env, { ACME_TOKEN: 'abc' });
+
+        assert.strictEqual(library.fromRegistry({ server: { name: 'x', packages: [{ registryType: 'nuget', identifier: 'X', runtimeHint: 'dotnet' }] } }), null, 'a runtime this app cannot launch is left out');
+        assert.strictEqual(library.fromRegistry({ server: { name: 'gone' }, _meta: { 'io.modelcontextprotocol.registry/official': { status: 'deprecated' } } }), null);
+    });
+
+    await check('save_mcp_server takes a template and its values', async () => {
+        const id = agents.save({ name: 'Libby' }).saved;
+        const tool = tools.BY_NAME.get('save_mcp_server');
+        const result = JSON.parse((await tool.handler({ template: 'filesystem', values: { root: 'C:\\site' } }, { agentId: id })).text);
+        assert.strictEqual(result.saved, 'created');
+        const stored = agents.get(id).mcpServers[0];
+        assert.strictEqual(stored.name, 'Filesystem');
+        assert.strictEqual(stored.template, 'filesystem');
+        assert.deepStrictEqual(stored.args, ['-y', '@modelcontextprotocol/server-filesystem', 'C:\\site']);
+        const missing = await tool.handler({ template: 'github', values: {} }, { agentId: id });
+        assert.strictEqual(missing.isError, true);
+        const listed = JSON.parse((await tools.BY_NAME.get('list_mcp_library').handler({ category: 'files', registry: false }, {})).text);
+        assert.strictEqual(listed.curated[0].template, 'filesystem');
+    });
+
     console.log(`\n${passed} passed, ${failed} failed`);
     db.close();
     fs.rmSync(userData, { recursive: true, force: true });

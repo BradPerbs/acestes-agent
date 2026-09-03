@@ -4,6 +4,7 @@ const transcript = require('../transcript');
 const keygen = require('../keygen');
 const snippetConfig = require('../snippet-config');
 const proxyConfig = require('../proxy-config');
+const mcpLibrary = require('./mcp-library');
 
 /**
  * The agent's kit: the tools that let it look through its own inventory and
@@ -64,7 +65,7 @@ function publicProxy(proxy) {
     return { ...rest, hasPassword: Boolean(hasPassword || password) };
 }
 
-/** A server as it was given, less the values in its environment. */
+/** A server as it was given, less the values in its environment and headers. */
 function publicServer(server) {
     return {
         id: server.id,
@@ -74,6 +75,8 @@ function publicServer(server) {
         args: server.args || [],
         url: server.url || '',
         env: Object.keys(server.env || {}),
+        headers: Object.keys(server.headers || {}),
+        template: server.template || undefined,
     };
 }
 
@@ -477,39 +480,93 @@ function build({ z, ok, fail, hostInScope, publicHost, agentHosts }) {
         },
 
         {
+            name: 'list_mcp_library',
+            title: 'Browse the MCP library',
+            readOnly: true,
+            description:
+                'The library of MCP servers ready to switch on: the reference servers (filesystem, git, '
+                + 'fetch, memory, time), GitHub, Playwright, Brave Search, Context7, PostgreSQL, SQLite, '
+                + 'Kubernetes, Grafana, Slack and more, each with the fields it needs (a folder, a token). '
+                + 'Pass a query to also search the official MCP registry. Switch one on with '
+                + 'save_mcp_server, giving its template id and the field values.',
+            shape: {
+                query: z.string().max(120).optional().describe('Words to filter by, and to search the registry with.'),
+                category: z.enum(mcpLibrary.CATEGORIES).optional().describe('Only this shelf of the curated library.'),
+                registry: z.boolean().optional().describe('Also search the official registry. Defaults to true when a query is given.'),
+            },
+            handler: async (input) => {
+                const curated = mcpLibrary.list({ query: input.query || '', category: input.category || '' });
+                let registry = { templates: [], error: '' };
+                if (input.query && input.registry !== false) registry = await mcpLibrary.search(input.query, { limit: 15 });
+                const brief = (template) => ({
+                    template: template.id,
+                    name: template.name,
+                    category: template.category,
+                    description: template.description,
+                    transport: template.transport,
+                    fields: template.fields.map(field => ({ key: field.key, label: field.label, required: field.required, secret: field.secret })),
+                });
+                return ok({
+                    curated: curated.map(brief),
+                    registry: registry.templates.map(brief),
+                    ...(registry.error ? { registryError: registry.error } : {}),
+                });
+            },
+        },
+
+        {
             name: 'save_mcp_server',
             title: 'Add an MCP server',
             readOnly: false,
             description:
                 'Add or update an MCP server in your inventory, so its tools are available to you in later '
-                + 'conversations. Give the name of an existing server to update it. A stdio server is a '
-                + 'command to spawn; an http server is a URL. Its tools reach you after the conversation '
-                + 'restarts.',
+                + 'conversations. Two ways: give a `template` id from list_mcp_library with the `values` its '
+                + 'fields ask for, or describe the server yourself. Give the name of an existing server to '
+                + 'update it. A stdio server is a command to spawn; an http server is a URL. Its tools reach '
+                + 'you after the conversation restarts.',
             shape: {
-                name: z.string().min(1).max(60).describe('The server\'s name. Matches an existing one to update it.'),
+                name: z.string().min(1).max(60).optional().describe('The server\'s name. Matches an existing one to update it. Defaults to the template\'s name.'),
+                template: z.string().max(200).optional().describe('A template id from list_mcp_library, e.g. "filesystem" or "registry:io.github.x/y".'),
+                values: z.record(z.string(), z.string()).optional().describe('The template\'s fields, by key: a folder, a token, a URL.'),
                 transport: z.enum(['stdio', 'http']).optional().describe('Defaults to stdio.'),
                 command: z.string().max(500).optional().describe('The executable, for stdio.'),
                 args: z.array(z.string()).optional().describe('Arguments, for stdio.'),
                 url: z.string().max(500).optional().describe('The endpoint, for http.'),
                 env: z.record(z.string(), z.string()).optional()
-                    .describe('Environment variables for a stdio server. Never put a secret here.'),
+                    .describe('Environment variables for a stdio server.'),
+                headers: z.record(z.string(), z.string()).optional()
+                    .describe('HTTP headers for an http server, e.g. Authorization.'),
             },
             handler: async (input, ctx) => {
                 const agent = agents.get(ctx.agentId);
                 if (!agent) return fail('This conversation has no agent to add a server to.');
 
                 const servers = agent.mcpServers || [];
-                const name = clean(input.name, 60);
+
+                // From the library: the template says what the record is.
+                let fromTemplate = null;
+                if (input.template) {
+                    const template = await mcpLibrary.resolve(input.template);
+                    if (!template) return fail(`There is no template "${input.template}" in the library.`);
+                    const made = mcpLibrary.instantiate(template, input.values || {}, { name: input.name || '' });
+                    if (made.error) return fail(made.error);
+                    fromTemplate = made.server;
+                }
+
+                const name = clean(input.name || fromTemplate?.name, 60);
+                if (!name) return fail('A server needs a name.');
                 const existing = servers.find(server => server.name.toLowerCase() === name.toLowerCase());
 
                 const draft = {
                     ...(existing || {}),
+                    ...(fromTemplate || {}),
                     name,
                     ...(input.transport !== undefined ? { transport: input.transport } : {}),
                     ...(input.command !== undefined ? { command: input.command } : {}),
                     ...(input.args !== undefined ? { args: input.args } : {}),
                     ...(input.url !== undefined ? { url: input.url } : {}),
                     ...(input.env !== undefined ? { env: input.env } : {}),
+                    ...(input.headers !== undefined ? { headers: input.headers } : {}),
                 };
                 if (!draft.transport) draft.transport = 'stdio';
                 if (draft.transport === 'stdio' && !clean(draft.command)) return fail('A stdio server needs a command.');

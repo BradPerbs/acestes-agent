@@ -1,6 +1,7 @@
 import { memo, useCallback, useState } from 'react';
-import { Delete02Icon, Edit02Icon, PlugSocketIcon, PlusSignIcon } from 'hugeicons-react';
+import { Delete02Icon, Edit02Icon, LibraryIcon, PlugSocketIcon, PlusSignIcon } from 'hugeicons-react';
 import Dialog from './ui/Dialog';
+import McpLibrary from './McpLibrary';
 import Button from './ui/Button';
 import ConfirmDialog from './ui/ConfirmDialog';
 import EmptyFrame from './ui/EmptyFrame';
@@ -37,6 +38,7 @@ function ServerDialog({ server, onClose, onSave }) {
         args: (server?.args || []).join(' '),
         url: server?.url || '',
         env: formatEnv(server?.env),
+        headers: formatEnv(server?.headers),
     }));
     const [saving, setSaving] = useState(false);
 
@@ -57,6 +59,8 @@ function ServerDialog({ server, onClose, onSave }) {
                 args: form.args.split(/\s+/).map(entry => entry.trim()).filter(Boolean),
                 url: form.url.trim(),
                 env: parseEnv(form.env),
+                headers: parseEnv(form.headers),
+                template: server?.template || '',
             });
             onClose();
         } finally {
@@ -128,27 +132,41 @@ function ServerDialog({ server, onClose, onSave }) {
                         </Field>
                     </>
                 ) : (
-                    <Field label={t('mcp.url')}>
-                        <input
-                            type="text"
-                            value={form.url}
-                            onChange={change('url')}
-                            className={`${FIELD_CLASS} font-mono`}
-                            placeholder="https://mcp.example.com/mcp"
+                    <>
+                        <Field label={t('mcp.url')}>
+                            <input
+                                type="text"
+                                value={form.url}
+                                onChange={change('url')}
+                                className={`${FIELD_CLASS} font-mono`}
+                                placeholder="https://mcp.example.com/mcp"
+                            />
+                        </Field>
+                        <Field label={t('mcp.headers')} hint={t('mcp.headersHint')}>
+                            <textarea
+                                value={form.headers}
+                                onChange={change('headers')}
+                                rows={2}
+                                spellCheck={false}
+                                className={`${MONO_FIELD_CLASS} resize-y`}
+                                placeholder="Authorization=Bearer …"
+                            />
+                        </Field>
+                    </>
+                )}
+
+                {form.transport === 'stdio' && (
+                    <Field label={t('mcp.env')} hint={t('mcp.envHint')}>
+                        <textarea
+                            value={form.env}
+                            onChange={change('env')}
+                            rows={3}
+                            spellCheck={false}
+                            className={`${MONO_FIELD_CLASS} resize-y`}
+                            placeholder="API_TOKEN=…"
                         />
                     </Field>
                 )}
-
-                <Field label={t('mcp.env')} hint={t('mcp.envHint')}>
-                    <textarea
-                        value={form.env}
-                        onChange={change('env')}
-                        rows={3}
-                        spellCheck={false}
-                        className={`${MONO_FIELD_CLASS} resize-y`}
-                        placeholder="API_TOKEN=…"
-                    />
-                </Field>
             </form>
         </Dialog>
     );
@@ -160,6 +178,7 @@ function McpPanel({ agent, onSave }) {
     /** `{ server }` while editing, `{ server: null }` while adding. */
     const [editing, setEditing] = useState(null);
     const [confirming, setConfirming] = useState(null);
+    const [library, setLibrary] = useState(false);
 
     const write = useCallback((next) => onSave?.(next), [onSave]);
 
@@ -189,11 +208,18 @@ function McpPanel({ agent, onSave }) {
                     {t('mcp.note')}
                 </p>
                 <Button
-                    variant="primary"
+                    variant="secondary"
                     icon={<PlusSignIcon size={16} strokeWidth={2.5} />}
                     onClick={() => setEditing({ server: null })}
                 >
                     {t('mcp.new')}
+                </Button>
+                <Button
+                    variant="primary"
+                    icon={<LibraryIcon size={16} strokeWidth={2} />}
+                    onClick={() => setLibrary(true)}
+                >
+                    {t('mcp.library.open')}
                 </Button>
             </div>
 
@@ -203,7 +229,9 @@ function McpPanel({ agent, onSave }) {
                         icon={<PlugSocketIcon size={28} strokeWidth={1.5} />}
                         title={t('mcp.empty')}
                         note={t('mcp.emptyNote')}
-                    />
+                    >
+                        <Button size="sm" variant="secondary" onClick={() => setLibrary(true)}>{t('mcp.library.open')}</Button>
+                    </EmptyFrame>
                 ) : (
                     <div className="flex flex-col gap-2">
                         {servers.map(server => (
@@ -262,6 +290,14 @@ function McpPanel({ agent, onSave }) {
                     server={editing.server}
                     onClose={() => setEditing(null)}
                     onSave={handleSave}
+                />
+            )}
+
+            {library && (
+                <McpLibrary
+                    servers={servers}
+                    onClose={() => setLibrary(false)}
+                    onAdd={(record) => handleSave(record)}
                 />
             )}
 

@@ -109,6 +109,16 @@ function normalizeServer(raw) {
         }
     }
 
+    // Headers for a remote server: a bearer token, an API key. Only for http;
+    // a stdio server gets its secrets through env.
+    const headers = {};
+    if (transport === 'http' && raw.headers && typeof raw.headers === 'object') {
+        for (const [key, value] of Object.entries(raw.headers)) {
+            const cleanKey = String(key).trim();
+            if (/^[A-Za-z0-9-]+$/.test(cleanKey) && cleanKey.length <= 80) headers[cleanKey] = String(value ?? '').slice(0, 4000);
+        }
+    }
+
     return {
         id: clean(raw.id, 80) || nextId('mcp'),
         name,
@@ -117,6 +127,9 @@ function normalizeServer(raw) {
         args: transport === 'stdio' ? args : [],
         url: transport === 'http' ? url : '',
         env,
+        headers,
+        // Which library template it came from, if any, so the page can say.
+        template: clean(raw.template, 200),
     };
 }
 
@@ -199,7 +212,7 @@ function publicAgent(agent) {
         name: agent.name,
         color: agent.color,
         createdAt: agent.createdAt,
-        mcpServers: agent.mcpServers.map(server => ({ ...server, env: { ...server.env } })),
+        mcpServers: agent.mcpServers.map(server => ({ ...server, env: { ...server.env }, headers: { ...(server.headers || {}) } })),
         sandbox: sandboxModule.normalize(agent.sandbox),
         hooks: (agent.hooks || []).map(hook => ({ ...hook, tools: [...hook.tools] })),
     };
