@@ -1392,6 +1392,12 @@ function register(getWindow) {
     handle('ai-detect', (event, provider) => assistant.detect(provider));
     handle('ai-settings-set', (event, patch) => {
         const before = assistant.settings.get();
+        // A key in the patch is stored on its own, encrypted, and never
+        // written into the settings file. `apiKeyFor` names the runtime.
+        if (patch && typeof patch === 'object' && 'apiKey' in patch) {
+            const stored = assistant.settings.setApiKey(patch.apiKeyFor || 'openai', patch.apiKey);
+            if (stored.error) return { ...assistant.settings.get(), keyError: stored.error };
+        }
         const next = assistant.settings.set(patch);
         // Tells any live conversation which of these it has to restart for.
         // The model chip in the composer is expected to change the answer to

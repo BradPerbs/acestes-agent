@@ -292,6 +292,39 @@ const check = async (label, fn) => {
         assert.ok(/Closest: Grok 4.6 \(grok\)/.test(missing.text));
     });
 
+    console.log('\nopenai-compatible api');
+
+    const settings = require(path.join(ROOT, 'ai', 'settings'));
+    const openai = require(path.join(ROOT, 'ai', 'providers', 'openai'));
+
+    await check('the api runtime is a provider with OpenRouter as its default address', () => {
+        assert.ok(settings.PROVIDERS.has('openai'));
+        assert.ok(settings.KEYED_PROVIDERS.has('openai'));
+        assert.strictEqual(settings.DEFAULTS.apiBaseUrl, 'https://openrouter.ai/api/v1');
+        const clean = settings._test.sanitize({ apiBaseUrl: 'https://my-gateway.example.com/v1/' });
+        assert.strictEqual(clean.apiBaseUrl, 'https://my-gateway.example.com/v1', 'trailing slash goes');
+        assert.strictEqual(settings._test.sanitize({ apiBaseUrl: 'ftp://nope' }).apiBaseUrl, settings.DEFAULTS.apiBaseUrl);
+        const endpoint = openai.endpoint({ apiBaseUrl: 'https://x.example/v1', apiKey: 'k' });
+        assert.strictEqual(endpoint.apiKey, 'k');
+        assert.strictEqual(endpoint.headers['X-Title'], 'Acestes Agent');
+    });
+
+    await check('a key is refused rather than stored in the clear when the OS cannot encrypt it', () => {
+        const result = settings.setApiKey('openai', 'sk-or-secret');
+        assert.ok(result.error && /encrypt/.test(result.error));
+        assert.strictEqual(settings.get().apiKeys.openai, false);
+        assert.strictEqual(settings.readApiKey('openai'), '');
+        assert.ok(settings.setApiKey('codex', 'x').error, 'only the keyed runtimes take a key');
+        assert.deepStrictEqual(settings.setApiKey('openai', ''), { stored: false }, 'clearing needs no encryption');
+    });
+
+    await check('without a key the api runtime says so instead of dialling', async () => {
+        const verdict = await openai.detect({ settings: { apiKey: '' } });
+        assert.deepStrictEqual(verdict, { ok: false, reason: 'noKey' });
+        assert.strictEqual(await openai.listModels({ settings: { apiKey: '' } }), null);
+        await assert.rejects(() => openai.start({ settings: { apiKey: '' } }), /No API key/);
+    });
+
     console.log(`\n${passed} passed, ${failed} failed`);
     db.close();
     fs.rmSync(userData, { recursive: true, force: true });

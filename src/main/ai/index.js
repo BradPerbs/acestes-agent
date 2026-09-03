@@ -44,6 +44,7 @@ const PROVIDERS = {
     grok: require('./providers/grok'),
     kimi: require('./providers/kimi'),
     local: require('./providers/local'),
+    openai: require('./providers/openai'),
 };
 
 /** Kept per conversation, so a long session cannot grow without bound. */
@@ -529,8 +530,9 @@ function reconfigure(before, after, agentId = '') {
     // list is dropped rather than refreshed here: reading it means a request,
     // and someone typing an address has not finished typing it.
     if (before.localBaseUrl !== after.localBaseUrl) modelCatalogs.delete('local');
+    if (before.apiBaseUrl !== after.apiBaseUrl || before.apiKeys?.openai !== after.apiKeys?.openai) modelCatalogs.delete('openai');
 
-    if (before.provider !== after.provider || before.localBaseUrl !== after.localBaseUrl) {
+    if (before.provider !== after.provider || before.localBaseUrl !== after.localBaseUrl || before.apiBaseUrl !== after.apiBaseUrl) {
         if (before.provider !== after.provider) lastAccount = null;
         notify('ai-models', {
             provider: after.provider,

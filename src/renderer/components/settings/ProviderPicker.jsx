@@ -48,6 +48,7 @@ const HINT_KEYS = {
     grok: 'settings.assistant.provider.grok',
     kimi: 'settings.assistant.provider.kimi',
     local: 'settings.assistant.provider.local',
+    openai: 'settings.assistant.provider.openai',
 };
 
 /**
@@ -61,6 +62,8 @@ const REASONS = {
     notFound: 'settings.assistant.provider.notFound',
     noServer: 'settings.assistant.provider.noServer',
     notSignedIn: 'settings.assistant.provider.notSignedIn',
+    noKey: 'settings.assistant.provider.noKey',
+    badKey: 'settings.assistant.provider.badKey',
 };
 
 /**

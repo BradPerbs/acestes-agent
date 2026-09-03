@@ -23,7 +23,17 @@ const agents = require('../agents');
 
 const CONFIG_VERSION = 2;
 
-const PROVIDERS = new Set(['claude-code', 'codex', 'opencode', 'grok', 'kimi', 'local']);
+const PROVIDERS = new Set(['claude-code', 'codex', 'opencode', 'grok', 'kimi', 'local', 'openai']);
+
+/**
+ * The one runtime that takes a key from a box: an OpenAI-compatible API
+ * such as OpenRouter. The agents run signed in on the machine and need
+ * none; this one has nothing on the machine to sign in to.
+ */
+const KEYED_PROVIDERS = new Set(['openai', 'local']);
+
+/** Where the OpenAI-compatible API is, when the user has not said. */
+const DEFAULT_API_URL = 'https://openrouter.ai/api/v1';
 
 /**
  * Every level any agent here offers, low to high. The union, not one agent's
@@ -93,6 +103,9 @@ const DEFAULTS = {
     // provider file because it is a setting the user types, and the settings
     // page is what has to hand it back to them next time.
     localBaseUrl: DEFAULT_LOCAL_URL,
+    // Only read when the provider is `openai`: the base of an OpenAI-shaped
+    // API reached with a key, OpenRouter by default.
+    apiBaseUrl: DEFAULT_API_URL,
     // Empty means whatever the installed agent is already set to use.
     // Inheriting is the right default for a feature whose selling point is
     // that it is the user's own agent: a model pinned here would
@@ -222,6 +235,7 @@ function sanitize(raw) {
         // leaving a model menu that cannot offer what is selected.
         if (!next.providers.includes(next.provider)) next.provider = next.providers[0];
         if ('localBaseUrl' in raw) next.localBaseUrl = cleanUrl(raw.localBaseUrl, DEFAULTS.localBaseUrl);
+        if ('apiBaseUrl' in raw) next.apiBaseUrl = cleanUrl(raw.apiBaseUrl, DEFAULTS.apiBaseUrl);
         // Long enough for the publisher-and-repository ids a local server
         // reports, which run past the 80 characters an alias needs.
         if (typeof raw.model === 'string') next.model = raw.model.trim().slice(0, 160);
@@ -361,6 +375,9 @@ function get(agentId) {
         // know: a metered key and a plan are charged differently and it says
         // which. Whether, never which key.
         hasApiKey: Boolean(secrets[current.provider]),
+        // Which runtimes hold a key, for the settings page to say so without
+        // the key itself ever crossing the bridge.
+        apiKeys: Object.fromEntries([...KEYED_PROVIDERS].map(name => [name, Boolean(secrets[name])])),
         // What the app shipped with, so a settings page can offer the way back
         // without keeping a second copy of these lists that drifts from this
         // one. Read-only: `set` works from `load()`, not from here, so nothing
@@ -376,12 +393,44 @@ function get(agentId) {
  * Apply a patch: the machine's part to the base, the agent's part to the
  * agent named, or the one selected.
  */
+/**
+ * Store, or clear, the key for one of the keyed runtimes.
+ *
+ * Encrypted by the OS keychain before it touches the disk, like a host's
+ * password in the vault. Where the OS offers no encryption the key is
+ * refused rather than written in the clear; the message says why.
+ */
+function setApiKey(provider, value) {
+    if (!KEYED_PROVIDERS.has(provider)) return { error: `${provider} does not take a key.` };
+    load();
+    const key = String(value ?? '').trim();
+    if (!key) {
+        delete secrets[provider];
+        persist();
+        return { stored: false };
+    }
+    if (!safeStorage.isEncryptionAvailable()) {
+        return { error: 'This computer offers no way to encrypt the key, so it was not stored.' };
+    }
+    try {
+        secrets[provider] = safeStorage.encryptString(key).toString('base64');
+    } catch (error) {
+        return { error: `The key could not be encrypted: ${error.message}` };
+    }
+    persist();
+    return { stored: true };
+}
+
 function set(patch, agentId) {
     const { id, settings: before } = effective(agentId);
     const source = patch && typeof patch === 'object' ? patch : {};
     const own = pick(source, PER_AGENT);
     const shared = { ...source };
     for (const key of PER_AGENT) delete shared[key];
+    // A key travels beside the settings, never inside them: it is taken out
+    // here and stored on its own, so the config file never carries it.
+    delete shared.apiKey;
+    delete shared.apiKeyFor;
 
     config = sanitize({ ...load(), ...shared });
     persist();
@@ -430,12 +479,15 @@ function readApiKey(provider = effective().settings.provider) {
 module.exports = {
     get,
     set,
+    setApiKey,
     readApiKey,
     DEFAULTS,
     APPROVALS,
     COMMAND_MODES,
     EFFORTS,
     PROVIDERS,
+    KEYED_PROVIDERS,
     DEFAULT_LOCAL_URL,
+    DEFAULT_API_URL,
     _test: { sanitize, readSecrets, cleanUrl },
 };

@@ -52,6 +52,7 @@ export const PROVIDER_NAMES = {
     grok: 'Grok Build',
     kimi: 'Kimi Code',
     local: 'Local model',
+    openai: 'OpenAI-compatible API',
 };
 
 /**

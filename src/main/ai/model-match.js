@@ -19,6 +19,7 @@ const PROVIDER_ALIASES = {
     grok: ['grok', 'xai'],
     kimi: ['kimi', 'moonshot'],
     local: ['local', 'ollama', 'lmstudio', 'llamacpp', 'vllm'],
+    openai: ['openrouter', 'api', 'router'],
 };
 
 /** Filler a person adds that names nothing. */

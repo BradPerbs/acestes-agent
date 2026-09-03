@@ -1,4 +1,4 @@
-import { ChatGptIcon, CpuIcon } from 'hugeicons-react';
+import { ChatGptIcon, CpuIcon, GlobalIcon } from 'hugeicons-react';
 import openCodeLogoDark from '../assets/icons/opencode-logo-dark-square.png';
 import openCodeLogoLight from '../assets/icons/opencode-logo-light-square.png';
 
@@ -114,6 +114,9 @@ const MARKS = {
     // Not one product's mark, because it is not one product: whatever is
     // listening on the address the user typed.
     local: ({ size = 22 }) => <CpuIcon size={size} strokeWidth={1.5} />,
+    // Same reason: an address and a key, which could be OpenRouter, a
+    // gateway, or OpenAI itself.
+    openai: ({ size = 22 }) => <GlobalIcon size={size} strokeWidth={1.5} />,
 };
 
 /** One agent's mark, or nothing at all for a name we do not draw. */

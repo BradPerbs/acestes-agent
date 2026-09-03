@@ -70,6 +70,12 @@ export default function AssistantSection() {
     const [rejected, setRejected] = useState(null);
     const [endpoint, setEndpoint] = useState('');
     const [endpointState, setEndpointState] = useState('');
+    // The OpenAI-compatible API: its address, the key being typed (never
+    // read back; the page only learns whether one is stored), and the result
+    // of the last check.
+    const [apiBase, setApiBase] = useState('');
+    const [apiKey, setApiKey] = useState('');
+    const [apiState, setApiState] = useState('');
     const [commands, setCommands] = useState('');
     const [blocked, setBlocked] = useState('');
     const [prompts, setPrompts] = useState('');
@@ -111,6 +117,7 @@ export default function AssistantSection() {
             setProviders(status.providers || []);
             setTools(status.tools || []);
             setEndpoint(status.settings.localBaseUrl || '');
+            setApiBase(status.settings.apiBaseUrl || '');
             setCommands((status.settings.autoApproveCommands || []).join('\n'));
             setBlocked((status.settings.blockedCommands || []).join('\n'));
             setPrompts((status.settings.quickPrompts || []).join('\n'));
@@ -198,6 +205,41 @@ export default function AssistantSection() {
             ? t('settings.assistant.endpointFound', { count: rows.length })
             : t('settings.assistant.endpointNone'));
     }, [endpoint, update, t]);
+
+    /**
+     * Save the API's address and, if one was typed, its key, then ask it
+     * for its models. The key field is emptied once stored: the page never
+     * holds a secret longer than the save.
+     */
+    const saveApi = useCallback(async () => {
+        const patch = { apiBaseUrl: apiBase };
+        if (apiKey.trim()) {
+            patch.apiKey = apiKey.trim();
+            patch.apiKeyFor = 'openai';
+        }
+        const next = await update(patch);
+        setApiBase(next.apiBaseUrl || '');
+        if (next.keyError) {
+            setApiState(next.keyError);
+            return;
+        }
+        setApiKey('');
+        if (!next.apiKeys?.openai) {
+            setApiState(t('settings.assistant.apiNoKey'));
+            return;
+        }
+        setApiState(t('settings.assistant.endpointChecking'));
+        const rows = await window.api.ai.models({ provider: 'openai', refresh: true }).catch(() => null);
+        setApiState(rows?.length
+            ? t('settings.assistant.endpointFound', { count: rows.length })
+            : t('settings.assistant.apiNone'));
+    }, [apiBase, apiKey, update, t]);
+
+    const clearApiKey = useCallback(async () => {
+        const next = await update({ apiKey: '', apiKeyFor: 'openai' });
+        setApiKey('');
+        setApiState(next.apiKeys?.openai ? '' : t('settings.assistant.apiCleared'));
+    }, [update, t]);
 
     const saveCommands = useCallback(async () => {
         const list = commands.split('\n').map(line => line.trim()).filter(Boolean);
@@ -342,6 +384,53 @@ export default function AssistantSection() {
                             </div>
                             <p className="text-xs text-gray-500 dark:text-gray-400">
                                 {endpointState || t('settings.assistant.endpointNote')}
+                            </p>
+                        </div>
+                    </SettingRow>
+                </Reveal>
+
+                {/* The other runtime with nothing on the machine to find: an
+                    address and a key. OpenRouter is the placeholder because it
+                    reaches every model; any OpenAI-shaped API does. */}
+                <Reveal open={activated.includes('openai') || rejected?.provider === 'openai'}>
+                    <SettingRow
+                        className={DIVIDED}
+                        title={t('settings.assistant.api')}
+                        description={t('settings.assistant.apiDesc')}
+                    >
+                        <div className="space-y-3">
+                            <input
+                                type="text"
+                                aria-label={t('settings.assistant.apiAddress')}
+                                autoComplete="off"
+                                spellCheck={false}
+                                placeholder="https://openrouter.ai/api/v1"
+                                className={`${FIELD_CLASS} w-full font-jetbrains text-xs`}
+                                value={apiBase}
+                                onChange={(event) => { setApiBase(event.target.value); setApiState(''); }}
+                            />
+                            <div className="flex gap-3">
+                                <input
+                                    type="password"
+                                    aria-label={t('settings.assistant.apiKey')}
+                                    autoComplete="off"
+                                    spellCheck={false}
+                                    placeholder={settings.apiKeys?.openai ? t('settings.assistant.apiKeyStored') : t('settings.assistant.apiKeyPlaceholder')}
+                                    className={`${FIELD_CLASS} flex-1 font-jetbrains text-xs`}
+                                    value={apiKey}
+                                    onChange={(event) => { setApiKey(event.target.value); setApiState(''); }}
+                                />
+                                <Button size="md" variant="secondary" onClick={saveApi}>
+                                    {t('common.save')}
+                                </Button>
+                                {settings.apiKeys?.openai && (
+                                    <Button size="md" variant="ghost" onClick={clearApiKey}>
+                                        {t('settings.assistant.apiKeyClear')}
+                                    </Button>
+                                )}
+                            </div>
+                            <p className="text-xs text-gray-500 dark:text-gray-400">
+                                {apiState || t('settings.assistant.apiNote')}
                             </p>
                         </div>
                     </SettingRow>
