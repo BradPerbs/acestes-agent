@@ -172,7 +172,7 @@ function ServerDialog({ server, onClose, onSave }) {
     );
 }
 
-function McpPanel({ agent, onSave }) {
+function McpPanel({ agent, onSave, reachedForPage = 0 }) {
     const t = useT();
     const servers = agent?.mcpServers || [];
     /** `{ server }` while editing, `{ server: null }` while adding. */
@@ -296,6 +296,7 @@ function McpPanel({ agent, onSave }) {
             {library && (
                 <McpLibrary
                     servers={servers}
+                    dismiss={reachedForPage}
                     onClose={() => setLibrary(false)}
                     onAdd={(record) => handleSave(record)}
                 />

@@ -111,12 +111,14 @@ const CURATED = [
         id: 'playwright',
         name: 'Playwright',
         category: 'web',
-        description: 'Drive a real browser: open pages, click, type, read the page as an accessibility tree, take screenshots.',
+        description: 'Drive a real browser: open pages, click, type, fill forms, read the page, take screenshots. The window is visible, so you can step in for a captcha or a code.',
         homepage: 'https://github.com/microsoft/playwright-mcp',
         transport: 'stdio',
         command: 'npx',
-        args: ['-y', '@playwright/mcp@latest', '--headless'],
-        fields: [],
+        args: ['-y', '@playwright/mcp@latest', '{{headless}}'],
+        fields: [
+            { key: 'headless', label: 'Hide the browser window', kind: 'arg', required: false, placeholder: '', help: 'Leave empty to watch it work. Type --headless for an unattended run.' },
+        ],
     },
     {
         id: 'context7',

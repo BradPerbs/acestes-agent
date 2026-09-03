@@ -93,7 +93,7 @@ function HomeView({
             )}
 
             {activeNav === 'mcp' && (
-                <McpPanel agent={activeAgent} onSave={onSaveAgentServers} />
+                <McpPanel agent={activeAgent} onSave={onSaveAgentServers} reachedForPage={reachedForPage} />
             )}
 
             {activeNav === 'memory' && (
