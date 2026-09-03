@@ -158,6 +158,27 @@ const check = async (label, fn) => {
         assert.strictEqual(runs.trace('nope'), null);
     });
 
+    await check('a secret in a run title is scrubbed from the log', () => {
+        const leaky = runs.create({ agentId: 'a', title: 'my api key is ws-test-key-not-a-real-credential' });
+        const fine = runs.create({ agentId: 'a', title: 'check the disks' });
+        const changed = runs.scrubTitles(text => text.split('ws-test-key-not-a-real-credential').join('••••'));
+        assert.strictEqual(changed, 1);
+        assert.strictEqual(runs.get(leaky.id).title, 'my api key is ••••');
+        assert.strictEqual(runs.get(fine.id).title, 'check the disks');
+        assert.strictEqual(runs.scrubTitles(text => text), 0, 'nothing to change the second time');
+    });
+
+    await check('a secret in a step\'s arguments or output is scrubbed from the log', () => {
+        const run = runs.create({ agentId: 'a', title: 'form' });
+        const seq = runs.beginStep(run.id, { kind: 'tool', name: 'browser_type', input: { text: 'Kp4vZ9mQx2Tw' } });
+        runs.endStep(run.id, seq, { output: "fill('Kp4vZ9mQx2Tw')" });
+        const changed = runs.scrubSteps(text => text.split('Kp4vZ9mQx2Tw').join('••••'));
+        assert.strictEqual(changed, 1);
+        const [step] = runs.steps(run.id);
+        assert.strictEqual(step.input, '{"text":"••••"}', 'the arguments are kept as text, and scrubbed as text');
+        assert.strictEqual(step.output, "fill('••••')");
+    });
+
     console.log('\ndelegation tools');
 
     await check('the delegation tools are in the catalog with the right approval flags', () => {
@@ -441,6 +462,16 @@ const check = async (label, fn) => {
 
         const memory = library.instantiate(library.CURATED.find(t => t.id === 'memory'), {});
         assert.deepStrictEqual(memory.server.env, {}, 'an optional field left empty sets nothing');
+
+        const playwright = library.CURATED.find(t => t.id === 'playwright');
+        const bare = library.instantiate(playwright, {});
+        assert.deepStrictEqual(bare.server.args, ['-y', '@playwright/mcp@latest'], 'a flag and an option left empty are left out');
+        const tuned = library.instantiate(playwright, { headless: 'yes', profile: 'C:\\browser', proxy: 'http://proxy:3128' });
+        assert.deepStrictEqual(
+            tuned.server.args,
+            ['-y', '@playwright/mcp@latest', '--headless', '--user-data-dir=C:\\browser', '--proxy-server=http://proxy:3128'],
+            'an option carries its value with it',
+        );
 
         const custom = library.instantiate(library.CURATED.find(t => t.id === 'custom-http'), { url: 'nope' });
         assert.ok(/http/.test(custom.error));

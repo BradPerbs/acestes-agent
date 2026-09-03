@@ -54,7 +54,7 @@ function check(name, fn) {
 console.log('secrets');
 
 check('a value goes in by name and comes back as a reference', () => {
-    const kept = secrets.set('webshare', 'wcnplfjthirh923fmtll17650nen6xqgnxuq73g3');
+    const kept = secrets.set('webshare', 'ws-test-key-not-a-real-credential');
     assert.strictEqual(kept.stored, true);
     assert.strictEqual(kept.reference, '{{secret:webshare}}');
     assert.deepStrictEqual(secrets.list().map(entry => entry.name), ['webshare']);
@@ -64,28 +64,48 @@ check('a value goes in by name and comes back as a reference', () => {
 
 check('the file on disk carries ciphertext, not the value', () => {
     const text = fs.readFileSync(path.join(userData, 'secrets.json'), 'utf8');
-    assert.ok(!text.includes('wcnplfjthirh923fmtll17650nen6xqgnxuq73g3'));
+    assert.ok(!text.includes('ws-test-key-not-a-real-credential'));
     assert.ok(text.includes('"webshare"'));
 });
 
 check('a reference resolves in a string and in a map; an unknown one is left as written', () => {
-    assert.strictEqual(secrets.resolve('Token {{secret:webshare}}'), 'Token wcnplfjthirh923fmtll17650nen6xqgnxuq73g3');
-    assert.strictEqual(secrets.resolve('{{ secret:webshare }}'), 'wcnplfjthirh923fmtll17650nen6xqgnxuq73g3');
+    assert.strictEqual(secrets.resolve('Token {{secret:webshare}}'), 'Token ws-test-key-not-a-real-credential');
+    assert.strictEqual(secrets.resolve('{{ secret:webshare }}'), 'ws-test-key-not-a-real-credential');
     assert.strictEqual(secrets.resolve('{{secret:nope}}'), '{{secret:nope}}');
     assert.deepStrictEqual(secrets.unresolved('a {{secret:nope}} b {{secret:webshare}}'), ['nope']);
     assert.deepStrictEqual(
         secrets.resolveObject({ WSKEY: '{{secret:webshare}}', PLAIN: 'x' }),
-        { WSKEY: 'wcnplfjthirh923fmtll17650nen6xqgnxuq73g3', PLAIN: 'x' },
+        { WSKEY: 'ws-test-key-not-a-real-credential', PLAIN: 'x' },
     );
     assert.strictEqual(secrets.resolve(42), 42);
+});
+
+check('references resolve through the arguments of a tool call, and missing ones are named', () => {
+    const input = {
+        fields: [
+            { name: 'Username', value: 'brad' },
+            { name: 'Password', value: '{{secret:webshare}}' },
+        ],
+        submit: true,
+    };
+    const filled = secrets.resolveDeep(input);
+    assert.strictEqual(filled.fields[1].value, 'ws-test-key-not-a-real-credential');
+    assert.strictEqual(filled.fields[0].value, 'brad');
+    assert.strictEqual(filled.submit, true);
+    assert.notStrictEqual(filled, input, 'a filled input is a copy');
+    assert.strictEqual(input.fields[1].value, '{{secret:webshare}}', 'and the original still says the reference');
+    const plain = { text: 'nothing to fill' };
+    assert.strictEqual(secrets.resolveDeep(plain), plain, 'an input with no reference is the same object');
+    assert.deepStrictEqual(secrets.unresolvedDeep({ a: ['{{secret:nope}}'], b: { c: '{{secret:webshare}}', d: '{{secret:gone}}' } }), ['nope', 'gone']);
+    assert.deepStrictEqual(secrets.unresolvedDeep(plain), []);
 });
 
 check('every stored value is scrubbed from strings, arrays and objects', () => {
     const event = {
         type: 'tool-call',
-        input: { command: "$env:WSKEY='wcnplfjthirh923fmtll17650nen6xqgnxuq73g3'; curl ..." },
-        text: 'key wcnplfjthirh923fmtll17650nen6xqgnxuq73g3 twice wcnplfjthirh923fmtll17650nen6xqgnxuq73g3',
-        list: ['wcnplfjthirh923fmtll17650nen6xqgnxuq73g3', 'fine'],
+        input: { command: "$env:WSKEY='ws-test-key-not-a-real-credential'; curl ..." },
+        text: 'key ws-test-key-not-a-real-credential twice ws-test-key-not-a-real-credential',
+        list: ['ws-test-key-not-a-real-credential', 'fine'],
         at: 5,
     };
     const clean = secrets.scrubDeep(event);
@@ -115,7 +135,7 @@ check('names are checked, and an empty value removes', () => {
 
 check('the store is read back from disk on a fresh load', () => {
     secrets._test.reset();
-    assert.strictEqual(secrets.read('webshare'), 'wcnplfjthirh923fmtll17650nen6xqgnxuq73g3');
+    assert.strictEqual(secrets.read('webshare'), 'ws-test-key-not-a-real-credential');
 });
 
 check('without OS encryption a value is refused rather than written in the clear', () => {
