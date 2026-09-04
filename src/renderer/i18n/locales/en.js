@@ -1086,6 +1086,8 @@ export default {
     'settings.lock.confirmAction': 'Lock',
 
     'settings.knownHosts.title': 'Known hosts',
+    'settings.importTab.title': 'Import',
+    'settings.importTab.desc': 'Bring an existing SSH setup in: OpenSSH config and known hosts, or sessions from other terminal apps.',
     'settings.knownHosts.desc': 'Server keys you have trusted. Forget one to be asked about it '
         + 'again, which you need if a server was legitimately rebuilt.',
     'settings.knownHosts.unknownType': 'unknown',
@@ -1154,10 +1156,11 @@ export default {
      * Settings: Backup
      * ---------------------------------------------------------------- */
     'settings.backup.title': 'Backup',
-    'settings.backup.desc': 'Bring an existing setup in, or take a copy out.',
+    'settings.backup.desc': 'Everything the app stores, encrypted into one file you can take elsewhere or bring back.',
     'settings.backup.exportTitle': 'Export a backup',
-    'settings.backup.exportDesc': 'Writes every host, folder, SSH key, snippet, port forward and '
-        + 'trusted host key to a single encrypted file, protected by a passphrase you choose here.',
+    'settings.backup.exportDesc': 'Writes everything the app stores (hosts, keys, agents, conversations, '
+        + 'settings, memories, jobs, snippets, proxies and trusted host keys) to a single encrypted file, '
+        + 'protected by a passphrase you choose here.',
     'settings.backup.exportNote': 'The passphrase is independent of your opening password, so the '
         + 'file opens on a machine that has never seen this one.',
     'settings.backup.create': 'Create backup',
@@ -1191,6 +1194,9 @@ export default {
     'settings.backup.emptyFile': 'This backup is empty.',
     'settings.backup.folders': 'Folders',
     'settings.backup.keys': 'SSH keys',
+    'settings.backup.agents': 'Agents',
+    'settings.backup.assistant': 'Assistant',
+    'settings.backup.secrets': 'Secrets',
     'settings.backup.newCount': '{count} new',
     'settings.backup.existingReplaced': '{count} already here, will be replaced',
     'settings.backup.existingSkipped': '{count} already here, will be skipped',
@@ -1523,6 +1529,16 @@ export default {
     'assistant.closePanel': 'Close panel',
     'assistant.detachOnly': 'Open in its own window',
     'assistant.detachTab': 'Move this tab to its own window',
+    'assistant.splitView': 'Split view',
+    'assistant.splitViewHint': 'Show another conversation here, then drag headers to arrange',
+    'assistant.closeSplitPane': 'Close this pane',
+    'assistant.exitSplit': 'Exit split view',
+    'assistant.splitLimit': 'Split view holds at most {count} conversations.',
+    'assistant.splitPickTitle': 'Choose a conversation',
+    'assistant.splitPickEmpty': 'Every open conversation is already on screen.',
+    'assistant.splitPickNew': 'New conversation',
+    'assistant.switchConversation': 'Switch conversation',
+    'assistant.switchConversationHint': 'Show a different conversation in this pane',
     'assistant.detachAll': 'Move all tabs to a window',
     'assistant.detachEach': 'Each tab in its own window',
     'assistant.reattach': 'Move back to the main window',

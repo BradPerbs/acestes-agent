@@ -12,8 +12,10 @@ import SessionScreen from './components/ui/SessionScreen';
 import SplitLayout from './components/panes/SplitLayout';
 import PanePicker from './components/panes/PanePicker';
 import ConversationView from './components/assistant/ConversationView';
+import ConversationSplitView from './components/assistant/ConversationSplitView';
 import ConfirmDialog from './components/ui/ConfirmDialog';
 import useConversationTabs, { readStoredConversationTabs } from './hooks/useConversationTabs';
+import useConversationSplit, { MAX_CONVERSATION_PANES } from './hooks/useConversationSplit';
 import { useAgents } from './hooks/useAgents';
 import { useConversationList } from './hooks/useConversationList';
 import AgentDialog from './components/AgentDialog';
@@ -1381,11 +1383,12 @@ function App() {
         await duplicateHost(host.id);
     }, [duplicateHost]);
 
-    /** An import writes hosts and keys straight to the store, behind our state. */
+    /** A restore writes straight to the stores, behind our state. */
     const handleDataImported = useCallback(() => {
         loadData();
         loadKeys();
-    }, [loadData, loadKeys]);
+        refreshConversations();
+    }, [loadData, loadKeys, refreshConversations]);
 
     // A background sync adds, renames and removes hosts without the renderer
     // asking for anything, so the sidebar has to be told rather than left
@@ -1640,6 +1643,88 @@ function App() {
         [openConversation, activeAgentId],
     );
 
+    /* -------------------------------------------------------------- *
+     * Conversation split view
+     *
+     * Two or more chats side by side, resizable via the same SplitLayout
+     * engine the terminals use. The tab strip stays the model: panes point
+     * at conversation tabs, and closing a tab parks it while the pane
+     * becomes a picker so the arranged geometry survives.
+     * -------------------------------------------------------------- */
+
+    const conversationSplit = useConversationSplit({ tabs, activeTabId });
+
+    const handleConversationSplitStart = useCallback((tabId) => {
+        if (conversationSplit.panes.length >= MAX_CONVERSATION_PANES) {
+            toast.error(t('assistant.splitLimit', { count: MAX_CONVERSATION_PANES }), { style: getToastStyle() });
+            return;
+        }
+        // A fresh split opens side by side; dragging headers rearranges
+        // from there, so one button covers every direction.
+        conversationSplit.startSplit(tabId, 'row');
+    }, [conversationSplit, t]);
+
+    const handleConversationSplitPane = useCallback((paneId, direction) => {
+        if (conversationSplit.panes.length >= MAX_CONVERSATION_PANES) {
+            toast.error(t('assistant.splitLimit', { count: MAX_CONVERSATION_PANES }), { style: getToastStyle() });
+            return;
+        }
+        conversationSplit.splitPaneById(paneId, direction);
+    }, [conversationSplit, t]);
+
+    const handleConversationClosePane = useCallback((paneId, tabId) => {
+        const remainingTabId = conversationSplit.closePane(paneId);
+        if (remainingTabId) setActiveTabId(remainingTabId);
+        else if (tabId) setActiveTabId(tabId);
+    }, [conversationSplit]);
+
+    const handleConversationExitSplit = useCallback(() => {
+        const focused = conversationSplit.layout
+            ? collectPanes(conversationSplit.layout).find((pane) => pane.id === conversationSplit.focusedPaneId)
+            : null;
+        conversationSplit.exitSplit();
+        if (focused?.tabId) setActiveTabId(focused.tabId);
+    }, [conversationSplit]);
+
+    const handleConversationFocusPane = useCallback((paneId, tabId) => {
+        conversationSplit.focusPane(paneId);
+        if (tabId && tabId !== activeTabIdRef.current) setActiveTabId(tabId);
+    }, [conversationSplit]);
+
+    const handleConversationPickTab = useCallback((paneId, tabId) => {
+        conversationSplit.setPaneTab(paneId, tabId);
+        setActiveTabId(tabId);
+    }, [conversationSplit]);
+
+    const handleConversationNewIntoPane = useCallback((paneId) => {
+        const id = addConversationTab('', activeAgentId);
+        conversationSplit.setPaneTab(paneId, id);
+    }, [conversationSplit, addConversationTab, activeAgentId]);
+
+    const handleConversationMovePane = useCallback((paneId, drop) => {
+        conversationSplit.movePaneTo(paneId, drop);
+    }, [conversationSplit]);
+
+    // Clicking the strip while split: a chat already on screen takes focus,
+    // one that is not replaces the focused pane. Otherwise the strip would
+    // highlight a conversation nobody can see.
+    useEffect(() => {
+        if (!conversationSplit.active || !conversationSplit.layout) return;
+        const front = tabsRef.current.find((tab) => tab.id === activeTabId);
+        if (front?.type !== 'conversation') return;
+        const panes = collectPanes(conversationSplit.layout);
+        const holder = panes.find((pane) => pane.tabId === activeTabId);
+        if (holder) {
+            if (holder.id !== conversationSplit.focusedPaneId) conversationSplit.focusPane(holder.id);
+            return;
+        }
+        // A fresh chat lands in an empty picker first so it never covers a
+        // conversation the user arranged on screen.
+        const empty = panes.find((pane) => !pane.tabId);
+        const target = empty || panes.find((pane) => pane.id === conversationSplit.focusedPaneId) || panes[0];
+        if (target && target.tabId !== activeTabId) conversationSplit.setPaneTab(target.id, activeTabId);
+    }, [activeTabId, conversationSplit]);
+
     /**
      * The conversation last in front, so Ctrl+Shift+A from a terminal goes
      * back to the chat that was being had rather than to whichever one sits
@@ -1823,6 +1908,26 @@ function App() {
     }), [tabs, sessionOrdinals, conversationStatuses, colorFor, t]);
 
     const activeTab = tabs.find(tab => tab.id === activeTabId);
+
+    /* Split-view inputs, memoized so the split subtree keeps its memo hits:
+     * fresh collections here would re-render every pane on each App render,
+     * which is exactly the tab-switch jank a split must not add. */
+    const splitConversationTabs = useMemo(
+        () => stripTabs.filter((tab) => tab.type === 'conversation'),
+        [stripTabs],
+    );
+    const splitTabById = useMemo(
+        () => new Map(tabs.filter((tab) => tab.type === 'conversation').map((tab) => [tab.id, tab])),
+        [tabs],
+    );
+    const splitTabIds = useMemo(
+        () => new Set(
+            conversationSplit.layout
+                ? collectPanes(conversationSplit.layout).map((pane) => pane.tabId).filter(Boolean)
+                : [],
+        ),
+        [conversationSplit.layout],
+    );
 
     // What the assistant's own windows cannot see: the same three things the
     // panel in this window is handed, published to main and relayed on.
@@ -2010,40 +2115,116 @@ function App() {
                     {/* Conversation tabs. Every one stays mounted and is
                         hidden rather than unmounted: a tab answering behind
                         another goes on receiving its reply, and the message
-                        being typed into it is as it was left. */}
-                    {tabs.filter(tab => tab.type === 'conversation').map(tab => (
-                        <div
-                            key={tab.id}
-                            style={{
-                                visibility: activeTabId === tab.id ? 'visible' : 'hidden',
-                                position: 'absolute',
-                                top: 0,
-                                left: 0,
-                                right: 0,
-                                bottom: 0,
-                                zIndex: activeTabId === tab.id ? 10 : 0,
-                            }}
-                        >
-                            <ConversationView
-                                tab={tab}
-                                active={activeTabId === tab.id}
-                                status={conversationStatuses[tab.id]}
-                                sessions={assistantSessions}
-                                hosts={agentHosts}
-                                activeSessionId={activeSessionId}
-                                agentId={tab.agentId || activeAgentId}
-                                agentColor={colorFor(tab.agentId)}
-                                scopeProps={scopePropsFor(tab)}
-                                onConversationChange={(id) => setConversation(tab.id, id)}
-                                onStatus={reportConversationStatus}
-                                onOpenSettings={handleOpenAssistantSettings}
-                                onOpenSnippets={handleOpenSnippets}
-                                onDetach={() => detachConversationTabs([tab.id])}
-                                onClose={() => handleCloseTab(tab.id)}
-                                onNewTab={handleNewConversation}
-                            />
-                        </div>
-                    ))}
+                        being typed into it is as it was left.
+                        With split view on, the panes own the visible chats
+                        and tabs outside the split stay mounted hidden. */}
+                    {(() => {
+                        const splitActive = conversationSplit.active && conversationSplit.layout;
+                        const frontIsConversation = activeTab?.type === 'conversation';
+                        const showSplit = splitActive && frontIsConversation;
+                        if (showSplit) {
+                            const background = tabs.filter((tab) => tab.type === 'conversation' && !splitTabIds.has(tab.id));
+                            return (
+                                <>
+                                    {background.map((tab) => (
+                                        <div
+                                            key={tab.id}
+                                            style={{ visibility: 'hidden', position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 0 }}
+                                        >
+                                            <ConversationView
+                                                tab={tab}
+                                                active={false}
+                                                status={conversationStatuses[tab.id]}
+                                                sessions={assistantSessions}
+                                                hosts={agentHosts}
+                                                activeSessionId={activeSessionId}
+                                                agentId={tab.agentId || activeAgentId}
+                                                agentColor={colorFor(tab.agentId)}
+                                                scopeProps={scopePropsFor(tab)}
+                                                onConversationChange={(id) => setConversation(tab.id, id)}
+                                                onStatus={reportConversationStatus}
+                                                onOpenSettings={handleOpenAssistantSettings}
+                                                onOpenSnippets={handleOpenSnippets}
+                                                onDetach={() => detachConversationTabs([tab.id])}
+                                                onClose={() => handleCloseTab(tab.id)}
+                                                onNewTab={handleNewConversation}
+                                            />
+                                        </div>
+                                    ))}
+                                    <div
+                                        style={{ visibility: 'visible', position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 10 }}
+                                    >
+                                        <ConversationSplitView
+                                            layout={conversationSplit.layout}
+                                            focusedPaneId={conversationSplit.focusedPaneId}
+                                            stripTabs={splitConversationTabs}
+                                            tabById={splitTabById}
+                                            conversationStatuses={conversationStatuses}
+                                            sessions={assistantSessions}
+                                            hosts={agentHosts}
+                                            activeSessionId={activeSessionId}
+                                            activeAgentId={activeAgentId}
+                                            colorFor={colorFor}
+                                            scopePropsFor={scopePropsFor}
+                                            setConversation={setConversation}
+                                            reportConversationStatus={reportConversationStatus}
+                                            onOpenSettings={handleOpenAssistantSettings}
+                                            onOpenSnippets={handleOpenSnippets}
+                                            onDetachTab={(tabId) => detachConversationTabs([tabId])}
+                                            onCloseTab={handleCloseTab}
+                                            onNewConversation={handleNewConversation}
+                                            onPickTab={handleConversationPickTab}
+                                            onNewIntoPane={handleConversationNewIntoPane}
+                                            onFocusPane={handleConversationFocusPane}
+                                            onSplitPane={handleConversationSplitPane}
+                                            onMovePane={handleConversationMovePane}
+                                            onClosePane={handleConversationClosePane}
+                                            onExitSplit={handleConversationExitSplit}
+                                            canSplit
+                                            onResizeSplit={conversationSplit.handleResizeSplit}
+                                            onEqualizeSplit={conversationSplit.handleEqualizeSplit}
+                                        />
+                                    </div>
+                                </>
+                            );
+                        }
+                        return tabs.filter(tab => tab.type === 'conversation').map(tab => (
+                            <div
+                                key={tab.id}
+                                style={{
+                                    visibility: activeTabId === tab.id ? 'visible' : 'hidden',
+                                    position: 'absolute',
+                                    top: 0,
+                                    left: 0,
+                                    right: 0,
+                                    bottom: 0,
+                                    zIndex: activeTabId === tab.id ? 10 : 0,
+                                }}
+                            >
+                                <ConversationView
+                                    tab={tab}
+                                    active={activeTabId === tab.id}
+                                    status={conversationStatuses[tab.id]}
+                                    sessions={assistantSessions}
+                                    hosts={agentHosts}
+                                    activeSessionId={activeSessionId}
+                                    agentId={tab.agentId || activeAgentId}
+                                    agentColor={colorFor(tab.agentId)}
+                                    scopeProps={scopePropsFor(tab)}
+                                    onConversationChange={(id) => setConversation(tab.id, id)}
+                                    onStatus={reportConversationStatus}
+                                    onOpenSettings={handleOpenAssistantSettings}
+                                    onOpenSnippets={handleOpenSnippets}
+                                    onDetach={() => detachConversationTabs([tab.id])}
+                                    onClose={() => handleCloseTab(tab.id)}
+                                    onNewTab={handleNewConversation}
+                                    canSplit
+                                    paneCount={1}
+                                    onSplit={() => handleConversationSplitStart(tab.id)}
+                                />
+                            </div>
+                        ));
+                    })()}
 
                     {/* Render ALL terminal tabs - use visibility to show/hide */}
                     {tabs.filter(t => t.type === 'terminal').map((tab) => {

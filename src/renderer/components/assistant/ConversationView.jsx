@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
-import { Copy01Icon, LinkSquare02Icon, Tick01Icon } from 'hugeicons-react';
+import { Cancel01Icon, Copy01Icon, SplitIcon, LinkSquare02Icon, Tick01Icon, Unlink01Icon } from 'hugeicons-react';
 import AgentMark from './AgentMark';
+import ConversationPaneSwitcher from './ConversationPaneSwitcher';
 import ScopeMenu from './ScopeMenu';
 import AssistantConversation, { HAIRLINE, HeaderButton } from './AssistantConversation';
 import { PANE_HEADER_HEIGHT } from '../../lib/layout';
@@ -91,6 +92,18 @@ function ConversationView({
     onDetach,
     onClose,
     onNewTab,
+    /** Split-view controls. Absent outside a split; see ConversationSplitView. */
+    inSplit = false,
+    splitFocused = false,
+    canSplit = true,
+    paneCount = 1,
+    onSplit,
+    onClosePane,
+    onExitSplit,
+    /** The chats a split pane can be pointed at; enables the title switcher. */
+    switchTabs = null,
+    onSwitchTab,
+    onNewIntoPane,
 }) {
     const t = useT();
     const title = tab.customTitle || status?.title || t('assistant.newConversation');
@@ -113,23 +126,61 @@ function ConversationView({
     return (
         <div className="absolute inset-0 flex flex-col" onKeyDown={onKeyDown}>
             <div
-                className={`shrink-0 px-3 flex items-center gap-3 border-b ${HAIRLINE}`}
+                data-pane-header={inSplit ? 'true' : undefined}
+                className={`shrink-0 px-3 flex items-center gap-3 border-b ${HAIRLINE} ${inSplit ? 'conv-pane-header' : ''}`}
                 style={{ height: PANE_HEADER_HEIGHT }}
             >
-                <div className="min-w-0 flex-1 flex items-center gap-2">
-                    {/* Working, said by the mark: a conversation answering
-                        while you read it should be visibly doing so. */}
-                    <AgentMark size={18} color={agentColor} className={status?.busy ? 'animate-pulse' : ''} />
-                    <span className="text-xs font-semibold text-gray-900 dark:text-white truncate">
-                        {title}
-                    </span>
-                </div>
+                {inSplit && switchTabs ? (
+                    <ConversationPaneSwitcher
+                        tab={tab}
+                        title={title}
+                        agentColor={agentColor}
+                        busy={status?.busy}
+                        tabs={switchTabs}
+                        onSwitch={onSwitchTab}
+                        onNew={onNewIntoPane}
+                    />
+                ) : (
+                    <div className="min-w-0 flex-1 flex items-center gap-2">
+                        {/* Working, said by the mark: a conversation answering
+                            while you read it should be visibly doing so. */}
+                        <AgentMark size={18} color={agentColor} className={status?.busy ? 'animate-pulse' : ''} />
+                        <span className="text-xs font-semibold text-gray-900 dark:text-white truncate">
+                            {title}
+                        </span>
+                    </div>
+                )}
 
                 <div className="shrink-0 w-64 max-w-[40%]">
                     <ScopeMenu scope={tab.scope} {...scopeProps} />
                 </div>
 
                 {tab.conversationId && <CopyConversationButton conversationId={tab.conversationId} />}
+
+                {canSplit && onSplit && (
+                    <HeaderButton
+                        title={t('assistant.splitView')}
+                        hint={t('assistant.splitViewHint')}
+                        icon={<SplitIcon size={16} strokeWidth={1.75} />}
+                        onClick={() => onSplit()}
+                    />
+                )}
+
+                {inSplit && onClosePane && paneCount > 1 && (
+                    <HeaderButton
+                        title={t('assistant.closeSplitPane')}
+                        icon={<Cancel01Icon size={16} strokeWidth={1.75} />}
+                        onClick={onClosePane}
+                    />
+                )}
+
+                {inSplit && onExitSplit && (
+                    <HeaderButton
+                        title={t('assistant.exitSplit')}
+                        icon={<Unlink01Icon size={16} strokeWidth={1.75} />}
+                        onClick={onExitSplit}
+                    />
+                )}
 
                 <HeaderButton
                     title={t('assistant.detachOnly')}

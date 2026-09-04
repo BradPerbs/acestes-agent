@@ -1094,6 +1094,105 @@ body.pane-resizing-y .xterm {
     pointer-events: none;
 }
 
+/* Conversation split view -------------------------------------------------
+   A terminal tab's SplitLayout stays mounted and hides, so its panes never
+   need an entrance. The conversation split mounts fresh each time it opens,
+   and without one its panes pop in. Scoped to this view so terminal splits
+   are untouched. New panes added to a live split arrive the same way, since
+   only the mounted pane plays the animation. */
+@keyframes conv-pane-in {
+    from {
+        opacity: 0;
+        transform: translateY(8px) scale(0.995);
+    }
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+.conv-split-enter .pane-box {
+    animation: conv-pane-in 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .conv-split-enter .pane-box {
+        animation: none;
+    }
+}
+
+/* Conversation pane dragging ------------------------------------------------
+   A pane is grabbed by its bare header and docked Windows-style: against a
+   view edge, beside another pane, or swapped into its middle. The highlight
+   glides between candidate slots rather than jumping, the way the snap
+   overlay on the platform does. */
+.conv-pane-header {
+    cursor: grab;
+    /* Or a touch drag scrolls the view instead of carrying the pane. */
+    touch-action: none;
+}
+
+body.conv-pane-dragging,
+body.conv-pane-dragging * {
+    cursor: grabbing !important;
+    user-select: none !important;
+}
+
+.conv-drop-preview {
+    position: absolute;
+    border-radius: 12px;
+    pointer-events: none;
+    transition:
+        left 0.12s cubic-bezier(0.16, 1, 0.3, 1),
+        top 0.12s cubic-bezier(0.16, 1, 0.3, 1),
+        width 0.12s cubic-bezier(0.16, 1, 0.3, 1),
+        height 0.12s cubic-bezier(0.16, 1, 0.3, 1);
+    background-color: rgba(59, 130, 246, 0.16);
+    box-shadow: inset 0 0 0 2px rgba(59, 130, 246, 0.55);
+}
+
+.conv-drop-preview[data-variant="swap"] {
+    background-color: rgba(16, 185, 129, 0.10);
+    box-shadow: none;
+    border: 2px dashed rgba(16, 185, 129, 0.6);
+}
+
+.conv-drag-ghost {
+    position: fixed;
+    left: 0;
+    top: 0;
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 240px;
+    padding: 6px 10px;
+    border-radius: 10px;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    pointer-events: none;
+    color: rgb(17, 24, 39);
+    background-color: rgb(255, 255, 255);
+    border: 1px solid rgba(17, 24, 39, 0.10);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22);
+    opacity: 0.95;
+    will-change: transform;
+}
+
+.conv-drag-ghost span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dark .conv-drag-ghost {
+    color: rgb(255, 255, 255);
+    background-color: rgb(38, 38, 38);
+    border-color: rgba(255, 255, 255, 0.12);
+}
+
 /* Glassmorphic Cards */
 .glass-card {
     background: rgba(0, 0, 0, 0.03);

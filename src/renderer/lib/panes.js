@@ -208,6 +208,97 @@ export function splitPane(root, targetId, direction, newPane) {
 }
 
 /**
+ * Put `newPane` next to `targetId`, on either side.
+ *
+ * `splitPane` above always lands after the target; dragging a pane to the
+ * left or top edge needs before. Same sharing rule: the new pane takes half
+ * of the target's share and nothing else moves.
+ */
+export function insertPane(root, targetId, direction, newPane, before = false) {
+    if (isPane(root)) {
+        return root.id === targetId
+            ? createSplit(direction, before ? [newPane, root] : [root, newPane])
+            : root;
+    }
+
+    const insert = (node) => {
+        if (isPane(node)) return node;
+
+        const index = node.children.findIndex(child => isPane(child) && child.id === targetId);
+        if (index !== -1) {
+            // Already on this axis: become a sibling rather than nesting.
+            if (node.direction === direction) {
+                const share = node.sizes[index] / 2;
+                const sizes = [...node.sizes];
+                sizes[index] = share;
+                sizes.splice(before ? index : index + 1, 0, share);
+
+                const children = [...node.children];
+                children.splice(before ? index : index + 1, 0, newPane);
+
+                return { ...node, children, sizes: normalize(sizes) };
+            }
+
+            // Crossing the axis: only the target's own slot is subdivided.
+            const children = [...node.children];
+            children[index] = createSplit(
+                direction,
+                before ? [newPane, node.children[index]] : [node.children[index], newPane],
+            );
+            return { ...node, children };
+        }
+
+        let changed = false;
+        const children = node.children.map((child) => {
+            const next = insert(child);
+            if (next !== child) changed = true;
+            return next;
+        });
+
+        return changed ? { ...node, children } : node;
+    };
+
+    return insert(root);
+}
+
+/**
+ * Carry one pane to another pane's side.
+ *
+ * Removing first and inserting second keeps every share rule in one place:
+ * the dragged pane's old neighbours absorb its share (see `removePane`),
+ * and the target's share is halved for the arrival (see `insertPane`).
+ * Dropping onto itself is a no-op. Returns the root unchanged when either
+ * id is unknown, so callers can treat the result as always renderable.
+ */
+export function movePane(root, draggedId, targetId, direction, before = false) {
+    if (!root || draggedId === targetId) return root;
+    const carried = findPane(root, draggedId);
+    if (!carried) return root;
+    const base = removePane(root, draggedId);
+    if (!base) return root;
+    const next = insertPane(base, targetId, direction, carried, before);
+    return next === base ? root : next;
+}
+
+/**
+ * Exchange two panes' places, keeping every share where it was.
+ *
+ * The drop-center answer to dragging: the layout does not change shape at
+ * all, only which conversation sits in each slot.
+ */
+export function swapPanes(root, firstId, secondId) {
+    if (!root || firstId === secondId) return root;
+    const first = findPane(root, firstId);
+    const second = findPane(root, secondId);
+    if (!first || !second) return root;
+    return mapTree(root, (node) => {
+        if (!isPane(node)) return node;
+        if (node.id === firstId) return second;
+        if (node.id === secondId) return first;
+        return node;
+    });
+}
+/**
  * Drop a pane. Its share goes back to whatever is left in the same split, and
  * a split left holding one child collapses into it. Returns null if the tab
  * has nothing left, which is the caller's cue to close the tab.
