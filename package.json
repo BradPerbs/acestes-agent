@@ -104,20 +104,8 @@
             ],
             "extraResources": [
                 {
-                    "from": "resources/",
-                    "to": "resources/",
-                    "filter": [
-                        "**/*",
-                        "!README.md"
-                    ]
-                },
-                {
-                    "from": "build/icon.png",
-                    "to": "icon.png"
-                },
-                {
-                    "from": "build/icon.ico",
-                    "to": "icon.ico"
+                    "from": "resources/hello-helper.exe",
+                    "to": "resources/hello-helper.exe"
                 }
             ]
         },
