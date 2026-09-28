@@ -29,6 +29,7 @@ const assistant = require('./ai');
 const aiWindows = require('./ai/windows');
 const updates = require('./updates');
 const startup = require('./startup');
+const resources = require('./resources');
 const agents = require('./agents');
 const memory = require('./ai/memory');
 const assistantSettings = require('./ai/settings');
@@ -1788,6 +1789,12 @@ function register(getWindow) {
     // can turn this off somewhere that is not this app.
     handle('startup-status', () => startup.status());
     handle('startup-set-enabled', (event, enabled) => startup.setEnabled(enabled));
+
+    /* ---------------- Resources ---------------- */
+
+    handle('app-memory', () => resources.memory());
+    handle('keep-awake-status', () => resources.awakeStatus());
+    handle('keep-awake-set', (event, on) => resources.setAwake(Boolean(on)));
 
     /* ---------------- Window ---------------- */
 

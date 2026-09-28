@@ -12,8 +12,6 @@ import {
     nearestEffort,
     isDiscovered,
 } from '../../lib/ai-catalog';
-import { chosenAccount, headlineWindows, keyOf, toneOf } from '../../lib/usage-limits';
-import useUsageLimits from '../../hooks/useUsageLimits';
 import { useEnterOn } from '../../hooks/useEnter';
 import { useT } from '../../i18n';
 
@@ -32,9 +30,6 @@ import { useT } from '../../i18n';
  * that scroll under their own sticky headings, and the effort dial fixed at
  * the bottom, where it can always be reached without scrolling past forty
  * models to find it.
- *
- * Each heading carries the plan figure for the account that agent runs under,
- * so the choice between two agents can be made knowing which one has room.
  *
  * Nothing in the list is written here: each agent reports what it can run, and
  * the effort scale is narrowed to the levels the chosen model takes. An agent
@@ -56,30 +51,6 @@ function matches(row, words) {
 
 /** The qualifier a runtime puts in brackets, `(1M context)`, as a tag. */
 const qualifier = (row) => /\(([^)]+)\)\s*$/.exec(row.label || '')?.[1] || '';
-
-const TONE = {
-    ok: 'text-gray-400 dark:text-neutral-500',
-    warn: 'text-amber-600 dark:text-amber-400',
-    over: 'text-red-600 dark:text-red-400',
-};
-
-/** The plan figure beside an agent's heading: `5h 34% · 7d 5%`, or nothing. */
-function PlanFigure({ provider, settings, overview }) {
-    const account = chosenAccount(overview, settings, provider);
-    if (!account) return null;
-    const windows = headlineWindows(overview.limits?.[keyOf(provider, account.id)]?.windows);
-    if (windows.length === 0) return null;
-    return (
-        <span className="flex items-center gap-1.5 text-[10px] font-medium tabular-nums normal-case tracking-normal">
-            {windows.map((window, index) => (
-                <span key={window.id} className={TONE[toneOf(window)]}>
-                    {index > 0 && <span className="text-gray-300 dark:text-neutral-600 mr-1.5">·</span>}
-                    {window.id.endsWith('five_hour') ? '5h' : '7d'} {Math.round(window.used)}%
-                </span>
-            ))}
-        </span>
-    );
-}
 
 /** Under a heading whose agent has not answered: still reading, or ask again. */
 function Pending({ loading, onRefresh }) {
@@ -111,7 +82,6 @@ function MenuBody({ rows, model, settings, providers, catalogs, loading, onRefre
     const [query, setQuery] = useState('');
     const [active, setActive] = useState(-1);
     const listRef = useRef(null);
-    const { overview } = useUsageLimits();
 
     const words = query.toLowerCase().split(/\s+/).filter(Boolean);
     const groups = useMemo(() => {
@@ -212,16 +182,12 @@ function MenuBody({ rows, model, settings, providers, catalogs, loading, onRefre
                 {groups.map(group => (
                     <div key={group.provider} role="group" aria-label={PROVIDER_NAMES[group.provider]}>
                         {marked && (
-                            <div className="sticky top-0 z-10 flex items-center justify-between gap-2 h-7 px-2 mt-1 first:mt-0
-                                bg-white/95 dark:bg-surface-raised/95 backdrop-blur-sm"
+                            <div className="sticky top-0 z-10 flex items-center gap-1.5 h-7 px-2 mt-1 first:mt-0
+                                bg-white/95 dark:bg-surface-raised/95 backdrop-blur-sm
+                                text-[10px] font-semibold uppercase tracking-[0.08em] text-gray-500 dark:text-neutral-400"
                             >
-                                <span className="flex items-center gap-1.5 min-w-0 text-[10px] font-semibold uppercase tracking-[0.08em]
-                                    text-gray-500 dark:text-neutral-400"
-                                >
-                                    <span className="leading-none text-gray-600 dark:text-gray-300"><ProviderMark provider={group.provider} size={11} /></span>
-                                    <span className="truncate">{PROVIDER_NAMES[group.provider]}</span>
-                                </span>
-                                <PlanFigure provider={group.provider} settings={settings} overview={overview} />
+                                <span className="leading-none text-gray-600 dark:text-gray-300"><ProviderMark provider={group.provider} size={11} /></span>
+                                <span className="truncate">{PROVIDER_NAMES[group.provider]}</span>
                             </div>
                         )}
 

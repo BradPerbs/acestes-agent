@@ -450,6 +450,11 @@ contextBridge.exposeInMainWorld('api', {
     system: {
         // Machine woke from sleep or the screen was unlocked.
         onResume: (callback) => subscribe('system-resume', callback),
+        // What the app's own processes hold, in bytes, split by kind.
+        memory: () => ipcRenderer.invoke('app-memory'),
+        // Keeping the machine from sleeping while the app runs: `{ awake, since }`.
+        keepAwake: () => ipcRenderer.invoke('keep-awake-status'),
+        setKeepAwake: (on) => ipcRenderer.invoke('keep-awake-set', Boolean(on)),
     },
 
     /**

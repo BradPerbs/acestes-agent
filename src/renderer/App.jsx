@@ -222,6 +222,17 @@ function App() {
     const tabsRef = useRef(tabs);
     tabsRef.current = tabs;
 
+    // For the status bar's right end. Home is always there, so it is not one
+    // of the tabs someone opened; a split terminal tab is one tab and as many
+    // sessions as it has panes with a host in them.
+    const tabCounts = useMemo(() => ({
+        open: tabs.filter(tab => tab.type !== 'home').length,
+        sessions: tabs
+            .filter(tab => tab.type === 'terminal')
+            .reduce((sum, tab) => sum + collectPanes(tab.layout).filter(pane => pane.host).length, 0),
+        conversations: tabs.filter(tab => tab.type === 'conversation').length,
+    }), [tabs]);
+
     const activeTabIdRef = useRef(activeTabId);
     activeTabIdRef.current = activeTabId;
 
@@ -2312,10 +2323,16 @@ function App() {
 
             </div>
 
-            {/* The plan limits of the agents in use, along the bottom edge.
-                Gone in fullscreen with the rest of the frame. */}
+            {/* The plan limits of the agents in use and what the app itself
+                holds, along the bottom edge. Gone in fullscreen with the rest
+                of the frame. */}
             {!fullscreenTabId && (
-                <StatusBar agentId={activeAgentId} agentName={activeAgent?.name || ''} onOpenSettings={handleOpenAssistantSettings} />
+                <StatusBar
+                    agentId={activeAgentId}
+                    agentName={activeAgent?.name || ''}
+                    tabs={tabCounts}
+                    onOpenSettings={handleOpenAssistantSettings}
+                />
             )}
 
             {confirming && <ConfirmDialog {...confirming} onCancel={() => setConfirming(null)} />}

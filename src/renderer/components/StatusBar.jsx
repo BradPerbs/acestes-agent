@@ -2,6 +2,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Loading03Icon } from 'hugeicons-react';
 import Tooltip from './ui/Tooltip';
 import UsagePanel from './usage/UsagePanel';
+import AppResources from './usage/AppResources';
 import ProviderMark from '../lib/provider-marks';
 import { PROVIDER_ORDER } from '../lib/ai-catalog';
 import {
@@ -19,6 +20,10 @@ import { useT } from '../i18n';
  * without going anywhere. Clicking it opens the whole picture above it: every
  * window with its reset, what this computer sent, the other accounts and how
  * much each has left, and a way to switch to one.
+ *
+ * Its right end is the app itself: what it holds in memory, how many tabs are
+ * open, and a coffee cup that keeps the computer from sleeping. That end stays
+ * when the agent is switched off; the plan figures go with it.
  *
  * It keeps the figures fresh on its own. The accounts in use are read when
  * the app opens and again whenever what is held is older than a quarter of an
@@ -74,7 +79,7 @@ function useRows(overview, settings) {
     }, [overview, settings]);
 }
 
-export default function StatusBar({ agentId, agentName = '', onOpenSettings }) {
+export default function StatusBar({ agentId, agentName = '', tabs, onOpenSettings }) {
     const t = useT();
     const settings = useAgentSettings(agentId);
     const { overview, checking, check } = useUsageLimits();
@@ -106,7 +111,7 @@ export default function StatusBar({ agentId, agentName = '', onOpenSettings }) {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [rows, check]);
 
-    if (!settings || settings.enabled === false) return <div className="h-5 shrink-0" style={{ margin: '-6px 0 -8px' }} />;
+    const planned = Boolean(settings) && settings.enabled !== false;
 
     const shown = rows
         .map(row => ({ ...row, headline: headlineWindows(row.entry?.windows) }))
@@ -131,54 +136,59 @@ export default function StatusBar({ agentId, agentName = '', onOpenSettings }) {
             // row of its own: the window's frame already has the room.
             style={{ margin: '-6px 0 -8px' }}
         >
-            <Tooltip label={t('statusBar.usageHint')} placement="top" enabled={!open}>
-                <button
-                    ref={buttonRef}
-                    type="button"
-                    aria-haspopup="dialog"
-                    aria-expanded={open}
-                    aria-label={t('statusBar.usageLabel')}
-                    onClick={() => setOpen(value => !value)}
-                    className={`h-5 -ml-1.5 px-1.5 flex items-center gap-2.5 rounded-md text-[10.5px] leading-none
-                        tabular-nums font-medium transition-colors outline-none
-                        focus-visible:ring-2 focus-visible:ring-gray-900/20 dark:focus-visible:ring-white/25
-                        ${open ? 'bg-gray-200 dark:bg-white/[0.08]' : 'hover:bg-gray-200/80 dark:hover:bg-white/[0.06]'}`}
-                >
-                    {shown.length === 0 && (
-                        <span className="flex items-center gap-1.5 text-gray-400 dark:text-neutral-500">
-                            {busy
-                                ? <Loading03Icon size={11} className="animate-spin" />
-                                : <span className={`w-1.5 h-1.5 rounded-full ${tone === 'ok' ? 'bg-gray-400 dark:bg-neutral-500' : FILL[tone]}`} />}
-                            {t('statusBar.usage')}
-                        </span>
-                    )}
-                    {shown.map((row, index) => {
-                        const faded = now - lastRead(row.entry) > FADED_AFTER;
-                        return (
-                            <Fragment key={row.provider}>
-                                {index > 0 && <span aria-hidden="true" className="w-px h-2.5 bg-gray-300 dark:bg-white/10" />}
-                                <span className={`flex items-center gap-2 transition-opacity ${faded ? 'opacity-50' : ''}`}>
-                                    <span className="text-gray-500 dark:text-neutral-400 leading-none">
-                                        <ProviderMark provider={row.provider} size={11} />
-                                    </span>
-                                    {row.headline.map(window => <Meter key={window.id} window={window} />)}
-                                </span>
-                            </Fragment>
-                        );
-                    })}
-                    {today.turns > 0 && (
-                        <>
-                            <span aria-hidden="true" className="w-px h-2.5 bg-gray-300 dark:bg-white/10" />
-                            <span className="text-gray-400 dark:text-neutral-500">
-                                {t('statusBar.today', { tokens: compact(today.tokens), count: today.turns })}
+            {!planned && <span />}
+            {planned && (
+                <Tooltip label={t('statusBar.usageHint')} placement="top" enabled={!open}>
+                    <button
+                        ref={buttonRef}
+                        type="button"
+                        aria-haspopup="dialog"
+                        aria-expanded={open}
+                        aria-label={t('statusBar.usageLabel')}
+                        onClick={() => setOpen(value => !value)}
+                        className={`h-5 -ml-1.5 px-1.5 flex items-center gap-2.5 rounded-md text-[10.5px] leading-none
+                            tabular-nums font-medium transition-colors outline-none
+                            focus-visible:ring-2 focus-visible:ring-gray-900/20 dark:focus-visible:ring-white/25
+                            ${open ? 'bg-gray-200 dark:bg-white/[0.08]' : 'hover:bg-gray-200/80 dark:hover:bg-white/[0.06]'}`}
+                    >
+                        {shown.length === 0 && (
+                            <span className="flex items-center gap-1.5 text-gray-400 dark:text-neutral-500">
+                                {busy
+                                    ? <Loading03Icon size={11} className="animate-spin" />
+                                    : <span className={`w-1.5 h-1.5 rounded-full ${tone === 'ok' ? 'bg-gray-400 dark:bg-neutral-500' : FILL[tone]}`} />}
+                                {t('statusBar.usage')}
                             </span>
-                        </>
-                    )}
-                    {busy && shown.length > 0 && <Loading03Icon size={10} className="animate-spin text-gray-400 dark:text-neutral-500" />}
-                </button>
-            </Tooltip>
+                        )}
+                        {shown.map((row, index) => {
+                            const faded = now - lastRead(row.entry) > FADED_AFTER;
+                            return (
+                                <Fragment key={row.provider}>
+                                    {index > 0 && <span aria-hidden="true" className="w-px h-2.5 bg-gray-300 dark:bg-white/10" />}
+                                    <span className={`flex items-center gap-2 transition-opacity ${faded ? 'opacity-50' : ''}`}>
+                                        <span className="text-gray-500 dark:text-neutral-400 leading-none">
+                                            <ProviderMark provider={row.provider} size={11} />
+                                        </span>
+                                        {row.headline.map(window => <Meter key={window.id} window={window} />)}
+                                    </span>
+                                </Fragment>
+                            );
+                        })}
+                        {today.turns > 0 && (
+                            <>
+                                <span aria-hidden="true" className="w-px h-2.5 bg-gray-300 dark:bg-white/10" />
+                                <span className="text-gray-400 dark:text-neutral-500">
+                                    {t('statusBar.today', { tokens: compact(today.tokens), count: today.turns })}
+                                </span>
+                            </>
+                        )}
+                        {busy && shown.length > 0 && <Loading03Icon size={10} className="animate-spin text-gray-400 dark:text-neutral-500" />}
+                    </button>
+                </Tooltip>
+            )}
 
-            {open && (
+            <AppResources tabs={tabs} />
+
+            {open && planned && (
                 <UsagePanel
                     anchor={buttonRef}
                     rows={rows}
