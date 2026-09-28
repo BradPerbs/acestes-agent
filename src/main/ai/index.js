@@ -1122,6 +1122,10 @@ function ensureProvider(conversation) {
             // uses. Given as a function because this module owns the map
             // and the tool catalog must not require it back.
             searchConversations: (args) => search({ ...args, agentId: conversation.agentId }),
+            // And one of them in full, once search has found it.
+            readConversation: (conversationId, options = {}) => (
+                readConversation(conversationId, { ...options, agentId: conversation.agentId })
+            ),
             // A question to the person, answered on a card. See requestQuestion.
             askUser: (payload) => requestQuestion(conversation, payload || {}),
             // The secrets store, minus reading: the agent lists names,
@@ -1507,8 +1511,12 @@ function delegateApiFor(conversation) {
  * rather than the first screen of them. Inputs are the stored events'
  * inputs, which were redacted on the way in, so a password the agent set on
  * a host is a mask here as everywhere else.
+ *
+ * `messagesOnly` is the conversation as it was spoken: what the user said,
+ * what the agent answered and the questions between them, without the tool
+ * calls that are most of a long one.
  */
-function exportMarkdown(conversationId, { full = false } = {}) {
+function exportMarkdown(conversationId, { full = false, messagesOnly = false } = {}) {
     hydrate();
     const conversation = conversations.get(conversationId);
     if (!conversation) return null;
@@ -1557,7 +1565,9 @@ function exportMarkdown(conversationId, { full = false } = {}) {
         if (text.length > resultCap) lines.push(`_… ${text.length - resultCap} more characters not shown._`, '');
     };
 
+    const spoken = new Set(['user-message', 'assistant-text', 'question-request', 'question-settled', 'notice']);
     for (const event of conversation.events) {
+        if (messagesOnly && !spoken.has(event.type)) continue;
         switch (event.type) {
             case 'user-message':
                 lines.push(`## You${stamp(event)}`, '', event.text || '', '');
@@ -1609,6 +1619,29 @@ function exportMarkdown(conversationId, { full = false } = {}) {
         }
     }
     return lines.join('\n');
+}
+
+/**
+ * One of an agent's own conversations, for it to read back.
+ *
+ * Search hands back a line or two around each hit, which is enough to find a
+ * conversation and not enough to use it: ten drafts a chat ended on were one
+ * long message the search showed a sentence of, and the agent took the
+ * sentence for all there was. This is the export the user would otherwise
+ * have pasted in. Another agent's conversation is not found, the way search
+ * never lists it.
+ */
+function readConversation(conversationId, { agentId = '', messagesOnly = false } = {}) {
+    hydrate();
+    const conversation = conversations.get(String(conversationId || ''));
+    if (!conversation || (agentId && conversation.agentId !== agentId)) return null;
+    return {
+        conversationId: conversation.id,
+        title: conversation.title,
+        createdAt: conversation.createdAt,
+        updatedAt: conversation.updatedAt,
+        text: exportMarkdown(conversation.id, { messagesOnly }),
+    };
 }
 
 /* ------------------------------------------------------------------ *
@@ -2443,6 +2476,7 @@ module.exports = {
     probeForJob,
     publicJob,
     exportMarkdown,
+    readConversation,
     setConversationModel,
     secrets,
     resolveModel,

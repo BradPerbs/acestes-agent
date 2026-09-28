@@ -1755,6 +1755,7 @@ export default {
     'assistant.didEdit': 'Edited',
     'assistant.didSearchFiles': 'Searched files',
     'assistant.didSearchConversations': 'Searched past conversations',
+    'assistant.didReadConversation': 'Read a past conversation',
     'assistant.didAsk': 'Asked',
     'assistant.asks': 'The agent asks',
     'assistant.answered': 'Answered',

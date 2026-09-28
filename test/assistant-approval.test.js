@@ -91,7 +91,7 @@ check('the tools that change things are not marked read only', () => {
         'save_snippet', 'save_host', 'save_proxy', 'save_key', 'save_mcp_server', 'save_folder', 'delete_inventory_item',
         'edit_file', 'edit_local_file',
     ];
-    for (const name of ['search_conversations', 'search_local_files', 'ask_user']) {
+    for (const name of ['search_conversations', 'read_conversation', 'search_local_files', 'ask_user']) {
         assert.strictEqual(tools.BY_NAME.get(name).readOnly, true, `${name} changes nothing and asks nobody`);
     }
     for (const name of mutating) {
@@ -410,5 +410,84 @@ check('a read-only run lets reads through instead of parking on the first look',
     assert.strictEqual(tools.isAutoApproved('write_file', { path: '/etc/hosts' }, readOnly), false);
 });
 
-console.log(`\n${passed} checks passed${failed > 0 ? `, ${failed} failed` : ''}`);
-if (failed > 0) process.exit(1);
+const checkAsync = async (label, fn) => {
+    try {
+        await fn();
+        console.log(`  ok   ${label}`);
+        passed++;
+    } catch (error) {
+        console.log(`  FAIL ${label}`);
+        console.log(`       ${error.message}`);
+        failed++;
+    }
+};
+
+(async () => {
+    console.log('\nreading past conversations');
+
+    const read = tools.BY_NAME.get('read_conversation');
+    const long = Array.from({ length: 4000 }, (_, index) => `line ${index} of the drafts`).join('\n');
+    const fake = (text) => ({
+        conversationId: 'ctx-self',
+        readConversation: (id) => (id === 'conv-old' ? { conversationId: id, title: 'Drafts', updatedAt: 1, text } : null),
+    });
+
+    await checkAsync('a past conversation comes back whole, not as a passage', async () => {
+        const result = JSON.parse((await read.handler({ conversationId: 'conv-old' }, fake('## Agent\n\nall ten drafts'))).text);
+        assert.strictEqual(result.text, '## Agent\n\nall ten drafts');
+        assert.strictEqual(result.nextOffset, null, 'a short one is a single page');
+        assert.strictEqual(result.current, undefined);
+    });
+
+    await checkAsync('a long one pages on line breaks until the last page says so', async () => {
+        let offset = 0;
+        let joined = '';
+        let pages = 0;
+        while (offset !== null) {
+            const page = JSON.parse((await read.handler({ conversationId: 'conv-old', offset }, fake(long))).text);
+            assert.ok(page.text.length <= 30000, 'no page is bigger than a result can carry');
+            if (page.nextOffset !== null) assert.ok(page.text.endsWith('\n'), 'a page ends on a line break');
+            assert.strictEqual(page.totalChars, long.length);
+            joined += page.text;
+            offset = page.nextOffset;
+            pages++;
+        }
+        assert.ok(pages > 1);
+        assert.strictEqual(joined, long, 'the pages put back together are the whole conversation');
+    });
+
+    await checkAsync('a conversation that is not there is an error, not an empty read', async () => {
+        const result = await read.handler({ conversationId: 'conv-gone' }, fake(''));
+        assert.strictEqual(result.isError, true);
+        assert.strictEqual((await read.handler({ conversationId: 'conv-old' }, {})).isError, true);
+    });
+
+    await checkAsync('an agent reads its own conversations and not another agent\'s', async () => {
+        const assistant = require(path.join(ROOT, 'ai', 'index'));
+        const agents = require(path.join(ROOT, 'agents'));
+        const owner = agents.activeId();
+        assistant.importConversations([{
+            id: 'conv-read-test',
+            agentId: owner,
+            title: 'GitHub drafts',
+            createdAt: 1,
+            updatedAt: 2,
+            events: [
+                { type: 'user-message', text: 'draft ten answers' },
+                { type: 'tool-call', id: 't1', name: 'run_command', input: { command: 'gh api discussions' } },
+                { type: 'tool-result', id: 't1', text: '[208956, 208953]' },
+                { type: 'assistant-text', text: '**1. #208956** Your controlled test rules out everything on your side.' },
+            ],
+        }]);
+        const mine = assistant.readConversation('conv-read-test', { agentId: owner });
+        assert.ok(mine.text.includes('**1. #208956**'), 'the reply is there in full');
+        assert.ok(mine.text.includes('gh api discussions'), 'and the tool calls with it');
+        const spoken = assistant.readConversation('conv-read-test', { agentId: owner, messagesOnly: true });
+        assert.ok(spoken.text.includes('draft ten answers') && spoken.text.includes('**1. #208956**'));
+        assert.ok(!spoken.text.includes('gh api discussions'), 'messagesOnly leaves the tool calls out');
+        assert.strictEqual(assistant.readConversation('conv-read-test', { agentId: 'someone-else' }), null);
+    });
+
+    console.log(`\n${passed} checks passed${failed > 0 ? `, ${failed} failed` : ''}`);
+    if (failed > 0) process.exit(1);
+})();

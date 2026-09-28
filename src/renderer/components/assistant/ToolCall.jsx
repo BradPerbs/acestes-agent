@@ -46,6 +46,7 @@ const TITLES = {
     edit_local_file: 'assistant.didEdit',
     search_local_files: 'assistant.didSearchFiles',
     search_conversations: 'assistant.didSearchConversations',
+    read_conversation: 'assistant.didReadConversation',
     ask_user: 'assistant.didAsk',
 };
 
@@ -94,6 +95,8 @@ export function describeCall(name, input = {}) {
         case 'search_local_files':
         case 'search_conversations':
             return { mono: false, text: input.query || '' };
+        case 'read_conversation':
+            return { mono: true, text: input.conversationId || '' };
         case 'ask_user':
             return { mono: false, text: input.question || '' };
         case 'read_terminal':

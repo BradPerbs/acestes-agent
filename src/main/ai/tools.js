@@ -172,6 +172,27 @@ function fail(message) {
 }
 
 /**
+ * How much of a long text one result carries. Below what Claude Code lets an
+ * MCP result be before it spills to a file, JSON escaping included.
+ */
+const PAGE_CHARS = 30000;
+
+/**
+ * One page of a long text, from `offset`, ended on a line break when there is
+ * one in the back half of the page so a message is not cut mid-word.
+ * `nextOffset` is null on the last page.
+ */
+function pageOf(text, offset = 0, size = PAGE_CHARS) {
+    const start = Math.max(0, Math.min(Number(offset) || 0, text.length));
+    let end = Math.min(text.length, start + size);
+    if (end < text.length) {
+        const newline = text.lastIndexOf('\n', end);
+        if (newline > start + size / 2) end = newline + 1;
+    }
+    return { offset: start, text: text.slice(start, end), nextOffset: end < text.length ? end : null };
+}
+
+/**
  * An SFTP call, with the two failure shapes reconciled.
  *
  * `withSftp` answers with its own `{ success, message }` when the subsystem
@@ -904,8 +925,10 @@ const TOOLS = [
             + 'user\'s messages, your replies, the commands run and what came back. Use it for "what '
             + 'did we do about X", "how did we fix this last time", or to find the host a problem was '
             + 'on. Plain words plus operators: "exact phrase", -word, host:web-01, tool:run_command, '
-            + 'after:7d, before:2026-08-01, has:error, from:me, from:agent. Returns the matching '
-            + 'conversations with the passages that matched.',
+            + 'after:7d, before:2026-08-01, has:error, from:me, from:agent. A filter on its own, like '
+            + 'after:2d, lists the recent ones newest first. Returns the matching conversations with '
+            + 'a line or two around each hit: enough to find one, never enough to say what is or is '
+            + 'not in it. Read it with read_conversation for that.',
         shape: {
             query: z.string().min(1).describe('Words and operators, as above.'),
             limit: z.number().int().min(1).max(30).optional().describe('Most conversations to return. Defaults to 8.'),
@@ -927,6 +950,43 @@ const TOOLS = [
                         text: snippet.text,
                     })),
                 })),
+            });
+        },
+    },
+
+    {
+        name: 'read_conversation',
+        title: 'Read a past conversation',
+        readOnly: true,
+        description:
+            'Read one of this agent\'s earlier conversations in full, as a transcript: the user\'s '
+            + 'messages, your replies, and the tool calls with what came back. Use it once '
+            + 'search_conversations has found the conversation and you need what was actually said '
+            + 'or produced there: a draft, a plan, the command that fixed it. A long one comes in '
+            + 'pages; pass nextOffset back as offset for the next. messagesOnly leaves out the tool '
+            + 'calls, which are most of a long transcript.',
+        shape: {
+            conversationId: z.string().min(1).describe('The conversationId search_conversations returned.'),
+            offset: z.number().int().min(0).optional().describe('Where to start reading, in characters. Defaults to 0.'),
+            messagesOnly: z.boolean().optional().describe('Only the user\'s messages and your replies.'),
+        },
+        handler: async (input, ctx) => {
+            if (typeof ctx.readConversation !== 'function') return fail('Reading past conversations is not available here.');
+            const found = ctx.readConversation(input.conversationId, { messagesOnly: Boolean(input.messagesOnly) });
+            if (!found) {
+                return fail(`There is no conversation ${input.conversationId} of this agent's. `
+                    + 'Only the most recent ones are kept; search_conversations lists what there is.');
+            }
+            const page = pageOf(found.text, input.offset || 0);
+            return ok({
+                conversationId: found.conversationId,
+                title: found.title,
+                when: new Date(found.updatedAt || found.createdAt || 0).toISOString(),
+                current: found.conversationId === ctx.conversationId || undefined,
+                totalChars: found.text.length,
+                offset: page.offset,
+                nextOffset: page.nextOffset,
+                text: page.text,
             });
         },
     },
