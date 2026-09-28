@@ -9,7 +9,11 @@
 </p>
 
 <p align="center">
-  Persistent memory · Its own inventory · Works on your code and your servers · Runs on Claude Code, Codex, OpenCode, Grok, Kimi or a local model
+  Persistent memory · Its own inventory · Works on your code and your servers · Runs on the coding agent you already use
+</p>
+
+<p align="center">
+  <a href="https://github.com/BradPerbs/acestes-agent/releases/latest"><strong>Download for Windows, macOS and Linux</strong></a>
 </p>
 
 ---
@@ -70,9 +74,9 @@ suggested:
 - **Every agent is a person, not a mode.** Two agents in one window have
   separate memories, inventories, folders and sessions, and one cannot
   reach into the other's.
-- **It runs on the agent you already have.** Claude Code, Codex, OpenCode,
-  Grok, Kimi or a local model, already installed and signed in. No new
-  subscription and no key to paste.
+- **It runs on the agent you already have.** Claude Code, Codex, Cursor,
+  OpenCode or any of the others below, already installed and signed in. No
+  new subscription and no key to paste.
 
 ## An agent, not a chatbot
 
@@ -80,8 +84,8 @@ suggested:
   conversation: how your projects are laid out, what your machines are, how
   you like things done, what the fix turned out to be. Indexed on your own
   machine, searched by meaning, never sent anywhere to be stored. It can
-  also search its own past conversations, so "how did we fix this last time"
-  has an answer.
+  also search its own past conversations and read them back in full, so
+  "how did we fix this last time" has an answer.
 - **It does the work.** On your code it reads, searches and edits inside the
   folders you grant it and runs whatever the project needs. On a server it
   opens the session, reads what is on the screen, runs the commands, checks
@@ -133,11 +137,62 @@ same sessions you do, in the same window.
 ## Your runtime, your choice
 
 Acestes drives the coding agents already installed and signed in on your
-machine: Claude Code, Codex, OpenCode, Grok, Kimi, or any local
-OpenAI-compatible model. No new subscription, no key to paste, and you can
-change your mind per agent.
+machine, and keeps their own tools, behind the same approval cards as its
+own:
 
-## Run it
+| Runtime | Runs on |
+| --- | --- |
+| Claude Code | Anthropic's agent, on your own account |
+| Codex | OpenAI's agent, on your own account |
+| Cursor | Cursor's agent, on your own account |
+| Antigravity | Google's agent, on your Google AI plan |
+| Muse Code | Meta's agent, on your own account |
+| Grok | xAI's agent, on your own account |
+| Kimi | Moonshot's agent, on your own account |
+| Mistral Vibe | Mistral's agent, on your own account |
+| Qwen Code | Alibaba's agent, on the provider you set up |
+| OpenCode | Open source, on the providers you set up |
+| Pi | The minimal agent, on any provider you log in to |
+| Local model | LM Studio, Ollama, vLLM or anything serving the OpenAI API |
+| OpenAI-compatible API | OpenRouter or any OpenAI-shaped API, with a key |
+
+No new subscription and no key to paste. Each agent picks its own runtime
+and model, and can change its mind per conversation. One runtime can hold
+several accounts, and the status bar shows each plan's five-hour and weekly
+limits so you can see which one has room left.
+
+## Download
+
+Get the latest build from the
+[releases page](https://github.com/BradPerbs/acestes-agent/releases/latest):
+
+| System | File |
+| --- | --- |
+| Windows, installed | `AcestesAgent-Setup-x64.exe` |
+| Windows, portable | `AcestesAgent-x64.exe` |
+| macOS, Apple silicon | `AcestesAgent-arm64.dmg` |
+| macOS, Intel | `AcestesAgent-x64.dmg` |
+| Linux | `AcestesAgent-x86_64.AppImage` |
+
+You need at least one of the runtimes above installed and signed in; the
+app finds it on its own.
+
+The builds are not code-signed yet, so your system will say so the first
+time:
+
+- **Windows:** SmartScreen says it protected your PC. Choose *More info*,
+  then *Run anyway*.
+- **macOS:** the first open is refused. Right-click the app in
+  Applications and choose *Open*, or run
+  `xattr -dr com.apple.quarantine "/Applications/Acestes Agent.app"`.
+- **Linux:** `chmod +x AcestesAgent-x86_64.AppImage`, then run it.
+
+The Windows installer updates itself. The other builds tell you when a new
+release is out and link to it.
+
+## Build it from source
+
+With Node 22:
 
 ```
 npm install
@@ -145,8 +200,9 @@ npm run dev
 ```
 
 Builds for Windows, macOS and Linux come from `npm run build`,
-`npm run build:mac` and `npm run build:linux`. See [ROADMAP.md](ROADMAP.md)
-for where this is going.
+`npm run build:mac` and `npm run build:linux`. Pushing a `v*` tag builds
+all of them on GitHub Actions and publishes the release. See
+[ROADMAP.md](ROADMAP.md) for where this is going.
 
 ## License
 
