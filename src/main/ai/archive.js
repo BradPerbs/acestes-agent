@@ -116,6 +116,9 @@ function pack(conversation) {
         // or neither: see `unpack`.
         providerSessionId: conversation.providerSessionId || '',
         provider: conversation.provider || '',
+        // Which of that runtime's sign-ins the session id was issued under:
+        // Claude Code keeps a session in the account's own folder.
+        accountId: conversation.accountId || '',
         title: conversation.title || '',
         // Kept at the top of the list by the user. Their choice, so it
         // outlives the app the way a title does.
@@ -247,6 +250,7 @@ function unpack(record, currentProvider) {
         lastContext: '',
         providerSessionId: resumable ? String(record.providerSessionId || '') : '',
         provider,
+        accountId: typeof record.accountId === 'string' ? record.accountId : '',
         needsRestart: false,
         costUsd: Number.isFinite(record.costUsd) ? record.costUsd : 0,
         title: typeof record.title === 'string' ? record.title : '',

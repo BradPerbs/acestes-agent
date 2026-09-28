@@ -10,6 +10,7 @@ import Button from '../ui/Button';
 import Reveal from '../ui/Reveal';
 import SandboxCard from './SandboxCard';
 import HooksCard from './HooksCard';
+import AccountsCard from './AccountsCard';
 import { useT } from '../../i18n';
 
 /**
@@ -436,6 +437,10 @@ export default function AssistantSection() {
                     </SettingRow>
                 </Reveal>
             </SettingCard>
+
+            {/* Straight after the agents, because it is about them: which
+                sign-in each one runs under, and how much of its plan is left. */}
+            <AccountsCard providers={activated} settings={settings} onSettings={update} />
 
             <SettingCard>
                 <SettingRow

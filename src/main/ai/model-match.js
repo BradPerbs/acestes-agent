@@ -15,9 +15,15 @@ const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
 const PROVIDER_ALIASES = {
     'claude-code': ['claude', 'claudecode', 'anthropic'],
     codex: ['codex', 'openai'],
+    cursor: ['cursor'],
+    antigravity: ['antigravity', 'agy', 'gemini', 'google'],
+    muse: ['muse', 'meta'],
     opencode: ['opencode'],
     grok: ['grok', 'xai'],
     kimi: ['kimi', 'moonshot'],
+    qwen: ['qwen', 'alibaba'],
+    vibe: ['vibe', 'mistral', 'devstral'],
+    pi: ['pi'],
     local: ['local', 'ollama', 'lmstudio', 'llamacpp', 'vllm'],
     openai: ['openrouter', 'api', 'router'],
 };

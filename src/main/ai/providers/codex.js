@@ -277,7 +277,9 @@ async function start({
 
     const { url, token } = await mcpHost.acquire({ toolContext, requestApproval, onEvent });
 
-    const env = { ...process.env, CLOUDBLAST_MCP_TOKEN: token };
+    // Pointed at the account's CODEX_HOME when one other than the machine's
+    // own is chosen, which is the whole of what an account is to Codex.
+    const env = { ...accountEnv(settings), CLOUDBLAST_MCP_TOKEN: token };
     if (settings.apiKey) env.OPENAI_API_KEY = settings.apiKey;
 
     const codex = new sdk.Codex({
@@ -539,70 +541,254 @@ function describeFailure(error) {
  * differ (the 5.6 line has `ultra`, the 5.4 line stops at `xhigh`). That is
  * what lets the dial offer a model's real scale instead of a guess.
  */
-async function listModels() {
+async function listModels({ settings = {} } = {}) {
     const binary = findCodex();
     if (!binary) return null;
 
-    return new Promise((resolve) => {
-        let child = null;
-        let settled = false;
+    // It is a local process answering from a cache, not a network call. If it
+    // has not spoken by now something is wrong with the install, and the menus
+    // have a row that works without it.
+    const server = appServer(binary, { env: accountEnv(settings), timeout: 20000 });
+    try {
+        await server.ready;
+        const result = await server.request('model/list', { includeHidden: false });
+        return describeModels(result?.data);
+    } catch {
+        return null;
+    } finally {
+        server.close();
+    }
+}
 
-        const finish = (rows) => {
-            if (settled) return;
-            settled = true;
-            clearTimeout(timer);
-            try { child?.kill(); } catch { /* already gone */ }
-            resolve(rows);
-        };
+/** The environment a run or a question runs under: this machine's, moved to the account's home. */
+function accountEnv(settings = {}) {
+    return { ...process.env, ...(settings.accountEnv || {}) };
+}
 
-        // It is a local process answering from a cache, not a network call.
-        // If it has not spoken by now something is wrong with the install, and
-        // the menus have a row that works without it.
-        const timer = setTimeout(() => finish(null), 20000);
+/**
+ * `codex app-server`, brought up for a few questions and put down again.
+ *
+ * Line-delimited JSON-RPC on stdio: the protocol the desktop app and the
+ * editor extension are built on, and the only place Codex answers questions
+ * about the account rather than about a thread. `ready` settles once the
+ * handshake is done; `request` sends one call and resolves its result;
+ * notifications go to `onNotification`. Everything is torn down on `close`
+ * or when `timeout` runs out, whichever comes first.
+ */
+function appServer(binary, { env = process.env, timeout = 20000, onNotification = () => {}, onClose = () => {} } = {}) {
+    let child = null;
+    let closed = false;
+    let nextRequest = 1;
+    const waiting = new Map();
 
+    const fail = (error) => {
+        for (const entry of waiting.values()) entry.reject(error);
+        waiting.clear();
+    };
+
+    const close = () => {
+        if (closed) return;
+        closed = true;
+        clearTimeout(timer);
+        fail(new Error('The Codex app server closed.'));
+        try { child?.kill(); } catch { /* already gone */ }
+        try { onClose(); } catch { /* the listener's problem */ }
+    };
+
+    const timer = setTimeout(close, timeout);
+    timer.unref?.();
+
+    // Settles once the process has really gone, which on Windows is later
+    // than the kill: until then it holds its CODEX_HOME open, and a folder
+    // being deleted after a sign-out is refused.
+    let markExited = () => {};
+    const exited = new Promise((resolve) => { markExited = resolve; });
+
+    try {
+        child = spawn(binary, ['app-server'], { stdio: ['pipe', 'pipe', 'ignore'], env, windowsHide: true });
+    } catch (error) {
+        close();
+        markExited();
+        const failed = Promise.reject(error);
+        failed.catch(() => {});
+        return { ready: failed, request: () => failed, close, exited };
+    }
+
+    child.on('error', () => { close(); markExited(); });
+    child.on('exit', () => { close(); markExited(); });
+
+    const send = (payload) => {
         try {
-            child = spawn(binary, ['app-server'], { stdio: ['pipe', 'pipe', 'ignore'] });
-        } catch {
-            finish(null);
+            child.stdin.write(`${JSON.stringify(payload)}\n`);
+        } catch (error) {
+            close();
+        }
+    };
+
+    const request = (method, params) => new Promise((resolve, reject) => {
+        if (closed) {
+            reject(new Error('The Codex app server closed.'));
             return;
         }
-
-        child.on('error', () => finish(null));
-        child.on('exit', () => finish(null));
-
-        const send = (payload) => {
-            try { child.stdin.write(`${JSON.stringify(payload)}\n`); } catch { finish(null); }
-        };
-
-        let buffer = '';
-        child.stdout.on('data', (chunk) => {
-            buffer += chunk.toString('utf8');
-
-            let index = buffer.indexOf('\n');
-            while (index >= 0) {
-                const line = buffer.slice(0, index).trim();
-                buffer = buffer.slice(index + 1);
-                index = buffer.indexOf('\n');
-                if (!line) continue;
-
-                let message;
-                try { message = JSON.parse(line); } catch { continue; }
-
-                if (message.id === 1) {
-                    send({ jsonrpc: '2.0', id: 2, method: 'model/list', params: { includeHidden: false } });
-                } else if (message.id === 2) {
-                    finish(describeModels(message.result?.data));
-                }
-            }
-        });
-
-        send({
-            jsonrpc: '2.0',
-            id: 1,
-            method: 'initialize',
-            params: { clientInfo: { name: 'cloudblast', title: 'CloudTerm', version: '1.0.0' } },
-        });
+        const id = nextRequest++;
+        waiting.set(id, { resolve, reject });
+        send(params === undefined ? { jsonrpc: '2.0', id, method } : { jsonrpc: '2.0', id, method, params });
     });
+
+    let buffer = '';
+    child.stdout.on('data', (chunk) => {
+        buffer += chunk.toString('utf8');
+        let index = buffer.indexOf('\n');
+        while (index >= 0) {
+            const line = buffer.slice(0, index).trim();
+            buffer = buffer.slice(index + 1);
+            index = buffer.indexOf('\n');
+            if (!line) continue;
+
+            let message;
+            try { message = JSON.parse(line); } catch { continue; }
+
+            if (message.id !== undefined && waiting.has(message.id)) {
+                const entry = waiting.get(message.id);
+                waiting.delete(message.id);
+                if (message.error) entry.reject(new Error(message.error.message || 'Codex refused the request.'));
+                else entry.resolve(message.result);
+            } else if (message.method && message.id === undefined) {
+                try { onNotification(message.method, message.params || {}); } catch { /* the listener's problem */ }
+            }
+        }
+    });
+
+    const ready = request('initialize', {
+        clientInfo: { name: 'cloudblast', title: 'CloudTerm', version: '1.0.0' },
+    });
+    ready.catch(() => {});
+
+    return { ready, request, close, exited };
+}
+
+/** Codex's account answer, as the identity the settings page shows. */
+function describeAccount(result) {
+    const account = result?.account;
+    if (!account) return { signedIn: false, email: '', plan: '', organization: '', method: '' };
+    return {
+        signedIn: true,
+        email: account.type === 'chatgpt' ? account.email || '' : '',
+        plan: account.type === 'chatgpt' ? account.planType || '' : '',
+        organization: '',
+        method: account.type === 'chatgpt' ? 'chatgpt' : account.type || '',
+    };
+}
+
+/**
+ * Who the account is and how much of its plan is left, without a turn.
+ *
+ * `account/read` then `account/rateLimits/read`, both answered from the
+ * account's own login. An account signed in with an API key has no plan
+ * windows, and says so by answering with none.
+ */
+async function readLimits({ settings = {} } = {}) {
+    const binary = findCodex();
+    if (!binary) return { identity: null, windows: [], error: 'Codex is not installed on this machine.' };
+
+    const server = appServer(binary, { env: accountEnv(settings), timeout: 25000 });
+    try {
+        await server.ready;
+        const identity = describeAccount(await server.request('account/read', { refreshToken: false }));
+        if (!identity.signedIn || identity.method !== 'chatgpt') return { identity, windows: [] };
+        const limits = await server.request('account/rateLimits/read');
+        return { identity, windows: require('../limits').fromCodexLimits(limits) };
+    } catch (error) {
+        return { identity: null, windows: [], error: describeFailure(error) };
+    } finally {
+        server.close();
+    }
+}
+
+/**
+ * Sign an account in, through the browser.
+ *
+ * The app server does the whole OAuth dance itself when asked: it starts its
+ * own callback listener, answers with the address to open, and announces
+ * `account/login/completed` when the browser comes back. The login is written
+ * to the account's CODEX_HOME, which is what makes this an account and not
+ * the machine's.
+ *
+ *   onProgress   called with `{ url }` once there is a page to open
+ *
+ * Resolves `{ ok, message }`. `cancel` stops waiting and takes the server down.
+ */
+function login({ settings = {}, onProgress = () => {} } = {}) {
+    const binary = findCodex();
+    if (!binary) {
+        return { done: Promise.resolve({ ok: false, message: 'Codex is not installed on this machine.' }), cancel() {} };
+    }
+
+    let finish = () => {};
+    const done = new Promise((resolve) => { finish = resolve; });
+    let settled = false;
+    let loginId = null;
+    let server = null;
+    const settle = (verdict) => {
+        if (settled) return;
+        settled = true;
+        server?.close();
+        finish(verdict);
+    };
+
+    // Ten minutes is long enough to find a password and short enough that a
+    // forgotten attempt does not keep a listener open for the afternoon. A
+    // server that goes away before the browser comes back has said no.
+    server = appServer(binary, {
+        onClose: () => settle({ ok: false, message: 'The sign-in timed out, or Codex stopped before it finished.' }),
+        env: accountEnv(settings),
+        timeout: 10 * 60 * 1000,
+        onNotification: (method, params) => {
+            if (method !== 'account/login/completed') return;
+            if (loginId && params.loginId && params.loginId !== loginId) return;
+            settle(params.success
+                ? { ok: true, message: '' }
+                : { ok: false, message: params.error || 'The sign-in did not complete.' });
+        },
+    });
+
+    (async () => {
+        try {
+            await server.ready;
+            const started = await server.request('account/login/start', { type: 'chatgpt' });
+            loginId = started?.loginId || null;
+            if (started?.authUrl) onProgress({ url: started.authUrl });
+        } catch (error) {
+            settle({ ok: false, message: describeFailure(error) });
+        }
+    })();
+
+    return {
+        done,
+        cancel() {
+            if (loginId) server.request('account/login/cancel', { loginId }).catch(() => {});
+            settle({ ok: false, message: 'Cancelled.' });
+        },
+    };
+}
+
+/** Sign an account out, removing its login from its CODEX_HOME. */
+async function logout({ settings = {} } = {}) {
+    const binary = findCodex();
+    if (!binary) return { ok: false };
+    const server = appServer(binary, { env: accountEnv(settings), timeout: 15000 });
+    try {
+        await server.ready;
+        await server.request('account/logout');
+        return { ok: true };
+    } catch {
+        return { ok: false };
+    } finally {
+        server.close();
+        // Bounded: a process that will not die is not worth hanging a
+        // settings page on.
+        await Promise.race([server.exited, new Promise(resolve => setTimeout(resolve, 3000))]);
+    }
 }
 
 /** One `model/list` row, as the app's menus need it. */
@@ -639,6 +825,10 @@ module.exports = {
     start,
     listModels,
     detect,
+    readLimits,
+    login,
+    logout,
+    describeAccount,
     findCodex,
     codexAppRoots,
     codexRoots,

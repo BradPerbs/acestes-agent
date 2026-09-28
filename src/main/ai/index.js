@@ -1,5 +1,7 @@
 const settings = require('./settings');
 const agents = require('../agents');
+const accounts = require('./accounts');
+const limits = require('./limits');
 const memory = require('./memory');
 const prompt = require('./prompt');
 const catalog = require('./tools');
@@ -42,9 +44,15 @@ const ssh = require('../ssh');
 const PROVIDERS = {
     'claude-code': require('./providers/claude-code'),
     codex: require('./providers/codex'),
+    cursor: require('./providers/cursor'),
+    antigravity: require('./providers/antigravity'),
+    muse: require('./providers/muse'),
     opencode: require('./providers/opencode'),
     grok: require('./providers/grok'),
     kimi: require('./providers/kimi'),
+    qwen: require('./providers/qwen'),
+    vibe: require('./providers/vibe'),
+    pi: require('./providers/pi'),
     local: require('./providers/local'),
     openai: require('./providers/openai'),
 };
@@ -299,6 +307,8 @@ function create(target = {}) {
         // and after a restart the selected agent may not be the one that
         // held this conversation.
         provider: '',
+        // And which of its sign-ins, for the same reason: see accounts.js.
+        accountId: '',
         needsRestart: false,
         costUsd: 0,
         // Taken from the first thing the user says, which is what the history
@@ -644,7 +654,27 @@ function setScope(conversationId, target) {
  * stored for it, or the ask goes out with somebody else's credential on it.
  */
 function resolvedFor(provider, agentId) {
-    return { ...settings.get(agentId), provider, apiKey: settings.readApiKey(provider) };
+    const base = settings.get(agentId);
+    const accountId = accountIdFor(base, provider);
+    return {
+        ...base,
+        provider,
+        apiKey: settings.readApiKey(provider),
+        // Which sign-in runs it, and the variables that point the runtime at
+        // it. Empty for the machine's own login, so nothing changes for a
+        // machine that never adds an account.
+        accountId,
+        accountEnv: accounts.envFor(provider, accountId),
+    };
+}
+
+/**
+ * The account one runtime runs under for these settings, resolved: an id
+ * that names an account that has since been removed is the machine's own.
+ */
+function accountIdFor(current, provider) {
+    if (!accounts.supports(provider)) return accounts.DEFAULT_ID;
+    return accounts.resolve(provider, current?.accounts?.[provider])?.id || accounts.DEFAULT_ID;
 }
 
 /** The settings as the agent behind a conversation sees them. */
@@ -657,6 +687,16 @@ function resolved(agentId) {
  * Changing one of these means the query has to be started again.
  */
 const RESTART_ON = ['provider', 'maxTurns', 'allowLocalTools'];
+
+/**
+ * Whether a change of settings moved the runtime a conversation is on to
+ * another sign-in. The account is fixed in the process's environment when it
+ * starts, so, like the fields above, the query has to start again.
+ */
+function accountMoved(conversation, before, after) {
+    const provider = conversation.provider || after.provider;
+    return accountIdFor(before, provider) !== accountIdFor(after, provider);
+}
 
 /**
  * Note that the configuration moved.
@@ -714,7 +754,7 @@ function reconfigure(before, after, agentId = '') {
             }
             if (!own.effort && before.effort !== after.effort) session.setEffort?.(after.effort);
         }
-        if (RESTART_ON.some(field => before[field] !== after[field])) {
+        if (RESTART_ON.some(field => before[field] !== after[field]) || accountMoved(conversation, before, after)) {
             if (session || conversation.starting) conversation.needsRestart = true;
         }
     }
@@ -1029,11 +1069,19 @@ function ensureProvider(conversation) {
     if (conversation.provider && conversation.provider !== current.provider) {
         conversation.providerSessionId = '';
     }
+    // The same for a change of account on the same runtime: a Claude Code
+    // session lives in the folder of the account that made it, and the other
+    // account's CLI has never heard of it.
+    if (conversation.provider === current.provider
+        && (conversation.accountId || accounts.DEFAULT_ID) !== current.accountId) {
+        conversation.providerSessionId = '';
+    }
 
     // Whose session id the conversation is about to be holding. Recorded before
     // the start rather than after it, because a query that fails on the way up
     // can still have announced a session first.
     conversation.provider = current.provider;
+    conversation.accountId = current.accountId;
 
     conversation.starting = provider.start({
         settings: current,
@@ -1186,10 +1234,29 @@ function handleProviderEvent(conversation, event) {
         conversation.account = event;
         lastAccount = event;
     }
-    if (event.type === 'rate-limit') conversation.rateLimit = event;
+    // Plan windows a runtime reports as it goes, already in the limits
+    // page's shape. Not a transcript item: it describes the account.
+    if (event.type === 'limits') {
+        if (Array.isArray(event.windows) && event.windows.length) {
+            limits.recordWindows(conversation.provider, conversation.accountId, event.windows);
+        }
+        return;
+    }
+    if (event.type === 'rate-limit') {
+        conversation.rateLimit = event;
+        // The plan's own figure, so it is the account's, not the chat's: kept
+        // where the settings page reads every account's limits from.
+        const window = limits.fromClaudeEvent(event);
+        if (window) limits.recordWindows(conversation.provider, conversation.accountId, [window]);
+    }
     if (event.type === 'result') {
         conversation.busy = false;
         conversation.costUsd += event.costUsd || 0;
+        limits.recordTurn(conversation.provider, conversation.accountId, {
+            usage: event.usage,
+            costUsd: event.costUsd,
+            isError: event.isError,
+        });
     }
     if (event.type === 'error' || event.type === 'closed') {
         conversation.busy = false;
@@ -1680,14 +1747,17 @@ async function resolveModel(agentId, query) {
 
 /**
  * Pin a conversation to a runtime, a model and an effort, or change the pin
- * it has. This is what the composer's chip changes in a conversation a task
- * started on a named model: the pin, not the agent's default behind it. A
- * session already open on another runtime is restarted on the next query.
+ * it has. This is what the composer's chip changes: the pin, not the agent's
+ * default behind it, so each conversation keeps the model it was left on.
+ * Like a change of settings, a new model or effort on the same runtime is
+ * pushed at the running session, and another runtime restarts the query on
+ * the next message.
  */
 function setConversationModel(conversationId, patch = {}) {
     hydrate();
     const conversation = conversations.get(conversationId);
     if (!conversation) return { error: 'No such conversation.' };
+    const before = effectiveSettings(conversation);
     const current = conversation.settingsPatch || {};
     const next = {};
     const provider = patch.provider !== undefined ? patch.provider : current.provider;
@@ -1697,7 +1767,16 @@ function setConversationModel(conversationId, patch = {}) {
     const effort = patch.effort !== undefined ? patch.effort : current.effort;
     if (effort) next.effort = String(effort).slice(0, 20);
     conversation.settingsPatch = Object.keys(next).length ? next : null;
-    if (conversation.session) conversation.needsRestart = true;
+    archive.save();
+
+    const after = effectiveSettings(conversation);
+    const session = conversation.session;
+    if (before.provider !== after.provider || accountMoved(conversation, before, after)) {
+        if (session || conversation.starting) conversation.needsRestart = true;
+    } else if (session) {
+        if (before.model !== after.model) session.setModel?.(after.model);
+        if (before.effort !== after.effort) session.setEffort?.(after.effort);
+    }
     return { pinned: conversation.settingsPatch };
 }
 
@@ -1959,6 +2038,10 @@ async function send(conversationId, text, attachments = [], tagged = []) {
         // rather than when the setting changed, means it lands between turns
         // instead of on top of one.
         if (conversation.needsRestart) await restart(conversation);
+        // A runtime that keeps one process for the conversation (the ACP
+        // agents) can lose it between turns. It is started again here, and
+        // resumes the same session where the agent can.
+        else if (conversation.session?.stopped) await restart(conversation);
 
         const session = await ensureProvider(conversation);
 

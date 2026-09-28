@@ -23,7 +23,10 @@ const agents = require('../agents');
 
 const CONFIG_VERSION = 2;
 
-const PROVIDERS = new Set(['claude-code', 'codex', 'opencode', 'grok', 'kimi', 'local', 'openai']);
+const PROVIDERS = new Set([
+    'claude-code', 'codex', 'cursor', 'antigravity', 'muse', 'opencode', 'grok', 'kimi',
+    'qwen', 'vibe', 'pi', 'local', 'openai',
+]);
 
 /**
  * The one runtime that takes a key from a box: an OpenAI-compatible API
@@ -148,6 +151,13 @@ const DEFAULTS = {
     // After a turn that did real work, ask the agent to write down what is
     // worth keeping. Off by default: it is an extra turn, and a visible one.
     autoRemember: false,
+    /**
+     * Which sign-in each runtime uses for this agent, by runtime: an id from
+     * accounts.js, or nothing for the login the machine already has. Only
+     * the runtimes that can hold more than one appear, and an id whose account
+     * has since been removed reads as the machine's own when it is resolved.
+     */
+    accounts: {},
 };
 
 const stateFile = () => path.join(app.getPath('userData'), 'assistant.json');
@@ -219,6 +229,7 @@ function sanitize(raw) {
         autoApproveCommands: [...DEFAULTS.autoApproveCommands],
         blockedCommands: [...DEFAULTS.blockedCommands],
         quickPrompts: [...DEFAULTS.quickPrompts],
+        accounts: {},
         instructions: '',
     };
     if (raw && typeof raw === 'object') {
@@ -260,6 +271,11 @@ function sanitize(raw) {
                 .map(entry => String(entry || '').replace(/\s+/g, ' ').trim().toLowerCase())
                 .filter(Boolean)
                 .slice(0, 100);
+        }
+        if (raw.accounts && typeof raw.accounts === 'object' && !Array.isArray(raw.accounts)) {
+            next.accounts = Object.fromEntries(Object.entries(raw.accounts)
+                .filter(([provider, id]) => PROVIDERS.has(provider) && typeof id === 'string' && id.trim())
+                .map(([provider, id]) => [provider, id.trim().slice(0, 80)]));
         }
         if (Array.isArray(raw.quickPrompts)) {
             // Kept as written, case and all: these are sentences a person typed
@@ -338,6 +354,7 @@ const PER_AGENT = [
     'provider', 'model', 'effort', 'approval', 'commandMode', 'maxTurns',
     'transcriptLines', 'allowLocalTools', 'autoApproveCommands',
     'blockedCommands', 'quickPrompts', 'instructions', 'autoRemember',
+    'accounts',
 ];
 
 const pick = (source, keys) => Object.fromEntries(
@@ -425,6 +442,9 @@ function set(patch, agentId) {
     const { id, settings: before } = effective(agentId);
     const source = patch && typeof patch === 'object' ? patch : {};
     const own = pick(source, PER_AGENT);
+    // One runtime's account at a time is what the page sends, so it lands
+    // over the others rather than replacing the map.
+    if (own.accounts && typeof own.accounts === 'object') own.accounts = { ...(before.accounts || {}), ...own.accounts };
     const shared = { ...source };
     for (const key of PER_AGENT) delete shared[key];
     // A key travels beside the settings, never inside them: it is taken out

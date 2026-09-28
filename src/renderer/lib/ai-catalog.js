@@ -48,9 +48,15 @@ export const effortLabel = (stop) => (stop ? translate(stop.labelKey) : '');
 export const PROVIDER_NAMES = {
     'claude-code': 'Claude Code',
     codex: 'Codex',
+    cursor: 'Cursor',
+    antigravity: 'Antigravity',
+    muse: 'Muse Code',
     opencode: 'OpenCode',
     grok: 'Grok Build',
     kimi: 'Kimi Code',
+    qwen: 'Qwen Code',
+    vibe: 'Mistral Vibe',
+    pi: 'Pi',
     local: 'Local model',
     openai: 'OpenAI-compatible API',
 };

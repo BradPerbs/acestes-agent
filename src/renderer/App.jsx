@@ -29,6 +29,7 @@ import { useKeychain } from './hooks/useKeychain';
 import useSettingsSnapshot from './hooks/useSettingsSnapshot';
 import { useT } from './i18n';
 import { APP_GUTTER } from './lib/layout';
+import StatusBar from './components/StatusBar';
 import { hostOs } from './lib/os-icons';
 import { tagCounts } from './lib/tags';
 import {
@@ -2310,6 +2311,12 @@ function App() {
                 </main>
 
             </div>
+
+            {/* The plan limits of the agents in use, along the bottom edge.
+                Gone in fullscreen with the rest of the frame. */}
+            {!fullscreenTabId && (
+                <StatusBar agentId={activeAgentId} agentName={activeAgent?.name || ''} onOpenSettings={handleOpenAssistantSettings} />
+            )}
 
             {confirming && <ConfirmDialog {...confirming} onCancel={() => setConfirming(null)} />}
 

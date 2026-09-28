@@ -540,6 +540,27 @@ contextBridge.exposeInMainWorld('api', {
         // find on disk answers yes.
         detect: (provider) => ipcRenderer.invoke('ai-detect', provider),
 
+        // The sign-ins each runtime can run under, and how much of each plan
+        // is left. `overview` answers `{ accounts, limits, logins }`: accounts
+        // by runtime, the machine's own first; limits by `runtime:account`.
+        accounts: {
+            overview: () => ipcRenderer.invoke('ai-accounts'),
+            add: ({ provider, label, home } = {}) => ipcRenderer.invoke('ai-accounts-add', { provider, label, home }),
+            rename: (id, label) => ipcRenderer.invoke('ai-accounts-rename', { id, label }),
+            remove: (id) => ipcRenderer.invoke('ai-accounts-remove', id),
+            discover: (provider) => ipcRenderer.invoke('ai-accounts-discover', provider),
+            pickFolder: () => ipcRenderer.invoke('ai-accounts-pick-folder'),
+            // Without `provider`, every account of every runtime.
+            check: ({ provider, accountId } = {}) => ipcRenderer.invoke('ai-accounts-check', { provider, accountId }),
+            login: (provider, accountId) => ipcRenderer.invoke('ai-accounts-login', { provider, accountId }),
+            cancelLogin: (provider, accountId) => ipcRenderer.invoke('ai-accounts-login-cancel', { provider, accountId }),
+            onChanged: (callback) => subscribe('ai-accounts-changed', callback),
+            onLimits: (callback) => subscribe('ai-limits', callback),
+            // `{ provider, accountId, phase, url, line, message }`, phase being
+            // started, waiting, done or failed.
+            onLogin: (callback) => subscribe('ai-account-login', callback),
+        },
+
         // `sessionIds` and `hostIds` are the explicit set a pinned scope fences
         // the conversation to. Empty for the two modes that are not a set.
         // `agentId` says whose conversation it is; left out, the selected

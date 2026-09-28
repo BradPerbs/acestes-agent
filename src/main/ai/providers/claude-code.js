@@ -1,4 +1,5 @@
 const { app } = require('electron');
+const { execFile, spawn } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -453,7 +454,7 @@ async function listModels({ settings = {} } = {}) {
     const input = createInputStream();
     const abortController = new AbortController();
 
-    const env = { ...process.env };
+    const env = accountEnv(settings);
     if (settings.apiKey) env.ANTHROPIC_API_KEY = settings.apiKey;
 
     const stream = sdk.query({
@@ -535,7 +536,10 @@ async function start({
     const abortController = new AbortController();
     const server = buildToolServer(sdk, toolContext, onEvent);
 
-    const env = { ...process.env };
+    // Pointed at the account's CLAUDE_CONFIG_DIR when one other than the
+    // machine's own is chosen: see accounts.js. Its sessions live there too,
+    // which is why a change of account starts the conversation's query again.
+    const env = accountEnv(settings);
     // Only ever set from our own store, and only when the user put one there.
     // Left alone otherwise so the SDK falls through to the Claude Code login
     // already on this machine.
@@ -801,15 +805,21 @@ function translate(message, onEvent) {
 
         // What a subscription actually spends: a share of the plan's window,
         // not dollars. Arrives unprompted whenever the figure moves.
-        case 'rate_limit_event':
+        //
+        // The utilization arrives as a fraction of the window, 0 to 1 (the
+        // CLI's own warning thresholds are written 0.9 and 0.75), and leaves
+        // as a percentage, which is what every other limit figure here is.
+        case 'rate_limit_event': {
+            const raw = message.rate_limit_info?.utilization;
             onEvent({
                 type: 'rate-limit',
                 status: message.rate_limit_info?.status || '',
                 window: message.rate_limit_info?.rateLimitType || '',
-                utilization: message.rate_limit_info?.utilization ?? null,
+                utilization: typeof raw === 'number' ? (raw <= 1 ? raw * 100 : raw) : null,
                 resetsAt: message.rate_limit_info?.resetsAt || 0,
             });
             break;
+        }
 
         case 'result':
             onEvent({
@@ -859,6 +869,214 @@ function describeFailure(error) {
     return text;
 }
 
+/** The environment a run or a question runs under: this machine's, moved to the account's folder. */
+function accountEnv(settings = {}) {
+    return { ...process.env, ...(settings.accountEnv || {}) };
+}
+
+/**
+ * Run one `claude auth` subcommand and collect what it prints.
+ *
+ * Resolves `{ code, stdout, stderr }` and never rejects: a CLI that is
+ * missing or that times out is an answer with a code on it.
+ */
+function runAuth(args, { settings = {}, timeout = 20000 } = {}) {
+    const executable = findClaude();
+    if (!executable) return Promise.resolve({ code: -1, stdout: '', stderr: 'Claude Code is not installed on this machine.' });
+    return new Promise((resolve) => {
+        execFile(executable, ['auth', ...args], {
+            env: accountEnv(settings),
+            timeout,
+            windowsHide: true,
+            maxBuffer: 1024 * 1024,
+        }, (error, stdout, stderr) => {
+            const code = error ? (typeof error.code === 'number' ? error.code : -1) : 0;
+            resolve({ code, stdout: String(stdout || ''), stderr: String(stderr || '') });
+        });
+    });
+}
+
+/**
+ * Who an account is signed in as, from `claude auth status --json`.
+ *
+ * The CLI answers from the account's own folder, costs no tokens and starts
+ * no session. It exits 1 when nobody is signed in and still prints the JSON,
+ * so the text is read whatever the code says.
+ */
+function describeAuthStatus(text) {
+    let parsed = null;
+    try {
+        parsed = JSON.parse(String(text || '').trim());
+    } catch {
+        return null;
+    }
+    if (!parsed || typeof parsed !== 'object') return null;
+    return {
+        signedIn: Boolean(parsed.loggedIn),
+        email: parsed.email || '',
+        plan: parsed.subscriptionType || '',
+        organization: parsed.orgName || '',
+        method: parsed.authMethod && parsed.authMethod !== 'none' ? parsed.authMethod : '',
+    };
+}
+
+async function authStatus({ settings = {} } = {}) {
+    const result = await runAuth(['status', '--json'], { settings });
+    return describeAuthStatus(result.stdout);
+}
+
+/** The SDK's /usage request, under whatever name this version gives it. */
+const USAGE_REQUEST = 'usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET';
+
+/**
+ * Who the account is and how much of its plan is left, without a turn.
+ *
+ * The identity comes from `auth status`. The plan windows come from the same
+ * figures the CLI's own /usage screen draws, asked for over the SDK's control
+ * channel with a session that is brought up, asked and put down, the way
+ * `listModels` reads the model list: no prompt is ever sent.
+ *
+ * That request is marked experimental in the SDK and may be renamed, so it is
+ * looked for rather than assumed. Where it is missing the answer has no
+ * windows, and the page keeps the ones the last turn's rate-limit events left.
+ */
+async function readLimits({ settings = {} } = {}) {
+    const executable = findClaude();
+    if (!executable) return { identity: null, windows: [], error: 'Claude Code is not installed on this machine.' };
+
+    const identity = await authStatus({ settings });
+    if (!identity?.signedIn) return { identity, windows: [] };
+    // Plan windows are a claude.ai subscription's. A Console login is billed
+    // per token and has none to report.
+    if (identity.method && identity.method !== 'claude.ai') return { identity, windows: [] };
+
+    const sdk = await loadSdk();
+    const input = createInputStream();
+    const abortController = new AbortController();
+    const stream = sdk.query({
+        prompt: input,
+        options: {
+            pathToClaudeCodeExecutable: executable,
+            allowedTools: [],
+            permissionMode: 'default',
+            abortController,
+            env: accountEnv(settings),
+            cwd: app.getPath('userData'),
+            settingSources: [],
+        },
+    });
+    const pump = (async () => {
+        try {
+            for await (const message of stream) {
+                if (message?.type === 'system' && message.subtype === 'init') break;
+            }
+        } catch {
+            // Torn down below.
+        }
+    })();
+
+    try {
+        if (typeof stream[USAGE_REQUEST] !== 'function') return { identity, windows: [], unsupported: true };
+        const usage = await stream[USAGE_REQUEST]();
+        return {
+            identity: { ...identity, plan: usage?.subscription_type || identity.plan },
+            windows: require('../limits').fromClaudeUsage(usage),
+        };
+    } catch (error) {
+        return { identity, windows: [], error: describeFailure(error) };
+    } finally {
+        input.close();
+        abortController.abort();
+        try {
+            await stream.return?.();
+        } catch {
+            // Already gone.
+        }
+        await pump.catch(() => {});
+    }
+}
+
+/**
+ * Sign an account in, with `claude auth login`.
+ *
+ * The CLI opens the browser itself and waits for it to come back on a
+ * listener of its own; the login lands in the account's folder because the
+ * variable points it there. What it prints is passed on line by line, and the
+ * first address in it is picked out for the page to offer, since the browser
+ * does not always open on its own.
+ *
+ *   onProgress   called with `{ line }` for each line and `{ url }` once
+ *
+ * Resolves `{ ok, message }`. `cancel` kills the CLI.
+ */
+function login({ settings = {}, onProgress = () => {} } = {}) {
+    const executable = findClaude();
+    if (!executable) {
+        return { done: Promise.resolve({ ok: false, message: 'Claude Code is not installed on this machine.' }), cancel() {} };
+    }
+
+    let child = null;
+    let cancelled = false;
+    let sawUrl = false;
+    let tail = '';
+
+    const done = new Promise((resolve) => {
+        try {
+            child = spawn(executable, ['auth', 'login', '--claudeai'], {
+                env: accountEnv(settings),
+                stdio: ['pipe', 'pipe', 'pipe'],
+                windowsHide: true,
+            });
+        } catch (error) {
+            resolve({ ok: false, message: describeFailure(error) });
+            return;
+        }
+
+        // Ten minutes to find a password; after that the listener goes.
+        const timer = setTimeout(() => child.kill(), 10 * 60 * 1000);
+        timer.unref?.();
+
+        const read = (chunk) => {
+            const text = chunk.toString('utf8');
+            tail = (tail + text).slice(-2000);
+            for (const line of text.split(/\r?\n/).map(entry => entry.trim()).filter(Boolean)) {
+                onProgress({ line: line.slice(0, 500) });
+                const url = /https:\/\/\S+/.exec(line)?.[0];
+                if (url && !sawUrl) {
+                    sawUrl = true;
+                    onProgress({ url });
+                }
+            }
+        };
+        child.stdout.on('data', read);
+        child.stderr.on('data', read);
+        child.on('error', (error) => {
+            clearTimeout(timer);
+            resolve({ ok: false, message: describeFailure(error) });
+        });
+        child.on('close', (code) => {
+            clearTimeout(timer);
+            if (cancelled) resolve({ ok: false, message: 'Cancelled.' });
+            else if (code === 0) resolve({ ok: true, message: '' });
+            else resolve({ ok: false, message: tail.trim().split(/\r?\n/).pop() || `The sign-in stopped (exit ${code}).` });
+        });
+    });
+
+    return {
+        done,
+        cancel() {
+            cancelled = true;
+            try { child?.kill(); } catch { /* already gone */ }
+        },
+    };
+}
+
+/** Sign an account out, removing its login from its folder. */
+async function logout({ settings = {} } = {}) {
+    const result = await runAuth(['logout'], { settings, timeout: 15000 });
+    return { ok: result.code === 0 };
+}
+
 /**
  * Whether this agent is on this machine, for the tick that switches it on.
  *
@@ -879,6 +1097,11 @@ module.exports = {
     start,
     listModels,
     detect,
+    readLimits,
+    login,
+    logout,
+    authStatus,
+    describeAuthStatus,
     findClaude,
     nativeAutoApproved,
     claudeCandidates,

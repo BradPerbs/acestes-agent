@@ -1,0 +1,528 @@
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const crypto = require('crypto');
+const spawn = require('cross-spawn');
+const { app } = require('electron');
+
+const mcpHost = require('../mcp-host');
+const catalog = require('../tools');
+const acp = require('./acp');
+
+/**
+ * The Pi provider.
+ *
+ * Pi is the minimal terminal agent from Earendil (`pi`). It has no MCP and
+ * never asks before a tool runs, both on purpose, and it has an RPC mode and
+ * extensions. This drives `pi --mode rpc` with one extension of ours loaded
+ * (`pi-extension.mjs`), which is where the parity with the other agents comes
+ * from:
+ *
+ *   - the extension registers the app's tools, calling them in `mcp-host`,
+ *     where they are gated like every runtime's
+ *   - the extension puts every call to one of Pi's own tools to the client as
+ *     a `confirm`, which arrives here as an `extension_ui_request` and is
+ *     answered under the app's approval rules: the local-tools switch, the
+ *     blocked list, the approval mode, the card
+ *
+ * Everything else is Pi's RPC: `prompt`, `abort`, `set_model`,
+ * `set_thinking_level`, streamed message and tool events, `agent_settled` for
+ * the end of a turn, and per-message usage with a cost in dollars (which Pi
+ * works out from list prices, subscription or not).
+ *
+ * The session id is ours: `--session-id` opens that session or creates it,
+ * so resuming a conversation is starting Pi with the same id. The home moves
+ * with PI_CODING_AGENT_DIR, which is what lets two accounts sit side by side.
+ */
+
+const LABEL = 'Pi';
+const START_TIMEOUT = 60 * 1000;
+const IDLE_TIMEOUT = 30 * 60 * 1000;
+
+/** Pi's thinking levels, by the app level they stand for. */
+const THINKING = { low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max', ultra: 'max' };
+const APPROVAL = 'acestes:approve';
+const OUR_TOOLS = new Set(catalog.TOOLS.map(tool => tool.name));
+
+let override = null;
+
+function findPi({ env = process.env, home = os.homedir(), platform = process.platform } = {}) {
+    const paths = platform === 'win32' ? path.win32 : path.posix;
+    const agentDir = env.PI_CODING_AGENT_DIR || paths.join(home, '.pi', 'agent');
+    const extra = [paths.join(agentDir, 'bin'), ...acp.commonRoots({ env, home, platform })];
+    return acp.findBinary(['pi'], { extra, env, platform });
+}
+
+function commandFor(args) {
+    if (override) return { command: override.command, args: [...override.args, ...args] };
+    const binary = findPi();
+    return binary ? { command: binary, args } : null;
+}
+
+/** The extension, where Pi can read it: outside the asar in a packaged app. */
+function extensionPath() {
+    return path.join(__dirname, '..', 'pi-extension.mjs').replace(/app\.asar([\\/])/, 'app.asar.unpacked$1');
+}
+
+function workspace() {
+    let root;
+    try { root = app.getPath('userData'); } catch { root = os.tmpdir(); }
+    const directory = path.join(root, 'agent-workspaces', 'pi');
+    try { fs.mkdirSync(directory, { recursive: true }); } catch { /* the spawn says so */ }
+    return directory;
+}
+
+/**
+ * A connection to `pi --mode rpc`: commands with an id get a `response`
+ * back, everything else is an event. Split on LF only, as Pi asks, since its
+ * records can carry U+2028 inside strings.
+ */
+function connect(child, { onEvent = () => {}, onActivity = () => {} } = {}) {
+    let buffer = '';
+    let nextId = 1;
+    let closed = false;
+    const waiting = new Map();
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => {
+        onActivity();
+        buffer += chunk;
+        let index = buffer.indexOf('\n');
+        while (index >= 0) {
+            const line = buffer.slice(0, index).replace(/\r$/, '');
+            buffer = buffer.slice(index + 1);
+            index = buffer.indexOf('\n');
+            if (!line.trim() || line.trimStart()[0] !== '{') continue;
+            let message;
+            try { message = JSON.parse(line); } catch { continue; }
+            if (message.type === 'response' && message.id && waiting.has(message.id)) {
+                const entry = waiting.get(message.id);
+                waiting.delete(message.id);
+                if (message.success === false) entry.reject(new Error(message.error || `${message.command} failed.`));
+                else entry.resolve(message.data);
+                continue;
+            }
+            try { onEvent(message); } catch { /* the listener's problem */ }
+        }
+    });
+    const gone = () => {
+        if (closed) return;
+        closed = true;
+        for (const entry of waiting.values()) entry.reject(new Error('Pi stopped.'));
+        waiting.clear();
+    };
+    child.on('exit', gone);
+    child.on('error', gone);
+    const write = (message) => {
+        if (closed) return;
+        try { child.stdin.write(`${JSON.stringify(message)}\n`); } catch { /* gone */ }
+    };
+    return {
+        send(type, fields = {}, { timeout = 0 } = {}) {
+            if (closed) return Promise.reject(new Error('Pi stopped.'));
+            const id = `r${nextId++}`;
+            return new Promise((resolve, reject) => {
+                let timer = null;
+                if (timeout) {
+                    timer = setTimeout(() => { waiting.delete(id); reject(new Error(`Pi did not answer ${type} in time.`)); }, timeout);
+                    timer.unref?.();
+                }
+                waiting.set(id, {
+                    resolve: (value) => { clearTimeout(timer); resolve(value); },
+                    reject: (error) => { clearTimeout(timer); reject(error); },
+                });
+                write({ id, type, ...fields });
+            });
+        },
+        write,
+        get closed() { return closed; },
+    };
+}
+
+/** `get_available_models`, as the composer's rows. */
+function describeModels(data) {
+    const list = Array.isArray(data?.models) ? data.models : Array.isArray(data) ? data : [];
+    return list.filter(model => model?.id && model?.provider).slice(0, 80).map(model => ({
+        value: `${model.provider}/${model.id}`,
+        resolved: model.id,
+        label: model.name || model.id,
+        short: String(model.name || model.id).replace(/\s*\([^)]*\)\s*$/, ''),
+        description: `${model.provider}${model.contextWindow ? ` · ${Math.round(model.contextWindow / 1000)}k context` : ''}`,
+        preferred: false,
+        // Pi clamps a level to what the model has, so every level is safe to
+        // offer on a model that reasons at all.
+        effort: model.reasoning ? ['low', 'medium', 'high', 'xhigh', 'max'] : [],
+    }));
+}
+
+function usageOf(total) {
+    if (!total) return null;
+    return { input_tokens: total.input, output_tokens: total.output, cache_read_input_tokens: total.cacheRead };
+}
+
+function describeFailure(error, stderr = '') {
+    const text = `${error?.message || error || ''}`;
+    if (/credentials_not_configured|no api key|not logged in|unauthori[sz]ed|401|auth/i.test(`${text}\n${stderr}`)) {
+        return 'Pi has no credentials for this model. Run "pi" in a terminal and use /login, or set the provider\'s API key, then try again.';
+    }
+    if (/ENOENT|not found|spawn/i.test(text)) {
+        return `Pi could not be started. Check that "pi" runs in a terminal. (${text})`;
+    }
+    const last = stderr.trim().split(/\r?\n/).filter(Boolean).pop();
+    return last && !text.includes(last) ? `${text} (${last.slice(0, 300)})` : text;
+}
+
+function launch(settings, { sessionId = '', host = null, rpcArgs = [] } = {}) {
+    const current = settings || {};
+    const model = String(current.model || '');
+    const args = [
+        '--mode', 'rpc',
+        '--no-themes',
+        ...(host ? ['-e', extensionPath()] : []),
+        ...(sessionId ? ['--session-id', sessionId] : ['--no-session']),
+        ...(model ? ['--model', model] : []),
+        ...(THINKING[current.effort] ? ['--thinking', THINKING[current.effort]] : []),
+        // With the local-tools switch off Pi keeps only the app's tools.
+        ...(host && current.allowLocalTools === false ? ['--no-builtin-tools'] : []),
+        ...rpcArgs,
+    ];
+    const command = commandFor(args);
+    if (!command) throw new Error('Pi is not installed on this machine. Install it with "npm install -g @earendil-works/pi-coding-agent", then try again.');
+    const child = spawn(command.command, command.args, {
+        cwd: workspace(),
+        env: { ...process.env, ...(current.accountEnv || {}), ...(host ? { ACESTES_MCP_URL: host.tokenUrl } : {}) },
+        stdio: ['pipe', 'pipe', 'pipe'],
+        windowsHide: true,
+    });
+    let stderr = '';
+    child.stderr?.setEncoding('utf8');
+    child.stderr?.on('data', (chunk) => { stderr = (stderr + chunk).slice(-4000); });
+    return { child, stderr: () => stderr };
+}
+
+async function start({
+    settings,
+    getSettings = () => settings,
+    systemPrompt,
+    toolContext,
+    requestApproval,
+    onEvent,
+    resumeSessionId = '',
+}) {
+    const host = await mcpHost.acquire({ toolContext, requestApproval, onEvent });
+    const sessionId = resumeSessionId || crypto.randomUUID();
+    let proc;
+    try {
+        proc = launch(settings, { sessionId, host });
+    } catch (error) {
+        await mcpHost.release(host.token);
+        throw error;
+    }
+    const { child } = proc;
+
+    let lastActivity = Date.now();
+    let turn = null;
+    const cards = new Set();
+    let currentModel = String(settings.model || '');
+    let currentThinking = THINKING[settings.effort] || '';
+
+    const rpc = connect(child, {
+        onActivity: () => { lastActivity = Date.now(); },
+        onEvent: (message) => {
+            if (message.type === 'extension_ui_request') {
+                answerUi(message);
+                return;
+            }
+            turn?.event(message);
+        },
+    });
+
+    /** The extension's `confirm` for one of Pi's own tools, answered under the app's rules. */
+    async function answerUi(request) {
+        const respond = (fields) => rpc.write({ type: 'extension_ui_response', id: request.id, ...fields });
+        if (!['confirm', 'select', 'input', 'editor'].includes(request.method)) return; // fire-and-forget
+        if (request.method !== 'confirm' || request.title !== APPROVAL) {
+            // Another extension's dialog: there is nobody to show it to.
+            respond({ cancelled: true });
+            return;
+        }
+        let asked = {};
+        try { asked = JSON.parse(request.message || '{}'); } catch { /* as nothing */ }
+        const tool = String(asked.tool || 'tool');
+        const input = asked.input || {};
+        const current = getSettings();
+        const lower = tool.toLowerCase();
+
+        if (!current.allowLocalTools) {
+            respond({ confirmed: false });
+            return;
+        }
+        if (lower === 'bash' || lower === 'powershell') {
+            const blocked = catalog.blockedReason('run_local_command', { command: String(input.command ?? '') }, current);
+            if (blocked) {
+                onEvent({ type: 'tool-blocked', name: tool, rule: blocked });
+                respond({ confirmed: false });
+                return;
+            }
+        }
+        if (catalog.nativeAutoApproved(lower === 'powershell' ? 'bash' : lower, input, current)) {
+            respond({ confirmed: true });
+            return;
+        }
+        let settle;
+        const cancelled = new Promise((resolve) => { settle = resolve; });
+        cards.add(settle);
+        try {
+            const verdict = await Promise.race([
+                requestApproval({ toolName: tool, name: tool, input, local: true }),
+                cancelled.then(() => null),
+            ]);
+            respond({ confirmed: Boolean(verdict?.approved) });
+        } finally {
+            cards.delete(settle);
+        }
+    }
+
+    try {
+        const state = await rpc.send('get_state', {}, { timeout: START_TIMEOUT });
+        if (state?.model?.provider && state?.model?.id) currentModel = `${state.model.provider}/${state.model.id}`;
+        if (state?.thinkingLevel) currentThinking = state.thinkingLevel;
+    } catch (error) {
+        const message = describeFailure(error, proc.stderr());
+        acp.stopProcess(child);
+        await mcpHost.release(host.token);
+        throw new Error(message);
+    }
+
+    onEvent({ type: 'session', sessionId, model: currentModel });
+    rpc.send('get_available_models', {}, { timeout: START_TIMEOUT })
+        .then((data) => {
+            const rows = describeModels(data);
+            if (rows.length) onEvent({ type: 'models', models: rows });
+        })
+        .catch(() => {});
+
+    async function applyModel(model) {
+        if (!model || model === currentModel) return;
+        const cut = model.indexOf('/');
+        if (cut <= 0) return;
+        try {
+            await rpc.send('set_model', { provider: model.slice(0, cut), modelId: model.slice(cut + 1) });
+            currentModel = model;
+        } catch {
+            // Kept on what it had.
+        }
+    }
+
+    async function applyEffort(effort) {
+        const level = THINKING[effort];
+        if (!level || level === currentThinking) return;
+        try {
+            await rpc.send('set_thinking_level', { level });
+            currentThinking = level;
+        } catch {
+            // As above.
+        }
+    }
+
+    function newTurn() {
+        let thinking = false;
+        let finish = () => {};
+        const finished = new Promise((resolve) => { finish = resolve; });
+        const total = { input: 0, output: 0, cacheRead: 0, cost: 0, seen: false };
+        let failure = '';
+        let aborted = false;
+
+        return {
+            finished,
+            total,
+            get failure() { return failure; },
+            get aborted() { return aborted; },
+            event(message) {
+                switch (message.type) {
+                    case 'message_update': {
+                        const inner = message.assistantMessageEvent || {};
+                        if (inner.type === 'text_delta' && inner.delta) onEvent({ type: 'text-delta', text: inner.delta });
+                        else if (inner.type === 'thinking_delta' && inner.delta) {
+                            if (!thinking) { thinking = true; onEvent({ type: 'thinking-start' }); }
+                            onEvent({ type: 'thinking-delta', text: inner.delta });
+                        }
+                        return;
+                    }
+                    case 'message_end': {
+                        const done = message.message || {};
+                        if (done.role !== 'assistant') return;
+                        const text = (done.content || []).filter(block => block?.type === 'text').map(block => block.text).join('');
+                        if (text.trim()) onEvent({ type: 'assistant-text', text });
+                        if (done.usage) {
+                            total.seen = true;
+                            total.input += Number(done.usage.input) || 0;
+                            total.output += Number(done.usage.output) || 0;
+                            total.cacheRead += Number(done.usage.cacheRead) || 0;
+                            total.cost += Number(done.usage.cost?.total) || 0;
+                        }
+                        if (done.stopReason === 'error') failure = done.errorMessage || 'Pi reported an error.';
+                        if (done.stopReason === 'aborted') aborted = true;
+                        return;
+                    }
+                    case 'tool_execution_start': {
+                        const ours = OUR_TOOLS.has(message.toolName);
+                        onEvent({ type: 'tool-call', id: message.toolCallId, name: message.toolName, rawName: message.toolName, local: !ours, input: message.args || {} });
+                        return;
+                    }
+                    case 'tool_execution_end': {
+                        const text = (message.result?.content || []).filter(block => block?.type === 'text').map(block => block.text).join('\n');
+                        onEvent({ type: 'tool-result', id: message.toolCallId, isError: Boolean(message.isError), text });
+                        return;
+                    }
+                    case 'agent_settled':
+                        finish();
+                        return;
+                    default:
+                }
+            },
+        };
+    }
+
+    let preamble = systemPrompt || '';
+    let queue = Promise.resolve();
+    let cancelling = false;
+
+    async function runTurn(text, images) {
+        const current = getSettings();
+        await applyModel(current.model);
+        await applyEffort(current.effort);
+        const body = preamble ? `${preamble}\n\n---\n\n${text}` : text;
+        preamble = '';
+
+        turn = newTurn();
+        cancelling = false;
+        lastActivity = Date.now();
+        const watchdog = setInterval(() => {
+            const busy = mcpHost.pending(host.token) > 0 || cards.size > 0;
+            if (!busy && Date.now() - lastActivity > IDLE_TIMEOUT) rpc.write({ type: 'abort' });
+        }, 30 * 1000);
+        watchdog.unref?.();
+
+        try {
+            await rpc.send('prompt', {
+                message: body || 'See the attached image.',
+                ...(images?.length ? { images: images.map(image => ({ type: 'image', data: image.data, mimeType: image.mediaType })) } : {}),
+            });
+            await Promise.race([
+                turn.finished,
+                new Promise((_, reject) => child.once('exit', () => reject(new Error('Pi stopped.')))),
+            ]);
+            const stopped = cancelling || turn.aborted;
+            if (turn.failure && !stopped) onEvent({ type: 'error', message: describeFailure({ message: turn.failure }, proc.stderr()) });
+            onEvent({
+                type: 'result',
+                subtype: stopped ? 'cancelled' : turn.failure ? 'error' : 'success',
+                isError: Boolean(turn.failure) && !stopped,
+                costUsd: Math.round(turn.total.cost * 1e6) / 1e6,
+                usage: turn.total.seen ? usageOf(turn.total) : null,
+                turns: 1,
+                sessionId,
+            });
+        } catch (error) {
+            if (!cancelling) onEvent({ type: 'error', message: describeFailure(error, proc.stderr()) });
+            onEvent({ type: 'result', subtype: cancelling ? 'cancelled' : 'error', isError: !cancelling, costUsd: 0, usage: null });
+        } finally {
+            clearInterval(watchdog);
+        }
+    }
+
+    child.on('exit', () => onEvent({ type: 'closed' }));
+
+    const cancel = () => {
+        cancelling = true;
+        for (const settle of [...cards]) settle();
+        rpc.write({ type: 'abort' });
+    };
+
+    return {
+        get stopped() { return rpc.closed; },
+        send(text, images = []) {
+            queue = queue.then(() => runTurn(text, images)).catch(() => {});
+        },
+        async setModel(model) { await applyModel(model); },
+        async setEffort(effort) { await applyEffort(effort); },
+        async interrupt() { cancel(); },
+        async close() {
+            cancel();
+            acp.stopProcess(child);
+            await mcpHost.release(host.token);
+        },
+    };
+}
+
+/** What this Pi can run, from an RPC session with no session file. */
+async function listModels({ settings = {} } = {}) {
+    if (!commandFor([])) return null;
+    let proc;
+    try { proc = launch({ ...settings, model: '', effort: '' }); } catch { return null; }
+    const rpc = connect(proc.child);
+    try {
+        const rows = describeModels(await rpc.send('get_available_models', {}, { timeout: START_TIMEOUT }));
+        return rows.length ? rows : null;
+    } catch {
+        return null;
+    } finally {
+        acp.stopProcess(proc.child);
+    }
+}
+
+/**
+ * Whether the model Pi is set to has credentials, via `pi auth check`, which
+ * spends nothing. Pi reports no plan windows; its turns are counted here.
+ */
+async function readLimits({ settings = {} } = {}) {
+    if (!commandFor([])) return { identity: null, windows: [], error: 'Pi is not installed on this machine.' };
+    let provider = '';
+    let proc;
+    try {
+        proc = launch({ ...settings, model: '', effort: '' });
+        const rpc = connect(proc.child);
+        const state = await rpc.send('get_state', {}, { timeout: START_TIMEOUT });
+        provider = state?.model?.provider || '';
+    } catch {
+        // Unknown provider: said as not signed in below.
+    } finally {
+        if (proc) acp.stopProcess(proc.child);
+    }
+    if (!provider) return { identity: { signedIn: false, email: '', plan: '', organization: '', method: '' }, windows: [] };
+
+    const check = await new Promise((resolve) => {
+        const command = commandFor(['auth', 'check', '--provider', provider, '--json', '--no-refresh']);
+        let stdout = '';
+        const child = spawn(command.command, command.args, { env: { ...process.env, ...(settings.accountEnv || {}) }, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
+        const timer = setTimeout(() => { acp.stopProcess(child); resolve(null); }, 20000);
+        child.stdout.setEncoding('utf8');
+        child.stdout.on('data', (chunk) => { stdout += chunk; });
+        child.on('error', () => { clearTimeout(timer); resolve(null); });
+        child.on('close', () => { clearTimeout(timer); try { resolve(JSON.parse(stdout.trim())); } catch { resolve(null); } });
+    });
+    return {
+        identity: {
+            signedIn: check?.status === 'ready',
+            email: '',
+            plan: provider,
+            organization: '',
+            method: check?.authType || '',
+        },
+        windows: [],
+    };
+}
+
+function detect() {
+    return { ok: Boolean(findPi()), reason: 'notFound' };
+}
+
+module.exports = {
+    start,
+    listModels,
+    readLimits,
+    detect,
+    findPi,
+    supportsImages: true,
+    _test: { describeModels, extensionPath, useCommand: (command) => { override = command; } },
+};

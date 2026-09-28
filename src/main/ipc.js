@@ -32,6 +32,7 @@ const startup = require('./startup');
 const agents = require('./agents');
 const memory = require('./ai/memory');
 const assistantSettings = require('./ai/settings');
+const accountActions = require('./ai/account-actions');
 const aiSecrets = require('./ai/secrets');
 const conversationArchive = require('./ai/archive');
 const container = require('./ai/container');
@@ -306,6 +307,9 @@ function register(getWindow) {
     // itself has to show up on the main window's MCP page as it happens.
     agents.setNotifier(broadcast);
     agents.watch();
+    // Accounts and their limits are drawn on the settings page and in the
+    // composer, which can be in different windows.
+    accountActions.setNotifier(broadcast);
     mcpProbe.setNotifier(broadcast);
     memory.setNotifier(notify);
     aiWindows.setMainNotifier(notify);
@@ -1493,6 +1497,32 @@ function register(getWindow) {
     // Asked by the settings page before an agent is switched on, so a tick that
     // could not have worked is refused while the person is still looking at it.
     handle('ai-detect', (event, provider) => assistant.detect(provider));
+
+    /* ---------------- Agent accounts and limits ---------------- */
+
+    // Every account of every runtime that can hold more than one, and the
+    // limits and usage kept for each. See ai/account-actions.js.
+    handle('ai-accounts', () => accountActions.overview());
+    handle('ai-accounts-add', (event, payload) => accountActions.add(payload));
+    handle('ai-accounts-rename', (event, { id, label } = {}) => accountActions.rename(id, label));
+    handle('ai-accounts-remove', (event, id) => accountActions.remove(id));
+    // Folders in the home directory that look like another login, offered
+    // as suggestions when adding one.
+    handle('ai-accounts-discover', (event, provider) => accountActions.discover(provider));
+    handle('ai-accounts-pick-folder', async () => {
+        const { canceled, filePaths } = await dialog.showOpenDialog(getWindow(), {
+            title: 'Choose the folder this account signs in from',
+            properties: ['openDirectory', 'showHiddenFiles'],
+        });
+        return canceled ? '' : filePaths[0] || '';
+    });
+    // Asks the runtime, without sending a message, who the account is and
+    // how much of its plan is left. `provider` alone checks every account.
+    handle('ai-accounts-check', (event, { provider, accountId } = {}) => (provider
+        ? accountActions.check(provider, accountId)
+        : accountActions.checkAll()));
+    handle('ai-accounts-login', (event, { provider, accountId } = {}) => accountActions.startLogin(provider, accountId));
+    handle('ai-accounts-login-cancel', (event, { provider, accountId } = {}) => accountActions.cancelLogin(provider, accountId));
     handle('ai-settings-set', (event, patch) => {
         const before = assistant.settings.get();
         // A key in the patch is stored on its own, encrypted, and never
@@ -1793,6 +1823,8 @@ function cancelPendingPrompts() {
     // conversations denies them, which is the right answer once the window
     // that would have said yes has gone.
     assistant.shutdown();
+    // A sign-in waiting on a browser holds a listener open; it goes too.
+    accountActions.shutdown();
 }
 
 module.exports = { register, cancelPendingPrompts };

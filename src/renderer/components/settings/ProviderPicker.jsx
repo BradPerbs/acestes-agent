@@ -44,9 +44,15 @@ import { useT } from '../../i18n';
 const HINT_KEYS = {
     'claude-code': 'settings.assistant.provider.claudeCode',
     codex: 'settings.assistant.provider.codex',
+    cursor: 'settings.assistant.provider.cursor',
+    antigravity: 'settings.assistant.provider.antigravity',
+    muse: 'settings.assistant.provider.muse',
     opencode: 'settings.assistant.provider.opencode',
     grok: 'settings.assistant.provider.grok',
     kimi: 'settings.assistant.provider.kimi',
+    qwen: 'settings.assistant.provider.qwen',
+    vibe: 'settings.assistant.provider.vibe',
+    pi: 'settings.assistant.provider.pi',
     local: 'settings.assistant.provider.local',
     openai: 'settings.assistant.provider.openai',
 };
