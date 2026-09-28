@@ -30,6 +30,10 @@ const REGISTRY_TIMEOUT = 15000;
  *   arg      a `{{key}}` placeholder in the arguments
  *   header   an HTTP header named `key` (http transport)
  *   url      a `{{key}}` placeholder in the URL
+ *   flag     a `{{key}}` placeholder that becomes `flag` when the answer is
+ *            yes, and nothing otherwise
+ *   option   a `{{key}}` placeholder that becomes `option=value` when a
+ *            value is given, and nothing otherwise
  */
 const CURATED = [
     {
@@ -111,13 +115,15 @@ const CURATED = [
         id: 'playwright',
         name: 'Playwright',
         category: 'web',
-        description: 'Drive a real browser: open pages, click, type, fill forms, read the page, take screenshots. The window is visible, so you can step in for a captcha or a code.',
+        description: 'Drive a real browser: open pages, click, type, fill forms, read the page, take screenshots. The window is visible, so you can step in for a captcha or a code. Can keep a profile between runs and go through a proxy.',
         homepage: 'https://github.com/microsoft/playwright-mcp',
         transport: 'stdio',
         command: 'npx',
-        args: ['-y', '@playwright/mcp@latest', '{{headless}}'],
+        args: ['-y', '@playwright/mcp@latest', '{{headless}}', '{{profile}}', '{{proxy}}'],
         fields: [
             { key: 'headless', label: 'Hide the browser window', kind: 'flag', flag: '--headless', required: false, placeholder: 'no', help: 'Leave empty, or say no, to watch it work. Say yes for an unattended run.' },
+            { key: 'profile', label: 'Profile folder', kind: 'option', option: '--user-data-dir', required: false, placeholder: 'C:\\Users\\me\\acestes-browser', help: 'Keep cookies and logins between runs, in this folder. Leave empty for a fresh browser every time; a site that wants a session cookie before it will register you needs this.' },
+            { key: 'proxy', label: 'Proxy', kind: 'option', option: '--proxy-server', required: false, placeholder: 'http://host:port or socks5://host:port', help: 'Send the browser through a proxy. The browser ignores a username and password in the URL, so use a proxy that authorises this machine\'s address.' },
         ],
     },
     {
@@ -315,6 +321,8 @@ function instantiate(template, values = {}, { name = '' } = {}) {
         // A flag is a yes or a no, however it was said: "false" is not an
         // argument to hand a server, it is the flag left out.
         if (field?.kind === 'flag') return isYes(value) || value === field.flag ? field.flag : '';
+        // An option carries its value with it, or is left out with it.
+        if (field?.kind === 'option') return value ? `${field.option}=${value}` : '';
         return value;
     });
 

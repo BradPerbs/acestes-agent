@@ -10,6 +10,7 @@ import {
     PlusSignIcon,
     Route02Icon,
     ServerStack03Icon,
+    SquareLock02Icon,
 } from 'hugeicons-react';
 import AgentMark from './assistant/AgentMark';
 import { OsIcon, hostOs } from '../lib/os-icons';
@@ -210,6 +211,19 @@ function InventoryOverview({ hosts = [], keys = [], agentId = '', activeAgent = 
     const { snippets: allSnippets } = useSnippets();
     const [notes, setNotes] = useState([]);
 
+    // The keychain page holds keys and secrets behind one switch, so the pouch
+    // that stands for it counts both. Names and dates only, the way the page
+    // itself shows them; the values never leave the main process.
+    const [secrets, setSecrets] = useState([]);
+
+    useEffect(() => {
+        let cancelled = false;
+        window.api.secrets?.list?.()
+            .then(list => { if (!cancelled) setSecrets(Array.isArray(list) ? list : []); })
+            .catch(() => {});
+        return () => { cancelled = true; };
+    }, []);
+
     useEffect(() => {
         let cancelled = false;
         const read = () => window.api.memory.list(agentId)
@@ -250,12 +264,23 @@ function InventoryOverview({ hosts = [], keys = [], agentId = '', activeAgent = 
             icon: <Key01Icon size={15} strokeWidth={1.75} />,
             tint: 'bg-amber-500/15 text-amber-700 dark:text-amber-300',
             mark: 'text-amber-600 dark:text-amber-300',
-            items: keys.map(key => ({
-                key: key.id,
-                label: key.name,
-                title: `${key.name}${key.type ? ` · ${key.type}` : ''}`,
-                icon: <Key01Icon size={19} strokeWidth={1.75} />,
-            })),
+            items: [
+                ...keys.map(key => ({
+                    key: key.id,
+                    label: key.name,
+                    title: `${key.name}${key.type ? ` · ${key.type}` : ''}`,
+                    icon: <Key01Icon size={19} strokeWidth={1.75} />,
+                })),
+                // Told apart by their glyph rather than by a heading, because
+                // the pouch is one list and a padlock among the keys is
+                // already the whole distinction.
+                ...secrets.map(secret => ({
+                    key: `secret:${secret.name}`,
+                    label: secret.name,
+                    title: secret.reference,
+                    icon: <SquareLock02Icon size={19} strokeWidth={1.75} />,
+                })),
+            ],
         },
         {
             page: 'proxies',

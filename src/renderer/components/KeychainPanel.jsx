@@ -1,13 +1,16 @@
 import { memo, useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { FileImportIcon, FingerPrintIcon, Key01Icon, PlusSignIcon, SearchRemoveIcon } from 'hugeicons-react';
+import { FileImportIcon, FingerPrintIcon, Key01Icon, PlusSignIcon, SearchRemoveIcon, SquareLock02Icon } from 'hugeicons-react';
 import toast from 'react-hot-toast';
 import { toastOptions } from '../lib/toast';
 import KeyModal from './KeyModal';
 import KeyCard from './KeyCard';
+import SecretCard from './SecretCard';
+import SecretDialog from './SecretDialog';
 import { IconButton, CollapsingButton } from './ui/Button';
 import ConfirmDialog from './ui/ConfirmDialog';
 import EmptyFrame from './ui/EmptyFrame';
 import SearchField from './ui/SearchField';
+import SegmentedControl from './ui/SegmentedControl';
 import { CARD_GRID } from '../lib/layout';
 import { useT } from '../i18n';
 import { useFlipOrder } from '../hooks/useFlipOrder';
@@ -22,6 +25,17 @@ import useNarrow from '../hooks/useNarrow';
  * layout switch and a folder button.
  */
 const COMPACT_AT = 420;
+
+/**
+ * Where the Keys/Secrets switch drops to its two glyphs.
+ *
+ * Higher than the button's number, because between the two widths there is
+ * only room for one of them to keep its words, and the switch is the one that
+ * can afford to lose them: a key and a padlock, side by side, one of them lit,
+ * is already the whole control, and each segment keeps its tooltip. "New Key"
+ * as a bare plus is a button that could make anything.
+ */
+const SWITCH_COMPACT_AT = 620;
 
 /**
  * The keychain.
@@ -40,6 +54,14 @@ const COMPACT_AT = 420;
  * are the same weight of action as "new folder" and "new host" on the Hosts
  * page and are spelled the same way here: the common one carries the label, the
  * other is a glyph beside it. A menu would have put a click in front of both.
+ *
+ * Two collections share the page, behind a switch: SSH keys, and the secrets
+ * store — the API keys, tokens and passwords other records refer to by name as
+ * `{{secret:name}}`. They are one page because they are one question ("what
+ * credentials does this app hold"), and because the secrets store is the app's,
+ * not any one agent's, which is where it used to be shown and could not be
+ * true. What changes with the switch is only the cards and the buttons that
+ * make them; the search, the scrolling and the shape of a card are shared.
  */
 
 function KeychainPanel({
@@ -58,6 +80,14 @@ function KeychainPanel({
     const [initialMode, setInitialMode] = useState('generate');
     const [confirming, setConfirming] = useState(null);
     const [query, setQuery] = useState('');
+    // Which collection the page is showing: 'keys' or 'secrets'.
+    const [view, setView] = useState('keys');
+    // Null until the store has answered, so the page does not flash "no
+    // secrets yet" at someone who has a screenful of them.
+    const [secrets, setSecrets] = useState(null);
+    // The secret being added or replaced: `{}` for a new one, the record for
+    // a replacement.
+    const [editingSecret, setEditingSecret] = useState(null);
     // Null until asked, so the button does not flash in and out on a machine
     // that turns out not to have Hello set up.
     const [helloReady, setHelloReady] = useState(false);
@@ -66,11 +96,22 @@ function KeychainPanel({
     const searchRef = useRef(null);
 
     // How much room the page has, which is not how big the window is.
-    const [panelRef, cramped] = useNarrow(COMPACT_AT);
+    const [panelRef, [switchCramped, cramped]] = useNarrow([SWITCH_COMPACT_AT, COMPACT_AT]);
 
     useEffect(() => {
         onLoadKeys();
     }, [onLoadKeys]);
+
+    const loadSecrets = useCallback(async () => {
+        const list = await window.api.secrets?.list?.();
+        setSecrets(Array.isArray(list) ? list : []);
+    }, []);
+
+    // Loaded with the page rather than with the tab, so the switch is instant
+    // and the count behind it is right the first time it is looked at.
+    useEffect(() => {
+        loadSecrets().catch(() => setSecrets([]));
+    }, [loadSecrets]);
 
     useEffect(() => {
         let cancelled = false;
@@ -86,15 +127,18 @@ function KeychainPanel({
         if (isActive) return;
         setModalOpen(false);
         setEditingKey(null);
+        setEditingSecret(null);
         setConfirming(null);
     }, [isActive]);
 
     // Reaching for this page while standing on it asks for the editor over it
     // to go. The sheet is handed the signal rather than unmounted, so it slides
     // out onto the page being asked for instead of blinking off it. The confirm
-    // is a centred dialog with no exit to cut short, so it simply stops.
+    // and the secret dialog are centred dialogs with no exit to cut short, so
+    // they simply stop.
     useEffect(() => {
         setConfirming(null);
+        setEditingSecret(null);
     }, [reachedForPage]);
 
     /* ------------------------------------------------------------------ *
@@ -153,11 +197,49 @@ function KeychainPanel({
         ].filter(Boolean).join(' ').toLowerCase().includes(needle));
     }, [entries, query]);
 
+    /**
+     * What a secret can be found by.
+     *
+     * Its name and its reference, which are the same string twice over, and
+     * nothing else — there is nothing else here that is not the value. The
+     * reference is in the haystack anyway because pasting `{{secret:db_pw}}`
+     * out of a host's password field and back into this search is how someone
+     * asks "what is this thing my host is pointing at".
+     */
+    const visibleSecrets = useMemo(() => {
+        const needle = query.trim().toLowerCase();
+        const list = secrets || [];
+        if (!needle) return list;
+        return list.filter(secret => `${secret.name} ${secret.reference}`.toLowerCase().includes(needle));
+    }, [secrets, query]);
+
     // Cards slide between positions when the list is reordered by a search, and
-    // when the grid rewraps because the column it was using no longer fits.
+    // when the grid rewraps because the column it was using no longer fits. Both
+    // collections draw into the one grid, so the view is part of the key: the
+    // switch replaces every card rather than moving any, and FLIP is told that
+    // rather than left to measure a card that is no longer on the page.
     const gridRef = useRef(null);
-    const orderKey = useMemo(() => visible.map(entry => entry.key.id).join(), [visible]);
+    const orderKey = useMemo(() => (view === 'secrets'
+        ? `secrets:${visibleSecrets.map(secret => secret.name).join()}`
+        : `keys:${visible.map(entry => entry.key.id).join()}`), [view, visible, visibleSecrets]);
     useFlipOrder(gridRef, orderKey);
+
+    /**
+     * Switching collections drops the search.
+     *
+     * The two are searched by different things, so a needle that found three
+     * keys almost always finds no secrets, and an empty page is a worse answer
+     * to "show me the secrets" than the list is.
+     */
+    const changeView = useCallback((next) => {
+        setView(next);
+        setQuery('');
+    }, []);
+
+    const showingSecrets = view === 'secrets';
+    // What the grid is drawing, whichever collection that is. Only its length
+    // is asked for, to tell an empty page from a full one.
+    const shown = showingSecrets ? visibleSecrets : visible;
 
     /* ------------------------------------------------------------------ *
      * Actions
@@ -257,6 +339,52 @@ function KeychainPanel({
         });
     }, [onDeleteKey]);
 
+    /**
+     * Write a secret, added or replaced.
+     *
+     * The store answers with an `{ error }` rather than throwing when it cannot
+     * encrypt — a machine whose OS keychain is unavailable is a state to
+     * explain in the form, not a failure to toast over — so that is handed back
+     * to the dialog and only a real write closes it.
+     */
+    const handleSaveSecret = useCallback(async (name, value) => {
+        const result = await window.api.secrets.set(name, value);
+        if (result?.error) return result;
+        await loadSecrets();
+        toast.success(`Secret “${name}” saved`, toastOptions({ duration: 1800 }));
+        return result;
+    }, [loadSecrets]);
+
+    /**
+     * Ask before deleting.
+     *
+     * A secret is as unrecoverable as a private key, and it fails the same way:
+     * nothing breaks here, and then a host will not dial, or an MCP server will
+     * not start, because the reference it holds no longer resolves. The page
+     * cannot name those — see SecretCard on why the renderer is not told which
+     * records point where — so the warning says what it can honestly say.
+     */
+    const confirmDeleteSecret = useCallback((secret) => {
+        setConfirming({
+            title: 'Delete this secret?',
+            message: `“${secret.name}” will be removed. Anything still referring to ${secret.reference} — a host’s `
+                + 'password, an MCP server, a proxy — will stop working until it is given another value. '
+                + 'The stored value cannot be recovered.',
+            confirmLabel: 'Delete secret',
+            onConfirm: async () => {
+                setConfirming(null);
+                try {
+                    await window.api.secrets.remove(secret.name);
+                } catch (error) {
+                    toast.error(`Failed to delete secret: ${error.message}`, toastOptions());
+                    return;
+                }
+                await loadSecrets();
+                toast.success(`Deleted “${secret.name}”`, toastOptions({ duration: 2200 }));
+            },
+        });
+    }, [loadSecrets]);
+
     const copy = useCallback(async (text, what) => {
         try {
             await navigator.clipboard.writeText(text);
@@ -310,65 +438,118 @@ function KeychainPanel({
                     value={query}
                     onChange={setQuery}
                     onKeyDown={handleSearchKeyDown}
-                    ariaLabel={t('keychain.search')}
+                    ariaLabel={t(showingSecrets ? 'keychain.searchSecrets' : 'keychain.search')}
+                />
+
+                {/* The switch sits between the field and the actions because
+                    that is the reading order of the header: what you are
+                    looking at, then what you can do to it. */}
+                <SegmentedControl
+                    ariaLabel={t('keychain.collection')}
+                    value={view}
+                    onChange={changeView}
+                    segments={[
+                        {
+                            value: 'keys',
+                            label: switchCramped ? undefined : t('keychain.keys'),
+                            title: t('keychain.keys'),
+                            icon: <Key01Icon size={14} strokeWidth={2} />,
+                        },
+                        {
+                            value: 'secrets',
+                            label: switchCramped ? undefined : t('keychain.secrets'),
+                            title: t('keychain.secrets'),
+                            icon: <SquareLock02Icon size={14} strokeWidth={2} />,
+                        },
+                    ]}
                 />
 
                 {/* `ml-auto` only does anything once the row has wrapped, where
                     it holds these to the right edge rather than letting them
                     sit under the start of the field. */}
                 <div className="flex items-center gap-2 shrink-0 ml-auto">
-                    <IconButton
-                        onClick={() => handleNewKey('import')}
-                        title={t('keychain.import')}
-                        icon={<FileImportIcon size={18} strokeWidth={1.75} />}
-                    />
-                    {/* Only where there is a Hello to enrol into. Offering it on
-                        a machine with no biometrics set up would be a button
-                        whose only outcome is an error. */}
-                    {helloReady && (
-                        <IconButton
-                            onClick={handleNewHelloKey}
-                            disabled={enrolling}
-                            title={enrolling
-                                ? t('keychain.helloWaiting')
-                                : t('keychain.helloAdd')}
-                            icon={<FingerPrintIcon size={18} strokeWidth={1.75} />}
+                    {showingSecrets ? (
+                        <CollapsingButton
+                            compact={cramped}
+                            onClick={() => setEditingSecret({})}
+                            label={t('keychain.newSecret')}
+                            icon={<PlusSignIcon size={16} strokeWidth={2.5} />}
                         />
+                    ) : (
+                        <>
+                            <IconButton
+                                onClick={() => handleNewKey('import')}
+                                title={t('keychain.import')}
+                                icon={<FileImportIcon size={18} strokeWidth={1.75} />}
+                            />
+                            {/* Only where there is a Hello to enrol into. Offering it on
+                                a machine with no biometrics set up would be a button
+                                whose only outcome is an error. */}
+                            {helloReady && (
+                                <IconButton
+                                    onClick={handleNewHelloKey}
+                                    disabled={enrolling}
+                                    title={enrolling
+                                        ? t('keychain.helloWaiting')
+                                        : t('keychain.helloAdd')}
+                                    icon={<FingerPrintIcon size={18} strokeWidth={1.75} />}
+                                />
+                            )}
+                            <CollapsingButton
+                                compact={cramped}
+                                onClick={() => handleNewKey('generate')}
+                                label={t('keychain.newKey')}
+                                icon={<PlusSignIcon size={16} strokeWidth={2.5} />}
+                            />
+                        </>
                     )}
-                    <CollapsingButton
-                        compact={cramped}
-                        onClick={() => handleNewKey('generate')}
-                        label={t('keychain.newKey')}
-                        icon={<PlusSignIcon size={16} strokeWidth={2.5} />}
-                    />
                 </div>
             </div>
 
             {/* The panel scrolls its own list, so the actions stay put however
                 many keys the collection grows to. */}
             <div className="flex-1 min-h-0 overflow-y-auto -mx-2 px-2 pb-1">
-                {visible.length === 0 ? (
-                    <EmptyFrame
-                        icon={searching
-                            ? <SearchRemoveIcon size={28} strokeWidth={1.5} />
-                            : <Key01Icon size={28} strokeWidth={1.5} />}
-                        title={searching ? t('common.noMatchesTitle') : t('keychain.empty')}
-                        note={searching
-                            ? `“${query.trim()}”`
-                            : t('keychain.emptyNote')}
-                    />
+                {shown.length === 0 ? (
+                    /* Nothing at all until the store has answered: an empty
+                       frame that is really "still loading" reads as a decision
+                       the app has made about your data. */
+                    (showingSecrets && secrets === null) ? null : (
+                        <EmptyFrame
+                            icon={searching
+                                ? <SearchRemoveIcon size={28} strokeWidth={1.5} />
+                                : showingSecrets
+                                    ? <SquareLock02Icon size={28} strokeWidth={1.5} />
+                                    : <Key01Icon size={28} strokeWidth={1.5} />}
+                            title={searching
+                                ? t('common.noMatchesTitle')
+                                : t(showingSecrets ? 'keychain.secretsEmpty' : 'keychain.empty')}
+                            note={searching
+                                ? `“${query.trim()}”`
+                                : t(showingSecrets ? 'keychain.secretsEmptyNote' : 'keychain.emptyNote')}
+                        />
+                    )
                 ) : (
                     <div ref={gridRef} className={CARD_GRID}>
-                        {visible.map(entry => (
-                            <KeyCard
-                                key={entry.key.id}
-                                entry={entry}
-                                onEdit={() => handleEditKey(entry.key)}
-                                onCopyPublicKey={() => copy(entry.key.publicKey, 'Public key')}
-                                onCopyFingerprint={() => copy(entry.key.fingerprint, 'Fingerprint')}
-                                onDelete={() => confirmDelete(entry)}
-                            />
-                        ))}
+                        {showingSecrets
+                            ? visibleSecrets.map(secret => (
+                                <SecretCard
+                                    key={secret.name}
+                                    secret={secret}
+                                    onReplace={() => setEditingSecret(secret)}
+                                    onCopyReference={() => copy(secret.reference, 'Reference')}
+                                    onDelete={() => confirmDeleteSecret(secret)}
+                                />
+                            ))
+                            : visible.map(entry => (
+                                <KeyCard
+                                    key={entry.key.id}
+                                    entry={entry}
+                                    onEdit={() => handleEditKey(entry.key)}
+                                    onCopyPublicKey={() => copy(entry.key.publicKey, 'Public key')}
+                                    onCopyFingerprint={() => copy(entry.key.fingerprint, 'Fingerprint')}
+                                    onDelete={() => confirmDelete(entry)}
+                                />
+                            ))}
                     </div>
                 )}
             </div>
@@ -391,6 +572,19 @@ function KeychainPanel({
                         const entry = entries.find(item => item.key.id === editingKey?.id);
                         if (entry) confirmDelete(entry);
                     }}
+                />
+            )}
+
+            {editingSecret && (
+                <SecretDialog
+                    // Keyed by the name, so replacing one secret and then
+                    // another starts the second on an empty value field rather
+                    // than on whatever was typed into the first.
+                    key={editingSecret.name || 'new'}
+                    existing={editingSecret.name ? editingSecret : null}
+                    taken={(secrets || []).map(secret => secret.name)}
+                    onSave={handleSaveSecret}
+                    onClose={() => setEditingSecret(null)}
                 />
             )}
 

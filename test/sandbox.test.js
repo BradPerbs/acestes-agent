@@ -250,6 +250,22 @@ async function run() {
         assert.strictEqual(single.matches.length, 1);
         assert.strictEqual(single.filesScanned, 1, 'a file named as the target counts as read');
 
+        // Case, and the two ways an empty result is a lie rather than an answer.
+        assert.strictEqual((await local.search(ctx, { query: 'SERVER_name' })).matches.length, 0);
+        const loose = await local.search(ctx, { query: 'SERVER_name', ignoreCase: true });
+        assert.strictEqual(loose.matches.length, 1, 'ignoreCase matches whatever the spelling');
+        assert.strictEqual(loose.hint, undefined, 'a hit needs no hint');
+        assert.strictEqual((await local.search(ctx, { query: 'SeRvEr', regex: true, ignoreCase: true })).matches.length, 1);
+
+        // The literal search that reads like a regular expression: the failure
+        // the hint exists for, where "nothing here" was the wrong conclusion.
+        const literal = await local.search(ctx, { query: 'server_name|listen' });
+        assert.strictEqual(literal.matches.length, 0);
+        assert.ok(/regex: true/.test(literal.hint), 'an empty literal search says the query looks like a pattern');
+        const cased = await local.search(ctx, { query: 'Server_Name' });
+        assert.ok(/ignoreCase: true/.test(cased.hint), 'an empty mixed-case search says the match is case-sensitive');
+        assert.strictEqual((await local.search(ctx, { query: 'nowhere' })).hint, undefined, 'a plain miss is just a miss');
+
         const outside = await local.search(ctx, { query: '80', path: os.tmpdir() });
         assert.ok(outside.error, 'a path outside the grant is refused');
         const nothing = await local.search({ agentId: 'a', sandbox: sandbox.normalize() }, { query: '80' });

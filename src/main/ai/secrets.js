@@ -135,6 +135,27 @@ function resolveObject(map) {
     return out;
 }
 
+/**
+ * The same through arrays and objects: every string leaf with a reference
+ * in it. For the arguments of a tool call, where a password typed into a
+ * browser form is `{{secret:site}}` as the model wrote it and the value as
+ * the server receives it.
+ */
+function resolveDeep(value, depth = 0) {
+    if (typeof value === 'string') return resolve(value);
+    if (!value || typeof value !== 'object' || depth > 8) return value;
+    if (Array.isArray(value)) return value.map(entry => resolveDeep(entry, depth + 1));
+    let out = value;
+    for (const [key, entry] of Object.entries(value)) {
+        const filled = resolveDeep(entry, depth + 1);
+        if (filled !== entry) {
+            if (out === value) out = { ...value };
+            out[key] = filled;
+        }
+    }
+    return out;
+}
+
 /** The names a string refers to that this store does not hold. */
 function unresolved(text) {
     if (typeof text !== 'string') return [];
@@ -142,6 +163,17 @@ function unresolved(text) {
     const missing = new Set();
     for (const match of text.matchAll(REFERENCE)) {
         if (!plain.has(match[1])) missing.add(match[1]);
+    }
+    return [...missing];
+}
+
+/** The same through arrays and objects. */
+function unresolvedDeep(value, depth = 0) {
+    if (typeof value === 'string') return unresolved(value);
+    if (!value || typeof value !== 'object' || depth > 8) return [];
+    const missing = new Set();
+    for (const entry of Array.isArray(value) ? value : Object.values(value)) {
+        for (const name of unresolvedDeep(entry, depth + 1)) missing.add(name);
     }
     return [...missing];
 }
@@ -174,15 +206,65 @@ function scrubDeep(value, depth = 0) {
     return out;
 }
 
+/**
+ * Every secret the store can still read, in the clear inside the payload
+ * (which is itself encrypted). Names encrypted under another OS account or
+ * machine decrypt to nothing and are left out: the reference survives in
+ * whichever record holds it, and the value has to be typed again.
+ */
+function exportAll() {
+    load();
+    const out = {};
+    for (const name of Object.keys(records)) {
+        const value = plain.get(name);
+        if (value) out[name] = value;
+    }
+    return out;
+}
+
+/**
+ * Bring secrets from a backup, matched on name, re-encrypted under this
+ * machine's keychain on the way in. Anything the OS cannot encrypt is
+ * skipped rather than kept in the clear.
+ */
+function importAll(payload, { overwrite = false } = {}) {
+    load();
+    const result = { added: 0, replaced: 0, skipped: 0 };
+    const incoming = payload && typeof payload === 'object' ? payload : {};
+    for (const [name, value] of Object.entries(incoming)) {
+        if (!value) {
+            result.skipped++;
+            continue;
+        }
+        const had = Boolean(records[name]);
+        if (had && !overwrite) {
+            result.skipped++;
+            continue;
+        }
+        const stored = set(name, String(value));
+        if (!stored?.stored) {
+            result.skipped++;
+            continue;
+        }
+        if (had) result.replaced++;
+        else result.added++;
+    }
+    return result;
+}
+
 module.exports = {
     set,
     remove,
     list,
     has,
     read,
+    exportAll,
+    importAll,
     resolve,
     resolveObject,
+    resolveDeep,
     unresolved,
+    unresolvedDeep,
     scrub,
     scrubDeep,
     referenceFor,

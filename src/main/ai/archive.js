@@ -120,6 +120,9 @@ function pack(conversation) {
         // Kept at the top of the list by the user. Their choice, so it
         // outlives the app the way a title does.
         pinned: Boolean(conversation.pinned),
+        // The runtime, model and effort picked for this conversation, over
+        // the agent's defaults. Null while it follows them.
+        settingsPatch: conversation.settingsPatch || null,
         // Whose it is. An id no agent answers to any more is repaired on the
         // way back in, by `index.js`.
         agentId: conversation.agentId || '',
@@ -137,6 +140,19 @@ function readEvents(raw) {
     return raw
         .filter(event => event && typeof event === 'object' && typeof event.type === 'string')
         .slice(-MAX_EVENTS);
+}
+
+/**
+ * The model a conversation was left on, or null. Strings only: an unknown
+ * runtime is dropped later, by whoever resolves the settings.
+ */
+function readSettingsPatch(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const patch = {};
+    for (const field of ['provider', 'model', 'effort']) {
+        if (typeof raw[field] === 'string' && raw[field]) patch[field] = raw[field];
+    }
+    return Object.keys(patch).length ? patch : null;
 }
 
 /**
@@ -235,6 +251,7 @@ function unpack(record, currentProvider) {
         costUsd: Number.isFinite(record.costUsd) ? record.costUsd : 0,
         title: typeof record.title === 'string' ? record.title : '',
         pinned: record.pinned === true,
+        settingsPatch: readSettingsPatch(record.settingsPatch),
         agentId: typeof record.agentId === 'string' ? record.agentId : '',
         createdAt: Number.isFinite(record.createdAt) ? record.createdAt : at,
         updatedAt: at,

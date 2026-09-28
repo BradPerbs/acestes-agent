@@ -338,16 +338,17 @@ export default function AssistantConversation({
         setSettings(next);
     }, []);
 
-    // A conversation a task or a job started on a named model is pinned to
-    // it, and the chip says so: what is answering here, not the agent's
-    // default behind it. A change from the chip then moves the pin, and
-    // leaves the agent's settings where they were.
+    // The model belongs to the conversation. A new one follows the agent's
+    // default until the chip is touched; from then on it is pinned to what
+    // was picked, and coming back to it finds that model still there. A task
+    // or a job that starts one on a named model pins it the same way. The
+    // chip shows what is answering here, and never moves the agent's settings.
     const pinned = assistant.pinned;
     const shownSettings = useMemo(
         () => (settings && pinned ? { ...settings, ...pinned } : settings),
         [settings, pinned],
     );
-    const changeModel = useCallback((patch) => (pinned ? assistant.pinModel(patch) : changeSettings(patch)), [pinned, assistant.pinModel, changeSettings]);
+    const changeModel = assistant.pinModel;
 
     // `preventScroll` because the card is mounted at its full width inside a
     // column that is still only a rail wide, and clipped to it. Focusing the
@@ -927,7 +928,7 @@ export default function AssistantConversation({
                         {/* The standing state of the panel: what it will do
                             before asking, and where it is changed. */}
                         {settings && (
-                            <ApprovalMenu settings={settings} onChange={changeSettings} />
+                            <ApprovalMenu settings={settings} onChange={changeSettings} runPolicy={assistant.runPolicy} />
                         )}
 
                         {/* Anything in the inventory can be named in a message.

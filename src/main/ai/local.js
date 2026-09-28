@@ -293,17 +293,44 @@ function globToRegExp(glob) {
     return new RegExp(`^${escaped}$`, process.platform === 'win32' ? 'i' : '');
 }
 
-async function search(ctx, { query, path: target = '', regex = false, glob = '', limit = MAX_MATCHES } = {}) {
+async function search(ctx, {
+    query, path: target = '', regex = false, ignoreCase = false, glob = '', limit = MAX_MATCHES,
+} = {}) {
     const needle = String(query || '');
     if (!needle) return { error: 'Say what to search for.' };
     const cap = Math.max(1, Math.min(Number(limit) || MAX_MATCHES, MAX_MATCHES));
+    const loose = Boolean(ignoreCase);
 
     let pattern;
     try {
-        pattern = regex ? new RegExp(needle) : null;
+        pattern = regex ? new RegExp(needle, loose ? 'i' : '') : null;
     } catch (error) {
         return { error: `That is not a valid regular expression: ${error.message}` };
     }
+
+    /**
+     * Nothing found is an answer, and sometimes it is the wrong one.
+     *
+     * A plain query is matched literally, so `a|b` looks for those three
+     * characters and a name typed in the wrong case is missed. Both come
+     * back as a confident zero, which reads as "it is not in this tree" and
+     * sends the agent off to guess. Where the query itself says which
+     * mistake was made, the empty result says so too.
+     */
+    const withHint = (result) => {
+        if (result.error || result.matches?.length) return result;
+        const looksRegex = !regex && /[|\\[\]()*+?{}^$]/.test(needle);
+        const looksCased = !loose && /[A-Z]/.test(needle) && /[a-z]/.test(needle);
+        if (!looksRegex && !looksCased) return result;
+        return {
+            ...result,
+            hint: looksRegex
+                ? 'No matches, and the query was matched as literal text: it reads like a regular '
+                    + 'expression, so pass regex: true to use it as one.'
+                : 'No matches, and the match is case-sensitive: pass ignoreCase: true if the spelling '
+                    + 'may differ.',
+        };
+    };
 
     if (containerised(ctx)) {
         const checked = sandboxModule.containerPath(ctx.sandbox, target || sandboxModule.WORKSPACE);
@@ -311,6 +338,7 @@ async function search(ctx, { query, path: target = '', regex = false, glob = '',
         const problem = await ready(ctx);
         if (problem) return { error: problem };
         const flags = ['-rnI', '--exclude-dir=.git', '--exclude-dir=node_modules', regex ? '-E' : '-F'];
+        if (loose) flags.push('-i');
         if (glob) flags.push(`--include=${shellQuote(glob)}`);
         const command = `grep ${flags.join(' ')} -e ${shellQuote(needle)} -- ${shellQuote(checked.path)} | head -n ${cap + 1}`;
         const result = await container.exec(ctx.agentId, command);
@@ -324,7 +352,7 @@ async function search(ctx, { query, path: target = '', regex = false, glob = '',
                 ? { path: found[1], line: Number(found[2]), text: found[3].slice(0, 400) }
                 : { path: '', line: 0, text: line.slice(0, 400) };
         });
-        return { path: checked.path, matches, truncated: lines.length > cap };
+        return withHint({ path: checked.path, matches, truncated: lines.length > cap });
     }
 
     const folders = ctx?.sandbox?.folders || [];
@@ -340,7 +368,10 @@ async function search(ctx, { query, path: target = '', regex = false, glob = '',
     let scanned = 0;
     let truncated = false;
 
-    const test = (line) => (pattern ? pattern.test(line) : line.includes(needle));
+    const lowered = loose ? needle.toLowerCase() : needle;
+    const test = (line) => (pattern
+        ? pattern.test(line)
+        : (loose ? line.toLowerCase().includes(lowered) : line.includes(needle)));
 
     const walk = (directory) => {
         if (truncated) return;
@@ -411,12 +442,12 @@ async function search(ctx, { query, path: target = '', regex = false, glob = '',
         }
     }
 
-    return {
+    return withHint({
         searched: roots.map(root => root.path),
         filesScanned: scanned,
         matches,
         truncated,
-    };
+    });
 }
 
 /* ------------------------------------------------------------------ *

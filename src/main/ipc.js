@@ -31,6 +31,9 @@ const updates = require('./updates');
 const startup = require('./startup');
 const agents = require('./agents');
 const memory = require('./ai/memory');
+const assistantSettings = require('./ai/settings');
+const aiSecrets = require('./ai/secrets');
+const conversationArchive = require('./ai/archive');
 const container = require('./ai/container');
 const headless = require('./ai/headless');
 const runs = require('./runs');
@@ -47,6 +50,60 @@ const { describeProxy, nameProxy } = require('./proxy-config');
  * Channels that still answer while the app is locked: the unlock flow itself,
  * and the status the lock screen reads to know it should be showing.
  */
+/**
+ * Preview counts for the backup sections beyond the store, in the same
+ * {total, new, existing} shape `store.previewImport` returns, so the Backup
+ * page renders one row per section from a single summary object.
+ */
+function previewBackupSections(payload) {
+    const byId = (incoming, existingIds) => {
+        const ids = new Set(existingIds);
+        let fresh = 0;
+        let conflicting = 0;
+        for (const record of Array.isArray(incoming) ? incoming : []) {
+            if (record?.id && ids.has(record.id)) conflicting++;
+            else fresh++;
+        }
+        return { total: fresh + conflicting, new: fresh, existing: conflicting };
+    };
+    const byName = (incoming, existingNames) => {
+        const names = new Set(existingNames);
+        let fresh = 0;
+        let conflicting = 0;
+        for (const name of Object.keys(incoming || {})) {
+            if (names.has(name)) conflicting++;
+            else fresh++;
+        }
+        return { total: fresh + conflicting, new: fresh, existing: conflicting };
+    };
+    const singleton = (present) => (present
+        ? { total: 1, new: 0, existing: 1 }
+        : { total: 0, new: 0, existing: 0 });
+
+    let memoryIds = [];
+    try {
+        for (const key of Object.keys(payload?.memory || {})) {
+            for (const entry of memory.list(key)) memoryIds.push(entry.id);
+        }
+    } catch {
+        memoryIds = [];
+    }
+    const memoryEntries = [];
+    for (const list of Object.values(payload?.memory || {})) {
+        if (Array.isArray(list)) memoryEntries.push(...list);
+    }
+
+    return {
+        agents: byId(payload?.agents?.agents, agents.snapshot().agents.map(agent => agent.id)),
+        conversations: byId(payload?.conversations, assistant.conversationIds()),
+        assistant: singleton(Boolean(payload?.assistant)),
+        secrets: byName(payload?.secrets, aiSecrets.list().map(entry => entry.name)),
+        memory: byId(memoryEntries, memoryIds),
+        jobs: byId(payload?.jobs, jobs.list().map(job => job.id)),
+        sessionLog: singleton(Boolean(payload?.sessionLog)),
+    };
+}
+
 const ALLOWED_WHILE_LOCKED = new Set(['app-lock-status', 'app-lock-unlock']);
 
 /**
@@ -784,7 +841,19 @@ function register(getWindow) {
         // that out after picking a filename is a worse way to learn it.
         let payload;
         try {
-            payload = { ...store.exportAll(), knownHosts: knownHosts.exportAll() };
+            // Flush first: the history file lags the live conversations by seconds.
+            conversationArchive.flush();
+            payload = {
+                ...store.exportAll(),
+                knownHosts: knownHosts.exportAll(),
+                agents: agents.exportAll(),
+                conversations: conversationArchive.read(),
+                assistant: assistantSettings.exportAll(),
+                secrets: aiSecrets.exportAll(),
+                memory: memory.exportAll(),
+                jobs: jobs.exportAll(),
+                sessionLog: sessionLog.exportAll(),
+            };
         } catch (error) {
             return { success: false, message: error.message };
         }
@@ -829,6 +898,11 @@ function register(getWindow) {
                 snippets: payload.snippets.length,
                 proxies: payload.proxies.length,
                 knownHosts: Object.keys(payload.knownHosts).length,
+                agents: payload.agents.agents.length,
+                conversations: payload.conversations.length,
+                secrets: Object.keys(payload.secrets).length,
+                memory: Object.values(payload.memory).reduce((sum, entries) => sum + entries.length, 0),
+                jobs: payload.jobs.length,
             },
         };
     });
@@ -874,7 +948,7 @@ function register(getWindow) {
             path: target,
             createdAt: envelope.createdAt || '',
             appVersion: envelope.app || '',
-            summary: store.previewImport(payload),
+            summary: { ...store.previewImport(payload), ...previewBackupSections(payload) },
             knownHosts: Object.keys(payload.knownHosts || {}).length,
         };
     });
@@ -887,13 +961,21 @@ function register(getWindow) {
         pendingBackups.delete(token);
 
         try {
-            const result = store.importAll(payload, { overwrite: Boolean(overwrite) });
-            const hostKeys = knownHosts.importAll(payload.knownHosts, {
-                overwrite: Boolean(overwrite),
-            });
+            const overwrite = Boolean(overwrite);
+            // The store first: a locked vault throws here, before anything
+            // else has been touched.
+            const result = store.importAll(payload, { overwrite });
+            const hostKeys = knownHosts.importAll(payload.knownHosts, { overwrite });
+            const agentResult = agents.importAll(payload.agents, { overwrite });
+            const secretResult = aiSecrets.importAll(payload.secrets, { overwrite });
+            const assistantResult = assistantSettings.importAll(payload.assistant, { overwrite });
+            const memoryResult = memory.importAll(payload.memory, { overwrite });
+            const jobResult = jobs.importAll(payload.jobs, { overwrite });
+            const sessionLogResult = sessionLog.importAll(payload.sessionLog, { overwrite });
+            const conversationResult = assistant.importConversations(payload.conversations, { overwrite });
 
-            // A restore writes records straight into the store rather than
-            // through saveHost, so nothing else would report it.
+            // A restore writes records straight into the stores rather than
+            // through the save paths, so nothing else would report it.
             activity.record({
                 category: 'security',
                 action: 'backup.restore',
@@ -902,11 +984,25 @@ function register(getWindow) {
                     `${result.hosts.added} host(s) added`,
                     result.hosts.replaced ? `${result.hosts.replaced} replaced` : '',
                     `${result.keys.added} key(s) added`,
+                    agentResult.added ? `${agentResult.added} agent(s) added` : '',
+                    conversationResult.added ? `${conversationResult.added} conversation(s) added` : '',
+                    jobResult.added ? `${jobResult.added} job(s) added` : '',
                     overwrite ? 'existing records overwritten' : 'existing records kept',
                 ].filter(Boolean).join(' · '),
             });
 
-            return { success: true, ...result, knownHosts: hostKeys };
+            return {
+                success: true,
+                ...result,
+                knownHosts: hostKeys,
+                agents: agentResult,
+                secrets: secretResult,
+                assistant: assistantResult,
+                memory: memoryResult,
+                jobs: jobResult,
+                sessionLog: sessionLogResult,
+                conversations: conversationResult,
+            };
         } catch (error) {
             activity.record({
                 category: 'security',

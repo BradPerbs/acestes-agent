@@ -10,7 +10,6 @@ import Button from '../ui/Button';
 import Reveal from '../ui/Reveal';
 import SandboxCard from './SandboxCard';
 import HooksCard from './HooksCard';
-import SecretsCard from './SecretsCard';
 import { useT } from '../../i18n';
 
 /**
@@ -573,7 +572,6 @@ export default function AssistantSection() {
 
             <SandboxCard agentId={settings.agentId} />
             <HooksCard agentId={settings.agentId} />
-            <SecretsCard />
 
             <div
                 ref={promptsRef}

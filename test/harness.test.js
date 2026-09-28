@@ -88,9 +88,9 @@ const check = async (label, fn) => {
             { event: 'post-tool', command: '' },
         ] });
         const stored = agents.get(id).hooks;
-        assert.strictEqual(stored.length, 2, 'the two malformed ones are dropped');
+        assert.strictEqual(stored.length, 3, 'the one with no event is dropped, the half-typed one is kept');
         assert.deepStrictEqual(stored[0].tools, ['run_command']);
-        assert.strictEqual(agents.hooks(id).length, 1, 'the disabled one is not run');
+        assert.strictEqual(agents.hooks(id).length, 1, 'neither the disabled one nor the commandless one is run');
         assert.strictEqual(agents.hooks(id)[0].command, 'python guard.py');
     });
 

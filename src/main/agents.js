@@ -2,6 +2,7 @@ const { app } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const sandboxModule = require('./ai/sandbox');
+const secrets = require('./ai/secrets');
 
 /**
  * The agents.
@@ -44,8 +45,11 @@ const MAX_HOOKS = 20;
 function normalizeHook(raw) {
     if (!raw || typeof raw !== 'object') return null;
     const event = HOOK_EVENTS.has(raw.event) ? raw.event : '';
+    // A hook with no command yet is the row the user just added and has not
+    // finished typing into. It is kept so the card can show it, and skipped
+    // by hooks() so nothing is ever run for it.
     const command = clean(raw.command, 2000);
-    if (!event || !command) return null;
+    if (!event) return null;
     return {
         id: clean(raw.id, 80) || nextId('hook'),
         event,
@@ -127,6 +131,49 @@ function nextId(prefix) {
  * definition is what an agent runs, and a guess here is a process started
  * with arguments nobody typed.
  */
+/** An env or header name that is plainly a credential. */
+const SECRET_LIKE = /(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH)/i;
+
+/**
+ * Credentials in a server's env or headers moved into the secrets store,
+ * leaving references on the record.
+ *
+ * Applied to every server on its way in, whichever door it came through:
+ * the settings page, the agent's own save_mcp_server, or agents.json as it
+ * was written before the store existed. A value in the clear lands
+ * encrypted and the record keeps `{{secret:name}}`; a reference stays as
+ * it is; a name that is not credential-shaped (a path, a URL) is left
+ * alone. Where the store cannot encrypt, the value is kept rather than
+ * lost, and tried again on the next save.
+ */
+function vaultCredentials(serverName, map) {
+    const out = {};
+    const moved = [];
+    for (const [key, raw] of Object.entries(map || {})) {
+        const value = String(raw ?? '');
+        if (value && SECRET_LIKE.test(key) && !/\{\{\s*secret:/.test(value)) {
+            const name = `${serverName}.${key}`.replace(/[^A-Za-z0-9_.-]/g, '_').slice(0, 60);
+            let kept = null;
+            try {
+                kept = secrets.set(name, value);
+            } catch {
+                // No store here (a bare test harness): kept in the clear.
+            }
+            if (kept?.reference) {
+                out[key] = kept.reference;
+                moved.push(name);
+                continue;
+            }
+        }
+        out[key] = value;
+    }
+    return { map: out, moved };
+}
+
+// How many credentials the current load() moved into the store, so the
+// migrated file can be written back once.
+let vaultedOnLoad = 0;
+
 function normalizeServer(raw) {
     if (!raw || typeof raw !== 'object') return null;
     const name = clean(raw.name);
@@ -160,6 +207,12 @@ function normalizeServer(raw) {
         }
     }
 
+    // Credentials go to the store; the record keeps references. See
+    // vaultCredentials: this is the one door every server comes through.
+    const vaultedEnv = vaultCredentials(name, env);
+    const vaultedHeaders = vaultCredentials(name, headers);
+    vaultedOnLoad += vaultedEnv.moved.length + vaultedHeaders.moved.length;
+
     return {
         id: clean(raw.id, 80) || nextId('mcp'),
         name,
@@ -167,8 +220,8 @@ function normalizeServer(raw) {
         command: transport === 'stdio' ? command : '',
         args: transport === 'stdio' ? args : [],
         url: transport === 'http' ? url : '',
-        env,
-        headers,
+        env: vaultedEnv.map,
+        headers: vaultedHeaders.map,
         // Which library template it came from, if any, so the page can say.
         template: clean(raw.template, 200),
     };
@@ -224,6 +277,7 @@ function load() {
         // Missing or unreadable: one agent, made below.
     }
 
+    vaultedOnLoad = 0;
     const agents = (Array.isArray(parsed?.agents) ? parsed.agents : [])
         .map(normalizeAgent)
         .filter(Boolean)
@@ -236,6 +290,9 @@ function load() {
     const activeId = agents.some(agent => agent.id === parsed?.activeId) ? parsed.activeId : agents[0].id;
 
     state = { version: VERSION, activeId, agents };
+    // A file written before the secrets store, with a token in the clear in
+    // some server's env, is rewritten now with references in its place.
+    if (vaultedOnLoad > 0) persist();
     return state;
 }
 
@@ -263,9 +320,15 @@ function publicAgent(agent) {
     };
 }
 
-/** The hooks one agent runs, enabled ones only. */
+/** The hooks one agent runs: enabled, and actually pointing at a command. */
 function hooks(id) {
-    return (get(id)?.hooks || []).filter(hook => hook.enabled);
+    return (get(id)?.hooks || []).filter(hook => hook.enabled && hook.command);
+}
+
+/** How many credentials the last load() moved into the store. For tests. */
+function migratedCredentials() {
+    load();
+    return vaultedOnLoad;
 }
 
 /** The envelope one agent works inside, as the tool layer reads it. */
@@ -375,6 +438,72 @@ function remove(id) {
     return snapshot();
 }
 
+/**
+ * The registry as a backup carries it: every agent whole, including the
+ * settings patch each one lays over the shared base.
+ *
+ * MCP server env and headers travel as they are stored, which is references
+ * (`{{secret:name}}`) rather than values for anything credential-shaped; the
+ * values themselves travel in the secrets section of the same file.
+ */
+function exportAll() {
+    const current = load();
+    return {
+        activeId: current.activeId,
+        agents: current.agents.map(agent => JSON.parse(JSON.stringify(agent))),
+    };
+}
+
+/**
+ * Bring agents from a backup into the registry, matched on id like every
+ * other collection. The local selection is kept: restoring onto a machine
+ * must not yank the user onto another agent. Caps at MAX_AGENTS; anything
+ * past it is skipped rather than silently dropping a local agent to fit.
+ */
+function importAll(payload, { overwrite = false } = {}) {
+    const current = load();
+    const result = { added: 0, replaced: 0, skipped: 0 };
+    const incoming = Array.isArray(payload?.agents) ? payload.agents : [];
+
+    for (const raw of incoming) {
+        let record;
+        try {
+            record = normalizeAgent(raw);
+        } catch (error) {
+            console.error('Skipping an unreadable backup agent:', error.message);
+            result.skipped++;
+            continue;
+        }
+        if (!record) {
+            result.skipped++;
+            continue;
+        }
+        const index = current.agents.findIndex(entry => entry.id === record.id);
+        if (index < 0) {
+            if (current.agents.length >= MAX_AGENTS) {
+                result.skipped++;
+                continue;
+            }
+            current.agents.push(record);
+            result.added++;
+        } else if (overwrite) {
+            current.agents[index] = record;
+            result.replaced++;
+        } else {
+            result.skipped++;
+        }
+    }
+
+    if (result.added > 0 || result.replaced > 0) {
+        if (!current.agents.some(agent => agent.id === current.activeId)) {
+            current.activeId = current.agents[0].id;
+        }
+        persist();
+        notify('agents-changed', snapshot());
+    }
+    return result;
+}
+
 module.exports = {
     setNotifier,
     watch,
@@ -388,5 +517,9 @@ module.exports = {
     select,
     save,
     remove,
+    exportAll,
+    importAll,
+    vaultCredentials,
+    migratedCredentials,
     DEFAULT_NAME,
 };

@@ -651,10 +651,10 @@ export default {
 
     /* ---- Settings: Backup ---- */
     'settings.backup.title': '备份',
-    'settings.backup.desc': '导入已有的配置，或导出一份副本。',
+    'settings.backup.desc': '将应用存储的全部内容加密为单个文件，可带走或导回。',
     'settings.backup.exportTitle': '导出备份',
-    'settings.backup.exportDesc': '把每一台主机、文件夹、SSH 密钥、代码片段、端口转发和已信任的主机密钥'
-        + '写入一个加密文件，用你在这里设定的口令保护。',
+    'settings.backup.exportDesc': '将应用存储的全部内容（主机、密钥、代理程序、对话、设置、记忆、'
+        + '任务、代码片段、代理和已信任的主机密钥）写入一个加密文件，用你在这里设定的口令保护。',
     'settings.backup.exportNote': '这个口令与你的启动密码相互独立，因此这份文件在从未见过本机的电脑上也能打开。',
     'settings.backup.create': '创建备份',
     'settings.backup.passphrase': '备份口令',
@@ -685,6 +685,9 @@ export default {
     'settings.backup.emptyFile': '这个备份是空的。',
     'settings.backup.folders': '文件夹',
     'settings.backup.keys': 'SSH 密钥',
+    'settings.backup.agents': '代理程序',
+    'settings.backup.assistant': '助手',
+    'settings.backup.secrets': '密钥',
     'settings.backup.newCount': '{count} 项为新增',
     'settings.backup.existingReplaced': '{count} 项已存在，将被替换',
     'settings.backup.existingSkipped': '{count} 项已存在，将被跳过',

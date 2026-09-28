@@ -29,6 +29,8 @@ const electronStub = {
 const realLoad = Module._load;
 Module._load = function (request, parent, isMain) {
     if (request === 'electron') return electronStub;
+    // No model in tests: memory imports must not attempt a 90MB download.
+    if (request === '@huggingface/transformers') throw new Error('no model in tests');
     return realLoad.call(this, request, parent, isMain);
 };
 
@@ -275,6 +277,186 @@ check('malformed records are skipped, not fatal', () => {
     const result = storeB.importAll({ hosts: [null, { name: 'no id' }, undefined] }, {});
     assert.strictEqual(result.hosts.added, 0);
     assert.strictEqual(result.hosts.skipped, 3);
+});
+
+/* ---------------- agents, assistant, secrets, memory, jobs, history ---------------- */
+
+console.log('\nnew backup sections');
+
+// A third machine holding an agent, assistant settings, a memory and a job.
+userData = fs.mkdtempSync(path.join(os.tmpdir(), 'cb-test-c-'));
+const agentsC = fresh('agents.js');
+const settingsC = fresh('ai/settings');
+const secretsC = fresh('ai/secrets');
+const memoryC = fresh('ai/memory');
+const jobsC = fresh('runs/jobs');
+const archiveC = fresh('ai/archive');
+const sessionLogC = fresh('session-log');
+
+const savedAgent = agentsC.save({ name: 'Work', color: 'violet' });
+const workAgentId = savedAgent.saved;
+settingsC.set({ enabled: false });
+memoryC.add(workAgentId, { text: 'The user prefers vim.', source: 'user' });
+const createdJob = jobsC.create({ name: 'nightly', agentId: workAgentId, schedule: 'every 30m', prompt: 'Summarise the day.' });
+assert.ok(createdJob.job, 'job setup failed: ' + (createdJob.error || 'unknown'));
+
+const liveConversation = {
+    id: 'conv-1',
+    scope: 'global',
+    boundSessionId: '',
+    sessionIds: [],
+    hostIds: ['host-1'],
+    providerSessionId: '',
+    provider: 'test-provider',
+    title: 'Deploy chat',
+    pinned: true,
+    agentId: workAgentId,
+    costUsd: 0,
+    busy: false,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    events: [{ type: 'user-text', text: 'deploy it' }],
+};
+
+const extended = {
+    agents: agentsC.exportAll(),
+    conversations: [archiveC.pack(liveConversation)],
+    assistant: settingsC.exportAll(),
+    secrets: secretsC.exportAll(),
+    memory: memoryC.exportAll(),
+    jobs: jobsC.exportAll(),
+    sessionLog: sessionLogC.exportAll(),
+};
+
+check('export carries the new sections', () => {
+    assert.strictEqual(extended.agents.agents.length, 2);
+    assert.strictEqual(extended.agents.agents.find(a => a.id === workAgentId).name, 'Work');
+    assert.strictEqual(extended.conversations.length, 1);
+    assert.strictEqual(extended.assistant.config.enabled, false);
+    assert.deepStrictEqual(extended.secrets, {});
+    assert.strictEqual(extended.memory[workAgentId].length, 1);
+    assert.strictEqual(extended.jobs.length, 1);
+    assert.ok('enabled' in extended.sessionLog, 'session-log config missing');
+});
+
+// A fourth machine: nothing in it but defaults.
+userData = fs.mkdtempSync(path.join(os.tmpdir(), 'cb-test-d-'));
+const agentsD = fresh('agents.js');
+const settingsD = fresh('ai/settings');
+const secretsD = fresh('ai/secrets');
+const memoryD = fresh('ai/memory');
+const jobsD = fresh('runs/jobs');
+const archiveD = fresh('ai/archive');
+const sessionLogD = fresh('session-log');
+
+const agentsResult = agentsD.importAll(extended.agents, {});
+const assistantResult = settingsD.importAll(extended.assistant, { overwrite: true });
+const secretsResult = secretsD.importAll({ orphan: 'unencryptable-here' }, {});
+const memoryResult = memoryD.importAll(extended.memory, {});
+const jobsResult = jobsD.importAll(extended.jobs, {});
+const sessionLogResult = sessionLogD.importAll(extended.sessionLog, { overwrite: true });
+
+check('agents merge by id and keep the local selection', () => {
+    assert.strictEqual(agentsResult.added, 2);
+    const snapshot = agentsD.snapshot();
+    assert.strictEqual(snapshot.agents.length, 3);
+    assert.strictEqual(snapshot.agents.find(a => a.id === workAgentId).color, 'violet');
+    assert.notStrictEqual(snapshot.activeId, workAgentId);
+});
+
+check('agents re-import is a no-op without overwrite', () => {
+    const again = agentsD.importAll(extended.agents, {});
+    assert.strictEqual(again.added, 0);
+    assert.strictEqual(again.skipped, 2);
+});
+
+check('assistant base and session-log config apply on overwrite', () => {
+    assert.strictEqual(assistantResult.replaced, 1);
+    assert.strictEqual(settingsD.get().enabled, false);
+    assert.strictEqual(sessionLogResult.replaced, 1);
+});
+
+check('assistant base is kept without overwrite', () => {
+    settingsD.set({ enabled: true });
+    const kept = settingsD.importAll(extended.assistant, {});
+    assert.strictEqual(settingsD.get().enabled, true);
+    assert.strictEqual(kept.skipped, 1);
+});
+
+check('secrets that cannot be encrypted are skipped, not kept in the clear', () => {
+    assert.strictEqual(secretsResult.added, 0);
+    assert.strictEqual(secretsResult.skipped, 1);
+    assert.deepStrictEqual(secretsD.exportAll(), {});
+});
+
+check('memories round trip with their ids', () => {
+    assert.strictEqual(memoryResult.added, 1);
+    const notes = memoryD.list(workAgentId);
+    assert.strictEqual(notes.length, 1);
+    assert.strictEqual(notes[0].text, 'The user prefers vim.');
+    const again = memoryD.importAll(extended.memory, {});
+    assert.strictEqual(again.added, 0);
+    assert.strictEqual(again.skipped, 1);
+});
+
+check('jobs round trip with fresh execution state', () => {
+    assert.strictEqual(jobsResult.added, 1);
+    const job = jobsD.get(createdJob.job.id);
+    assert.strictEqual(job.name, 'nightly');
+    assert.strictEqual(job.prompt, 'Summarise the day.');
+    assert.strictEqual(job.lastRunAt, null);
+    assert.strictEqual(job.runCount, 0);
+    const again = jobsD.importAll(extended.jobs, {});
+    assert.strictEqual(again.skipped, 1);
+});
+
+check('expired one-shot jobs are skipped', () => {
+    const result = jobsD.importAll([{
+        id: 'old', name: 'old', agentId: workAgentId,
+        schedule: { kind: 'at', at: Date.now() - 3600000 },
+        prompt: 'too late',
+    }], { overwrite: true });
+    assert.strictEqual(result.added, 0);
+    assert.strictEqual(result.skipped, 1);
+});
+
+check('packed conversations survive seal and unseal, and unpack honestly', () => {
+    const opened = backupB.unseal(backupB.seal({ conversations: extended.conversations }, PASS), PASS);
+    const record = opened.conversations[0];
+    assert.strictEqual(record.title, 'Deploy chat');
+    const back = archiveD.unpack(record, 'test-provider');
+    assert.strictEqual(back.events.length, 1);
+    assert.strictEqual(back.pinned, true);
+    // A question nobody answered before the app closed is not still asked.
+    const hanging = archiveD.unpack({
+        ...record,
+        id: 'conv-2',
+        busy: true,
+        events: [...record.events, { type: 'approval-request', requestId: 'r1' }],
+    }, 'test-provider');
+    assert.ok(hanging.events.some(e => e.type === 'approval-settled' && e.status === 'expired'));
+    assert.ok(hanging.events.some(e => e.type === 'notice'));
+});
+
+check('the model a conversation was left on comes back with it', () => {
+    const packed = archiveD.pack({
+        id: 'conv-model', scope: 'global', events: [],
+        settingsPatch: { provider: 'codex', model: 'gpt-5.5', effort: 'high' },
+        createdAt: 1, updatedAt: 2,
+    });
+    const back = archiveD.unpack(JSON.parse(JSON.stringify(packed)), 'codex');
+    assert.deepStrictEqual(back.settingsPatch, { provider: 'codex', model: 'gpt-5.5', effort: 'high' });
+    // One that follows the agent's defaults keeps following them, and junk is
+    // dropped rather than handed to the settings resolver.
+    assert.strictEqual(archiveD.unpack({ ...packed, settingsPatch: null }, 'codex').settingsPatch, null);
+    assert.deepStrictEqual(archiveD.unpack({ ...packed, settingsPatch: { model: 'x', effort: 7 } }, 'codex').settingsPatch, { model: 'x' });
+});
+
+check('missing sections import as zeros, for old backups', () => {
+    const empty = agentsD.importAll(undefined, {});
+    assert.deepStrictEqual(empty, { added: 0, replaced: 0, skipped: 0 });
+    const emptyJobs = jobsD.importAll(undefined, {});
+    assert.deepStrictEqual(emptyJobs, { added: 0, replaced: 0, skipped: 0 });
 });
 
 console.log(`\n${passed} checks passed${process.exitCode ? ', with failures above' : ''}\n`);

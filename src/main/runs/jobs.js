@@ -494,6 +494,89 @@ function reconcile(now = Date.now()) {
     return caught;
 }
 
+/**
+ * Every job as a backup carries it. Run history stays behind: the runs table
+ * is a log of what happened on this machine, while a job is setup worth
+ * keeping. Execution state (last run, failures, counts) is reset on the way
+ * in for the same reason; the schedule is recomputed from now.
+ */
+function exportAll() {
+    return list().map(job => ({ ...job }));
+}
+
+/**
+ * Bring jobs from a backup, matched on id. A webhook keeps its token (the
+ * file is encrypted); everything else about when it fires is recomputed.
+ * One-shot schedules whose time has passed are skipped.
+ */
+function importAll(records, { overwrite = false } = {}) {
+    const now = Date.now();
+    const result = { added: 0, replaced: 0, skipped: 0 };
+    const incoming = Array.isArray(records) ? records : [];
+    const db = database.open();
+
+    for (const raw of incoming) {
+        if (!raw || typeof raw !== 'object') {
+            result.skipped++;
+            continue;
+        }
+        const id = clean(raw.id, 80);
+        const name = clean(raw.name);
+        const agentId = clean(raw.agentId, 80);
+        if (!id || !name || !agentId) {
+            result.skipped++;
+            continue;
+        }
+        const parsed = parseSchedule(raw.schedule, now);
+        if (parsed.error || !parsed.schedule) {
+            result.skipped++;
+            continue;
+        }
+        const existing = get(id);
+        if (existing && !overwrite) {
+            result.skipped++;
+            continue;
+        }
+        const prompt = String(raw.prompt || '').trim().slice(0, MAX_PROMPT);
+        if (!prompt && parsed.schedule.kind !== 'heartbeat') {
+            result.skipped++;
+            continue;
+        }
+        const enabled = raw.enabled === undefined ? true : Boolean(raw.enabled);
+        const job = {
+            id,
+            agentId,
+            name,
+            enabled,
+            schedule: parsed.schedule,
+            prompt,
+            session: SESSIONS.has(raw.session) ? raw.session : (clean(raw.session, 80) || 'isolated'),
+            policy: normalizePolicy(raw.policy),
+            provider: clean(raw.provider, 40),
+            model: clean(raw.model, 160),
+            effort: clean(raw.effort, 20),
+            delivery: normalizeDelivery(raw.delivery),
+            missed: MISSED.has(raw.missed) ? raw.missed : 'skip',
+            keepAfterRun: Boolean(raw.keepAfterRun),
+            createdBy: raw.createdBy === 'agent' ? 'agent' : 'user',
+            token: parsed.schedule.kind === 'webhook' && raw.token ? String(raw.token) : (parsed.schedule.kind === 'webhook' ? crypto.randomBytes(24).toString('base64url') : ''),
+        };
+        const next = job.enabled ? nextRunAt({ ...job, runCount: 0, lastRunAt: null }, now) : null;
+        if (existing) db.prepare('DELETE FROM jobs WHERE id = ?').run(id);
+        db.prepare(`
+            INSERT INTO jobs (id, agent_id, name, enabled, schedule, prompt, session, policy, provider, model, effort, delivery, missed,
+                              keep_after_run, created_by, token, next_run_at, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(job.id, job.agentId, job.name, job.enabled ? 1 : 0, json(job.schedule), job.prompt, job.session,
+            json(job.policy), job.provider, job.model, job.effort, json(job.delivery), job.missed, job.keepAfterRun ? 1 : 0,
+            job.createdBy, job.token, next, now, now);
+        if (existing) result.replaced++;
+        else result.added++;
+        notify('jobs-changed', { jobId: job.id, agentId: job.agentId });
+    }
+    return result;
+}
+
 module.exports = {
     setNotifier,
     parseSchedule,
@@ -506,6 +589,8 @@ module.exports = {
     create,
     update,
     remove,
+    exportAll,
+    importAll,
     due,
     listeners,
     byToken,

@@ -8,33 +8,13 @@ const mcpLibrary = require('./mcp-library');
 const mcpProbe = require('./mcp-probe');
 const secrets = require('./secrets');
 
-/** An env or header name that is plainly a credential. */
-const SECRET_LIKE = /(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH)/i;
-
 /**
  * Credentials in a server's env or headers moved into the secrets store,
- * leaving references on the record. A value the agent typed in the clear
- * lands encrypted rather than in agents.json; a reference it wrote stays
- * as it is. The store's reply tells the agent what became of each.
+ * leaving references on the record. The registry does this to every server
+ * on its way in whichever door it came through; it is done here as well so
+ * the reply can tell the agent what became of each value it typed.
  */
-function vaultCredentials(serverName, map) {
-    const out = {};
-    const moved = [];
-    for (const [key, raw] of Object.entries(map || {})) {
-        const value = String(raw ?? '');
-        if (value && SECRET_LIKE.test(key) && !/\{\{\s*secret:/.test(value)) {
-            const name = `${serverName}.${key}`.replace(/[^A-Za-z0-9_.-]/g, '_').slice(0, 60);
-            const kept = secrets.set(name, value);
-            if (kept.reference) {
-                out[key] = kept.reference;
-                moved.push(name);
-                continue;
-            }
-        }
-        out[key] = value;
-    }
-    return { map: out, moved };
-}
+const vaultCredentials = agents.vaultCredentials;
 
 /**
  * The agent's kit: the tools that let it look through its own inventory and

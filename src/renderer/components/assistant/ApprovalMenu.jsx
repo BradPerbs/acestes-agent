@@ -38,7 +38,7 @@ const APPROVALS = [
     },
 ];
 
-export default function ApprovalMenu({ settings, onChange }) {
+export default function ApprovalMenu({ settings, onChange, runPolicy }) {
     const t = useT();
 
     const options = APPROVALS.map(option => ({
@@ -46,6 +46,36 @@ export default function ApprovalMenu({ settings, onChange }) {
         label: t(option.labelKey),
         hint: t(option.hintKey),
     }));
+
+    // A run policy overrides the agent's own mode (see effectiveSettings in
+    // main): the menu would be a control that changes nothing, so the chip
+    // shows the effective state instead and stays shut while it is set.
+    if (runPolicy && runPolicy !== 'inherit') {
+        const effective = runPolicy === 'full'
+            ? options[2]
+            : runPolicy === 'read-only'
+                ? {
+                    value: 'read-only',
+                    label: t('assistant.approvalReadOnlyRun'),
+                    hint: t('assistant.approvalReadOnlyRunHint'),
+                    icon: <Shield01Icon size={14} strokeWidth={1.5} />,
+                }
+                : options[1];
+        const loud = runPolicy === 'full';
+        return (
+            <span
+                role="img"
+                aria-label={t('assistant.approvalsLabel', { mode: effective.label })}
+                title={`${t('assistant.approvalsLabel', { mode: effective.label })}: ${effective.hint}`}
+                className={`h-7 pl-1.5 pr-1.5 rounded-xl flex items-center gap-0.5
+                    ${loud
+                        ? 'text-amber-500 dark:text-amber-400'
+                        : 'text-gray-400 dark:text-gray-600'}`}
+            >
+                {effective.icon}
+            </span>
+        );
+    }
 
     const current = options.find(option => option.value === settings.approval) || options[1];
 

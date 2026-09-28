@@ -101,6 +101,31 @@ check('the tools that change things are not marked read only', () => {
     }
 });
 
+check('save_secret is waved through, and still counts as a write', () => {
+    const tool = tools.BY_NAME.get('save_secret');
+    assert.strictEqual(tool.readOnly, true, 'a pasted key is stored at once, not held behind a card');
+    assert.strictEqual(tool.writes, true, 'and storing it is a change to the keychain');
+
+    // The distinction the two flags exist to draw.
+    assert.strictEqual(tools.changesNothing('list_secrets'), true);
+    assert.strictEqual(tools.changesNothing('save_secret'), false, 'it writes, however it is approved');
+    assert.strictEqual(tools.changesNothing('write_file'), false);
+});
+
+check('a read-only run turns down the writes that everything else waves through', () => {
+    const looking = { ...balanced, readOnlyRun: true };
+
+    // Reads are reads in either kind of run.
+    assert.strictEqual(tools.isAutoApproved('list_secrets', {}, looking), true);
+    assert.strictEqual(tools.isAutoApproved('read_terminal', {}, looking), true);
+
+    // save_secret runs unasked in an ordinary one, and stops in this one:
+    // refusing here is what sends it to requestApproval, which is where a
+    // read-only run says no and why.
+    assert.strictEqual(tools.isAutoApproved('save_secret', { name: 'k', secret: 'v' }, balanced), true);
+    assert.strictEqual(tools.isAutoApproved('save_secret', { name: 'k', secret: 'v' }, looking), false);
+});
+
 check('a secret in a tool input is masked before it becomes an event', () => {
     const input = { name: 'db-01', address: '10.0.0.2', password: 'hunter2', privateKey: 'PRIVATE', passphrase: 'pp', secret: 'tok-1234' };
     const masked = tools.redactInput(input);
@@ -362,6 +387,27 @@ check('both lists can be edited, emptied and put back', () => {
     const stored = JSON.parse(fs.readFileSync(path.join(userData, 'assistant.json'), 'utf8')).config;
     assert.ok(!('defaults' in stored), 'the defaults are read-only');
     assert.ok(!('hasApiKey' in stored), 'and so is the key flag');
+});
+
+check('a read-only run lets reads through instead of parking on the first look', () => {
+    // The bug: read-only mapped to approval 'always', so every read of a
+    // background task raised a card and the run read as yolo while asking
+    // about everything. Reads must run free; writes are refused without a
+    // card by requestApproval, which is covered by the read-only refusal.
+    const assistant = require(path.join(ROOT, 'ai', 'index'));
+    const probe = (approvals) => assistant.effectiveSettings({
+        agentId: 'test-agent',
+        settingsPatch: null,
+        runPolicy: approvals ? { approvals } : null,
+    });
+    assert.strictEqual(probe('read-only').approval, 'writes', 'reads run free under a read-only run');
+    assert.strictEqual(probe('park').approval, 'writes');
+    assert.strictEqual(probe('full').approval, 'never');
+    const readOnly = probe('read-only');
+    assert.strictEqual(tools.isAutoApproved('read_file', { path: '/etc/hosts' }, readOnly), true);
+    assert.strictEqual(tools.isAutoApproved('list_hosts', {}, readOnly), true);
+    assert.strictEqual(tools.isAutoApproved('run_command', { command: 'df' }, readOnly), true);
+    assert.strictEqual(tools.isAutoApproved('write_file', { path: '/etc/hosts' }, readOnly), false);
 });
 
 console.log(`\n${passed} checks passed${failed > 0 ? `, ${failed} failed` : ''}`);

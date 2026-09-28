@@ -463,4 +463,77 @@ function status(agentId) {
     };
 }
 
-module.exports = { setNotifier, list, add, update, remove, search, relevant, summary, moveAll, status };
+/**
+ * Every notebook as a backup carries it: entries only, keyed by agent. The
+ * vector index beside each file is a derived cache (rebuilt from the model
+ * on this machine), so it does not travel.
+ */
+function exportAll() {
+    const out = {};
+    let files = [];
+    try {
+        files = fs.readdirSync(dir());
+    } catch {
+        return out;
+    }
+    for (const file of files) {
+        if (!file.endsWith('.json') || file.endsWith('.vectors.json')) continue;
+        const key = file.slice(0, -'.json'.length);
+        const store = load(key);
+        out[key] = store.entries.map(copy);
+    }
+    return out;
+}
+
+/**
+ * Bring memories from a backup, matched on entry id within each notebook.
+ * Unknown entries are queued for embedding like written ones, so search by
+ * meaning catches up in the background.
+ */
+function importAll(payload, { overwrite = false } = {}) {
+    const result = { added: 0, replaced: 0, skipped: 0 };
+    const incoming = payload && typeof payload === 'object' ? payload : {};
+    for (const [key, rawEntries] of Object.entries(incoming)) {
+        if (!Array.isArray(rawEntries)) continue;
+        const store = load(key);
+        let changed = false;
+        for (const raw of rawEntries) {
+            const entry = normalizeEntry(raw);
+            if (!entry) {
+                result.skipped++;
+                continue;
+            }
+            const index = store.entries.findIndex(held => held.id === entry.id);
+            if (index < 0) {
+                store.entries.push(entry);
+                store.pending.add(entry.id);
+                result.added++;
+                changed = true;
+            } else if (overwrite) {
+                store.entries[index] = entry;
+                store.vectors.delete(entry.id);
+                store.pending.add(entry.id);
+                result.replaced++;
+                changed = true;
+            } else {
+                result.skipped++;
+            }
+        }
+        if (store.entries.length > MAX_ENTRIES) {
+            const dropped = store.entries
+                .sort((a, b) => a.updatedAt - b.updatedAt)
+                .splice(0, store.entries.length - MAX_ENTRIES);
+            for (const old of dropped) {
+                store.vectors.delete(old.id);
+                store.pending.delete(old.id);
+            }
+        }
+        if (changed) {
+            persist(store);
+            scheduleEmbed(store);
+        }
+    }
+    return result;
+}
+
+module.exports = { setNotifier, list, add, update, remove, search, relevant, summary, moveAll, status, exportAll, importAll };

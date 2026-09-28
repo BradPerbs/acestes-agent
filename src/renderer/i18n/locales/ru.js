@@ -782,11 +782,11 @@ export default {
 
     /* ---- Settings: Backup ---- */
     'settings.backup.title': 'Резервные копии',
-    'settings.backup.desc': 'Перенесите готовую конфигурацию сюда или заберите копию с собой.',
+    'settings.backup.desc': 'Всё, что хранит приложение, зашифрованное в один файл, который можно забрать с собой или вернуть обратно.',
     'settings.backup.exportTitle': 'Создать резервную копию',
-    'settings.backup.exportDesc': 'Записывает каждый хост, папку, ключ SSH, сниппет, проброс порта '
-        + 'и доверенный ключ хоста в один зашифрованный файл, защищённый парольной фразой, которую '
-        + 'вы задаёте здесь.',
+    'settings.backup.exportDesc': 'Записывает всё, что хранит приложение (хосты, ключи, агентов, '
+        + 'переписку, настройки, память, задания, сниппеты, прокси и доверенные ключи хостов) '
+        + 'в один зашифрованный файл, защищённый парольной фразой, которую вы задаёте здесь.',
     'settings.backup.exportNote': 'Эта парольная фраза не связана с паролем на открытие, поэтому '
         + 'файл откроется и на машине, которая эту никогда не видела.',
     'settings.backup.create': 'Создать копию',
@@ -820,6 +820,9 @@ export default {
     'settings.backup.emptyFile': 'Эта копия пуста.',
     'settings.backup.folders': 'Папки',
     'settings.backup.keys': 'Ключи SSH',
+    'settings.backup.agents': 'Агенты',
+    'settings.backup.assistant': 'Ассистент',
+    'settings.backup.secrets': 'Секреты',
     'settings.backup.newCount': 'новых: {count}',
     'settings.backup.existingReplaced': 'уже здесь: {count}, будут заменены',
     'settings.backup.existingSkipped': 'уже здесь: {count}, будут пропущены',

@@ -384,6 +384,7 @@ export default {
     /* ---------------------------------------------------------------- *
      * Keychain
      * ---------------------------------------------------------------- */
+    'keychain.collection': 'Keys or secrets',
     'keychain.count_one': '{count} key',
     'keychain.count_other': '{count} keys',
     'keychain.empty': 'No keys yet',
@@ -391,8 +392,25 @@ export default {
     'keychain.helloAdd': 'Add a Windows Hello key, held in this PC’s TPM',
     'keychain.helloWaiting': 'Waiting for Windows Hello…',
     'keychain.import': 'Import an existing key, from a file or pasted',
+    'keychain.keys': 'Keys',
     'keychain.newKey': 'New Key',
+    'keychain.newSecret': 'New Secret',
     'keychain.search': 'Search keys',
+    'keychain.searchSecrets': 'Search secrets',
+    'keychain.secretAdd': 'Add secret',
+    'keychain.secretAddTitle': 'Add a secret',
+    'keychain.secretName': 'Name',
+    'keychain.secretNameHint': 'Letters, digits, dot, dash and underscore.',
+    'keychain.secretReplace': 'Replace',
+    'keychain.secretReplaceHint': 'The stored value is replaced. It is never shown, so there is nothing to edit.',
+    'keychain.secretReplaceTitle': 'Replace this secret',
+    'keychain.secrets': 'Secrets',
+    'keychain.secretsEmpty': 'No secrets yet',
+    'keychain.secretsEmptyNote': 'API keys, tokens and passwords, encrypted here and referred to by name. '
+        + 'The agent asks for one when a task needs it, or add one now.',
+    'keychain.secretSubtitle': 'Encrypted on this computer and used by the app. Records refer to it by name, '
+        + 'and the value is never shown again — not to you, and not to the agent.',
+    'keychain.secretValue': 'Value',
 
     /* ---------------------------------------------------------------- *
      * Proxies
@@ -1586,6 +1604,8 @@ export default {
     'assistant.approvalWritesHint': 'Reading runs freely',
     'assistant.approvalNever': 'Yolo Mode',
     'assistant.approvalNeverHint': 'Nothing stops, deletes included',
+    'assistant.approvalReadOnlyRun': 'Read-only run',
+    'assistant.approvalReadOnlyRunHint': 'Set by this run: reads run freely, changes are refused',
 
     'assistant.didListHosts': 'Listed hosts',
     'assistant.didListSessions': 'Listed sessions',
@@ -1663,12 +1683,4 @@ export default {
     'assistant.secretParked': 'The agent has moved on. Ask it to request the key again; it must not go in a message.',
     'assistant.secretPlaceholder': 'Stored as {name}',
     'assistant.secretHint': 'Encrypted on this computer. The agent gets a reference, never the value.',
-    'settings.assistant.secrets': 'Secrets',
-    'settings.assistant.secretsDesc': 'API keys and tokens the agent’s work needs, encrypted here and used by the app. The agent refers to one as {{secret:name}} and never sees the value.',
-    'settings.assistant.secretsEmpty': 'No secrets stored yet. The agent asks for one when a task needs it, or add one here.',
-    'settings.assistant.secretName': 'Name',
-    'settings.assistant.secretValue': 'Value',
-    'settings.assistant.secretAdd': 'Add secret',
-    'settings.assistant.secretReplace': 'Replace',
-    'settings.assistant.secretUpdated': 'Updated {when}',
 };

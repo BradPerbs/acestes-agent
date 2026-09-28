@@ -476,11 +476,76 @@ function readApiKey(provider = effective().settings.provider) {
     }
 }
 
+/**
+ * The assistant setup as a backup carries it: the shared base plus every
+ * provider key in the clear inside the payload (which is itself encrypted).
+ *
+ * Per-agent patches are not here; they ride with the agents section, on the
+ * records they belong to.
+ */
+function exportAll() {
+    load();
+    const keys = {};
+    for (const provider of KEYED_PROVIDERS) {
+        const value = readApiKey(provider);
+        if (value) keys[provider] = value;
+    }
+    return { config: JSON.parse(JSON.stringify(config)), keys };
+}
+
+/**
+ * Bring assistant setup from a backup. The base config is one record: a
+ * default restore keeps the local one, an overwrite replaces it. Keys merge
+ * by provider; an overwrite also clears local keys the backup does not have,
+ * so the machine matches the file.
+ */
+function importAll(payload, { overwrite = false } = {}) {
+    load();
+    const result = { added: 0, replaced: 0, skipped: 0 };
+    if (!payload || typeof payload !== 'object') return result;
+
+    if (payload.config && typeof payload.config === 'object') {
+        if (overwrite) {
+            config = sanitize(payload.config);
+            result.replaced++;
+        } else {
+            result.skipped++;
+        }
+    }
+
+    const incoming = payload.keys && typeof payload.keys === 'object' ? payload.keys : {};
+    for (const [provider, value] of Object.entries(incoming)) {
+        if (!KEYED_PROVIDERS.has(provider) || !value) continue;
+        const had = Boolean(secrets[provider]);
+        const stored = setApiKey(provider, String(value));
+        if (!stored?.stored) {
+            result.skipped++;
+            continue;
+        }
+        if (had) result.replaced++;
+        else result.added++;
+    }
+
+    if (overwrite) {
+        for (const provider of KEYED_PROVIDERS) {
+            if (secrets[provider] && !(provider in incoming)) {
+                setApiKey(provider, '');
+                result.replaced++;
+            }
+        }
+    }
+
+    persist();
+    return result;
+}
+
 module.exports = {
     get,
     set,
     setApiKey,
     readApiKey,
+    exportAll,
+    importAll,
     DEFAULTS,
     APPROVALS,
     COMMAND_MODES,

@@ -198,6 +198,13 @@ const CATEGORY_LABELS = [
     ['keys', 'settings.backup.keys'],
     ['snippets', 'nav.snippets'],
     ['proxies', 'nav.proxies'],
+    ['agents', 'settings.backup.agents'],
+    ['conversations', 'nav.conversations'],
+    ['assistant', 'settings.backup.assistant'],
+    ['secrets', 'settings.backup.secrets'],
+    ['memory', 'nav.memory'],
+    ['jobs', 'nav.jobs'],
+    ['sessionLog', 'settings.logging.title'],
 ];
 
 /** What the chosen file holds, and how much of it this machine already has. */
@@ -471,10 +478,10 @@ function RestoreCard({ onRestored }) {
 }
 
 /**
- * Export and restore, above the OpenSSH import on the Backup page.
+ * Export and restore: the Backup page.
  *
- * Separate from ImportSection on purpose: that one reads someone else's format
- * and can only ever bring in part of a setup, while this round-trips everything
+ * Separate from the Import tab under SSH & Servers on purpose: it reads
+ * someone else's format and can only ever bring in part of a setup, while this round-trips everything
  * this app holds, including the secrets, which is what makes it a backup rather
  * than an import.
  */

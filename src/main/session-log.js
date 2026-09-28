@@ -291,6 +291,11 @@ function start(tabId, { hostName = '', address = '', hostId = '', protocol = '',
     try {
         fs.mkdirSync(directory, { recursive: true });
 
+        // The file exists by the time the path is handed back. A write
+        // stream opens on its own time, and a caller that lists or stamps
+        // the transcript straight after this found nothing there yet.
+        fs.closeSync(fs.openSync(filePath, 'a'));
+
         // `a`, not `w`: two sessions to the same host within the same second
         // would otherwise have the second silently truncate the first.
         const stream = fs.createWriteStream(filePath, { flags: 'a', encoding: 'utf8' });
@@ -640,9 +645,33 @@ if (typeof app?.on === 'function') app.on('will-quit', closeAll);
 // who records rarely and would otherwise wait for the next session to sweep.
 if (typeof app?.whenReady === 'function') app.whenReady().then(() => sweep());
 
+/**
+ * The logging setup as a backup carries it. The resolved directory goes back
+ * to the choice it came from: blank for the default, so a restore lands in
+ * this machine's default rather than in someone else's absolute path.
+ */
+function exportAll() {
+    const current = getConfig();
+    const { usingDefaultDirectory, ...rest } = current;
+    return { ...rest, directory: usingDefaultDirectory ? '' : current.directory };
+}
+
+/**
+ * Bring logging setup from a backup. One record: a default restore keeps the
+ * local setup, an overwrite takes the file's.
+ */
+function importAll(payload, { overwrite = false } = {}) {
+    if (!payload || typeof payload !== 'object') return { added: 0, replaced: 0, skipped: 0 };
+    if (!overwrite) return { added: 0, replaced: 0, skipped: 1 };
+    setConfig(payload);
+    return { added: 0, replaced: 1, skipped: 0 };
+}
+
 module.exports = {
     getConfig,
     setConfig,
+    exportAll,
+    importAll,
     defaultDirectory,
     start,
     write,

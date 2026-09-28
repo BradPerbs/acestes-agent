@@ -392,7 +392,10 @@ async function runHooks(conversation, event, payload = {}) {
  * The agent's, with a job's pinned model over them, and the run's policy
  * translated into the approval gate the providers already consult:
  *
- *   read-only   everything asks, and requestApproval refuses every write
+ *   read-only   reads run free, and requestApproval refuses every write
+ *               without a card: there is no answer that would let one
+ *               through, so asking would only spam a background run with
+ *               questions that have a single button
  *   allowlist   writes ask, except commands on the job's own list
  *   park        writes ask, and the question waits for a person with no
  *               timeout (see requestApproval)
@@ -413,7 +416,15 @@ function effectiveSettings(conversation) {
     if (!policy || !policy.approvals || policy.approvals === 'inherit') return base;
     switch (policy.approvals) {
         case 'read-only':
-            return { ...base, approval: 'always' };
+            // Reads run free under 'writes', and a write never reaches a
+            // card: requestApproval refuses it outright. 'always' here used
+            // to park a background run on its very first read, which read as
+            // a yolo session endlessly asking for permission.
+            //
+            // The flag rides along because 'writes' on its own no longer says
+            // which run this is, and a tool that is auto-approved but still
+            // writes (save_secret) has to be turned down here rather than run.
+            return { ...base, approval: 'writes', readOnlyRun: true };
         case 'allowlist':
             return {
                 ...base,
@@ -688,6 +699,9 @@ function reconfigure(before, after, agentId = '') {
         // business and nobody else's.
         if (agentId && conversation.agentId !== agentId) continue;
         const session = conversation.session;
+        // A conversation with a model of its own keeps it: the agent's default
+        // moving is news only to the ones still following it.
+        const own = conversation.settingsPatch || {};
         if (session) {
             // Only when it is still the same agent's session. Picking a model
             // out of the composer's merged menu can move both at once, and a
@@ -695,10 +709,10 @@ function reconfigure(before, after, agentId = '') {
             // is running: the query is restarted below, which is what actually
             // applies the pair. Effort has no such trouble, since a level is a
             // level whoever is listening.
-            if (before.provider === after.provider && before.model !== after.model) {
+            if (!own.provider && !own.model && before.provider === after.provider && before.model !== after.model) {
                 session.setModel?.(after.model);
             }
-            if (before.effort !== after.effort) session.setEffort?.(after.effort);
+            if (!own.effort && before.effort !== after.effort) session.setEffort?.(after.effort);
         }
         if (RESTART_ON.some(field => before[field] !== after[field])) {
             if (session || conversation.starting) conversation.needsRestart = true;
@@ -741,8 +755,10 @@ function requestApproval(conversation, { toolName, name, input, local, signal = 
 
         // A read-only run refuses every write before anyone is asked: there
         // is no answer that would let it through, so a card would be a
-        // question with one button.
-        if (policy?.approvals === 'read-only' && !definition?.readOnly) {
+        // question with one button. `changesNothing` rather than `readOnly`,
+        // so a tool that is waved through and still writes is refused here
+        // too rather than let past on the strength of the wave.
+        if (policy?.approvals === 'read-only' && !catalog.changesNothing(name)) {
             resolve({ approved: false, message: 'This run is read-only: it may look but not change anything. Report what you would have done.' });
             return;
         }
@@ -2077,6 +2093,10 @@ function history(conversationId) {
         // a task or a job started it on a named one. Null means the agent's
         // own settings, which is what the composer shows otherwise.
         pinned: conversation.settingsPatch || null,
+        // The run policy overriding the approval menu, if any. The composer
+        // shows this instead of the agent's own mode while it is set, so a
+        // background run never reads as yolo while it asks on everything.
+        runPolicy: conversation.runPolicy?.approvals || null,
     };
 }
 
@@ -2362,6 +2382,9 @@ module.exports = {
     models,
     detect,
     shutdown,
+    // Exported for the approval tests: the policy-to-gate translation is
+    // the whole safety story for background runs, and it must stay pinned.
+    effectiveSettings,
     respondToApproval,
     respondToAction,
     respondToQuestion,

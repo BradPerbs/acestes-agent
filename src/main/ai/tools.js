@@ -873,11 +873,15 @@ const TOOLS = [
         description:
             'Search for text inside the files of the folders the user granted this agent, like grep. '
             + 'Returns file, line number and the line. Skips .git, node_modules, build output and '
-            + 'binary files. Omit `path` to search every granted folder.',
+            + 'binary files. Omit `path` to search every granted folder. The query is matched as '
+            + 'literal text and case-sensitively unless you say otherwise: set `regex` to use '
+            + 'alternation or wildcards, and `ignoreCase` when the spelling may differ. Searching '
+            + '"a|b" without `regex` looks for those three characters and finds nothing.',
         shape: {
-            query: z.string().min(1).describe('The text to look for, or a regular expression when `regex` is set.'),
+            query: z.string().min(1).describe('The text to look for, matched literally, or a regular expression when `regex` is set.'),
             path: z.string().optional().describe('A granted folder, or a file or folder inside one. Omit for all of them.'),
-            regex: z.boolean().optional().describe('Treat the query as a regular expression.'),
+            regex: z.boolean().optional().describe('Treat the query as a regular expression. Needed for | ( ) [ ] * + ? to mean anything.'),
+            ignoreCase: z.boolean().optional().describe('Match whatever the case. Use it for a name you may be spelling differently.'),
             glob: z.string().optional().describe('Only files whose name matches, e.g. "*.conf" or "*.js".'),
             limit: z.number().int().min(1).max(local.MAX_MATCHES).optional().describe('Most matches to return. Defaults to 200.'),
         },
@@ -962,7 +966,7 @@ const TOOLS = [
                     stored: true,
                     name: reply.name,
                     reference: reply.reference,
-                    note: 'The value is in the encrypted store and was not shown to you. Put the reference where the value '
+                    note: 'The value is in the keychain and was not shown to you. Put the reference where the value '
                         + 'is needed: the env of run_local_command, the env or headers of save_mcp_server, the password of '
                         + 'save_proxy or save_host. Never write the value out yourself.',
                 });
@@ -974,10 +978,18 @@ const TOOLS = [
     {
         name: 'save_secret',
         title: 'Store a secret',
+        // Auto-approved, and still a write. The two are usually the same
+        // question and here they are not: holding a pasted key back behind an
+        // approval card would leave the value sitting in the transcript for as
+        // long as the card waits, which is the one thing this tool exists to
+        // prevent. `writes` says the other half out loud, so a run promised to
+        // change nothing does not quietly store something. See changesNothing.
         readOnly: true,
+        writes: true,
         description:
-            'Put a secret you already have into the encrypted store under a name, so it is never asked for '
+            'Put a secret you already have into the keychain, under a name, so it is never asked for '
             + 'again: an API key or token the user pasted into chat, or one you were given by a service. '
+            + 'It is encrypted on this computer and the user sees it under Inventory, Keychain, Secrets. '
             + 'From then on refer to it as {{secret:name}} in env, headers and passwords, and never write '
             + 'the value out again. Every copy of the value in the transcript is masked once it is stored. '
             + 'Prefer ask_user with a secret name when the user has not given it yet.',
@@ -1003,7 +1015,8 @@ const TOOLS = [
         title: 'List the stored secrets',
         readOnly: true,
         description:
-            'The names of the secrets in the encrypted store, with the reference to use for each. Never the values. '
+            'The names of the secrets in the keychain, with the reference to use for each. Never the values. '
+            + 'This is the secrets half of the user\'s keychain, beside their SSH keys, under Inventory. '
             + 'Check here before asking the user for a key they may already have given.',
         shape: {},
         handler: async (input, ctx) => {
@@ -1016,7 +1029,10 @@ const TOOLS = [
         name: 'delete_secret',
         title: 'Delete a stored secret',
         readOnly: false,
-        description: 'Remove one secret from the encrypted store by name. Only when the user asked for it to go.',
+        description:
+            'Remove one secret from the keychain by name. Anything still referring to it — a host\'s password, '
+            + 'an MCP server, a proxy — stops working, and the value cannot be recovered. '
+            + 'Only when the user asked for it to go.',
         shape: {
             name: z.string().min(1).max(60).describe('The name, as list_secrets shows it.'),
         },
@@ -1377,6 +1393,19 @@ function nativeAutoApproved(toolName, input, settings) {
  * that matters: it is what happens when a tool is added and this function is
  * not revisited, and the safe answer is to ask.
  */
+/**
+ * Whether running this tool leaves the app exactly as it found it.
+ *
+ * Not the same question as `readOnly`, which has always meant "safe to run
+ * without asking". They agree on every tool but `save_secret`, which is waved
+ * through on purpose and still writes to the keychain. A run told to look and
+ * not touch is asking this question, not that one.
+ */
+function changesNothing(toolName) {
+    const tool = BY_NAME.get(toolName);
+    return Boolean(tool?.readOnly && !tool.writes);
+}
+
 function isAutoApproved(toolName, input, settings) {
     // Before the approval mode, not after it. A blocked command is refused
     // rather than approved, so it must never come back from here as "run it",
@@ -1388,7 +1417,10 @@ function isAutoApproved(toolName, input, settings) {
 
     const tool = BY_NAME.get(toolName);
     if (!tool) return false;
-    if (tool.readOnly) return true;
+    // In a read-only run the waved-through writes stop being waved through.
+    // Refusing here rather than running sends them to requestApproval, which
+    // is where a read-only run turns a write down and says why.
+    if (tool.readOnly) return !(settings.readOnlyRun && tool.writes);
 
     // A command whose leading words are on the safe list is a read wearing a
     // shell's clothing, and making someone approve `ls` teaches them to
@@ -1420,6 +1452,7 @@ module.exports = {
     SECRET_FIELDS,
     redactInput,
     isAutoApproved,
+    changesNothing,
     nativeAutoApproved,
     blockedReason,
     blockedMessage,

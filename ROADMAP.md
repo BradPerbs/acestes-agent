@@ -96,6 +96,25 @@ terminals, SSH sessions and local folders are the tools it works with.
    and waits. Folders are granted in the agent dialog as well as on the
    Sandbox card. Still to do: wait-and-poll for long commands, SFTP
    transfer between local and remote, fan-out of one command across hosts.
+7. **Secrets.** Done in the first pass (`src/main/ai/secrets.js`): a value
+   goes in by name through a masked card, the keychain page or
+   `save_secret`, is encrypted by the OS keychain, and the agent only ever
+   holds `{{secret:name}}`. The app resolves the reference at the moment of
+   use: the env of a local command, the env, headers and URL of an MCP
+   server, a host or proxy password, and, on the Claude Code runtime, the
+   arguments of a call to one of the agent's MCP servers, so a password can
+   be typed into a browser form without the model or the transcript seeing
+   it. Every stored value is masked out of the transcript, the conversation
+   titles and the runs log, and a credential found in a server's env or
+   headers is moved into the store whichever door it came through,
+   `agents.json` written by an earlier release included. Still to do: the
+   same resolution of references in MCP arguments on Codex, Grok, Kimi and
+   OpenCode, whose runtimes spawn the agent's servers themselves (routing
+   those servers through the loopback host would do it); and a fence for
+   the runtimes' own file tools, which today reach outside the granted
+   folders on the host (Grok Build runs with `--always-approve` and its
+   `read_file` can open `agents.json`; Claude Code's go through the
+   approval card but not the grant).
 
 ## Identity
 

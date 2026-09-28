@@ -226,6 +226,46 @@ function setTitle(runId, title) {
         .run(String(title || '').slice(0, 200), Date.now(), runId);
 }
 
+/**
+ * Every title passed through `fn`, and the ones it changed written back.
+ * For the secrets store: a run is titled with the first line of its
+ * conversation, and a key pasted as that line was in this log too.
+ */
+function scrubTitles(fn) {
+    const db = database.open();
+    const rows = db.prepare("SELECT id, title FROM runs WHERE title <> ''").all();
+    let changed = 0;
+    const update = db.prepare('UPDATE runs SET title = ? WHERE id = ?');
+    for (const row of rows) {
+        const clean = fn(row.title);
+        if (clean === row.title) continue;
+        update.run(String(clean || '').slice(0, 200), row.id);
+        changed += 1;
+    }
+    if (changed > 0) notify('runs-changed', {});
+    return changed;
+}
+
+/**
+ * Every step's arguments and output passed through `fn`, as the text they
+ * are stored as, and the ones it changed written back. For the same store:
+ * a value that reached a tool call before it was a secret is in here too.
+ */
+function scrubSteps(fn) {
+    const db = database.open();
+    const rows = db.prepare("SELECT run_id, seq, input, output FROM steps WHERE input <> '' OR output <> ''").all();
+    let changed = 0;
+    const update = db.prepare('UPDATE steps SET input = ?, output = ? WHERE run_id = ? AND seq = ?');
+    for (const row of rows) {
+        const input = fn(row.input);
+        const output = fn(row.output);
+        if (input === row.input && output === row.output) continue;
+        update.run(input, output, row.run_id, row.seq);
+        changed += 1;
+    }
+    return changed;
+}
+
 /** Add to the counters. Cost is accumulated, turns and calls incremented. */
 function tally(runId, { costUsd = 0, turns = 0, toolCalls = 0 } = {}) {
     const db = database.open();
@@ -473,6 +513,8 @@ module.exports = {
     setStatus,
     setProgress,
     setTitle,
+    scrubTitles,
+    scrubSteps,
     tally,
     overBudget,
     beginStep,

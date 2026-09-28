@@ -212,6 +212,54 @@ function findOpenCode(options = {}) {
     return '';
 }
 
+/**
+ * The app's effort scale, which is the part of OpenCode's that lines up.
+ *
+ * OpenCode calls a reasoning level a variant, and each model names its own:
+ * `minimal, low, medium, high, xhigh` on one, `low, medium, high` on the
+ * next, none at all on most. The stops the app has no name for are dropped
+ * rather than approximated, which is the rule every other runtime's list
+ * follows, and the menu hides the dial when nothing is left.
+ */
+const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
+
+/**
+ * The efforts a model offers, read from `/config/providers`.
+ *
+ * The pinned SDK does not declare `variants` on a model, but the server has
+ * sent them since 1.18: the types lag the API rather than the API lacking
+ * the field, so this reads it off the response and does not care that
+ * TypeScript has not caught up. A model without variants gets an empty
+ * list, which is what every OpenCode model used to get.
+ */
+function variantsOf(model) {
+    const named = model?.variants && typeof model.variants === 'object'
+        ? Object.keys(model.variants)
+        : [];
+    return EFFORT_LEVELS.filter(level => named.includes(level));
+}
+
+/**
+ * The level to ask for, which is not always the one that is set.
+ *
+ * The saved effort travels between runtimes and between models whose scales
+ * differ, so a model that stops at `high` is asked for `high` when the
+ * setting says `max`. Rounding down rather than resetting is what the menu
+ * shows and what the other runtimes do with a level they cannot honour. An
+ * effort off the scale entirely, or a model naming no variants, asks for
+ * nothing and lets the runtime pick.
+ */
+function nearestVariant(offered, effort) {
+    if (!offered?.length || !effort) return '';
+    if (offered.includes(effort)) return effort;
+    const wanted = EFFORT_LEVELS.indexOf(effort);
+    if (wanted < 0) return '';
+    for (let index = offered.length - 1; index >= 0; index -= 1) {
+        if (EFFORT_LEVELS.indexOf(offered[index]) <= wanted) return offered[index];
+    }
+    return '';
+}
+
 /** OpenCode model ids are always `provider/model`, with model allowed slashes. */
 function parseModel(value) {
     const text = String(value || '');
@@ -223,11 +271,20 @@ function parseModel(value) {
 /**
  * The last matching OpenCode permission wins. Deny/ask everything first,
  * then allow only our MCP namespace: its real approval happens in mcp-host.
+ *
+ * `question` is the exception, and it is allowed whatever the local-tools
+ * switch says. It is not a local tool in the sense the switch means: it
+ * touches nothing, it asks the user something, and the answer is given on
+ * the same card `ask_user` uses (see `answerQuestion`). Left to the `*`
+ * rule it was either refused for no good reason or, on the versions that
+ * treat it as a control tool outside the glob, asked and never answered,
+ * which stopped the turn dead.
  */
 function permissions(allowLocalTools) {
     return {
         '*': allowLocalTools ? 'ask' : 'deny',
         [`${SERVER_NAME}_*`]: 'allow',
+        question: 'allow',
     };
 }
 
@@ -243,6 +300,7 @@ function serverConfig({ url, token, allowLocalTools = false, maxTurns = 40 } = {
         tools: allowLocalTools ? undefined : {
             '*': false,
             [`${SERVER_NAME}_*`]: true,
+            question: true,
         },
         agent: {
             cloudblast: {
@@ -469,8 +527,12 @@ function createTranslator(sessionId, onEvent) {
         fail(error) {
             failTurn(error);
         },
+        /** Whether a turn is still waiting to be ended. See the pump. */
+        open() {
+            return turnOpen;
+        },
         finish: finishTurn,
-        async event(event, answerPermission) {
+        async event(event, answerPermission, answerQuestion) {
             const properties = event?.properties || {};
 
             if (event?.type === 'message.part.updated') {
@@ -536,6 +598,20 @@ function createTranslator(sessionId, onEvent) {
 
             if (event?.type === 'permission.updated' && belongs(properties.sessionID)) {
                 await answerPermission(properties);
+                return;
+            }
+
+            // A question from the runtime's own `question` tool. Not awaited,
+            // unlike a permission: the person has fifteen minutes to answer and
+            // the stream has to keep flowing behind the card, or the transcript
+            // freezes and the idle that ends the turn never gets read.
+            // answerQuestion settles the request itself and never throws.
+            if ((event?.type === 'question.asked' || event?.type === 'question.v2.asked')
+                && belongs(properties.sessionID)) {
+                if (typeof answerQuestion === 'function') {
+                    Promise.resolve(answerQuestion(properties, event.type === 'question.v2.asked'))
+                        .catch(() => { /* it settles the request itself; nothing left to do here */ });
+                }
                 return;
             }
 
@@ -659,6 +735,104 @@ async function start({
         }
     };
 
+    /**
+     * OpenCode's own `question` tool, answered on the app's question card.
+     *
+     * A question is not a permission. The model asks the person something,
+     * the session blocks, and it stays blocked until an answer or a
+     * rejection is posted back on a separate endpoint. Nothing here was
+     * listening for it, so a model that reached for the tool stopped the
+     * turn dead: the call drew in the transcript, no card was ever put up,
+     * the session never went idle and the turn never ended. It is the same
+     * question `ask_user` asks, so it goes on the same card, and whatever
+     * happens the request is settled so the session is never left waiting.
+     */
+    const answerQuestion = async (request, v2) => {
+        const requestId = String(request?.id || '');
+        if (!requestId) return;
+        const asked = Array.isArray(request.questions) ? request.questions : [];
+        const answers = [];
+        // Nowhere to put a card, so the question is turned down at once
+        // rather than held open against a screen nobody is looking at.
+        let parked = typeof toolContext?.askUser !== 'function';
+
+        for (const item of parked ? [] : asked) {
+            const options = (item?.options || [])
+                .map(option => String(option?.label || '').trim())
+                .filter(Boolean)
+                .slice(0, 6);
+            let reply;
+            try {
+                // No signal: this process can wait for a person properly, and
+                // the runtime is waiting on the endpoint rather than on a call
+                // it might give up on. See requestQuestion's QUESTION_WAIT.
+                reply = await toolContext.askUser({
+                    question: String(item?.question || item?.header || '').trim() || 'The agent has a question.',
+                    options,
+                });
+            } catch {
+                reply = { answered: false };
+            }
+            if (!reply?.answered) {
+                // Nobody answered, or they dismissed it. Reject rather than
+                // invent an answer: the tool call fails, the model ends its
+                // turn, and the card stays up so a later answer arrives as
+                // the next message.
+                parked = true;
+                break;
+            }
+            // One answer per question, each a list of the labels chosen.
+            answers.push([String(reply.answer ?? '')]);
+        }
+
+        await settleQuestion({ requestId, sessionId: session.id, v2, answers, reject: parked });
+    };
+
+    /**
+     * Post the answer back, on whichever of the two routes this build has.
+     *
+     * The session-scoped route is the newer one and the flat one is what
+     * older builds serve. The event says which flavour asked, and a 404 or
+     * 405 means this build only knows the other, so the fallback is tried
+     * before giving up: a question left unsettled is a hung turn, which is
+     * the failure this whole path exists to prevent.
+     */
+    const settleQuestion = async ({ requestId, sessionId, v2, answers, reject }) => {
+        const verb = reject ? 'reject' : 'reply';
+        const query = `?directory=${encodeURIComponent(directory)}`;
+        const scoped = `${server.url}/api/session/${encodeURIComponent(sessionId)}/question/${encodeURIComponent(requestId)}/${verb}${query}`;
+        const flat = `${server.url}/question/${encodeURIComponent(requestId)}/${verb}${query}`;
+        const routes = v2 ? [scoped, flat] : [flat, scoped];
+
+        let last = null;
+        for (const url of routes) {
+            if (abortEvents.signal.aborted) return;
+            try {
+                const response = await loopbackFetch(new Request(url, {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify(reject ? {} : { answers }),
+                }));
+                // loopbackFetch hands back a live socket, so the body is read
+                // whatever the status: an unread one is a connection left open.
+                await response.text().catch(() => {});
+                if (response.ok) return;
+                // Only a route this build does not serve is worth retrying
+                // elsewhere. A 400 is our payload and would fail twice.
+                if (response.status !== 404 && response.status !== 405) {
+                    last = new Error(`OpenCode would not take the answer (${response.status})`);
+                    break;
+                }
+                last = new Error(`OpenCode has no route for this question (${response.status})`);
+            } catch (error) {
+                last = error;
+            }
+        }
+        if (last && !abortEvents.signal.aborted) {
+            onEvent({ type: 'error', message: describeFailure(last) });
+        }
+    };
+
     let events;
     try {
         events = await client.event.subscribe({ signal: abortEvents.signal });
@@ -671,7 +845,13 @@ async function start({
     const pump = (async () => {
         try {
             for await (const event of events.stream) {
-                await translator.event(event, answerPermission);
+                await translator.event(event, answerPermission, answerQuestion);
+            }
+            // The stream ended without anyone asking it to. A server that has
+            // gone away sends no `session.idle`, so a turn still open here
+            // would sit spinning for ever with nothing left to end it.
+            if (!abortEvents.signal.aborted && translator.open()) {
+                translator.fail(new Error('The OpenCode server stopped before the turn finished.'));
             }
         } catch (error) {
             if (!abortEvents.signal.aborted) translator.fail(error);
@@ -681,17 +861,61 @@ async function start({
     let running = Promise.resolve();
     let closed = false;
 
+    /**
+     * What each model calls its reasoning levels, asked once per session.
+     *
+     * An effort is only ever sent as a variant the model actually names, so
+     * the list has to be in hand before the first turn. Read once here
+     * rather than per turn, and a failure is not fatal: no variants means
+     * the runtime picks its own level, which is what it did before any of
+     * this existed.
+     */
+    let variants = new Map();
+    try {
+        const catalogue = dataOf(await client.config.providers());
+        for (const entry of catalogue?.providers || []) {
+            for (const model of Object.values(entry.models || {})) {
+                if (model?.id) variants.set(`${entry.id}/${model.id}`, variantsOf(model));
+            }
+        }
+    } catch {
+        variants = new Map();
+    }
+
     const turn = async (text) => {
         translator.beginTurn();
         const current = getSettings();
         const model = parseModel(current.model);
+        const variant = model ? nearestVariant(variants.get(current.model), current.effort) : '';
+
+        // Said twice, because the two ways of saying it landed in different
+        // builds. The session route is the one this app can prove takes it,
+        // and the prompt's own model is what the turn is actually run with,
+        // so whichever the build honours, both agree. Neither is sent unless
+        // the model named this variant itself, so a build too old to report
+        // variants is asked for nothing and behaves exactly as before.
+        if (variant) {
+            try {
+                const url = `${server.url}/api/session/${encodeURIComponent(session.id)}/model`
+                    + `?directory=${encodeURIComponent(directory)}`;
+                const response = await loopbackFetch(new Request(url, {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({ model: { id: model.modelID, providerID: model.providerID, variant } }),
+                }));
+                await response.text().catch(() => {});
+            } catch {
+                // An older build has no such route. The prompt still carries it.
+            }
+        }
+
         try {
             await client.session.prompt({
                 path: { id: session.id },
                 body: {
                     agent: 'cloudblast',
                     system: systemPrompt,
-                    ...(model ? { model } : {}),
+                    ...(model ? { model: { ...model, ...(variant ? { variant } : {}) } } : {}),
                     parts: [{ type: 'text', text }],
                 },
             });
@@ -757,10 +981,7 @@ async function listModels() {
                     short: model.name || model.id,
                     description: `${provider.name}${model.capabilities?.reasoning ? ' · reasoning' : ''}`,
                     preferred: false,
-                    // OpenCode variants are model-specific, but the stable SDK
-                    // does not publish them yet. Hiding the effort control is
-                    // more honest than offering variants a model may not have.
-                    effort: [],
+                    effort: variantsOf(model),
                 });
             }
         }
@@ -799,6 +1020,8 @@ module.exports = {
     openCodeCandidates,
     desktopCandidates,
     parseModel,
+    variantsOf,
+    nearestVariant,
     permissions,
     serverConfig,
     createTranslator,

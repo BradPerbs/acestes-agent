@@ -722,11 +722,11 @@ export default {
 
     /* ---- Settings: Backup ---- */
     'settings.backup.title': 'Sao lưu',
-    'settings.backup.desc': 'Đưa một thiết lập sẵn có vào, hoặc lấy một bản sao ra.',
+    'settings.backup.desc': 'Mọi thứ ứng dụng lưu trữ, được mã hoá trong một tệp duy nhất mà bạn có thể mang theo hoặc đem trở lại.',
     'settings.backup.exportTitle': 'Xuất một bản sao lưu',
-    'settings.backup.exportDesc': 'Ghi mọi máy chủ, thư mục, khoá SSH, đoạn lệnh, cổng chuyển tiếp '
-        + 'và khoá máy chủ đã tin cậy vào một tệp mã hoá duy nhất, được bảo vệ bằng cụm mật khẩu '
-        + 'bạn chọn ở đây.',
+    'settings.backup.exportDesc': 'Ghi mọi thứ ứng dụng lưu trữ (máy chủ, khoá, tác nhân, cuộc trò '
+        + 'chuyện, cài đặt, trí nhớ, công việc, đoạn lệnh, proxy và khoá máy chủ đã tin cậy) '
+        + 'vào một tệp mã hoá duy nhất, được bảo vệ bằng cụm mật khẩu bạn chọn ở đây.',
     'settings.backup.exportNote': 'Cụm mật khẩu này độc lập với mật khẩu mở ứng dụng, nên tệp vẫn '
         + 'mở được trên một máy chưa từng thấy máy này.',
     'settings.backup.create': 'Tạo bản sao lưu',
@@ -760,6 +760,9 @@ export default {
     'settings.backup.emptyFile': 'Bản sao lưu này trống.',
     'settings.backup.folders': 'Thư mục',
     'settings.backup.keys': 'Khoá SSH',
+    'settings.backup.agents': 'Tác nhân',
+    'settings.backup.assistant': 'Trợ lý',
+    'settings.backup.secrets': 'Bí mật',
     'settings.backup.newCount': '{count} mục mới',
     'settings.backup.existingReplaced': '{count} mục đã có ở đây, sẽ bị thay thế',
     'settings.backup.existingSkipped': '{count} mục đã có ở đây, sẽ bị bỏ qua',

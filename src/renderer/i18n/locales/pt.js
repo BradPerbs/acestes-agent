@@ -754,11 +754,11 @@ export default {
 
     /* ---- Settings: Backup ---- */
     'settings.backup.title': 'Cópia de segurança',
-    'settings.backup.desc': 'Traga uma configuração existente, ou leve uma cópia consigo.',
+    'settings.backup.desc': 'Tudo o que a aplicação guarda, cifrado num único ficheiro que pode levar consigo ou trazer de volta.',
     'settings.backup.exportTitle': 'Exportar uma cópia',
-    'settings.backup.exportDesc': 'Escreve todos os anfitriões, pastas, chaves SSH, excertos, '
-        + 'encaminhamentos de portas e chaves de anfitrião de confiança num único ficheiro '
-        + 'cifrado, protegido por uma frase-passe que escolhe aqui.',
+    'settings.backup.exportDesc': 'Escreve tudo o que a aplicação guarda (anfitriões, chaves, agentes, '
+        + 'conversas, definições, memórias, tarefas, excertos, proxies e chaves de anfitrião de confiança) '
+        + 'num único ficheiro cifrado, protegido por uma frase-passe que escolhe aqui.',
     'settings.backup.exportNote': 'A frase-passe é independente da sua palavra-passe de abertura, '
         + 'por isso o ficheiro abre numa máquina que nunca viu esta.',
     'settings.backup.create': 'Criar cópia',
@@ -793,6 +793,9 @@ export default {
     'settings.backup.emptyFile': 'Esta cópia está vazia.',
     'settings.backup.folders': 'Pastas',
     'settings.backup.keys': 'Chaves SSH',
+    'settings.backup.agents': 'Agentes',
+    'settings.backup.assistant': 'Assistente',
+    'settings.backup.secrets': 'Segredos',
     'settings.backup.newCount': '{count} novos',
     'settings.backup.existingReplaced': '{count} já cá estão, serão substituídos',
     'settings.backup.existingSkipped': '{count} já cá estão, serão ignorados',
