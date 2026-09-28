@@ -231,22 +231,53 @@ function effortFor(settings) {
 }
 
 /**
- * Thread options, rebuilt per turn so a model or effort change lands on the
- * next answer rather than the next conversation.
+ * Where Codex may write on this machine, from the folders the agent was
+ * granted.
+ *
+ * `workspace-write` lets Codex write in its working directory and in each
+ * extra directory, and read everywhere. So the working directory is the first
+ * folder granted for writing and the rest of those are added. A folder
+ * granted read-only is left out: making it the working directory would make
+ * it writable. The temp directory stays writable, as it always was, for
+ * anything scratch.
+ *
+ * This used to be the temp directory every time, so an agent granted a
+ * repository for writing had every Codex edit to it refused, and tested a
+ * copy in %TEMP% instead.
+ */
+function workspaceFor(sandbox) {
+    const temp = os.tmpdir();
+    const writable = (Array.isArray(sandbox?.folders) ? sandbox.folders : [])
+        .filter(folder => folder?.mode === 'write' && folder.path)
+        .map(folder => folder.path);
+    if (writable.length === 0) return { workingDirectory: temp, additionalDirectories: [] };
+    return { workingDirectory: writable[0], additionalDirectories: [...writable.slice(1), temp] };
+}
+
+/**
+ * Thread options. Codex fixes them when a turn starts, so they are rebuilt
+ * whenever a model, an effort or the sandbox changes, and land on the next
+ * answer rather than the next conversation.
  *
  * The sandbox follows the app's own switch: with local tools off, Codex's
  * built-in shell and file tools get a read-only view of this machine and no
- * network of their own. The servers are reached through our tools, which is
- * the point, and those are approved one at a time.
+ * network of their own, and no folder is writable whatever was granted. The
+ * servers are reached through our tools, which is the point, and those are
+ * approved one at a time.
  */
 function threadOptions(settings, mcp) {
+    const writes = Boolean(settings.allowLocalTools);
+    const workspace = writes
+        ? workspaceFor(settings.sandbox)
+        : { workingDirectory: os.tmpdir(), additionalDirectories: [] };
     return {
         model: settings.model || undefined,
         modelReasoningEffort: effortFor(settings),
-        workingDirectory: settings.workingDirectory || os.tmpdir(),
+        workingDirectory: workspace.workingDirectory,
+        additionalDirectories: workspace.additionalDirectories.length ? workspace.additionalDirectories : undefined,
         skipGitRepoCheck: true,
-        sandboxMode: settings.allowLocalTools ? 'workspace-write' : 'read-only',
-        networkAccessEnabled: Boolean(settings.allowLocalTools),
+        sandboxMode: writes ? 'workspace-write' : 'read-only',
+        networkAccessEnabled: writes,
         // Nothing is waved through on Codex's side. Everything that matters
         // here is a call into our own tools, and those stop at the approval
         // card before they touch a host.
@@ -256,6 +287,11 @@ function threadOptions(settings, mcp) {
         webSearchEnabled: true,
         mcp,
     };
+}
+
+/** What decides where Codex may write, as one comparable string. */
+function fenceOf(options) {
+    return JSON.stringify([options.sandboxMode, options.workingDirectory, options.additionalDirectories || []]);
 }
 
 async function start({
@@ -323,6 +359,7 @@ async function start({
     let thread = resumeSessionId
         ? codex.resumeThread(resumeSessionId, threadOptions(settings, undefined))
         : codex.startThread(threadOptions(settings, undefined));
+    let fence = fenceOf(threadOptions(settings, undefined));
     let announced = Boolean(resumeSessionId);
     let running = null;
     let abort = null;
@@ -330,6 +367,13 @@ async function start({
     /** One turn, from the text going in to the transcript coming out. */
     async function turn(text, images = []) {
         const current = getSettings();
+        // A folder granted or the local-tools switch flipped since the thread
+        // opened applies from this turn, the way it does for our own tools.
+        const options = threadOptions(current, undefined);
+        if (fenceOf(options) !== fence) {
+            thread = thread.id ? codex.resumeThread(thread.id, options) : codex.startThread(options);
+            fence = fenceOf(options);
+        }
         abort = new AbortController();
 
         const body = preamble ? `${preamble}\n\n---\n\n${text}` : text;
@@ -834,6 +878,8 @@ module.exports = {
     codexRoots,
     stageImages,
     turnInput,
+    threadOptions,
+    workspaceFor,
     SERVER_NAME,
     // Pictures go in as files on the turn's command line: see `stageImages`.
     supportsImages: true,

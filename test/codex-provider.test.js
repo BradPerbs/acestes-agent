@@ -136,6 +136,32 @@ async function run() {
 
     assert.strictEqual(onUnix({}), '');
 
+    // Where Codex may write follows the agent's grants, not the temp folder.
+    const temp = require('os').tmpdir();
+    const repo = { path: 'C:\\Users\\Mario\\repo', mode: 'write' };
+    const docs = { path: 'C:\\Users\\Mario\\docs', mode: 'read' };
+    const site = { path: 'C:\\Users\\Mario\\site', mode: 'write' };
+
+    const granted = provider.threadOptions({ allowLocalTools: true, sandbox: { folders: [docs, repo, site] } });
+    assert.strictEqual(granted.sandboxMode, 'workspace-write');
+    assert.strictEqual(granted.workingDirectory, repo.path, 'it works in the first folder it may write');
+    assert.deepStrictEqual(granted.additionalDirectories, [site.path, temp], 'the other writable ones are added, and temp stays');
+    assert.ok(![granted.workingDirectory, ...granted.additionalDirectories].includes(docs.path),
+        'a read-only grant is never made writable');
+
+    const readOnlyGrant = provider.threadOptions({ allowLocalTools: true, sandbox: { folders: [docs] } });
+    assert.strictEqual(readOnlyGrant.workingDirectory, temp, 'with nothing to write it works in temp, as before');
+    assert.strictEqual(readOnlyGrant.additionalDirectories, undefined);
+
+    const none = provider.threadOptions({ allowLocalTools: true });
+    assert.strictEqual(none.workingDirectory, temp);
+
+    const off = provider.threadOptions({ allowLocalTools: false, sandbox: { folders: [repo, site] } });
+    assert.strictEqual(off.sandboxMode, 'read-only');
+    assert.strictEqual(off.workingDirectory, temp, 'local tools off writes nowhere, whatever was granted');
+    assert.strictEqual(off.additionalDirectories, undefined);
+    assert.strictEqual(off.networkAccessEnabled, false);
+
     console.log('codex-provider tests passed');
 }
 
