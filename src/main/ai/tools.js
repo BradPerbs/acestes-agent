@@ -7,6 +7,7 @@ const exec = require('./exec');
 const terminalRun = require('./terminal-run');
 const memory = require('./memory');
 const local = require('./local');
+const checkpoints = require('./checkpoints');
 const inventoryTools = require('./inventory-tools');
 const jobTools = require('./job-tools');
 const delegationTools = require('./delegation-tools');
@@ -580,13 +581,29 @@ const TOOLS = [
             const resolved = resolveSession(input, ctx);
             if (resolved.error) return fail(resolved.error);
 
+            const file = { where: 'remote', sessionId: resolved.sessionId, path: input.path };
             return viaSftp(resolved.sessionId, (handle, resolve) => {
-                handle.writeFile(input.path, input.content, { encoding: 'utf8' }, (error) => {
+                const write = () => handle.writeFile(input.path, input.content, { encoding: 'utf8' }, (error) => {
                     if (error) {
                         resolve(fail(`Could not write ${input.path}: ${error.message}`));
                         return;
                     }
+                    ctx.checkpoint?.after(file, { existed: true, content: input.content });
                     resolve(ok(`Wrote ${Buffer.byteLength(input.content)} bytes to ${input.path}.`));
+                });
+                // Read first, only so the turn's undo has something to put
+                // back. A file that is not there is recorded as not there,
+                // and one too big to hold is not read at all.
+                handle.stat(input.path, (statError, attrs) => {
+                    if (statError || attrs.size > checkpoints.MAX_BYTES) {
+                        ctx.checkpoint?.before(file, statError?.code === 2 ? { existed: false, content: '' } : null);
+                        write();
+                        return;
+                    }
+                    handle.readFile(input.path, (readError, data) => {
+                        ctx.checkpoint?.before(file, readError ? null : { existed: true, content: data.toString('utf8') });
+                        write();
+                    });
                 });
             });
         },
@@ -765,7 +782,10 @@ const TOOLS = [
             content: z.string().describe('The whole content the file should have.'),
         },
         handler: async (input, ctx) => {
+            const file = local.hostPath(ctx, input.path);
+            if (file) ctx.checkpoint?.before({ where: 'local', path: file }, checkpoints.readLocal(file));
             const result = await local.write(ctx, input.path, input.content);
+            if (file) ctx.checkpoint?.after({ where: 'local', path: file }, checkpoints.readLocal(file));
             return result.error ? fail(result.error) : ok({ written: true, ...result });
         },
     },
@@ -855,11 +875,15 @@ const TOOLS = [
                         resolve(fail(applied.error));
                         return;
                     }
+                    const file = { where: 'remote', sessionId: resolved.sessionId, path: input.path };
+                    ctx.checkpoint?.before(file, { existed: true, content: data.toString('utf8') });
                     handle.writeFile(input.path, applied.content, { encoding: 'utf8' }, (writeError) => {
                         if (writeError) {
                             resolve(fail(`Could not write ${input.path}: ${writeError.message}`));
                             return;
                         }
+                        ctx.checkpoint?.after(file, { existed: true, content: applied.content });
+                        ctx.checkpoint?.passage(file, { old: input.old, new: input.new, all: Boolean(input.all) });
                         resolve(ok(`Replaced ${applied.replaced} occurrence${applied.replaced === 1 ? '' : 's'} in ${input.path}.`));
                     });
                 });
@@ -882,7 +906,13 @@ const TOOLS = [
             all: z.boolean().optional().describe('Replace every occurrence rather than requiring exactly one.'),
         },
         handler: async (input, ctx) => {
+            const file = local.hostPath(ctx, input.path);
+            if (file) ctx.checkpoint?.before({ where: 'local', path: file }, checkpoints.readLocal(file));
             const result = await local.edit(ctx, input.path, input.old, input.new, { all: Boolean(input.all) });
+            if (file) ctx.checkpoint?.after({ where: 'local', path: file }, checkpoints.readLocal(file));
+            if (file && !result.error) {
+                ctx.checkpoint?.passage({ where: 'local', path: file }, { old: input.old, new: input.new, all: Boolean(input.all) });
+            }
             return result.error ? fail(result.error) : ok({ edited: true, ...result });
         },
     },
@@ -1081,7 +1111,10 @@ const TOOLS = [
         shape: {},
         handler: async (input, ctx) => {
             if (!ctx.secrets) return fail('There is no secrets store here.');
-            return ok({ secrets: ctx.secrets.list().map(entry => ({ name: entry.name, reference: entry.reference })) });
+            // This agent's own and the shared ones; another agent's are not
+            // there to list. A shared one is marked, since deleting it is
+            // not this agent's to do.
+            return ok({ secrets: ctx.secrets.list().map(entry => ({ name: entry.name, reference: entry.reference, shared: entry.shared || undefined })) });
         },
     },
 

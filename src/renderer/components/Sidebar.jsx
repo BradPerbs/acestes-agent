@@ -377,7 +377,7 @@ function Sidebar({
                 options: agents.map(agent => ({
                     value: agent.id,
                     label: agent.name,
-                    icon: <AgentMark size={14} color={agent.color} />,
+                    icon: <AgentMark size={14} look={agent} />,
                     onRemove: agents.length > 1 ? () => onDeleteAgent?.(agent.id) : undefined,
                 })),
             },
@@ -445,7 +445,7 @@ function Sidebar({
                                 focus-visible:ring-2 focus-visible:ring-gray-900/20 dark:focus-visible:ring-white/25
                                 ${open ? ACTIVE : 'hover:bg-gray-900/[0.04] dark:hover:bg-surface-raised'}`}
                         >
-                            <AgentMark size={26} color={activeAgent?.color} />
+                            <AgentMark size={26} look={activeAgent} />
                             <span className="min-w-0 flex-1">
                                 <span className="block text-sm font-semibold truncate text-gray-900 dark:text-white">
                                     {activeAgent?.name || t('agents.agent')}

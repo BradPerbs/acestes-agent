@@ -8,6 +8,7 @@ const certificate = require('./certificate');
 const hello = require('./hello');
 const ssh = require('./ssh');
 const transport = require('./transport');
+const localTerminal = require('./local-terminal');
 const serial = require('./serial');
 const agent = require('./agent');
 const sftp = require('./sftp');
@@ -99,7 +100,13 @@ function previewBackupSections(payload) {
         agents: byId(payload?.agents?.agents, agents.snapshot().agents.map(agent => agent.id)),
         conversations: byId(payload?.conversations, assistant.conversationIds()),
         assistant: singleton(Boolean(payload?.assistant)),
-        secrets: byName(payload?.secrets, aiSecrets.list().map(entry => entry.name)),
+        // Keyed `<owner>/<name>`; a backup from before owners, by bare name,
+        // comes in shared, and is counted the way it will be imported.
+        secrets: byName(
+            Object.fromEntries(Object.entries(payload?.secrets || {})
+                .map(([key, value]) => [key.includes('/') ? key : `/${key}`, value])),
+            aiSecrets.keys(),
+        ),
         memory: byId(memoryEntries, memoryIds),
         jobs: byId(payload?.jobs, jobs.list().map(job => job.id)),
         sessionLog: singleton(Boolean(payload?.sessionLog)),
@@ -749,6 +756,18 @@ function register(getWindow) {
     });
 
     handle('ssh-disconnect', (event, tabId) => transport.destroy(tabId));
+
+    // Shells on this computer, beside a conversation. Opening an id that is
+    // already running attaches to it; see local-terminal.js. The port arrives
+    // on `ssh-port`, and input and resizes go the way they do for any pane.
+    handle('local-terminal-shells', async (event, options) =>
+        (await localTerminal.listShells({ fresh: Boolean(options?.fresh) }))
+            .map(shell => ({ id: shell.id, label: shell.label, path: shell.file })));
+    handle('local-terminal-folders', (event, agentId) => localTerminal.listFolders(String(agentId || '')));
+    handle('local-terminal-open', (event, payload) =>
+        localTerminal.open(payload || {}, { window: BrowserWindow.fromWebContents(event.sender) || getWindow() }));
+    handle('local-terminal-close', (event, id) => localTerminal.destroy(String(id || '')));
+    handle('local-terminal-close-group', (event, group) => localTerminal.destroyGroup(String(group || '')));
     handle('ssh-detect-os', (event, tabId) => ssh.detectOS(tabId));
 
     // Sessions the agent opened with no window up, and adopting one as a tab.
@@ -1583,6 +1602,15 @@ function register(getWindow) {
     // The runtime, model and effort one conversation is pinned to.
     handle('ai-conversation-model', (event, { conversationId, patch } = {}) =>
         assistant.setConversationModel(String(conversationId || ''), patch || {}));
+    // What one turn did to files: the lines, for the card's review, and
+    // undoing it. See ai/checkpoints.js.
+    handle('ai-turn-changes', (event, { conversationId, turnId } = {}) =>
+        assistant.turnChanges(String(conversationId || ''), turnId));
+    handle('ai-turn-revert', (event, { conversationId, turnId } = {}) =>
+        assistant.revertTurn(String(conversationId || ''), turnId));
+    // A new conversation holding this one up to the end of a turn.
+    handle('ai-conversation-branch', (event, { conversationId, turnId } = {}) =>
+        assistant.branch(String(conversationId || ''), turnId));
     // A conversation as Markdown text, for the clipboard. `full` is the
     // debugging cut: settings, every tool input, results untruncated.
     handle('ai-conversation-markdown', (event, { conversationId, full } = {}) =>
@@ -1654,10 +1682,13 @@ function register(getWindow) {
     handle('mcp-library-search', (event, query) => mcpLibrary.search(query || ''));
     // A template plus its values to a server record, without saving it: the
     // page saves through agents-save like any other edit.
-    handle('mcp-library-instantiate', async (event, { template, values, name, fallback } = {}) => {
+    handle('mcp-library-instantiate', async (event, { template, values, name, fallback, agentId } = {}) => {
         const found = await mcpLibrary.resolve(template, fallback || null);
         if (!found) return { error: 'No such template.' };
-        return mcpLibrary.instantiate(found, values || {}, { name: name || '' });
+        // A token typed into the form is stored as the agent the server is
+        // for: the one named, else the one selected, whose page this is.
+        const owner = agents.get(String(agentId || ''))?.id || agents.activeId();
+        return mcpLibrary.instantiate(found, values || {}, { name: name || '', agentId: owner });
     });
 
     /* ---------------- Agents ---------------- */
@@ -1666,9 +1697,17 @@ function register(getWindow) {
 
     // Names only ever cross the bridge. A value goes in once, from the
     // settings page or a question card, and comes back to nobody.
-    handle('secrets-list', () => assistant.secrets.list());
-    handle('secrets-set', (event, { name, value } = {}) => assistant.secrets.set(String(name || ''), String(value ?? '')));
-    handle('secrets-remove', (event, name) => assistant.secrets.remove(String(name || '')));
+    // Each is the agent's the page is showing, the selected one unless it
+    // names another: an agent's keychain holds its own secrets, and the
+    // shared ones every agent may use.
+    const secretOwner = (agentId) => (agents.get(String(agentId || ''))?.id || agents.activeId());
+    handle('secrets-list', (event, agentId) => aiSecrets.list(secretOwner(agentId)));
+    handle('secrets-set', (event, { name, value, agentId } = {}) =>
+        aiSecrets.set(String(name || ''), String(value ?? ''), secretOwner(agentId)));
+    // A shared one is removed as shared: it is on the page, so it is the
+    // user's to delete, whichever agent they are looking through.
+    handle('secrets-remove', (event, { name, agentId, shared } = {}) =>
+        aiSecrets.remove(String(name || ''), shared ? '' : secretOwner(agentId)));
 
     handle('agents-list', () => agents.snapshot());
     handle('agents-select', (event, id) => {

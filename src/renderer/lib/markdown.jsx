@@ -16,6 +16,7 @@
  * second copy of it living in this file would be the worse trade.
  */
 
+import { memo } from 'react';
 import CopyButton from '../components/ui/CopyButton';
 
 const FENCE = /^```([\w+-]*)\s*$/;
@@ -212,27 +213,33 @@ function flushList(items, ordered, key) {
         : <ul key={key} className={className}>{children}</ul>;
 }
 
-export default function Markdown({ text = '' }) {
+/**
+ * The text as a list of blocks, each with a signature of what it holds.
+ *
+ * Kept apart from the drawing so a reply that is still streaming in can be
+ * drawn block by block: every frame adds a few letters to the last block and
+ * none to the others, and a block whose signature has not moved is not drawn
+ * again. Parsing is a pass over the lines, which is cheap; building the
+ * elements for every paragraph of a long reply sixty times a second was not.
+ */
+function parse(text) {
     const lines = String(text).split('\n');
     const blocks = [];
 
     let listItems = [];
     let listOrdered = false;
     let paragraph = [];
-    let key = 0;
 
     const closeList = () => {
-        const node = flushList(listItems, listOrdered, `l${key++}`);
-        if (node) blocks.push(node);
+        if (listItems.length === 0) return;
+        blocks.push({ kind: 'list', ordered: listOrdered, items: listItems, sig: `${listOrdered}\u0000${listItems.join('\u0000')}` });
         listItems = [];
     };
 
     const closeParagraph = () => {
         if (paragraph.length === 0) return;
         const body = paragraph.join(' ');
-        blocks.push(
-            <p key={`p${key++}`} className="[&:not(:first-child)]:mt-2 break-words">{inline(body, `p${key}`)}</p>
-        );
+        blocks.push({ kind: 'p', text: body, sig: body });
         paragraph = [];
     };
 
@@ -250,7 +257,8 @@ export default function Markdown({ text = '' }) {
                 collected.push(lines[index]);
                 index += 1;
             }
-            blocks.push(<CodeBlock key={`c${key++}`} code={collected.join('\n')} language={language} />);
+            const code = collected.join('\n');
+            blocks.push({ kind: 'code', code, language, sig: `${language}\u0000${code}` });
             continue;
         }
 
@@ -272,6 +280,7 @@ export default function Markdown({ text = '' }) {
                 closeList();
 
                 const rows = [];
+                const start = index;
                 index += 2;
                 // Runs to the blank line that ends the block, or to the first
                 // line with no pipe in it: the assistant writes a sentence
@@ -281,16 +290,14 @@ export default function Markdown({ text = '' }) {
                     rows.push(fitRow(splitCells(lines[index]), header.length));
                     index += 1;
                 }
+                blocks.push({
+                    kind: 'table',
+                    header,
+                    rows,
+                    align: rule.map(alignmentOf),
+                    sig: lines.slice(start, index).join('\n'),
+                });
                 index -= 1;
-
-                blocks.push(
-                    <Table
-                        key={`t${key++}`}
-                        header={header}
-                        rows={rows}
-                        align={rule.map(alignmentOf)}
-                    />
-                );
                 continue;
             }
         }
@@ -299,14 +306,7 @@ export default function Markdown({ text = '' }) {
         if (heading) {
             closeParagraph();
             closeList();
-            blocks.push(
-                <div
-                    key={`h${key++}`}
-                    className="[&:not(:first-child)]:mt-3 mb-1 font-semibold text-gray-900 dark:text-white"
-                >
-                    {inline(heading[2], `h${key}`)}
-                </div>
-            );
+            blocks.push({ kind: 'h', text: heading[2], sig: heading[2] });
             continue;
         }
 
@@ -327,12 +327,47 @@ export default function Markdown({ text = '' }) {
 
     closeParagraph();
     closeList();
+    return blocks;
+}
+
+/** One block, drawn again only when what it holds has changed. */
+const Block = memo(function Block({ block, prefix }) {
+    switch (block.kind) {
+        case 'code':
+            return <CodeBlock code={block.code} language={block.language} />;
+        case 'table':
+            return <Table header={block.header} rows={block.rows} align={block.align} />;
+        case 'h':
+            return (
+                <div className="[&:not(:first-child)]:mt-3 mb-1 font-semibold text-gray-900 dark:text-white">
+                    {inline(block.text, prefix)}
+                </div>
+            );
+        case 'list':
+            return flushList(block.items, block.ordered, prefix);
+        default:
+            return <p className="[&:not(:first-child)]:mt-2 break-words">{inline(block.text, prefix)}</p>;
+    }
+}, (previous, next) => previous.block.sig === next.block.sig
+    && previous.block.kind === next.block.kind
+    && previous.prefix === next.prefix);
+
+function Markdown({ text = '' }) {
+    const blocks = parse(text);
 
     // Sized for a side panel rather than a page: 13px at a generous line height
     // reads better in a 400px column than the app's 14px body text.
     return (
         <div className="text-[13px] leading-[1.65] text-gray-700 dark:text-gray-200">
-            {blocks}
+            {blocks.map((block, index) => (
+                <Block key={`${block.kind}${index}`} block={block} prefix={`b${index}`} />
+            ))}
         </div>
     );
 }
+
+/**
+ * Drawn again only when the text changes: a finished reply in a long
+ * transcript is never parsed twice.
+ */
+export default memo(Markdown);

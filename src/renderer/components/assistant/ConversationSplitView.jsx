@@ -101,7 +101,7 @@ function ConversationPanePicker({ tabs, statuses, usedTabIds, onPick, onNew }) {
                             hover:bg-gray-100 dark:hover:bg-surface-control outline-none
                             focus-visible:ring-2 focus-visible:ring-gray-900/20 dark:focus-visible:ring-white/25"
                     >
-                        <AgentMark size={16} color={tab.agentColor || ''} />
+                        <AgentMark size={16} look={tab.agentLook} />
                         <span className="min-w-0 flex-1 truncate text-xs font-medium text-gray-900 dark:text-white">
                             {tab.title}
                         </span>
@@ -139,7 +139,7 @@ function ConversationSplitView({
     hosts,
     activeSessionId,
     activeAgentId,
-    colorFor,
+    lookFor,
     scopePropsFor,
     setConversation,
     reportConversationStatus,
@@ -148,6 +148,7 @@ function ConversationSplitView({
     onDetachTab,
     onCloseTab,
     onNewConversation,
+    onOpenConversation,
     onPickTab,
     onNewIntoPane,
     onFocusPane,
@@ -178,9 +179,9 @@ function ConversationSplitView({
         const tab = pane?.tabId ? tabById.get(pane.tabId) : null;
         return {
             title: tab?.title || '',
-            color: tab?.agentColor || colorFor(tab?.agentId),
+            look: tab?.agentLook || lookFor(tab?.agentId),
         };
-    }, [layout, tabById, colorFor]);
+    }, [layout, tabById, lookFor]);
 
     // One global click trap: a drag released over a header button must not
     // click it. Armed only by a real drag, so ordinary clicks pass through.
@@ -277,8 +278,8 @@ function ConversationSplitView({
             if (!current.lifted) {
                 if (Math.hypot(moveEvent.clientX - current.originX, moveEvent.clientY - current.originY) < DRAG_THRESHOLD) return;
                 current.lifted = true;
-                const { title, color } = titleOf(current.paneId);
-                setDrag({ paneId: current.paneId, title, color });
+                const { title, look } = titleOf(current.paneId);
+                setDrag({ paneId: current.paneId, title, look });
                 document.body.classList.add('conv-pane-dragging');
                 updateGhost(moveEvent.clientX, moveEvent.clientY);
             }
@@ -364,7 +365,7 @@ function ConversationSplitView({
                             hosts={hosts}
                             activeSessionId={activeSessionId}
                             agentId={tab.agentId || activeAgentId}
-                            agentColor={colorFor(tab.agentId)}
+                            agentLook={lookFor(tab.agentId)}
                             scopeProps={scopePropsFor(tab)}
                             onConversationChange={(id) => setConversation(tab.id, id)}
                             onStatus={reportConversationStatus}
@@ -373,6 +374,7 @@ function ConversationSplitView({
                             onDetach={() => onDetachTab(tab.id)}
                             onClose={() => onCloseTab(tab.id)}
                             onNewTab={onNewConversation}
+                            onOpenConversation={onOpenConversation}
                             inSplit
                             splitFocused={focused}
                             canSplit={canSplit && count < MAX_CONVERSATION_PANES}
@@ -394,7 +396,7 @@ function ConversationSplitView({
         </div>
         {drag && createPortal(
             <div ref={ghostRef} className="conv-drag-ghost" aria-hidden="true">
-                <AgentMark size={14} color={drag.color} />
+                <AgentMark size={14} look={drag.look} />
                 <span>{drag.title}</span>
             </div>,
             document.body,

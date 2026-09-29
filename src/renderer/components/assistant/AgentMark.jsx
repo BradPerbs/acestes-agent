@@ -1,291 +1,295 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
-import { agentColor, shade } from '../../lib/agent-colors';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { agentInk } from '../../lib/agent-colors';
+import { agentLook } from '../../lib/agent-look';
+import { REST, drawHelmet, framing, helmetMask, whenHelmetReady } from './helmet/renderer';
 
 /**
- * An agent's mark: a round face with two eyes in it.
+ * An agent's mark: a Corinthian helmet in ink, turned three quarters on.
  *
- * Inlined rather than loaded from a file for two reasons. The gradient needs
- * an id, and an id repeated across every copy on screen is one gradient that
- * several elements fight over, so it is generated per instance. And the eyes
- * have to be reachable by a stylesheet, which is where the character lives.
+ * Acestes was a king in the Aeneid, so the face is a warrior's. It is drawn
+ * from a real model (see `helmet/renderer.js`, and `scripts/helmets` for
+ * where the model comes from), live, so it can be turned. `look` is which
+ * crest it wears and in which of the agent colours; it takes an agent, a
+ * `{ color, crest }` or a bare colour id.
  *
- * The drawing keeps the 338 x 281 canvas the eyes were posed on, so the poses
- * in input.css, which are written in those units, go on working; the body is
- * a circle inside it. `color` is the id of one of the agent colours (see
- * `lib/agent-colors`), which is what tells one agent's mark from another's
- * everywhere it is drawn.
+ * Two ways of showing it:
  *
- * `animated` is off by default and asked for where the mark is large and is
- * the thing being looked at. Everywhere else it is a small button icon, and
- * something drifting and blinking in the corner of a terminal window is not
- * charm, it is a distraction with a face on.
+ * - Still, which is almost every mark on screen: tab icons, list rows, the
+ *   switcher. The helmet is drawn once per size into a mask image and the
+ *   colour is the element's own, from CSS, so it follows the theme and the
+ *   text around it without being drawn again, and a row of tabs shares one
+ *   picture.
+ * - `animated`, where the mark is large and is the thing being looked at:
+ *   it turns to look at the pointer, a beat behind it (straight at you when
+ *   the pointer is over it, to either side as it moves off), and sways a
+ *   little on its own, so it looks alive rather than printed. With no
+ *   pointer in the window it rests three quarters on, like a still mark.
+ *   Drawn every frame while it is on screen; it is cheap, a fraction of a
+ *   millisecond.
  *
- * `mono` is the same shape in `currentColor`, for when the mark is a control
- * rather than the subject: a button in a row of chrome that is one grey in
- * light mode and another in dark. The eyes are cut out rather than painted,
- * so they stay legible whatever the mark is tinted to and whatever it sits on.
+ * `mono` is the same helmet in the surrounding text colour, for when the
+ * mark is a control rather than the subject.
  *
- * ## How it stays alive
- *
- * Two eyes is a small vocabulary, so what sells it is timing rather than
- * drawing. Expressions are picked at random and separated by uneven pauses,
- * because a face that cycles predictably reads as a loop within about twenty
- * seconds, and one that never rests reads as a nervous tic. The poses
- * themselves are in input.css; this only decides what happens when.
- *
- * On top of that it watches the pointer. Gaze is a translate on the group and
- * the expressions are transforms on each eye, so the two compose instead of
- * fighting: it can be mid-wink and still be looking at you.
+ * Where there is no WebGL2 to draw with, it falls back to one drawing of the
+ * helmet in its resting pose (`helmet/still.js`), and does not turn.
  */
 
-/** How far the pointer has to travel for the eyes to reach the end of their
- *  range, and how far that range goes, in the artwork's own units. */
-const REACH_X = 300;
-const REACH_Y = 220;
-const GAZE_X = 14;
-const GAZE_Y = 9;
+let ready = null;
+const waitingForReady = new Set();
+whenHelmetReady().then((ok) => {
+    ready = ok;
+    for (const done of waitingForReady) done();
+    waitingForReady.clear();
+});
 
-/**
- * What it can do, and how often. Blinking dominates on purpose: it is the one
- * an eye does without meaning anything by it, and it is what makes the rest
- * land as deliberate when they come.
- */
-const EXPRESSIONS = [
-    { name: 'blink', weight: 38 },
-    { name: 'look', weight: 17 },
-    { name: 'curious', weight: 13 },
-    { name: 'happy', weight: 12 },
-    { name: 'wink', weight: 11 },
-    { name: 'angry', weight: 9 },
-];
-
-const TOTAL = EXPRESSIONS.reduce((sum, expression) => sum + expression.weight, 0);
-
-/**
- * The next expression, weighted, and not the one just played.
- *
- * Blink is exempt from that rule: two blinks in a row is something a face
- * actually does, while two winks in a row is a tic.
- */
-function pickExpression(previous) {
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-        let roll = Math.random() * TOTAL;
-        const chosen = EXPRESSIONS.find((expression) => {
-            roll -= expression.weight;
-            return roll <= 0;
-        }) || EXPRESSIONS[0];
-
-        if (chosen.name !== previous || chosen.name === 'blink') return chosen.name;
-    }
-    return 'blink';
+/** Whether the helmet can be drawn: null while it loads, then true or false. */
+function useHelmetReady() {
+    const [state, setState] = useState(ready);
+    useEffect(() => {
+        if (ready !== null) {
+            setState(ready);
+            return undefined;
+        }
+        const done = () => setState(ready);
+        waitingForReady.add(done);
+        return () => waitingForReady.delete(done);
+    }, []);
+    return state;
 }
 
-/** The rest between two expressions. Uneven, or it reads as a metronome. */
-const restFor = () => 1100 + Math.random() * 3200;
+/** The device pixel ratio, kept up to date when the window moves to another screen. */
+function usePixelRatio() {
+    const [ratio, setRatio] = useState(() => window.devicePixelRatio || 1);
+    useEffect(() => {
+        let query = null;
+        const listen = () => {
+            query?.removeEventListener('change', update);
+            query = window.matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+            query.addEventListener('change', update);
+        };
+        function update() {
+            setRatio(window.devicePixelRatio || 1);
+            listen();
+        }
+        listen();
+        return () => query?.removeEventListener('change', update);
+    }, []);
+    return ratio;
+}
+
+const stillMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
+/* ---- The pointer, shared by every mark that follows it -------------------- */
+
+const pointer = { x: 0, y: 0, inside: false };
+let following = 0;
+const onPointerMove = (event) => {
+    pointer.x = event.clientX;
+    pointer.y = event.clientY;
+    pointer.inside = true;
+};
+const onPointerLeave = () => { pointer.inside = false; };
+
+function followPointer() {
+    if (following++ === 0) {
+        window.addEventListener('pointermove', onPointerMove, { passive: true });
+        document.documentElement.addEventListener('pointerleave', onPointerLeave);
+        window.addEventListener('blur', onPointerLeave);
+    }
+    return () => {
+        if (--following > 0) return;
+        window.removeEventListener('pointermove', onPointerMove);
+        document.documentElement.removeEventListener('pointerleave', onPointerLeave);
+        window.removeEventListener('blur', onPointerLeave);
+    };
+}
+
+/* ---- The theme, which the live marks have to hear about ------------------- */
+
+const themeListeners = new Set();
+let themeObserver = null;
 
 /**
- * The body: a ball on the canvas the eyes were posed for, with the eyes in
- * its upper half, where a face carries them. The box is cut square around
- * it, so `size` is the ball's diameter rather than a canvas it sits in.
+ * Called when the theme changes: the class on the root that turns dark mode
+ * on, or the custom palette written into its style. A still mark's colour
+ * comes from CSS and needs none of this; a live one paints its colour into a
+ * canvas and has to be told.
  */
-const BODY = { cx: 176, cy: 200, r: 130 };
-const VIEW = `${BODY.cx - BODY.r} ${BODY.cy - BODY.r} ${BODY.r * 2} ${BODY.r * 2}`;
-
-export default function AgentMark({ size = 18, animated = false, mono = false, color = '', className = '' }) {
-    // Colons are fine in an id but read badly in a `url(#...)`, so they go.
-    const unique = useId().replace(/:/g, '');
-    const gradient = `agent-fill-${unique}`;
-    const holes = `agent-eyes-${unique}`;
-    const palette = agentColor(color);
-
-    const [expression, setExpression] = useState('');
-    const timer = useRef(null);
-    const running = useRef(false);
-    const previous = useRef('');
-    const eyes = useRef(null);
-
-    function play() {
-        previous.current = pickExpression(previous.current);
-        setExpression(previous.current);
+function onThemeChange(listener) {
+    themeListeners.add(listener);
+    if (!themeObserver) {
+        themeObserver = new MutationObserver(() => { for (const fn of themeListeners) fn(); });
+        themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style'] });
     }
+    return () => themeListeners.delete(listener);
+}
 
-    function queue() {
-        clearTimeout(timer.current);
-        timer.current = setTimeout(play, restFor());
-    }
+/* ---- How a live mark moves -------------------------------------------------- */
 
-    /**
-     * One expression has finished. The stylesheet owns how long each pose
-     * takes, so the end of the animation is the signal rather than a duration
-     * repeated here that would drift out of step with it the first time one is
-     * retimed.
-     */
-    function rest() {
-        setExpression('');
-        if (running.current) queue();
+/**
+ * How it looks at the pointer: the face turned up to `yaw` degrees either
+ * side, and tilted `pitch` either way about `level`, reaching most of that
+ * once the pointer is `reachX` or `reachY` pixels off.
+ */
+const LOOK = { yaw: 60, pitch: 12, level: 8, reachX: 420, reachY: 320 };
+/** The drift it has of its own, in degrees. */
+const SWAY = { yaw: 2.5, pitch: 1.2 };
+/** How long it takes to catch up with where it is looking, in seconds. */
+const LAG = 0.25;
+/** Every angle a live mark can reach, sampled, which its frame is sized to hold. */
+const RANGE = (() => {
+    const angles = [[REST.yaw, REST.pitch]];
+    const yaw = LOOK.yaw + SWAY.yaw;
+    const low = LOOK.level - LOOK.pitch - SWAY.pitch;
+    const high = LOOK.level + LOOK.pitch + SWAY.pitch;
+    for (let y = -yaw; y <= yaw + 0.01; y += yaw / 5) {
+        for (let p = low; p <= high + 0.01; p += (high - low) / 3) {
+            angles.push([Math.round(y * 10) / 10, Math.round(p * 10) / 10]);
+        }
     }
+    return angles;
+})();
+
+function LiveMark({ size, crest, paper, ratio, tint, wrapperProps }) {
+    const wrapper = useRef(null);
+    const canvas = useRef(null);
+    // A canvas bigger than the mark, so the helmet can turn without running
+    // off it, placed so that at rest it sits exactly where a still one would.
+    const place = useMemo(() => framing(crest, RANGE), [crest]);
+    const canvasSize = size * place.grow;
+    const pixels = Math.max(1, Math.round(canvasSize * ratio));
 
     useEffect(() => {
-        const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-        running.current = Boolean(animated) && !still;
-        if (!running.current) return undefined;
-
-        queue();
-        return () => {
-            running.current = false;
-            clearTimeout(timer.current);
-        };
-        // `queue` is recreated every render and closes over nothing but refs.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [animated]);
-
-    /**
-     * Follow the pointer.
-     *
-     * Written straight to the node rather than held in state: this fires on
-     * every mouse move, and a re-render per frame to move two rects a few
-     * pixels is the kind of thing that makes a whole window feel heavy. The
-     * easing is a CSS transition on the group, so the eyes arrive a beat after
-     * the cursor does, which is the difference between watching something and
-     * being welded to it.
-     *
-     * `tanh` rather than a clamp. The eyes slow as they approach the edge of
-     * their travel and never hit a wall, so a pointer crossing the far side of
-     * the screen still moves them, just barely.
-     */
-    useLayoutEffect(() => {
-        const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-        if (!animated || still) return undefined;
-
+        const node = canvas.current;
+        if (!node) return undefined;
+        let colour = getComputedStyle(wrapper.current).color;
+        let yaw = REST.yaw, pitch = REST.pitch;
+        let last = performance.now();
         let frame = 0;
-        let point = null;
+        let onScreen = true;
 
-        const settle = () => {
+        const tick = (now) => {
             frame = 0;
-            const node = eyes.current;
-            if (!node || !point) return;
-
-            const box = node.ownerSVGElement?.getBoundingClientRect();
-            if (!box?.width) return;
-
-            const x = Math.tanh((point.x - (box.left + box.width / 2)) / REACH_X) * GAZE_X;
-            const y = Math.tanh((point.y - (box.top + box.height / 2)) / REACH_Y) * GAZE_Y;
-            node.style.transform = `translate(${x.toFixed(2)}px, ${y.toFixed(2)}px)`;
+            if (!onScreen) return;
+            const dt = Math.min(0.1, (now - last) / 1000);
+            last = now;
+            let targetYaw = REST.yaw, targetPitch = REST.pitch;
+            if (pointer.inside) {
+                const box = wrapper.current.getBoundingClientRect();
+                targetYaw = LOOK.yaw * Math.tanh((pointer.x - (box.left + box.width / 2)) / LOOK.reachX);
+                targetPitch = LOOK.level + LOOK.pitch * Math.tanh((pointer.y - (box.top + box.height / 2)) / LOOK.reachY);
+            }
+            const t = now / 1000;
+            targetYaw += SWAY.yaw * Math.sin(t * 0.8);
+            targetPitch += SWAY.pitch * Math.sin(t * 0.63 + 1.3);
+            const k = 1 - Math.exp(-dt / LAG);
+            yaw += (targetYaw - yaw) * k;
+            pitch += (targetPitch - pitch) * k;
+            drawHelmet(node, { crest, size, canvasSize, yaw, pitch, range: RANGE, line: colour, paper });
+            frame = requestAnimationFrame(tick);
         };
 
-        const onMove = (event) => {
-            point = { x: event.clientX, y: event.clientY };
-            if (!frame) frame = requestAnimationFrame(settle);
-        };
-
-        // Back to centre when the pointer leaves the window, rather than
-        // staring at the corner it went out through.
-        const onLeave = () => {
-            point = null;
-            if (eyes.current) eyes.current.style.transform = 'translate(0px, 0px)';
-        };
-
-        window.addEventListener('mousemove', onMove);
-        document.addEventListener('mouseleave', onLeave);
+        // Only while it can be seen: a mark in a tab that is not showing
+        // has no reason to spend a frame.
+        const visibility = new IntersectionObserver(([entry]) => {
+            onScreen = entry.isIntersecting;
+            if (onScreen && !frame) {
+                last = performance.now();
+                frame = requestAnimationFrame(tick);
+            }
+        });
+        visibility.observe(node);
+        const stopFollowing = followPointer();
+        const stopTheme = onThemeChange(() => { colour = getComputedStyle(wrapper.current).color; });
+        frame = requestAnimationFrame(tick);
         return () => {
-            window.removeEventListener('mousemove', onMove);
-            document.removeEventListener('mouseleave', onLeave);
             cancelAnimationFrame(frame);
+            visibility.disconnect();
+            stopFollowing();
+            stopTheme();
         };
-    }, [animated]);
-
-    /**
-     * The eyes, painted or cut out.
-     *
-     * One piece of markup either way: the classes and the ref the poses and the
-     * gaze are driven through have to be on the same element in both, or the
-     * mark would only be alive in one of its two colours.
-     */
-    const renderEyes = (fill) => (
-        <g
-            ref={eyes}
-            className={`agent-eyes ${animated ? 'is-tracking' : ''} ${expression ? `is-${expression}` : ''}`}
-        >
-            {/* The left eye carries the handler. Every expression moves it,
-                so it is the one that can be trusted to report the end. */}
-            <rect
-                className="agent-eye agent-eye-left"
-                x="113"
-                y="120"
-                width="46"
-                height="90"
-                rx="23"
-                fill={fill}
-                onAnimationEnd={rest}
-            />
-            <rect
-                className="agent-eye agent-eye-right"
-                x="193"
-                y="120"
-                width="46"
-                height="90"
-                rx="23"
-                fill={fill}
-            />
-        </g>
-    );
+        // `tint` is here for the colour: it is read from the element's style,
+        // which changes when the agent's colour does as well as the theme.
+    }, [crest, size, canvasSize, paper, pixels, tint]);
 
     return (
-        <svg
-            width={size}
-            height={size}
-            viewBox={VIEW}
-            fill="none"
-            aria-hidden="true"
-            focusable="false"
-            className={`${animated ? 'agent-float' : ''} ${className}`}
-        >
-            {/* Black is a hole, white is kept, so the eyes are subtracted from
-                the body and whatever the mark is sitting on shows through
-                them: the hover wash on the button, the shell behind it. */}
-            {mono && (
-                <mask id={holes} maskUnits="userSpaceOnUse" x={BODY.cx - BODY.r} y={BODY.cy - BODY.r} width={BODY.r * 2} height={BODY.r * 2}>
-                    <circle cx={BODY.cx} cy={BODY.cy} r={BODY.r} fill="#fff" />
-                    {renderEyes('#000')}
-                </mask>
-            )}
-
-            <circle
-                opacity={mono ? 0.8 : 1}
-                cx={BODY.cx}
-                cy={BODY.cy}
-                r={BODY.r}
-                fill={mono ? 'currentColor' : `url(#${gradient})`}
-                mask={mono ? `url(#${holes})` : undefined}
+        <span ref={wrapper} {...wrapperProps}>
+            <canvas
+                ref={canvas}
+                width={pixels}
+                height={pixels}
+                className="agent-mark-canvas"
+                style={{
+                    width: canvasSize,
+                    height: canvasSize,
+                    left: (size - canvasSize) / 2 + place.dx * size,
+                    top: (size - canvasSize) / 2 + place.dy * size,
+                }}
             />
-
-            {/* The light: a soft catch above and to the left of the eyes,
-                which is what turns a disc into a ball. */}
-            {!mono && (
-                <ellipse
-                    cx={BODY.cx - BODY.r * 0.32}
-                    cy={BODY.cy - BODY.r * 0.6}
-                    rx={BODY.r * 0.3}
-                    ry={BODY.r * 0.17}
-                    fill="#fff"
-                    opacity="0.28"
-                    transform={`rotate(-25 ${BODY.cx - BODY.r * 0.32} ${BODY.cy - BODY.r * 0.6})`}
-                />
-            )}
-
-            {!mono && renderEyes('#FFFFFF')}
-
-            {!mono && (
-                <defs>
-                    {/* Lit from the upper left: pale there, the colour itself
-                        through the middle, and its own shadow at the far edge. */}
-                    <radialGradient id={gradient} cx="0.35" cy="0.3" r="0.8">
-                        <stop stopColor={shade(palette.from, 0.35)} />
-                        <stop offset="0.45" stopColor={palette.from} />
-                        <stop offset="1" stopColor={shade(palette.to, -0.3)} />
-                    </radialGradient>
-                </defs>
-            )}
-        </svg>
+        </span>
     );
+}
+
+function StillMark({ size, crest, paper, pixels, wrapperProps }) {
+    const [ink, ground] = useMemo(() => [
+        helmetMask({ crest, size, pixels, layer: 'ink' }),
+        paper ? helmetMask({ crest, size, pixels, layer: 'paper' }) : null,
+    ], [crest, size, pixels, paper]);
+    const layer = (url) => ({ WebkitMaskImage: `url(${url})`, maskImage: `url(${url})` });
+
+    return (
+        <span {...wrapperProps}>
+            {ground && <span className="agent-mark-layer" style={{ ...layer(ground), backgroundColor: paper }} />}
+            {ink && <span className="agent-mark-layer agent-mark-lines" style={layer(ink)} />}
+        </span>
+    );
+}
+
+/** The one drawing, for where the helmet cannot be drawn live. */
+function DrawnMark({ crest, paper, wrapperProps }) {
+    const [drawing, setDrawing] = useState(null);
+    useEffect(() => {
+        let current = true;
+        import('./helmet/still').then(({ default: still }) => { if (current) setDrawing(still[crest] || still.plume); });
+        return () => { current = false; };
+    }, [crest]);
+
+    return (
+        <span {...wrapperProps}>
+            {drawing && (
+                <svg viewBox="0 0 240 240" width="100%" height="100%" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
+                    {paper && <path d={drawing.outline} fill={paper} stroke="none" />}
+                    <path d={drawing.inside} fill="currentColor" stroke="none" />
+                    {drawing.lines.map((d, index) => <path key={index} d={d} strokeWidth="0.8" vectorEffect="non-scaling-stroke" />)}
+                    <path d={drawing.outline} strokeWidth="1.4" vectorEffect="non-scaling-stroke" />
+                </svg>
+            )}
+        </span>
+    );
+}
+
+export default function AgentMark({ size = 18, animated = false, mono = false, look = null, className = '' }) {
+    const { color, crest } = agentLook(look);
+    const ink = agentInk(color);
+    const paper = mono ? null : ink.paper;
+    const canDraw = useHelmetReady();
+    const ratio = usePixelRatio();
+    const pixels = Math.max(1, Math.round(size * ratio));
+    const live = animated && !stillMotion();
+
+    const wrapperProps = {
+        'aria-hidden': 'true',
+        className: `agent-mark ${mono ? '' : 'agent-mark-ink'} ${animated ? 'agent-float' : ''} ${className}`,
+        style: {
+            width: size,
+            height: size,
+            ...(mono ? null : { '--agent-ink': ink.line, '--agent-ink-dark': ink.lineDark }),
+        },
+    };
+
+    // While the model loads, an empty box of the right size, so nothing moves when it arrives.
+    if (canDraw === null) return <span {...wrapperProps} />;
+    if (canDraw === false) return <DrawnMark crest={crest} paper={paper} wrapperProps={wrapperProps} />;
+    if (live) return <LiveMark size={size} crest={crest} paper={paper} ratio={ratio} tint={mono ? 'mono' : `${ink.line}/${ink.lineDark}`} wrapperProps={wrapperProps} />;
+    return <StillMark size={size} crest={crest} paper={paper} pixels={pixels} wrapperProps={wrapperProps} />;
 }

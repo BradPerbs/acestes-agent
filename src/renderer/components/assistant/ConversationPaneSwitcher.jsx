@@ -22,7 +22,7 @@ const NEW_VALUE = '__new__';
 function ConversationPaneSwitcher({
     tab,
     title,
-    agentColor = '',
+    agentLook = null,
     busy = false,
     tabs = [],
     onSwitch,
@@ -34,7 +34,7 @@ function ConversationPaneSwitcher({
         ...tabs.map((entry) => ({
             value: entry.id,
             label: entry.title,
-            icon: <AgentMark size={14} color={entry.agentColor || ''} />,
+            icon: <AgentMark size={14} look={entry.agentLook} />,
         })),
         {
             value: NEW_VALUE,
@@ -61,7 +61,7 @@ function ConversationPaneSwitcher({
                         hover:bg-gray-100 dark:hover:bg-surface-control
                         focus-visible:ring-2 focus-visible:ring-gray-900/20 dark:focus-visible:ring-white/25"
                 >
-                    <AgentMark size={18} color={agentColor} className={busy ? 'animate-pulse' : ''} />
+                    <AgentMark size={18} look={agentLook} className={busy ? 'animate-pulse' : ''} />
                     <span className="min-w-0 flex-1 truncate text-xs font-semibold text-gray-900 dark:text-white">
                         {title}
                     </span>

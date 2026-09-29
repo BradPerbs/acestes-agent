@@ -7,6 +7,7 @@ const prompt = require('./prompt');
 const catalog = require('./tools');
 const secrets = require('./secrets');
 const diff = require('./diff');
+const checkpoints = require('./checkpoints');
 const archive = require('./archive');
 const searchModule = require('./search');
 const { readImages } = require('./images');
@@ -21,6 +22,7 @@ const headless = require('./headless');
 const local = require('./local');
 const modelMatch = require('./model-match');
 const ssh = require('../ssh');
+const localTerminal = require('../local-terminal');
 
 /**
  * The assistant, from the app's point of view.
@@ -553,6 +555,9 @@ function get(conversationId) {
  */
 const FORWARDED = new Set(['approval-request', 'approval-settled', 'question-request', 'question-settled']);
 
+/** Fragments of a block still streaming, merged in the log. See `emit`. */
+const DELTAS = new Set(['text-delta', 'thinking-delta']);
+
 /**
  * Mask a newly stored secret out of everything already recorded.
  *
@@ -616,10 +621,25 @@ function emit(conversation, event) {
         }
     }
 
+    trackEdits(conversation, stamped);
+
     if (conversation.parentId && FORWARDED.has(stamped.type) && !stamped.via) {
         const parent = conversations.get(conversation.parentId);
         if (parent) emit(parent, { ...event, via: conversation.id, viaTitle: conversation.title || '' });
     }
+    // A reply streams in as hundreds of fragments. Each still goes to the
+    // windows as it comes, but the log keeps one growing fragment rather
+    // than hundreds: the panel folds them into the same draft either way,
+    // and in the log they were most of the 4000 events a conversation is
+    // allowed, pushing its real history out and all of it into every replay.
+    const last = conversation.events[conversation.events.length - 1];
+    if (DELTAS.has(stamped.type) && last?.type === stamped.type && !stamped.via && !last.via) {
+        conversation.events[conversation.events.length - 1] = { ...last, text: `${last.text || ''}${stamped.text || ''}` };
+        conversation.updatedAt = stamped.at;
+        notify('ai-event', { conversationId: conversation.id, event: stamped });
+        return;
+    }
+
     conversation.updatedAt = stamped.at;
     conversation.events.push(stamped);
     if (conversation.events.length > MAX_EVENTS) {
@@ -630,6 +650,115 @@ function emit(conversation, event) {
     // A stream preview is not worth a write of its own: the finished block that
     // replaces it is an event in its own right, and that one schedules one.
     if (!archive.isTransient(stamped.type)) archive.save();
+}
+
+/* ------------------------------------------------------------------ *
+ * What a turn did to files
+ *
+ * Each turn is watched for edits as its events go past, and closed with
+ * one `turn-changes` event listing the files it changed, which is the card
+ * at the foot of the turn. The snapshots behind it, and the undo they make
+ * possible, are in checkpoints.js.
+ * ------------------------------------------------------------------ */
+
+/** What closes a turn's record of edits, emitted just before it lands. */
+const CLOSES_EDITS = new Set(['result', 'error', 'interrupted', 'closed']);
+
+function closeEdits(conversation) {
+    const summary = checkpoints.finish(conversation.id);
+    if (summary) emit(conversation, { type: 'turn-changes', ...summary });
+}
+
+function trackEdits(conversation, event) {
+    try {
+        if (event.type === 'user-message') {
+            // A message sent into a turn still going closes the one before.
+            closeEdits(conversation);
+            checkpoints.begin(conversation.id, event.at);
+        } else if (CLOSES_EDITS.has(event.type)) {
+            closeEdits(conversation);
+        } else if (event.type === 'tool-call' && event.local) {
+            // A runtime's own edit tool. Ours record themselves, in the
+            // handler, which is the only place a server's file can be read.
+            checkpoints.callStarted(conversation.id, event);
+        } else if (event.type === 'tool-result') {
+            checkpoints.callFinished(conversation.id, event);
+        }
+    } catch (error) {
+        console.error('Could not record an edit:', error.message);
+    }
+}
+
+/** A turn's changes as lines, for the card's review. */
+function turnChanges(conversationId, turnId) {
+    return checkpoints.changes(String(conversationId || ''), turnId);
+}
+
+/**
+ * Undo what a turn did to files. The agent is told on its next message,
+ * or it would carry on from files that are no longer what it wrote.
+ */
+async function revertTurn(conversationId, turnId) {
+    hydrate();
+    const conversation = conversations.get(conversationId);
+    if (!conversation) return { success: false, message: 'That conversation is gone' };
+
+    const result = await checkpoints.revert(conversationId, turnId);
+    if (!result.success || result.already) return result;
+
+    emit(conversation, { type: 'turn-reverted', turnId, reverted: result.reverted, failed: result.failed });
+    if (result.reverted.length > 0) {
+        conversation.pendingNote = [
+            conversation.pendingNote,
+            'The user undid the file changes from one of your earlier turns. These files are back as they '
+                + `were before it, so read them again before relying on what you wrote:\n${result.reverted.map(file => `- ${file}`).join('\n')}`,
+        ].filter(Boolean).join('\n\n');
+        archive.save();
+    }
+    return result;
+}
+
+/** How much of the earlier conversation a branch carries into its first message. */
+const MAX_CARRY_OVER = 60000;
+
+/**
+ * A new conversation holding this one up to the end of a turn.
+ *
+ * The runtime behind the new one has never seen any of it, so what was said
+ * goes with its first message instead. The edit cards come along to be read,
+ * not undone: the files are shared, and undoing belongs to the conversation
+ * that made the change.
+ */
+function branch(conversationId, turnId) {
+    hydrate();
+    const source = conversations.get(conversationId);
+    if (!source) return { success: false, message: 'That conversation is gone' };
+
+    const start = source.events.findIndex(event => event.type === 'user-message' && String(event.at) === String(turnId));
+    if (start < 0) return { success: false, message: 'That turn is no longer in the conversation' };
+    let end = source.events.findIndex((event, index) => index > start && event.type === 'user-message');
+    if (end < 0) end = source.events.length;
+
+    const created = create({
+        agentId: source.agentId,
+        scope: source.scope,
+        sessionId: source.boundSessionId,
+        sessionIds: source.sessionIds,
+        hostIds: source.hostIds,
+    });
+    const copy = conversations.get(created.conversationId);
+    copy.events = source.events.slice(0, end)
+        .filter(event => !archive.isTransient(event.type))
+        .map(event => (event.type === 'turn-changes' || event.type === 'turn-reverted'
+            ? { ...event, from: event.from || source.id }
+            : event));
+    copy.title = source.title;
+    copy.settingsPatch = source.settingsPatch ? { ...source.settingsPatch } : null;
+    copy.updatedAt = Date.now();
+    const said = exportMarkdown(copy.id, { messagesOnly: true }) || '';
+    copy.carryOver = said.length > MAX_CARRY_OVER ? said.slice(-MAX_CARRY_OVER) : said;
+    archive.save();
+    return { success: true, conversationId: copy.id, agentId: copy.agentId };
 }
 
 /** Point an existing conversation at a different session, set, or all of them. */
@@ -919,7 +1048,8 @@ function requestQuestion(conversation, { question, options = [], secret = '', si
             let shown = reply.answer || '';
             let outcome = reply;
             if (name && reply.answered) {
-                const kept = secrets.set(name, reply.answer);
+                // The agent that asked for it is the one it belongs to.
+                const kept = secrets.set(name, reply.answer, conversation.agentId);
                 shown = secrets.MASK;
                 outcome = kept.error
                     ? { answered: false, message: `The answer could not be stored: ${kept.error}` }
@@ -1118,6 +1248,13 @@ function ensureProvider(conversation) {
             inventoryChanged: (kind) => notify('inventory-changed', { kind, agentId: conversation.agentId }),
             // Whose conversation this is, so a search can mark itself.
             conversationId: conversation.id,
+            // Our edit tools record the file on either side of the write, so
+            // the turn can be undone. See checkpoints.js.
+            checkpoint: {
+                before: (file, state) => checkpoints.before(conversation.id, withHost(file), state),
+                after: (file, state) => checkpoints.after(conversation.id, withHost(file), state),
+                passage: (file, change) => checkpoints.passage(conversation.id, withHost(file), change),
+            },
             // The agent's own past, through the same search the history page
             // uses. Given as a function because this module owns the map
             // and the tool catalog must not require it back.
@@ -1128,26 +1265,26 @@ function ensureProvider(conversation) {
             ),
             // A question to the person, answered on a card. See requestQuestion.
             askUser: (payload) => requestQuestion(conversation, payload || {}),
-            // The secrets store, minus reading: the agent lists names,
-            // resolves references at the moment of use, and deletes on
-            // request. The values never come this way.
-            secrets: {
-                list: secrets.list,
-                remove: secrets.remove,
-                resolve: secrets.resolve,
-                resolveObject: secrets.resolveObject,
-                resolveDeep: secrets.resolveDeep,
-                unresolved: secrets.unresolved,
-                unresolvedDeep: secrets.unresolvedDeep,
-                // Storing one the agent already holds, which is the case for
-                // a key pasted into chat. Once stored it is masked out of
-                // every event already recorded, this conversation's included.
-                set: (name, value) => {
-                    const kept = secrets.set(name, value);
-                    if (kept.stored) scrubHistory();
-                    return kept;
-                },
-            },
+            // The secrets store as this conversation's agent sees it, minus
+            // reading: it lists its own names and the shared ones, resolves
+            // references at the moment of use, and deletes its own on
+            // request. Another agent's secrets are not there to name, and
+            // the values never come this way.
+            secrets: (() => {
+                const scoped = secrets.forAgent(conversation.agentId);
+                return {
+                    ...scoped,
+                    // Storing one the agent already holds, which is the case
+                    // for a key pasted into chat. Once stored it is masked out
+                    // of every event already recorded, this conversation's
+                    // included.
+                    set: (name, value) => {
+                        const kept = scoped.set(name, value);
+                        if (kept.stored) scrubHistory();
+                        return kept;
+                    },
+                };
+            })(),
             sessionAction: async (payload) => {
                 // Through a window when there is one, so the person sees the
                 // tab open; through the main process when there is none. A
@@ -1162,6 +1299,20 @@ function ensureProvider(conversation) {
                     return ssh.write(payload.sessionId, payload.data)
                         ? { success: true }
                         : { success: false, message: 'That session is not accepting input' };
+                }
+                // The shell beside a conversation is typed into the same way,
+                // so run_command can start the dev server in the terminal the
+                // user is watching. It is theirs to close, though, not the
+                // agent's: see local-terminal.js.
+                if (localTerminal.get(payload?.sessionId)) {
+                    if (payload.action === 'input') {
+                        return localTerminal.write(payload.sessionId, payload.data)
+                            ? { success: true }
+                            : { success: false, message: 'That terminal is not accepting input' };
+                    }
+                    if (payload.action === 'disconnect') {
+                        return { success: false, message: 'That is the user\'s own terminal. Ask them to close it if it should go.' };
+                    }
                 }
                 if (payload?.action === 'disconnect' && !hasWindow() && ssh.get(payload.sessionId)) {
                     ssh.destroy(payload.sessionId);
@@ -1192,6 +1343,12 @@ function ensureProvider(conversation) {
     });
 
     return conversation.starting;
+}
+
+/** A server's file, named with the host it is on, for the card. */
+function withHost(file) {
+    if (file?.where !== 'remote' || file.host) return file;
+    return { ...file, host: transcript.info(file.sessionId)?.hostName || '' };
 }
 
 function handleProviderEvent(conversation, event) {
@@ -2090,6 +2247,19 @@ async function send(conversationId, text, attachments = [], tagged = []) {
         // wrote: the question comes last so it is the thing the model is
         // answering, with everything above it as the material to answer from.
         const parts = [];
+        // A branch's first message carries what was said before it.
+        if (conversation.carryOver) {
+            parts.push(
+                '<earlier-conversation>\nThis chat was branched from an earlier one, which you have no memory of. '
+                + 'This is what was said there, up to the point it was branched. Carry on from it.\n\n'
+                + `${conversation.carryOver}\n</earlier-conversation>`,
+            );
+            conversation.carryOver = '';
+        }
+        if (conversation.pendingNote) {
+            parts.push(`<app-note>\n${conversation.pendingNote}\n</app-note>`);
+            conversation.pendingNote = '';
+        }
         if (context !== conversation.lastContext) {
             conversation.lastContext = context;
             parts.push(`<app-context>\n${context}\n</app-context>`);
@@ -2173,6 +2343,7 @@ async function close(conversationId) {
     const conversation = conversations.get(conversationId);
     if (!conversation) return { success: true };
     conversations.delete(conversationId);
+    checkpoints.forget(conversationId);
     // Thrown away for good, so it goes from the file too. Suspended during a
     // shutdown, which closes every conversation without meaning to forget any
     // of them.
@@ -2491,6 +2662,9 @@ module.exports = {
     close,
     setScope,
     history,
+    turnChanges,
+    revertTurn,
+    branch,
     list,
     search,
     pin,
@@ -2506,4 +2680,7 @@ module.exports = {
     respondToAction,
     respondToQuestion,
     settings,
+    // For the checkpoint tests, which play a turn's events through without
+    // a runtime behind them.
+    _test: { emit: (conversationId, event) => emit(conversations.get(conversationId), event) },
 };

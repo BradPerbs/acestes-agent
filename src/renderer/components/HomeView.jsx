@@ -55,7 +55,7 @@ function HomeView({
     onTagHosts,
     // The selected agent, whose inventory and conversations these are
     agentId,
-    agentColor,
+    agentLook,
     activeAgent,
     onSaveAgentServers,
     onNavChange,
@@ -104,7 +104,7 @@ function HomeView({
                 <ConversationsPanel
                     conversations={conversations}
                     agentId={agentId}
-                    agentColor={agentColor}
+                    agentLook={agentLook}
                     onRefresh={onRefreshConversations}
                     openIds={openConversationIds}
                     onOpen={onOpenConversation}
@@ -144,6 +144,7 @@ function HomeView({
                 <KeychainPanel
                     isActive={isActive}
                     reachedForPage={reachedForPage}
+                    agentId={agentId}
                     keys={keys}
                     // So a key can say how many hosts are relying on it, and so
                     // deleting one can name them rather than breaking them

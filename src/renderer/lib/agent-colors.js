@@ -1,10 +1,16 @@
 /**
  * The colours an agent can wear.
  *
- * Each is a pair, the top and the bottom of the gradient the mark is filled
- * with. The ids are what the agent record stores, and `src/main/agents.js`
- * keeps the same list of ids so a colour it has never heard of is refused on
- * the way in rather than drawn as nothing.
+ * The mark is drawn in ink, so each colour is really an ink: the colour of
+ * the lines and of the dark in the face, and what, if anything, the helmet is
+ * filled with. Most are a pair, the colour itself and a lighter one of the
+ * same family (see `agentInk`), and leave the helmet unfilled so it sits on
+ * whatever is behind it. White and black carry theirs spelled out, and fill
+ * the helmet with the opposite, so a black helmet is black ink on white
+ * paper whatever the theme, and a white one the reverse. The ids are what the
+ * agent record stores, and `src/main/agents.js` keeps the same list of ids so
+ * a colour it has never heard of is refused on the way in rather than drawn
+ * as nothing.
  */
 export const AGENT_COLORS = [
     { id: 'sky', label: 'Sky', from: '#307AF0', to: '#0FCBE3' },
@@ -15,6 +21,16 @@ export const AGENT_COLORS = [
     { id: 'orange', label: 'Orange', from: '#EA580C', to: '#FB923C' },
     { id: 'teal', label: 'Teal', from: '#0D9488', to: '#5EEAD4' },
     { id: 'slate', label: 'Slate', from: '#475569', to: '#94A3B8' },
+    {
+        id: 'white',
+        label: 'White',
+        ink: { line: '#F4F4F5', lineDark: '#F4F4F5', paper: '#18181B' },
+    },
+    {
+        id: 'black',
+        label: 'Black',
+        ink: { line: '#18181B', lineDark: '#18181B', paper: '#FFFFFF' },
+    },
 ];
 
 const BY_ID = Object.fromEntries(AGENT_COLORS.map(color => [color.id, color]));
@@ -29,18 +45,28 @@ export function nextAgentColor(agents) {
     return (free || AGENT_COLORS[(agents?.length || 0) % AGENT_COLORS.length]).id;
 }
 
+/** Two colours mixed, `amount` of the way from the first to the second. */
+export function mix(from, to, amount) {
+    const read = (hex) => [1, 3, 5].map(index => parseInt(hex.slice(index, index + 2), 16));
+    const a = read(from);
+    const b = read(to);
+    return '#' + a.map((channel, index) => (
+        Math.round(channel + (b[index] - channel) * amount).toString(16).padStart(2, '0')
+    )).join('');
+}
+
 /**
- * A colour moved towards white (positive) or black (negative) by a share of
- * the way there, for the light and the shadow on the mark.
+ * The ink one colour is drawn in: `line`, and `lineDark` for a dark theme,
+ * where the colour itself would sink into the background and is lifted
+ * towards white instead; and `paper`, what the helmet is filled with, or
+ * null for nothing.
  */
-export function shade(hex, amount) {
-    const value = String(hex || '').replace('#', '');
-    if (value.length !== 6) return hex;
-    const target = amount > 0 ? 255 : 0;
-    const share = Math.min(1, Math.abs(amount));
-    const channel = (at) => {
-        const from = parseInt(value.slice(at, at + 2), 16);
-        return Math.round(from + (target - from) * share).toString(16).padStart(2, '0');
+export function agentInk(id) {
+    const color = agentColor(id);
+    if (color.ink) return color.ink;
+    return {
+        line: color.from,
+        lineDark: mix(color.from, '#FFFFFF', 0.3),
+        paper: null,
     };
-    return '#' + channel(0) + channel(2) + channel(4);
 }

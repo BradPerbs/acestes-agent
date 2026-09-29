@@ -43,8 +43,9 @@ const transcript = require('./transcript');
  *             simply leave it out
  */
 function createPipe({ tabId, window, label = {}, protocol = '', onInput, onResize }) {
-    const { port1, port2 } = new MessageChannelMain();
     const decoder = new StringDecoder('utf8');
+    // Replaced by `attach`, so everything below reads it at the moment of use.
+    let port1 = null;
 
     let closed = false;
 
@@ -67,7 +68,7 @@ function createPipe({ tabId, window, label = {}, protocol = '', onInput, onResiz
         protocol,
     });
 
-    port1.on('message', (event) => {
+    const onMessage = (event) => {
         const message = event.data;
         if (closed) return;
 
@@ -76,8 +77,26 @@ function createPipe({ tabId, window, label = {}, protocol = '', onInput, onResiz
         } else if (message?.type === 'resize') {
             onResize?.(message.cols, message.rows);
         }
-    });
-    port1.start();
+    };
+
+    /** A fresh port, bound here and handed to `target`; the old one is let go. */
+    const bind = (target) => {
+        const channel = new MessageChannelMain();
+        const previous = port1;
+        port1 = channel.port1;
+        port1.on('message', onMessage);
+        port1.start();
+        if (previous) {
+            try {
+                previous.close();
+            } catch {
+                // Already closed with the window that held it.
+            }
+        }
+        if (target && !target.isDestroyed()) {
+            target.webContents.postMessage('ssh-port', { tabId }, [channel.port2]);
+        }
+    };
 
     let buffer = '';
     let scheduled = false;
@@ -146,11 +165,29 @@ function createPipe({ tabId, window, label = {}, protocol = '', onInput, onResiz
         }
     };
 
-    if (window && !window.isDestroyed()) {
-        window.webContents.postMessage('ssh-port', { tabId }, [port2]);
-    }
+    /**
+     * Hand a session that never stopped to a window again: a pane that was
+     * remounted, or a window that reloaded. The new port carries `backlog`
+     * first, which is what the session has shown so far, so the pane does not
+     * come back blank; anything still waiting for a flush is already in it.
+     */
+    const attach = (target, backlog = '') => {
+        if (closed) return false;
+        buffer = '';
+        bind(target);
+        if (backlog) {
+            try {
+                port1.postMessage(backlog);
+            } catch {
+                // The window went away again before it could be drawn.
+            }
+        }
+        return true;
+    };
 
-    return { port: port1, deliver, disconnected, close };
+    bind(window);
+
+    return { get port() { return port1; }, deliver, disconnected, close, attach };
 }
 
 module.exports = { createPipe };

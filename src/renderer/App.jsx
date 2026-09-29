@@ -12,6 +12,7 @@ import SessionScreen from './components/ui/SessionScreen';
 import SplitLayout from './components/panes/SplitLayout';
 import PanePicker from './components/panes/PanePicker';
 import ConversationView from './components/assistant/ConversationView';
+import { localTerminalGroup } from './hooks/useLocalTerminals';
 import ConversationSplitView from './components/assistant/ConversationSplitView';
 import ConfirmDialog from './components/ui/ConfirmDialog';
 import useConversationTabs, { readStoredConversationTabs } from './hooks/useConversationTabs';
@@ -20,7 +21,7 @@ import { useAgents } from './hooks/useAgents';
 import { useConversationList } from './hooks/useConversationList';
 import AgentDialog from './components/AgentDialog';
 import { INVENTORY_PAGES } from './components/InventoryTabs';
-import { nextAgentColor } from './lib/agent-colors';
+import { nextAgentLook } from './lib/agent-look';
 import { useTheme } from './hooks/useTheme';
 import { useSessions } from './hooks/useSessions';
 import { useTerminalTheme } from './hooks/useTerminalTheme';
@@ -222,6 +223,18 @@ function App() {
     const tabsRef = useRef(tabs);
     tabsRef.current = tabs;
 
+    // A conversation's terminal outlives its panel being remounted, so it has
+    // to be ended when the conversation itself goes, whichever way it went:
+    // closed, detached to another window, or dropped with its agent.
+    const conversationTabIds = useRef(new Set());
+    useEffect(() => {
+        const now = new Set(tabs.filter(tab => tab.type === 'conversation').map(tab => tab.id));
+        for (const id of conversationTabIds.current) {
+            if (!now.has(id)) window.api.ssh.closeLocalGroup?.(localTerminalGroup(id));
+        }
+        conversationTabIds.current = now;
+    }, [tabs]);
+
     // For the status bar's right end. Home is always there, so it is not one
     // of the tabs someone opened; a split terminal tab is one tab and as many
     // sessions as it has panes with a host in them.
@@ -268,6 +281,28 @@ function App() {
     } = useAgents();
     const { conversations, refresh: refreshConversations } = useConversationList(activeAgentId);
 
+    /**
+     * A conversation nobody has said anything in yet is a new chat to whoever
+     * is selected, so it follows the selection. Without this, an empty tab
+     * left from an earlier agent (restored at start, or opened before a
+     * switch) quietly stayed that agent's: the first message went to it, and
+     * its terminals started in its folders, not the ones in the sidebar.
+     * Safe because such a tab has nothing in main yet: the conversation is
+     * made on the first message, under the tab's agent at that moment.
+     */
+    useEffect(() => {
+        if (!activeAgentId) return;
+        setTabs((previous) => {
+            let moved = false;
+            const next = previous.map((tab) => {
+                if (tab.type !== 'conversation' || tab.conversationId || tab.agentId === activeAgentId) return tab;
+                moved = true;
+                return { ...tab, agentId: activeAgentId };
+            });
+            return moved ? next : previous;
+        });
+    }, [activeAgentId]);
+
     /** Keep a conversation at the top of the lists, or let it go. */
     const pinConversation = useCallback(async (conversationId, pinned) => {
         await window.api.ai.pin(conversationId, pinned);
@@ -276,9 +311,13 @@ function App() {
         refreshConversations();
     }, [refreshConversations]);
 
-    /** The colour an agent's mark wears, for a conversation that names one. */
-    const colorFor = useCallback((agentId) => (
-        agents.find(agent => agent.id === agentId)?.color || activeAgent?.color || ''
+    /**
+     * The agent whose mark a conversation wears, which is what carries the
+     * look: its colour and crest. The record itself rather than a
+     * look made from it, so it is the same object from one render to the next.
+     */
+    const lookFor = useCallback((agentId) => (
+        agents.find(agent => agent.id === agentId) || activeAgent || null
     ), [agents, activeAgent]);
 
     /**
@@ -1848,13 +1887,14 @@ function App() {
         if (activeAgent) setAgentDialog({ agent: activeAgent });
     }, [activeAgent]);
 
-    const handleSaveAgentName = useCallback(async (name, color, sandbox = null) => {
+    const handleSaveAgentName = useCallback(async (name, look, sandbox = null) => {
         // The dialog hands back the part of the envelope it edits: the mode
         // at creation, and the folders either time. The registry patches, so
         // the network and session settings on the Sandbox card are untouched.
         const patch = sandbox ? { sandbox } : {};
-        if (agentDialog?.agent) await saveAgent({ id: agentDialog.agent.id, name, color, ...patch });
-        else await saveAgent({ name, color, ...patch });
+        const { color, crest } = look;
+        if (agentDialog?.agent) await saveAgent({ id: agentDialog.agent.id, name, color, crest, ...patch });
+        else await saveAgent({ name, color, crest, ...patch });
     }, [agentDialog, saveAgent]);
 
     const handleDeleteAgent = useCallback((agentId) => {
@@ -1888,7 +1928,7 @@ function App() {
                 title: tab.customTitle || status?.title || t('assistant.newConversation'),
                 renamed: Boolean(tab.customTitle),
                 busy: Boolean(status?.busy),
-                agentColor: colorFor(tab.agentId),
+                agentLook: lookFor(tab.agentId),
             };
         }
 
@@ -1917,7 +1957,7 @@ function App() {
             sessionCount: sessions.length,
             liveCount: sessions.filter(pane => pane.connected).length,
         };
-    }), [tabs, sessionOrdinals, conversationStatuses, colorFor, t]);
+    }), [tabs, sessionOrdinals, conversationStatuses, lookFor, t]);
 
     const activeTab = tabs.find(tab => tab.id === activeTabId);
 
@@ -2072,7 +2112,7 @@ function App() {
                             onTagHosts={tagHosts}
                             // The selected agent
                             agentId={activeAgentId}
-                            agentColor={activeAgent?.color || ''}
+                            agentLook={activeAgent}
                             activeAgent={activeAgent}
                             onSaveAgentServers={(servers) => saveAgent({ id: activeAgentId, mcpServers: servers })}
                             onNavChange={handleNavChange}
@@ -2151,7 +2191,7 @@ function App() {
                                                 hosts={agentHosts}
                                                 activeSessionId={activeSessionId}
                                                 agentId={tab.agentId || activeAgentId}
-                                                agentColor={colorFor(tab.agentId)}
+                                                agentLook={lookFor(tab.agentId)}
                                                 scopeProps={scopePropsFor(tab)}
                                                 onConversationChange={(id) => setConversation(tab.id, id)}
                                                 onStatus={reportConversationStatus}
@@ -2160,6 +2200,7 @@ function App() {
                                                 onDetach={() => detachConversationTabs([tab.id])}
                                                 onClose={() => handleCloseTab(tab.id)}
                                                 onNewTab={handleNewConversation}
+                                                onOpenConversation={handleOpenConversation}
                                             />
                                         </div>
                                     ))}
@@ -2176,7 +2217,7 @@ function App() {
                                             hosts={agentHosts}
                                             activeSessionId={activeSessionId}
                                             activeAgentId={activeAgentId}
-                                            colorFor={colorFor}
+                                            lookFor={lookFor}
                                             scopePropsFor={scopePropsFor}
                                             setConversation={setConversation}
                                             reportConversationStatus={reportConversationStatus}
@@ -2185,6 +2226,7 @@ function App() {
                                             onDetachTab={(tabId) => detachConversationTabs([tabId])}
                                             onCloseTab={handleCloseTab}
                                             onNewConversation={handleNewConversation}
+                                            onOpenConversation={handleOpenConversation}
                                             onPickTab={handleConversationPickTab}
                                             onNewIntoPane={handleConversationNewIntoPane}
                                             onFocusPane={handleConversationFocusPane}
@@ -2221,7 +2263,7 @@ function App() {
                                     hosts={agentHosts}
                                     activeSessionId={activeSessionId}
                                     agentId={tab.agentId || activeAgentId}
-                                    agentColor={colorFor(tab.agentId)}
+                                    agentLook={lookFor(tab.agentId)}
                                     scopeProps={scopePropsFor(tab)}
                                     onConversationChange={(id) => setConversation(tab.id, id)}
                                     onStatus={reportConversationStatus}
@@ -2230,6 +2272,7 @@ function App() {
                                     onDetach={() => detachConversationTabs([tab.id])}
                                     onClose={() => handleCloseTab(tab.id)}
                                     onNewTab={handleNewConversation}
+                                    onOpenConversation={handleOpenConversation}
                                     canSplit
                                     paneCount={1}
                                     onSplit={() => handleConversationSplitStart(tab.id)}
@@ -2340,7 +2383,7 @@ function App() {
             {agentDialog && (
                 <AgentDialog
                     agent={agentDialog.agent}
-                    suggestedColor={nextAgentColor(agents)}
+                    suggestedLook={nextAgentLook(agents)}
                     onClose={() => setAgentDialog(null)}
                     onSave={handleSaveAgentName}
                 />

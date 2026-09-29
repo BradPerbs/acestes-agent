@@ -378,7 +378,7 @@ function SessionTab({
                         // The agent's mark, pulsing while it is answering: a
                         // chat working behind another tab should be visibly
                         // doing so, the way a dialling session is.
-                        <AgentMark size={14} color={tab.agentColor} className={tab.busy ? 'animate-pulse' : ''} />
+                        <AgentMark size={14} look={tab.agentLook} className={tab.busy ? 'animate-pulse' : ''} />
                     ) : (
                         <OsIcon
                             os={hostOs(tab.host)}

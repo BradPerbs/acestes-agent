@@ -126,6 +126,10 @@ function pack(conversation) {
         // The runtime, model and effort picked for this conversation, over
         // the agent's defaults. Null while it follows them.
         settingsPatch: conversation.settingsPatch || null,
+        // What goes with the next message: a branch's earlier conversation,
+        // and a word about files the user undid. Both are spent on sending.
+        carryOver: conversation.carryOver || '',
+        pendingNote: conversation.pendingNote || '',
         // Whose it is. An id no agent answers to any more is repaired on the
         // way back in, by `index.js`.
         agentId: conversation.agentId || '',
@@ -256,6 +260,8 @@ function unpack(record, currentProvider) {
         title: typeof record.title === 'string' ? record.title : '',
         pinned: record.pinned === true,
         settingsPatch: readSettingsPatch(record.settingsPatch),
+        carryOver: typeof record.carryOver === 'string' ? record.carryOver : '',
+        pendingNote: typeof record.pendingNote === 'string' ? record.pendingNote : '',
         agentId: typeof record.agentId === 'string' ? record.agentId : '',
         createdAt: Number.isFinite(record.createdAt) ? record.createdAt : at,
         updatedAt: at,

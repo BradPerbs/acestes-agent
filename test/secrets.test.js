@@ -65,7 +65,8 @@ check('a value goes in by name and comes back as a reference', () => {
 check('the file on disk carries ciphertext, not the value', () => {
     const text = fs.readFileSync(path.join(userData, 'secrets.json'), 'utf8');
     assert.ok(!text.includes('ws-test-key-not-a-real-credential'));
-    assert.ok(text.includes('"webshare"'));
+    // Keyed `<owner>/<name>`; one stored with no owner is shared.
+    assert.ok(text.includes('"/webshare"'));
 });
 
 check('a reference resolves in a string and in a map; an unknown one is left as written', () => {
@@ -144,6 +145,75 @@ check('without OS encryption a value is refused rather than written in the clear
     assert.ok(refused.error);
     assert.strictEqual(secrets.has('plain'), false);
     encryptionAvailable = true;
+});
+
+console.log('\nsecrets belong to agents');
+
+check('an agent resolves its own secrets and the shared ones, never another agent\'s', () => {
+    secrets.set('token', 'agent-a-token-value', 'agent-a');
+    secrets.set('token', 'agent-b-token-value', 'agent-b');
+    assert.strictEqual(secrets.resolve('{{secret:token}}', 'agent-a'), 'agent-a-token-value');
+    assert.strictEqual(secrets.resolve('{{secret:token}}', 'agent-b'), 'agent-b-token-value', 'two agents can each have one of the same name');
+    assert.strictEqual(secrets.resolve('{{secret:token}}', 'agent-c'), '{{secret:token}}', 'to anyone else it does not exist');
+    assert.deepStrictEqual(secrets.unresolved('{{secret:token}}', 'agent-c'), ['token']);
+    assert.strictEqual(secrets.resolve('{{secret:webshare}}', 'agent-c'), 'ws-test-key-not-a-real-credential', 'a shared one is everyone\'s');
+});
+
+check('an agent\'s own secret wins over a shared one of the same name', () => {
+    secrets.set('webshare', 'agent-a-own-webshare', 'agent-a');
+    assert.strictEqual(secrets.resolve('{{secret:webshare}}', 'agent-a'), 'agent-a-own-webshare');
+    assert.strictEqual(secrets.resolve('{{secret:webshare}}', 'agent-b'), 'ws-test-key-not-a-real-credential');
+    secrets.remove('webshare', 'agent-a');
+});
+
+check('an agent lists its own and the shared, marked so, and nobody else\'s', () => {
+    const forA = secrets.list('agent-a');
+    assert.deepStrictEqual(forA.map(entry => `${entry.name}:${entry.shared ? 'shared' : entry.owner}`), ['token:agent-a', 'webshare:shared']);
+    assert.ok(!JSON.stringify(forA).includes('agent-b'), 'agent-b\'s token is not in agent-a\'s list');
+    const everything = secrets.list();
+    assert.strictEqual(everything.filter(entry => entry.name === 'token').length, 2, 'with no owner, the list is the whole store');
+});
+
+check('an agent removes its own, and cannot remove what it only has the use of', () => {
+    const scoped = secrets.forAgent('agent-a');
+    assert.strictEqual(scoped.remove('webshare').removed, false, 'the shared one is not agent-a\'s to delete');
+    assert.strictEqual(secrets.has('webshare'), true);
+    assert.strictEqual(scoped.remove('token').removed, true);
+    assert.strictEqual(secrets.resolve('{{secret:token}}', 'agent-b'), 'agent-b-token-value', 'agent-b\'s is untouched');
+});
+
+check('the view an agent\'s tools get is bound to it', () => {
+    const scoped = secrets.forAgent('agent-b');
+    assert.strictEqual(scoped.resolveDeep({ env: { T: '{{secret:token}}' } }).env.T, 'agent-b-token-value');
+    assert.deepStrictEqual(scoped.unresolvedDeep({ a: ['{{secret:missing}}'] }), ['missing']);
+    assert.strictEqual(scoped.set('new-one', 'value-for-agent-b').stored, true);
+    assert.strictEqual(secrets.resolve('{{secret:new-one}}', 'agent-a'), '{{secret:new-one}}', 'what b stores is b\'s');
+    assert.ok(scoped.list().some(entry => entry.name === 'new-one' && entry.owner === 'agent-b'));
+});
+
+check('every owner\'s values are scrubbed, whoever is looking', () => {
+    assert.strictEqual(secrets.scrub('leaked agent-b-token-value here'), `leaked ${secrets.MASK} here`);
+});
+
+check('a store from before owners reads back as shared, and a backup keeps each owner', () => {
+    fs.writeFileSync(path.join(userData, 'secrets.json'), JSON.stringify({
+        version: 1,
+        secrets: { legacy: { value: Buffer.from('enc:legacy-value-1234', 'utf8').toString('base64'), createdAt: 1 } },
+    }));
+    secrets._test.reset();
+    assert.strictEqual(secrets.list('anyone')[0].shared, true);
+    assert.strictEqual(secrets.resolve('{{secret:legacy}}', 'anyone'), 'legacy-value-1234');
+
+    secrets.set('mine', 'agent-a-backup-value', 'agent-a');
+    const backup = secrets.exportAll();
+    assert.deepStrictEqual(Object.keys(backup).sort(), ['/legacy', 'agent-a/mine']);
+    fs.rmSync(path.join(userData, 'secrets.json'));
+    secrets._test.reset();
+    // An old backup keyed by bare names comes in shared, a new one to its owner.
+    secrets.importAll({ ...backup, old: 'from-an-old-backup' });
+    assert.strictEqual(secrets.resolve('{{secret:mine}}', 'agent-a'), 'agent-a-backup-value');
+    assert.strictEqual(secrets.resolve('{{secret:mine}}', 'agent-b'), '{{secret:mine}}');
+    assert.strictEqual(secrets.list('agent-b').find(entry => entry.name === 'old')?.shared, true);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

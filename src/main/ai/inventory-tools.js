@@ -359,11 +359,12 @@ function build({ z, ok, fail, hostInScope, publicHost, agentHosts }) {
                 if (input.username !== undefined) patch.username = clean(input.username, 120);
                 if (input.protocol !== undefined) patch.protocol = input.protocol;
                 if (input.authMethod !== undefined) patch.authMethod = input.authMethod;
-                // A reference to a stored secret is resolved here, once, and
-                // the store encrypts the value the way it does one the user typed.
-                if (input.password !== undefined) patch.password = secrets.resolve(input.password);
-                if (input.privateKey !== undefined) patch.privateKey = secrets.resolve(input.privateKey);
-                if (input.passphrase !== undefined) patch.passphrase = secrets.resolve(input.passphrase);
+                // A reference to one of this agent's secrets is resolved here,
+                // once, and the store encrypts the value the way it does one
+                // the user typed. Another agent's is not this agent's to use.
+                if (input.password !== undefined) patch.password = secrets.resolve(input.password, ctx.agentId);
+                if (input.privateKey !== undefined) patch.privateKey = secrets.resolve(input.privateKey, ctx.agentId);
+                if (input.passphrase !== undefined) patch.passphrase = secrets.resolve(input.passphrase, ctx.agentId);
                 if (input.keychainKeyId !== undefined) patch.keychainKeyId = clean(input.keychainKeyId, 80);
                 if (input.tags !== undefined) patch.tags = input.tags;
                 if (input.folderId !== undefined) patch.folderId = clean(input.folderId, 80);
@@ -436,7 +437,7 @@ function build({ z, ok, fail, hostInScope, publicHost, agentHosts }) {
                 // through it: the normaliser drops fields it does not know,
                 // and the store merges a stored one back in when none is sent.
                 const saved = store.saveProxy(input.password !== undefined
-                    ? { ...record, password: secrets.resolve(input.password) }
+                    ? { ...record, password: secrets.resolve(input.password, ctx.agentId) }
                     : record);
                 changed(ctx, 'proxies');
                 return ok({ saved: existing ? 'updated' : 'created', proxy: publicProxy(saved) });
@@ -560,7 +561,7 @@ function build({ z, ok, fail, hostInScope, publicHost, agentHosts }) {
                 if (input.template) {
                     const template = await mcpLibrary.resolve(input.template);
                     if (!template) return fail(`There is no template "${input.template}" in the library.`);
-                    const made = mcpLibrary.instantiate(template, input.values || {}, { name: input.name || '' });
+                    const made = mcpLibrary.instantiate(template, input.values || {}, { name: input.name || '', agentId: agent.id });
                     if (made.error) return fail(made.error);
                     fromTemplate = made.server;
                 }

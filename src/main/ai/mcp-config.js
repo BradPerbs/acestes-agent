@@ -25,14 +25,14 @@ function agentServers(servers, sandbox = null, agentId = '') {
     const out = {};
     for (const entry of Array.isArray(servers) ? servers : []) {
         if (!entry?.name) continue;
-        // A `{{secret:name}}` on the record becomes the value here, at the
+        // A `{{secret:name}}` on the record becomes the agent's value here, at the
         // moment the server is handed to a runtime, and nowhere earlier.
-        const env = secrets.resolveObject(entry.env || {});
-        const headers = secrets.resolveObject(entry.headers || {});
+        const env = secrets.resolveObject(entry.env || {}, agentId);
+        const headers = secrets.resolveObject(entry.headers || {}, agentId);
         if (entry.transport === 'http') {
             out[entry.name] = {
                 type: 'http',
-                url: secrets.resolve(entry.url),
+                url: secrets.resolve(entry.url, agentId),
                 ...(Object.keys(headers).length ? { headers } : {}),
             };
         } else if (sandbox?.execution === 'container') {
@@ -44,7 +44,7 @@ function agentServers(servers, sandbox = null, agentId = '') {
                     path.join(__dirname, 'mcp-launch.js'),
                     JSON.stringify({
                         command: entry.command,
-                        args: (entry.args || []).map(secrets.resolve),
+                        args: (entry.args || []).map(arg => secrets.resolve(arg, agentId)),
                         env: sandboxModule.safeEnv(process.env, env),
                     }),
                 ],

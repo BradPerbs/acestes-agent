@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { questionKey } from '../lib/approvals';
+import { INITIAL, applyEvent, applyBatch, replay } from '../lib/transcript-reducer';
 
 /**
  * One assistant conversation, as the panel sees it.
@@ -17,285 +18,6 @@ import { questionKey } from '../lib/approvals';
  * which was fine for one conversation and wrong for several.
  */
 
-/** A blank turn-in-progress, for the streaming text bubble. */
-function emptyDraft() {
-    return { text: '', thinking: '' };
-}
-
-/**
- * Fold one event into the transcript.
- *
- * Pure, and the only place the shape of an item is decided, so replaying
- * history and receiving live events cannot drift.
- */
-function applyEvent(state, event) {
-    const items = state.items.slice();
-    let draft = state.draft;
-    let busy = state.busy;
-    let costUsd = state.costUsd;
-
-    /**
-     * The row a question belongs to.
-     *
-     * By session first, because the same command sent to three servers is three
-     * rows of the same tool with the same title, and the last one started is not
-     * the one being asked about. A row carrying a question already is not
-     * running, so no two questions can land on the same row. The last row of
-     * that tool is the fallback for a call that named no session, which is the
-     * ordinary single-server case.
-     */
-    const findRunningTool = (name, session) => {
-        let fallback = -1;
-        for (let index = items.length - 1; index >= 0; index -= 1) {
-            const item = items[index];
-            if (item.kind !== 'tool' || item.name !== name || item.status !== 'running') continue;
-            if (session && item.input?.session === session) return index;
-            if (fallback < 0) fallback = index;
-        }
-        return fallback;
-    };
-
-    switch (event.type) {
-        case 'user-message':
-            // Images carry their bytes while the app runs; one read back from
-            // disk has only a name and a type, and is drawn as a chip. A
-            // mention is only ever a kind, an id and a name here: the record
-            // itself lives in the inventory. `specs` is what a message written
-            // before mentions existed carries, read as the snippets they were.
-            items.push({
-                kind: 'user',
-                id: event.at,
-                text: event.text,
-                images: event.images || [],
-                mentions: event.mentions
-                    || (event.specs || []).map(spec => ({ ...spec, kind: 'snippet' })),
-            });
-            busy = true;
-            draft = emptyDraft();
-            break;
-
-        case 'thinking-start':
-            draft = { ...draft, thinking: draft.thinking || '' };
-            break;
-
-        case 'thinking-delta':
-            draft = { ...draft, thinking: draft.thinking + (event.text || '') };
-            break;
-
-        case 'text-delta':
-            draft = { ...draft, text: draft.text + (event.text || '') };
-            break;
-
-        case 'assistant-text':
-            // The finished block replaces whatever streamed into the draft.
-            // Deltas are a preview; this is the authoritative text.
-            items.push({
-                kind: 'assistant',
-                id: `a-${event.at}-${items.length}`,
-                text: event.text,
-                thinking: draft.thinking,
-            });
-            draft = emptyDraft();
-            break;
-
-        case 'tool-call':
-            items.push({
-                kind: 'tool',
-                id: event.id,
-                name: event.name,
-                local: event.local,
-                input: event.input || {},
-                // What an edit changes, worked out in the main process from
-                // the call's own arguments. Absent on everything else.
-                diff: event.diff || null,
-                status: 'running',
-                result: '',
-                isError: false,
-            });
-            // Any text that streamed before the call belongs above it.
-            if (draft.text.trim()) {
-                items.splice(items.length - 1, 0, {
-                    kind: 'assistant',
-                    id: `a-${event.at}-pre`,
-                    text: draft.text,
-                    thinking: draft.thinking,
-                });
-            }
-            draft = emptyDraft();
-            break;
-
-        case 'tool-result': {
-            const index = items.findIndex(item => item.kind === 'tool' && item.id === event.id);
-            if (index >= 0) {
-                items[index] = {
-                    ...items[index],
-                    status: event.isError ? 'error' : 'done',
-                    result: event.text || '',
-                    isError: Boolean(event.isError),
-                };
-            }
-            break;
-        }
-
-        case 'approval-request': {
-            const approval = {
-                requestId: event.requestId,
-                name: event.name,
-                title: event.title,
-                input: event.input || {},
-                diff: event.diff || null,
-                local: event.local,
-                readOnly: event.readOnly,
-                sessionId: event.sessionId || '',
-                host: event.host,
-                status: 'pending',
-                feedback: '',
-            };
-
-            // The question belongs to the call, so it is attached to the row
-            // that call already has rather than living beside it. The panel
-            // draws its card from this and holds the row back while it stands,
-            // so the command is on screen once; answering it puts the row back
-            // with the answer recorded on it. The row is marked waiting rather
-            // than running meanwhile, so nothing claims work is happening while
-            // it is actually stopped on a question.
-            const index = findRunningTool(event.name, event.input?.session);
-            if (index >= 0) {
-                items[index] = { ...items[index], status: 'waiting', approval };
-            } else {
-                // No row to land on: a call the transcript never saw start.
-                // Rare, and a card of its own is better than a lost question.
-                items.push({ kind: 'approval', id: event.requestId, ...approval });
-            }
-            break;
-        }
-
-        case 'approval-settled': {
-            const index = items.findIndex(item => (
-                item.kind === 'approval'
-                    ? item.requestId === event.requestId
-                    : item.kind === 'tool' && item.approval?.requestId === event.requestId
-            ));
-            if (index >= 0) {
-                const item = items[index];
-                // The answer may be applied twice: once by the click, which is
-                // what makes the card settle without waiting for a round trip,
-                // and once by the main process when it resolves. Only the
-                // first carries what the user typed, so it is kept.
-                const feedback = event.feedback || item.approval?.feedback || item.feedback || '';
-                items[index] = item.kind === 'approval'
-                    ? { ...item, status: event.status, feedback }
-                    : {
-                        ...item,
-                        // Answered, so the row goes back to reporting the call.
-                        // A refused one never runs, and `tool-result` closes it
-                        // out either way.
-                        status: event.status === 'approved' ? 'running' : item.status,
-                        approval: { ...item.approval, status: event.status, feedback },
-                    };
-            }
-            break;
-        }
-
-        // A question the agent asked, as opposed to a call it wants to make.
-        // Its own kind of row: nothing in the transcript is waiting on it the
-        // way a tool row waits on an approval, so it stands on its own.
-        case 'question-request':
-            items.push({
-                kind: 'question',
-                id: event.requestId,
-                requestId: event.requestId,
-                question: event.question || '',
-                options: event.options || [],
-                // A secret is typed into a masked field and never shown back.
-                secret: Boolean(event.secret),
-                secretName: event.secretName || '',
-                status: 'pending',
-                answer: '',
-            });
-            break;
-
-        case 'question-settled': {
-            const index = items.findIndex(item => item.kind === 'question' && item.requestId === event.requestId);
-            if (index >= 0) {
-                const item = items[index];
-                items[index] = {
-                    ...item,
-                    status: event.status,
-                    answer: event.answer || item.answer || '',
-                };
-            }
-            break;
-        }
-
-        case 'account':
-            return { ...state, account: event };
-
-        case 'rate-limit':
-            return { ...state, rateLimit: event };
-
-        case 'result':
-            busy = false;
-            costUsd += event.costUsd || 0;
-            if (event.isError && event.subtype !== 'success') {
-                items.push({
-                    kind: 'notice',
-                    id: `n-${event.at}`,
-                    tone: 'warn',
-                    text: event.subtype === 'error_max_turns'
-                        ? 'The assistant reached its step limit for this turn. Ask it to continue if it was on the right track.'
-                        : `The run ended early (${event.subtype}).`,
-                });
-            }
-            break;
-
-        case 'error':
-            busy = false;
-            items.push({ kind: 'notice', id: `e-${event.at}`, tone: 'error', text: event.message });
-            draft = emptyDraft();
-            break;
-
-        // A line the app wrote into the transcript itself, rather than anything
-        // the model said. The main process uses it to close out a conversation
-        // read back from disk whose last turn never finished, because the
-        // process running it went away.
-        case 'notice':
-            busy = false;
-            items.push({
-                kind: 'notice',
-                id: `nx-${event.at}-${items.length}`,
-                tone: event.tone || 'info',
-                text: event.text,
-            });
-            draft = emptyDraft();
-            break;
-
-        case 'tool-failed':
-            items.push({
-                kind: 'notice',
-                id: `tf-${event.at}`,
-                tone: 'warn',
-                text: `${event.name} failed: ${event.message}`,
-            });
-            break;
-
-        case 'interrupted':
-            busy = false;
-            items.push({ kind: 'notice', id: `i-${event.at}`, tone: 'info', text: 'Stopped.' });
-            draft = emptyDraft();
-            break;
-
-        case 'closed':
-            busy = false;
-            break;
-
-        default:
-            break;
-    }
-
-    return { ...state, items, draft, busy, costUsd };
-}
-
 /**
  * What ends a turn, and with it any answer being held for calls that were
  * emitted but never asked. Consent does not cross a turn: whatever the model
@@ -303,17 +25,6 @@ function applyEvent(state, event) {
  * question even if it is spelled the same way.
  */
 const ENDS_TURN = new Set(['result', 'error', 'interrupted', 'closed', 'user-message']);
-
-const INITIAL = {
-    items: [],
-    draft: emptyDraft(),
-    busy: false,
-    costUsd: 0,
-    // How this conversation is paid for, and where the plan's window stands.
-    // Both arrive from the runtime rather than being configured here.
-    account: null,
-    rateLimit: null,
-};
 
 /**
  * The panel's target, as the main process takes it: a mode, the session a tool
@@ -334,6 +45,49 @@ export default function useAssistant({
     onConversationChange,
 }) {
     const [state, setState] = useState(INITIAL);
+
+    /**
+     * Events in, one render per frame out.
+     *
+     * A runtime streams a reply a few words at a time, and a busy turn lands a
+     * tool call and its result in the same breath, dozens a second. Each used
+     * to be a render of its own. They are queued here and folded in together
+     * on the next frame, in the order they came, so a burst of forty is one
+     * render and a quiet trickle is no slower than before. The timeout is for
+     * a minimised window, where frames stop coming.
+     *
+     * Everything that changes the transcript goes through the same queue, the
+     * user's own clicks included, so an answer cannot overtake the question
+     * it answers.
+     */
+    const pending = useRef([]);
+    const scheduled = useRef({ frame: 0, timeout: 0 });
+    const flush = useCallback(() => {
+        cancelAnimationFrame(scheduled.current.frame);
+        clearTimeout(scheduled.current.timeout);
+        scheduled.current = { frame: 0, timeout: 0 };
+        const batch = pending.current;
+        if (batch.length === 0) return;
+        pending.current = [];
+        setState(previous => applyBatch(previous, batch));
+    }, []);
+    const dispatch = useCallback((event) => {
+        pending.current.push(event);
+        if (scheduled.current.frame || scheduled.current.timeout) return;
+        scheduled.current = {
+            frame: requestAnimationFrame(flush),
+            timeout: setTimeout(flush, 100),
+        };
+    }, [flush]);
+    /** A whole transcript in place of this one: what was queued for it goes. */
+    const replaceState = useCallback((next) => {
+        pending.current = [];
+        setState(next);
+    }, []);
+    useEffect(() => () => {
+        cancelAnimationFrame(scheduled.current.frame);
+        clearTimeout(scheduled.current.timeout);
+    }, []);
     const [pinned, setPinned] = useState(null);
     const pinnedRef = useRef(null);
     pinnedRef.current = pinned;
@@ -402,7 +156,7 @@ export default function useAssistant({
                     if (cancelled) return;
                     if (past?.found) {
                         adopt(given);
-                        setState(past.events.reduce(applyEvent, INITIAL));
+                        replaceState(replay(past.events));
                         setPinned(past.pinned || null);
                         setRunPolicy(past.runPolicy || null);
                         setStarting(false);
@@ -436,19 +190,19 @@ export default function useAssistant({
      * click.
      */
     const settle = useCallback((requestId, approved, message) => {
-        setState(previous => applyEvent(previous, {
+        dispatch({
             type: 'approval-settled',
             requestId,
             status: approved ? 'approved' : 'denied',
             feedback: approved ? '' : message,
             at: Date.now(),
-        }));
+        });
         window.api.ai.approve(
             requestId,
             approved,
             approved ? '' : (message || 'The user declined that.')
         );
-    }, []);
+    }, [dispatch]);
 
     /**
      * Answer one question, in the transcript and over IPC. Marked locally
@@ -460,21 +214,21 @@ export default function useAssistant({
 
     const answer = useCallback(async (requestId, text, chosen = false, secret = false) => {
         const reply = String(text || '').trim();
-        setState(previous => applyEvent(previous, {
+        dispatch({
             type: 'question-settled',
             requestId,
             status: reply ? 'answered' : 'dismissed',
             // A secret is never in the transcript, not even this window's copy.
             answer: secret && reply ? '••••' : reply,
             at: Date.now(),
-        }));
+        });
         const taken = await window.api.ai.answer(requestId, reply, chosen);
         // Nobody was waiting any more: the agent handed the turn back while
         // the card sat there. The answer goes as the next message instead,
         // which is what the agent was told would happen. Never a secret,
         // though: a message is exactly where one must not go.
         if (taken === false && reply && !secret) await sendRef.current?.(reply);
-    }, []);
+    }, [dispatch]);
 
     /* A secret stored mid-conversation was masked out of its past: replay it. */
     useEffect(() => {
@@ -483,7 +237,7 @@ export default function useAssistant({
             if (id !== conversationRef.current) return;
             window.api.ai.history(id).then((past) => {
                 if (past?.found && id === conversationRef.current) {
-                    setState(previous => ({ ...past.events.reduce(applyEvent, INITIAL), busy: previous.busy, draft: previous.draft }));
+                    replaceState(previous => ({ ...replay(past.events), busy: previous.busy, draft: previous.draft }));
                 }
             }).catch(() => {});
         });
@@ -494,7 +248,7 @@ export default function useAssistant({
         if (!enabled) return undefined;
         const off = window.api.ai.onEvent(({ conversationId: id, event }) => {
             if (id !== conversationRef.current) return;
-            setState(previous => applyEvent(previous, event));
+            dispatch(event);
 
             if (ENDS_TURN.has(event.type)) {
                 held.current.clear();
@@ -512,7 +266,7 @@ export default function useAssistant({
             }
         });
         return off;
-    }, [enabled, settle]);
+    }, [enabled, settle, dispatch]);
 
     /**
      * Follow the pane the panel is pointed at, or the set it is pinned to.
@@ -557,11 +311,11 @@ export default function useAssistant({
         }
         const result = await window.api.ai.send(id, text, images, mentions);
         if (!result?.success && result?.message) {
-            setState(previous => applyEvent(previous, {
+            dispatch({
                 type: 'error', message: result.message, at: Date.now(),
-            }));
+            });
         }
-    }, [conversationId, adopt]);
+    }, [conversationId, adopt, dispatch]);
 
     const interrupt = useCallback(() => {
         if (conversationId) window.api.ai.interrupt(conversationId);
@@ -616,7 +370,7 @@ export default function useAssistant({
         if (conversationId) await window.api.ai.park(conversationId);
         const created = await window.api.ai.start(targetRef.current);
         adopt(created.conversationId);
-        setState(INITIAL);
+        replaceState(INITIAL);
         setPinned(null);
         setRunPolicy(null);
     }, [conversationId, adopt]);
@@ -632,7 +386,7 @@ export default function useAssistant({
         }
         if (conversationId) await window.api.ai.park(conversationId);
         adopt(id);
-        setState(past.events.reduce(applyEvent, INITIAL));
+        replaceState(replay(past.events));
         setPinned(past.pinned || null);
         setRunPolicy(past.runPolicy || null);
     }, [conversationId, refreshConversations, adopt]);
@@ -663,16 +417,34 @@ export default function useAssistant({
         if (id === conversationId) {
             const created = await window.api.ai.start(targetRef.current);
             adopt(created.conversationId);
-            setState(INITIAL);
+            replaceState(INITIAL);
             setPinned(null);
             setRunPolicy(null);
         }
         await refreshConversations();
     }, [conversationId, refreshConversations, adopt]);
 
+    /**
+     * Put back the files a turn changed. The card follows the event main
+     * sends when it is done, so every window showing this conversation
+     * changes together; the answer is returned for what went wrong.
+     */
+    const revertTurn = useCallback(async (turnId) => {
+        if (!conversationId) return { success: false };
+        return window.api.ai.revertTurn(conversationId, turnId);
+    }, [conversationId]);
+
+    /** A new conversation holding this one up to the end of a turn. */
+    const branchTurn = useCallback(async (turnId) => {
+        if (!conversationId) return { success: false };
+        return window.api.ai.branch(conversationId, turnId);
+    }, [conversationId]);
+
     sendRef.current = send;
 
     return {
+        revertTurn,
+        branchTurn,
         items: state.items,
         draft: state.draft,
         busy: state.busy,

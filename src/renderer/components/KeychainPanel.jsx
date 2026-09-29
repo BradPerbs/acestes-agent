@@ -67,6 +67,8 @@ const SWITCH_COMPACT_AT = 620;
 function KeychainPanel({
     isActive = true,
     reachedForPage = 0,
+    /** Whose keychain this is. Its secrets are its own and the shared ones. */
+    agentId = '',
     keys,
     allHosts = [],
     onLoadKeys,
@@ -102,16 +104,40 @@ function KeychainPanel({
         onLoadKeys();
     }, [onLoadKeys]);
 
+    // Whose secrets the list on screen is. A load that lands after the page
+    // has moved on to another agent is dropped rather than shown as theirs.
+    const agentRef = useRef(agentId);
+    agentRef.current = agentId;
+    const [loadedFor, setLoadedFor] = useState(null);
+
     const loadSecrets = useCallback(async () => {
-        const list = await window.api.secrets?.list?.();
+        const asked = agentId;
+        const list = await window.api.secrets?.list?.(asked);
+        if (agentRef.current !== asked) return;
         setSecrets(Array.isArray(list) ? list : []);
-    }, []);
+        setLoadedFor(asked);
+    }, [agentId]);
 
     // Loaded with the page rather than with the tab, so the switch is instant
-    // and the count behind it is right the first time it is looked at.
+    // and the count behind it is right the first time it is looked at; and
+    // again for another agent, whose secrets are not these.
     useEffect(() => {
+        setSecrets(null);
         loadSecrets().catch(() => setSecrets([]));
     }, [loadSecrets]);
+
+    // The page opens on whichever collection has something in it. The
+    // overview's keychain counts keys and secrets together, so arriving
+    // from it at an empty Keys view, with the secrets it counted one switch
+    // away, read as a keychain that had lost them.
+    // Decided once per agent, and only on that agent's own list: switching
+    // agents with the page open must not choose from the previous one's.
+    const openedOn = useRef('');
+    useEffect(() => {
+        if (secrets === null || loadedFor !== agentId || openedOn.current === agentId) return;
+        openedOn.current = agentId;
+        setView(keys.length === 0 && secrets.length > 0 ? 'secrets' : 'keys');
+    }, [agentId, keys.length, secrets, loadedFor]);
 
     useEffect(() => {
         let cancelled = false;
@@ -348,12 +374,14 @@ function KeychainPanel({
      * to the dialog and only a real write closes it.
      */
     const handleSaveSecret = useCallback(async (name, value) => {
-        const result = await window.api.secrets.set(name, value);
+        // Stored as this agent's: a secret added on an agent's keychain is
+        // for that agent's work, and another agent cannot use it.
+        const result = await window.api.secrets.set(name, value, agentId);
         if (result?.error) return result;
         await loadSecrets();
         toast.success(`Secret “${name}” saved`, toastOptions({ duration: 1800 }));
         return result;
-    }, [loadSecrets]);
+    }, [loadSecrets, agentId]);
 
     /**
      * Ask before deleting.
@@ -374,7 +402,7 @@ function KeychainPanel({
             onConfirm: async () => {
                 setConfirming(null);
                 try {
-                    await window.api.secrets.remove(secret.name);
+                    await window.api.secrets.remove(secret.name, { agentId, shared: Boolean(secret.shared) });
                 } catch (error) {
                     toast.error(`Failed to delete secret: ${error.message}`, toastOptions());
                     return;
@@ -383,7 +411,7 @@ function KeychainPanel({
                 toast.success(`Deleted “${secret.name}”`, toastOptions({ duration: 2200 }));
             },
         });
-    }, [loadSecrets]);
+    }, [loadSecrets, agentId]);
 
     const copy = useCallback(async (text, what) => {
         try {

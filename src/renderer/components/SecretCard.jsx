@@ -99,6 +99,18 @@ function SecretCard({ secret, onReplace, onCopyReference, onDelete }) {
                         </p>
 
                         <span className="shrink-0 flex items-center gap-1.5">
+                            {/* Every agent may use a shared one, and deleting
+                                it takes it from all of them, which is worth
+                                knowing before the menu is opened. */}
+                            {secret.shared && (
+                                <span
+                                    title="Every agent can use this secret. It has no owner, having been stored before secrets belonged to agents"
+                                    className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md
+                                        bg-sky-50 dark:bg-sky-900/20 text-sky-600 dark:text-sky-400"
+                                >
+                                    Shared
+                                </span>
+                            )}
                             {/* A secret encrypted by an OS keychain this
                                 machine can no longer open is a real record
                                 with a real name, and nothing else on the card

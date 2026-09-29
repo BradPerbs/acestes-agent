@@ -175,7 +175,7 @@ function AgentCard({ agent, shelves, total, onOpen, t }) {
         // what is in them rather than stretching to match it.
         <section className={`${CARD} sm:row-span-2`}>
             <div className="flex items-center gap-3 px-4 pt-4 pb-3">
-                <AgentMark size={40} animated color={agent?.color} />
+                <AgentMark size={40} animated look={agent} />
                 <div className="min-w-0">
                     <div className="text-[15px] font-semibold text-gray-900 dark:text-white truncate">
                         {agent?.name || t('agents.agent')}
@@ -218,17 +218,19 @@ function InventoryOverview({ hosts = [], keys = [], agentId = '', activeAgent = 
     const [notes, setNotes] = useState([]);
 
     // The keychain page holds keys and secrets behind one switch, so the bag
-    // that stands for it counts both. Names and dates only, the way the page
-    // itself shows them; the values never leave the main process.
+    // that stands for it counts both: this agent's own secrets and the shared
+    // ones, the same list the page shows it. Names and dates only; the
+    // values never leave the main process.
     const [secrets, setSecrets] = useState([]);
 
     useEffect(() => {
         let cancelled = false;
-        window.api.secrets?.list?.()
+        setSecrets([]);
+        window.api.secrets?.list?.(agentId)
             .then(list => { if (!cancelled) setSecrets(Array.isArray(list) ? list : []); })
             .catch(() => {});
         return () => { cancelled = true; };
-    }, []);
+    }, [agentId]);
 
     useEffect(() => {
         let cancelled = false;

@@ -36,7 +36,11 @@ const TONE = {
 
 const SIGN = { add: '+', remove: '-', same: ' ' };
 
-export default function DiffView({ diff, path = '', className = '' }) {
+/**
+ * `header` off for a diff drawn under a row that already names the file and
+ * counts its lines, such as the edit card at the foot of a turn.
+ */
+export default function DiffView({ diff, path = '', className = '', header = true }) {
     const t = useT();
     if (!diff) return null;
 
@@ -44,7 +48,7 @@ export default function DiffView({ diff, path = '', className = '' }) {
 
     return (
         <div className={`overflow-hidden ${className}`}>
-            <div className="px-2.5 py-1.5 flex items-center gap-2
+            {header && <div className="px-2.5 py-1.5 flex items-center gap-2
                 border-b border-black/[0.06] dark:border-white/[0.06]">
                 {name && (
                     <span
@@ -62,7 +66,7 @@ export default function DiffView({ diff, path = '', className = '' }) {
                         <span className="text-red-600 dark:text-red-400">-{diff.removed}</span>
                     )}
                 </span>
-            </div>
+            </div>}
 
             {diff.tooLarge ? (
                 <p className="px-2.5 py-2 text-[11px] text-gray-500 dark:text-gray-400">

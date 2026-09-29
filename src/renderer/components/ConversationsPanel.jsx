@@ -131,7 +131,7 @@ function ConversationsPanel({
     /** Whose they are, for the search. */
     agentId = '',
     /** The colour the agent's mark wears. */
-    agentColor = '',
+    agentLook = null,
     onRefresh,
     /** The conversations already held by a tab, so the row can say so. */
     openIds = [],
@@ -274,7 +274,7 @@ function ConversationsPanel({
                     <span className="w-7 h-7 flex items-center justify-center shrink-0">
                         <AgentMark
                             size={20}
-                            color={agentColor}
+                            look={agentLook}
                             className={conversation.busy ? 'animate-pulse' : ''}
                         />
                     </span>

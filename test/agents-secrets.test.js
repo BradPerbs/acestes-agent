@@ -95,8 +95,9 @@ check('a key in the clear in agents.json is moved to the store on load', () => {
     assert.strictEqual(grafana.headers.Authorization, '{{secret:Grafana.Authorization}}');
     assert.strictEqual(grafana.headers.Accept, 'application/json');
     assert.strictEqual(agents.migratedCredentials(), 2);
-    assert.strictEqual(secrets.read('mcp-captcha-solver.APIKEY_2CAPTCHA'), KEY);
-    assert.strictEqual(secrets.read('Grafana.Authorization'), `Bearer ${TOKEN}`);
+    assert.strictEqual(secrets.read('mcp-captcha-solver.APIKEY_2CAPTCHA', 'agent-1'), KEY, 'stored as the agent whose server it is');
+    assert.strictEqual(secrets.read('mcp-captcha-solver.APIKEY_2CAPTCHA', 'agent-2'), '', 'and no other agent can read it');
+    assert.strictEqual(secrets.read('Grafana.Authorization', 'agent-1'), `Bearer ${TOKEN}`);
 });
 
 check('the migrated file is written back without the values', () => {
@@ -108,7 +109,9 @@ check('the migrated file is written back without the values', () => {
 
 check('the launch config gets the value back', () => {
     const [solver] = agents.get('agent-1').mcpServers;
-    assert.deepStrictEqual(secrets.resolveObject(solver.env).APIKEY_2CAPTCHA, KEY);
+    assert.deepStrictEqual(secrets.resolveObject(solver.env, 'agent-1').APIKEY_2CAPTCHA, KEY);
+    assert.strictEqual(secrets.resolveObject(solver.env, 'agent-2').APIKEY_2CAPTCHA, '{{secret:mcp-captcha-solver.APIKEY_2CAPTCHA}}',
+        'a launch as another agent does not get this agent\'s key');
 });
 
 check('a server saved from the settings page is vaulted the same way', () => {
@@ -119,7 +122,7 @@ check('a server saved from the settings page is vaulted the same way', () => {
     const brave = agents.get('agent-1').mcpServers.find(server => server.name === 'Brave');
     assert.strictEqual(brave.env.BRAVE_API_KEY, '{{secret:Brave.BRAVE_API_KEY}}');
     assert.strictEqual(brave.env.HOME, '/home/me');
-    assert.strictEqual(secrets.read('Brave.BRAVE_API_KEY'), 'BSA-1234567890');
+    assert.strictEqual(secrets.read('Brave.BRAVE_API_KEY', 'agent-1'), 'BSA-1234567890');
     const text = fs.readFileSync(path.join(userData, 'agents.json'), 'utf8');
     assert.ok(!text.includes('BSA-1234567890'));
 });

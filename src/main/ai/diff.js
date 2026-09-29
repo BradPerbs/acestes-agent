@@ -161,7 +161,27 @@ const WRITE_TOOLS = new Set(['write_file', 'write', 'create_file', 'write_local_
 /** Tools that replace a passage, across the runtimes. */
 const EDIT_TOOLS = new Set([
     'edit_file', 'edit_local_file', 'edit', 'multiedit', 'search_replace', 'str_replace', 'apply_patch',
+    'replace',
 ]);
+
+const bareName = (toolName) => String(toolName || '').toLowerCase().replace(/^mcp__[^_]+__/, '');
+
+/**
+ * The file an edit or write call is aimed at, or '' for any other call.
+ * Named by the tool or by the shape of its arguments, since a runtime can
+ * call its edit tool anything as long as it carries the two passages.
+ */
+function editTarget(toolName, input) {
+    if (!input || typeof input !== 'object') return '';
+    const bare = bareName(toolName);
+    const shaped = Array.isArray(input.edits)
+        || (pick(input, OLD_KEYS) !== undefined && pick(input, NEW_KEYS) !== undefined);
+    if (!shaped && !WRITE_TOOLS.has(bare) && !EDIT_TOOLS.has(bare)) return '';
+    return pick(input, PATH_KEYS) || '';
+}
+
+const pickOld = input => pick(input, OLD_KEYS);
+const pickNew = input => pick(input, NEW_KEYS);
 
 /**
  * The change a tool call is about to make, from its arguments alone.
@@ -173,7 +193,7 @@ const EDIT_TOOLS = new Set([
  */
 function fromToolInput(toolName, input) {
     if (!input || typeof input !== 'object') return null;
-    const bare = String(toolName || '').toLowerCase().replace(/^mcp__[^_]+__/, '');
+    const bare = bareName(toolName);
     const path = pick(input, PATH_KEYS) || '';
 
     if (Array.isArray(input.edits) && input.edits.length > 0) {
@@ -213,4 +233,6 @@ function fromToolInput(toolName, input) {
     return null;
 }
 
-module.exports = { between, fromToolInput, MAX_LINES, CONTEXT, _test: { lcsDiff, toHunks } };
+module.exports = {
+    between, fromToolInput, editTarget, pickOld, pickNew, MAX_LINES, CONTEXT, _test: { lcsDiff, toHunks },
+};

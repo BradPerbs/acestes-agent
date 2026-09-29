@@ -312,7 +312,7 @@ const secrets = require('./secrets');
 /** Whether a value a person or an agent typed for a switch means on. */
 const isYes = (value) => /^(y|yes|true|on|1)$/i.test(String(value || '').trim());
 
-function instantiate(template, values = {}, { name = '' } = {}) {
+function instantiate(template, values = {}, { name = '', agentId = '' } = {}) {
     if (!template) return { error: 'No such template.' };
     const given = values && typeof values === 'object' ? values : {};
     const fill = (text) => String(text).replace(/\{\{(\w+)\}\}/g, (match, key) => {
@@ -341,7 +341,8 @@ function instantiate(template, values = {}, { name = '' } = {}) {
         // reference typed in stays as it is. Where the store cannot encrypt
         // the value is kept in the clear rather than lost.
         if (field.secret && !/\{\{\s*secret:/.test(value)) {
-            const kept = secrets.set(`${template.id}.${field.key}`.replace(/[^A-Za-z0-9_.-]/g, '_').slice(0, 60), value);
+            // Stored as the agent the server is being made for.
+            const kept = secrets.set(`${template.id}.${field.key}`.replace(/[^A-Za-z0-9_.-]/g, '_').slice(0, 60), value, agentId);
             if (kept.reference) value = kept.reference;
         }
         if (field.kind === 'env') env[field.key] = value;

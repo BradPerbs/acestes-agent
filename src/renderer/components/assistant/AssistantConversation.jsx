@@ -4,7 +4,6 @@ import {
     PlusSignIcon,
     ArrowUp01Icon,
     StopCircleIcon,
-    Image01Icon,
     ImageAdd01Icon,
 } from 'hugeicons-react';
 import Tooltip from '../ui/Tooltip';
@@ -14,9 +13,9 @@ import useAssistant from '../../hooks/useAssistant';
 import useTypewriter from '../../hooks/useTypewriter';
 import useMentionables from '../../hooks/useMentionables';
 import MentionPicker, { MentionIcon, matchMentions } from './MentionPicker';
-import ToolCall from './ToolCall';
 import ApprovalRequest from './ApprovalRequest';
 import QuestionRequest from './QuestionRequest';
+import Transcript, { Notice } from './Transcript';
 import ModelMenu from './ModelMenu';
 import ApprovalMenu from './ApprovalMenu';
 import { useT } from '../../i18n';
@@ -121,20 +120,6 @@ function Usage({ account, rateLimit, costUsd, hasStoredKey }) {
     );
 }
 
-function Notice({ item }) {
-    const tone = item.tone === 'error'
-        ? 'bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-300'
-        : item.tone === 'warn'
-            ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-800 dark:text-amber-300'
-            : 'bg-gray-50 dark:bg-white/[0.035] text-gray-500 dark:text-gray-400';
-
-    return (
-        <div className={`rounded-lg px-2.5 py-2 text-[11px] leading-relaxed ${tone}`}>
-            {item.text}
-        </div>
-    );
-}
-
 /**
  * The turn in progress.
  *
@@ -148,8 +133,8 @@ function Notice({ item }) {
  * for a few frames afterwards. So each step says so, and the panel keeps the
  * bottom in view on its own terms.
  */
-function StreamingText({ text, onReveal }) {
-    const shown = useTypewriter(text);
+function StreamingText({ text, onReveal, active = true }) {
+    const shown = useTypewriter(text, active);
 
     useLayoutEffect(() => {
         onReveal();
@@ -184,10 +169,12 @@ export default function AssistantConversation({
     activeSessionId,
     /** Whose conversation this is: it starts under that agent, whose inventory it can tag. */
     agentId = '',
-    agentColor = '',
+    agentLook = null,
     onConversationChange,
     onStatus,
     onOpenSettings,
+    /** Bring a conversation to the front by id, in a tab of its own: a branch. */
+    onOpenConversation,
 }) {
     const t = useT();
     const [settings, setSettings] = useState(null);
@@ -378,9 +365,10 @@ export default function AssistantConversation({
         if (node && stickToBottom.current) node.scrollTop = node.scrollHeight;
     }, []);
 
+    // `busy` too: the row under a turn arrives when it ends, not with an item.
     useLayoutEffect(() => {
         keepAtBottom();
-    }, [assistant.items, assistant.draft.text, keepAtBottom]);
+    }, [assistant.items, assistant.draft.text, assistant.busy, keepAtBottom]);
 
     /** Whether the agent answering can be sent a picture. */
     const canAttach = Boolean(settings && imageProviders.includes(settings.provider));
@@ -561,6 +549,12 @@ export default function AssistantConversation({
         [assistant.items],
     );
 
+    const { branchTurn } = assistant;
+    const branchFrom = useCallback(async (turnId) => {
+        const answer = await branchTurn(turnId);
+        if (answer?.conversationId) onOpenConversation?.(answer.conversationId, answer.agentId);
+    }, [branchTurn, onOpenConversation]);
+
     return (
         <>
             {/* No header of its own: the tab strip above is the one row of
@@ -569,6 +563,13 @@ export default function AssistantConversation({
                 message. History and closing live in the strip's menu. */}
 
             {/* Transcript. One spacing step, owned here, not by the items.
+
+                A flex column's gap rather than `space-y-3`. That utility is a
+                sibling selector, `> :not([hidden]) ~ :not([hidden])`, which
+                the browser cannot narrow: every row, draft or "working" line
+                put into the column restyled everything already in it, which
+                in a long conversation was six thousand elements a time. A gap
+                is no selector at all.
 
                 `assistant-prose` opts the whole column back into text
                 selection, which the shell turns off everywhere else, and
@@ -579,7 +580,7 @@ export default function AssistantConversation({
             <div
                 ref={scrollRef}
                 onScroll={onScroll}
-                className={`assistant-prose flex-1 min-h-0 overflow-y-auto px-3 space-y-3
+                className={`assistant-prose flex-1 min-h-0 overflow-y-auto px-3 flex flex-col gap-3
                     ${empty ? '' : 'py-3'}`}
             >
                 {assistant.failure && <Notice item={{ tone: 'error', text: assistant.failure }} />}
@@ -603,7 +604,7 @@ export default function AssistantConversation({
                             {/* No tile behind it. The mark brings its own
                                 colour, and a grey square around a logo is
                                 a frame around a frame. */}
-                            <AgentMark size={64} animated color={agentColor} className="mb-3" />
+                            <AgentMark size={64} animated look={agentLook} className="mb-3" />
                             <h2 className="text-sm font-semibold text-gray-900 dark:text-white">
                                 {line.text}
                             </h2>
@@ -660,95 +661,22 @@ export default function AssistantConversation({
                     </div>
                 )}
 
-                {assistant.items.map((item) => {
-                    if (item.kind === 'user') {
-                        return (
-                            <div key={item.id} className="flex justify-end">
-                                <div className="assistant-bubble max-w-[88%] px-3 py-2 rounded-2xl rounded-br-md
-                                    bg-gray-900 dark:bg-white text-white dark:text-black
-                                    text-[13px] leading-relaxed whitespace-pre-wrap break-words">
-                                    {/* The pictures, or a chip naming each one for a
-                                        message read back from disk, which keeps the
-                                        name and not the bytes. */}
-                                    {/* What the message tagged, by name. The
-                                        records are in the inventory, and a
-                                        bubble holding a runbook would be the
-                                        whole panel. */}
-                                    {item.mentions?.length > 0 && (
-                                        <div className={`flex flex-wrap gap-1.5 ${item.text || item.images?.length ? 'mb-1.5' : ''}`}>
-                                            {item.mentions.map((entry, index) => (
-                                                <span
-                                                    key={`${entry.kind}:${entry.id}` || index}
-                                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md
-                                                        text-xs bg-white/15 dark:bg-black/10"
-                                                >
-                                                    @{entry.name}
-                                                </span>
-                                            ))}
-                                        </div>
-                                    )}
-                                    {item.images?.length > 0 && (
-                                        <div className={`flex flex-wrap gap-1.5 ${item.text ? 'mb-1.5' : ''}`}>
-                                            {item.images.map((image, index) => (image.data ? (
-                                                <img
-                                                    key={index}
-                                                    src={`data:${image.mediaType};base64,${image.data}`}
-                                                    alt={image.name}
-                                                    className="max-h-40 max-w-full rounded-lg object-contain"
-                                                />
-                                            ) : (
-                                                <span
-                                                    key={index}
-                                                    title={image.name}
-                                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md
-                                                        text-xs bg-white/15 dark:bg-black/10"
-                                                >
-                                                    <Image01Icon size={12} strokeWidth={2} />
-                                                    {image.name || t('assistant.image')}
-                                                </span>
-                                            )))}
-                                        </div>
-                                    )}
-                                    {item.text}
-                                </div>
-                            </div>
-                        );
-                    }
-                    if (item.kind === 'assistant') {
-                        return <Markdown key={item.id} text={item.text} />;
-                    }
-                    if (item.kind === 'tool') {
-                        // A call waiting on an answer is not here at all: it
-                        // is the card pinned above the composer, and drawing
-                        // the row as well would put the same command on
-                        // screen twice. It takes its place in the transcript
-                        // the moment it is answered.
-                        if (item.approval?.status === 'pending') return null;
-                        return <ToolCall key={item.id} item={item} />;
-                    }
-                    if (item.kind === 'approval') {
-                        if (item.status === 'pending') return null;
-                        return (
-                            <ApprovalRequest
-                                key={item.id}
-                                group={{ key: item.id, items: [item], queued: [] }}
-                                onRespond={assistant.respond}
-                            />
-                        );
-                    }
-                    if (item.kind === 'question') {
-                        // Pinned above the composer while it stands, like an
-                        // approval; here once answered, with the answer on it.
-                        if (item.status === 'pending') return null;
-                        return <QuestionRequest key={item.id} item={item} onAnswer={assistant.answer} />;
-                    }
-                    return <Notice key={item.id} item={item} />;
-                })}
+                <Transcript
+                    key={assistant.conversationId || 'new'}
+                    items={assistant.items}
+                    busy={assistant.busy}
+                    conversationId={assistant.conversationId}
+                    onRespond={assistant.respond}
+                    onAnswer={assistant.answer}
+                    onRevert={assistant.revertTurn}
+                    onBranch={onOpenConversation ? branchFrom : null}
+                    onLayout={keepAtBottom}
+                />
 
                 {/* The turn in progress. Replaced by a finished block the
                     moment the model closes it, so both are never shown. */}
                 {assistant.draft.text && (
-                    <StreamingText text={assistant.draft.text} onReveal={keepAtBottom} />
+                    <StreamingText text={assistant.draft.text} onReveal={keepAtBottom} active={active} />
                 )}
 
                 {/* Not while a question is standing: the turn is still open, so

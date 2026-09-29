@@ -544,7 +544,17 @@ function shellQuote(value) {
     return `'${String(value).replace(/'/g, `'\\''`)}'`;
 }
 
+/**
+ * Where a write would land on this machine's own disk, or '' inside a
+ * container or outside the grants. What the edit checkpoints read.
+ */
+function hostPath(ctx, target) {
+    if (containerised(ctx)) return '';
+    const grant = sandboxModule.grantFor(ctx?.sandbox, target, 'write');
+    return grant.error ? '' : grant.path;
+}
+
 module.exports = {
-    list, read, write, edit, search, run, setSpawner, applyEdit,
+    list, read, write, edit, search, run, setSpawner, applyEdit, hostPath,
     MAX_FILE_BYTES, DEFAULT_TIMEOUT, MAX_MATCHES,
 };

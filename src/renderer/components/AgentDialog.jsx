@@ -7,14 +7,16 @@ import Field, { FIELD_CLASS } from './ui/Field';
 import SegmentedControl from './ui/SegmentedControl';
 import AgentMark from './assistant/AgentMark';
 import { AGENT_COLORS } from '../lib/agent-colors';
+import { AGENT_CRESTS, agentLook } from '../lib/agent-look';
 import { useT } from '../i18n';
 
 /**
- * Naming an agent, new or renamed, and picking its colour.
+ * Naming an agent, new or renamed, and picking how its mark looks.
  *
- * The colour is what tells one agent's mark from another's across the app,
- * so it is chosen here, where the agent is made, with the mark itself drawn
- * in each colour on offer rather than a row of paint chips.
+ * The look (a colour, and the crest or none) is what tells one agent's mark
+ * from another's across the app, so it is chosen here, where the agent is
+ * made, with the mark itself drawn in each choice on offer rather than a row
+ * of paint chips and a list of names.
  *
  * A new agent is also asked where its local work runs: on this computer,
  * inside the folders it is granted, or in a container of its own. Asked here
@@ -195,10 +197,46 @@ function ModeInfo() {
     );
 }
 
-export default function AgentDialog({ agent = null, suggestedColor = '', onClose, onSave }) {
+/**
+ * One row of choices for a part of the look, each drawn as the mark wearing
+ * it, in the colour already picked, so what is being chosen is the whole
+ * face and not a word for part of it.
+ */
+function LookChoice({ label, options, value, look, part, onChange }) {
+    const t = useT();
+    return (
+        <div className="flex flex-col gap-1.5">
+            <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">{label}</span>
+            <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label={label}>
+                {options.map(option => (
+                    <button
+                        key={option}
+                        type="button"
+                        role="radio"
+                        aria-checked={value === option}
+                        onClick={() => onChange(option)}
+                        className={`flex items-center gap-2 px-2.5 py-2 rounded-xl border transition-colors outline-none
+                            focus-visible:ring-2 focus-visible:ring-gray-900/20 dark:focus-visible:ring-white/25
+                            ${value === option
+                                ? 'border-gray-900 dark:border-white bg-gray-50 dark:bg-white/[0.06]'
+                                : 'border-gray-200 dark:border-neutral-700 hover:border-gray-300 dark:hover:border-neutral-600'}`}
+                    >
+                        <AgentMark size={30} look={{ ...look, [part]: option }} />
+                        <span className="text-xs font-medium text-gray-800 dark:text-gray-200 truncate">
+                            {t(`agents.${part}.${option}`)}
+                        </span>
+                    </button>
+                ))}
+            </div>
+        </div>
+    );
+}
+
+export default function AgentDialog({ agent = null, suggestedLook = null, onClose, onSave }) {
     const t = useT();
     const [name, setName] = useState(agent?.name || '');
-    const [color, setColor] = useState(agent?.color || suggestedColor || AGENT_COLORS[0].id);
+    const [look, setLook] = useState(() => agentLook(agent || suggestedLook));
+    const setPart = (part) => (value) => setLook(current => ({ ...current, [part]: value }));
     const [mode, setMode] = useState('host');
     // The folders on this computer the agent is confined to. Asked here as
     // well as on the Sandbox card, because "this agent works in this folder"
@@ -226,7 +264,7 @@ export default function AgentDialog({ agent = null, suggestedColor = '', onClose
         if (!trimmed || saving) return;
         setSaving(true);
         try {
-            await onSave(trimmed, color, agent ? { folders } : { execution: mode, folders });
+            await onSave(trimmed, look, agent ? { folders } : { execution: mode, folders });
             onClose();
         } finally {
             setSaving(false);
@@ -252,7 +290,7 @@ export default function AgentDialog({ agent = null, suggestedColor = '', onClose
                 className="flex flex-col gap-5"
             >
                 <div className="flex items-center gap-4">
-                    <AgentMark size={56} color={color} animated />
+                    <AgentMark size={56} look={look} animated />
                     <Field label={t('agents.nameLabel')} className="flex-1">
                         <input
                             autoFocus
@@ -270,26 +308,35 @@ export default function AgentDialog({ agent = null, suggestedColor = '', onClose
                     <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">
                         {t('agents.colorLabel')}
                     </span>
-                    <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={t('agents.colorLabel')}>
+                    <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label={t('agents.colorLabel')}>
                         {AGENT_COLORS.map(option => (
                             <button
                                 key={option.id}
                                 type="button"
                                 role="radio"
-                                aria-checked={color === option.id}
+                                aria-checked={look.color === option.id}
                                 title={option.label}
-                                onClick={() => setColor(option.id)}
-                                className={`w-9 h-9 rounded-full flex items-center justify-center transition-all
+                                onClick={() => setPart('color')(option.id)}
+                                className={`w-8 h-8 rounded-full flex items-center justify-center transition-all
                                     hover:scale-110 active:scale-95 outline-none
-                                    ${color === option.id
+                                    ${look.color === option.id
                                         ? 'ring-2 ring-offset-2 ring-gray-900 dark:ring-white ring-offset-white dark:ring-offset-surface-raised'
                                         : 'focus-visible:ring-2 focus-visible:ring-gray-900/30 dark:focus-visible:ring-white/40'}`}
                             >
-                                <AgentMark size={30} color={option.id} />
+                                <AgentMark size={28} look={{ ...look, color: option.id }} />
                             </button>
                         ))}
                     </div>
                 </div>
+
+                <LookChoice
+                    label={t('agents.crestLabel')}
+                    part="crest"
+                    options={AGENT_CRESTS}
+                    value={look.crest}
+                    look={look}
+                    onChange={setPart('crest')}
+                />
 
                 {!agent && (
                     <div className="flex flex-col gap-1.5">

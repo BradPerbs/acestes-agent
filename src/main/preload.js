@@ -243,6 +243,18 @@ contextBridge.exposeInMainWorld('api', {
         },
         release: (tabId) => closePort(tabId),
 
+        // Shells on this computer, for the terminals beside a conversation.
+        // Opening an id that is running attaches to it, so a remounted panel
+        // gets its shell back. Data, input and resize are the calls above.
+        localShells: (options) => ipcRenderer.invoke('local-terminal-shells', options || {}),
+        // The agent's folders a terminal can start in, for the picker.
+        localFolders: (agentId) => ipcRenderer.invoke('local-terminal-folders', agentId),
+        openLocal: ({ id, agentId, shellId, cwd, cols, rows }) =>
+            ipcRenderer.invoke('local-terminal-open', { id, agentId, shellId, cwd, cols, rows }),
+        closeLocal: (id) => ipcRenderer.invoke('local-terminal-close', id),
+        // Every terminal of one conversation, when the conversation goes.
+        closeLocalGroup: (group) => ipcRenderer.invoke('local-terminal-close-group', group),
+
         onDisconnected: (callback) => subscribe('ssh-disconnected', callback),
     },
 
@@ -586,6 +598,16 @@ contextBridge.exposeInMainWorld('api', {
         // Pin one conversation to a runtime, model and effort, or change the
         // pin it has. Answers `{ pinned }`, the patch as kept.
         setModel: (conversationId, patch) => ipcRenderer.invoke('ai-conversation-model', { conversationId, patch }),
+        // What a turn did to files, as lines: `{ found, reverted, files }`.
+        turnChanges: (conversationId, turnId) =>
+            ipcRenderer.invoke('ai-turn-changes', { conversationId, turnId }),
+        // Put back every file a turn changed. Answers `{ reverted, failed }`.
+        revertTurn: (conversationId, turnId) =>
+            ipcRenderer.invoke('ai-turn-revert', { conversationId, turnId }),
+        // A new conversation holding this one up to the end of a turn.
+        // Answers `{ conversationId, agentId }`.
+        branch: (conversationId, turnId) =>
+            ipcRenderer.invoke('ai-conversation-branch', { conversationId, turnId }),
         // Save the conversation as a Markdown file; main asks where.
         export: (conversationId) => ipcRenderer.invoke('ai-conversation-export', conversationId),
         // The same Markdown as text, for the clipboard. `{ full: true }` adds
@@ -666,11 +688,13 @@ contextBridge.exposeInMainWorld('api', {
      * The secrets store: API keys and tokens by name. Names and dates come
      * back; values never do. A value is set once and used by the app, in
      * the main process, where a record refers to it as {{secret:name}}.
+     * Each belongs to an agent: `agentId` is whose, the selected one when
+     * left out. A list is that agent's own and the shared ones.
      */
     secrets: {
-        list: () => ipcRenderer.invoke('secrets-list'),
-        set: (name, value) => ipcRenderer.invoke('secrets-set', { name, value }),
-        remove: (name) => ipcRenderer.invoke('secrets-remove', name),
+        list: (agentId) => ipcRenderer.invoke('secrets-list', agentId),
+        set: (name, value, agentId) => ipcRenderer.invoke('secrets-set', { name, value, agentId }),
+        remove: (name, { agentId, shared = false } = {}) => ipcRenderer.invoke('secrets-remove', { name, agentId, shared }),
     },
 
     runs: {

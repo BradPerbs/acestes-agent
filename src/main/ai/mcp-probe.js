@@ -54,10 +54,10 @@ function withTimeout(promise, ms, what) {
 }
 
 /** The transports to try for a server, in order. */
-function transportsFor(server) {
+function transportsFor(server, agentId = '') {
     if (server.transport === 'http') {
-        const headers = secrets.resolveObject(server.headers || {});
-        const url = new URL(secrets.resolve(server.url));
+        const headers = secrets.resolveObject(server.headers || {}, agentId);
+        const url = new URL(secrets.resolve(server.url, agentId));
         return [
             () => new StreamableHTTPClientTransport(url, { requestInit: { headers } }),
             () => new SSEClientTransport(url, {
@@ -74,8 +74,8 @@ function transportsFor(server) {
             path.join(__dirname, 'mcp-launch.js'),
             JSON.stringify({
                 command: server.command,
-                args: (server.args || []).map(secrets.resolve),
-                env: sandboxModule.safeEnv(process.env, secrets.resolveObject(server.env || {})),
+                args: (server.args || []).map(arg => secrets.resolve(arg, agentId)),
+                env: sandboxModule.safeEnv(process.env, secrets.resolveObject(server.env || {}, agentId)),
             }),
         ],
         env: { ...getDefaultEnvironment(), ELECTRON_RUN_AS_NODE: '1' },
@@ -96,10 +96,10 @@ function describe(error, stderr) {
  * One handshake with one server record, on its own; nothing is recorded.
  * Exposed so a server can be tried before it is saved.
  */
-async function probe(server) {
+async function probe(server, agentId = '') {
     const started = Date.now();
     let lastError = '';
-    for (const make of transportsFor(server)) {
+    for (const make of transportsFor(server, agentId)) {
         const client = new Client(CLIENT);
         let transport = null;
         const stderr = [];
@@ -151,7 +151,8 @@ function check(agentId, serverId) {
     if (inFlight.has(serverId)) return inFlight.get(serverId);
 
     publish(agentId, serverId, { checking: true, ...(statuses.get(serverId) || {}) });
-    const run = probe(server)
+    // As the agent that owns it: its secrets are the ones its env refers to.
+    const run = probe(server, agentId)
         .then((status) => {
             publish(agentId, serverId, status);
             return status;

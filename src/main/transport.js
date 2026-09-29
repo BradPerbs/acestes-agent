@@ -18,9 +18,12 @@ const store = require('./store');
 const ssh = require('./ssh');
 const telnet = require('./telnet');
 const serial = require('./serial');
+const local = require('./local-terminal');
 const { normalizeProtocol } = require('./protocol-config');
 
-const BACKENDS = { ssh, telnet, serial };
+// `local` is never dialled through a host record (see local-terminal.js), but
+// it is closed, described and dropped on lock with the others.
+const BACKENDS = { ssh, telnet, serial, local };
 
 function backendFor(protocol) {
     return BACKENDS[normalizeProtocol(protocol)] || ssh;

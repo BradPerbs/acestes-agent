@@ -65,7 +65,15 @@ function normalizeHook(raw) {
  * gradients (`lib/agent-colors.js`); this list only has to agree with it, so
  * an id nobody can draw is refused rather than stored.
  */
-const COLORS = ['sky', 'violet', 'emerald', 'amber', 'rose', 'orange', 'teal', 'slate'];
+const COLORS = ['sky', 'violet', 'emerald', 'amber', 'rose', 'orange', 'teal', 'slate', 'white', 'black'];
+
+/**
+ * Whether the helmet on the mark wears its crest, by id, the same way: the
+ * helmet is drawn in the renderer (`components/assistant/helmet`), and this
+ * list only has to agree with it. An agent saved before there was a choice
+ * wears the crest.
+ */
+const CRESTS = ['plume', 'none'];
 
 const filePath = () => path.join(app.getPath('userData'), 'agents.json');
 
@@ -146,7 +154,7 @@ const SECRET_LIKE = /(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH)/i;
  * alone. Where the store cannot encrypt, the value is kept rather than
  * lost, and tried again on the next save.
  */
-function vaultCredentials(serverName, map) {
+function vaultCredentials(serverName, map, owner = '') {
     const out = {};
     const moved = [];
     for (const [key, raw] of Object.entries(map || {})) {
@@ -155,7 +163,9 @@ function vaultCredentials(serverName, map) {
             const name = `${serverName}.${key}`.replace(/[^A-Za-z0-9_.-]/g, '_').slice(0, 60);
             let kept = null;
             try {
-                kept = secrets.set(name, value);
+                // The agent whose server it is owns it, so two agents with a
+                // server of the same name each keep their own.
+                kept = secrets.set(name, value, owner);
             } catch {
                 // No store here (a bare test harness): kept in the clear.
             }
@@ -174,7 +184,7 @@ function vaultCredentials(serverName, map) {
 // migrated file can be written back once.
 let vaultedOnLoad = 0;
 
-function normalizeServer(raw) {
+function normalizeServer(raw, owner = '') {
     if (!raw || typeof raw !== 'object') return null;
     const name = clean(raw.name);
     if (!name) return null;
@@ -209,8 +219,8 @@ function normalizeServer(raw) {
 
     // Credentials go to the store; the record keeps references. See
     // vaultCredentials: this is the one door every server comes through.
-    const vaultedEnv = vaultCredentials(name, env);
-    const vaultedHeaders = vaultCredentials(name, headers);
+    const vaultedEnv = vaultCredentials(name, env, owner);
+    const vaultedHeaders = vaultCredentials(name, headers, owner);
     vaultedOnLoad += vaultedEnv.moved.length + vaultedHeaders.moved.length;
 
     return {
@@ -236,13 +246,14 @@ function normalizeAgent(raw) {
         id,
         name: clean(raw.name) || DEFAULT_NAME,
         color: COLORS.includes(raw.color) ? raw.color : COLORS[0],
+        crest: CRESTS.includes(raw.crest) ? raw.crest : CRESTS[0],
         createdAt: Number.isFinite(raw.createdAt) ? raw.createdAt : Date.now(),
         // The assistant settings this agent overrides. Validated by the
         // settings module on the way in and again on the way out; this only
         // has to keep it an object.
         settings: raw.settings && typeof raw.settings === 'object' ? { ...raw.settings } : {},
         mcpServers: Array.isArray(raw.mcpServers)
-            ? raw.mcpServers.map(normalizeServer).filter(Boolean).slice(0, MAX_SERVERS)
+            ? raw.mcpServers.map(server => normalizeServer(server, id)).filter(Boolean).slice(0, MAX_SERVERS)
             : [],
         // The envelope the agent works inside: which sessions it may drive,
         // which local folders it may touch, and whether its local footprint
@@ -252,11 +263,12 @@ function normalizeAgent(raw) {
     };
 }
 
-function fresh(name = DEFAULT_NAME, color = COLORS[0]) {
+function fresh(name = DEFAULT_NAME, color = COLORS[0], crest = CRESTS[0]) {
     return {
         id: nextId('agent'),
         name,
         color: COLORS.includes(color) ? color : COLORS[0],
+        crest: CRESTS.includes(crest) ? crest : CRESTS[0],
         createdAt: Date.now(),
         settings: {},
         mcpServers: [],
@@ -313,6 +325,7 @@ function publicAgent(agent) {
         id: agent.id,
         name: agent.name,
         color: agent.color,
+        crest: agent.crest,
         createdAt: agent.createdAt,
         mcpServers: agent.mcpServers.map(server => ({ ...server, env: { ...server.env }, headers: { ...(server.headers || {}) } })),
         sandbox: sandboxModule.normalize(agent.sandbox),
@@ -378,15 +391,16 @@ function select(id) {
  * A new one is selected on creation: making an agent and then having to pick
  * it is two steps for one intention.
  */
-function save({ id, name, color, mcpServers, sandbox: envelope, hooks: hookList } = {}) {
+function save({ id, name, color, crest, mcpServers, sandbox: envelope, hooks: hookList } = {}) {
     const current = load();
     const existing = id ? current.agents.find(agent => agent.id === id) : null;
 
     if (existing) {
         if (name !== undefined) existing.name = clean(name) || existing.name;
         if (COLORS.includes(color)) existing.color = color;
+        if (CRESTS.includes(crest)) existing.crest = crest;
         if (Array.isArray(mcpServers)) {
-            existing.mcpServers = mcpServers.map(normalizeServer).filter(Boolean).slice(0, MAX_SERVERS);
+            existing.mcpServers = mcpServers.map(server => normalizeServer(server, existing.id)).filter(Boolean).slice(0, MAX_SERVERS);
         }
         if (Array.isArray(hookList)) {
             existing.hooks = hookList.map(normalizeHook).filter(Boolean).slice(0, MAX_HOOKS);
@@ -405,9 +419,9 @@ function save({ id, name, color, mcpServers, sandbox: envelope, hooks: hookList 
         return { ...snapshot(), error: `At most ${MAX_AGENTS} agents.` };
     }
 
-    const agent = fresh(clean(name) || DEFAULT_NAME, color);
+    const agent = fresh(clean(name) || DEFAULT_NAME, color, crest);
     if (Array.isArray(mcpServers)) {
-        agent.mcpServers = mcpServers.map(normalizeServer).filter(Boolean).slice(0, MAX_SERVERS);
+        agent.mcpServers = mcpServers.map(server => normalizeServer(server, agent.id)).filter(Boolean).slice(0, MAX_SERVERS);
     }
     if (envelope && typeof envelope === 'object') agent.sandbox = sandboxModule.normalize(envelope);
     current.agents.push(agent);

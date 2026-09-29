@@ -18,6 +18,9 @@ import { useEffect, useRef, useState } from 'react';
  * It only ever moves forwards through the same string. Anything else, which is
  * a new turn, a reset, or the finished block arriving to replace the draft,
  * is not a thing to type out and appears whole.
+ *
+ * `enabled` off, for a tab that is not in front, and the text is simply the
+ * text: an animation nobody can see is sixty renders a second for nothing.
  */
 
 /** How much of the backlog to spend per frame: a fifth of it, so a 100 letter
@@ -28,7 +31,7 @@ const CATCH_UP = 5;
  *  at an ever slower rate, which is the tail every naive easing function has. */
 const MIN_STEP = 2;
 
-export default function useTypewriter(text = '') {
+export default function useTypewriter(text = '', enabled = true) {
     const [shown, setShown] = useState('');
 
     // The animation runs off refs and writes state once per frame. Reading the
@@ -44,7 +47,9 @@ export default function useTypewriter(text = '') {
         const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
         // Not a continuation of what is on screen, so there is nothing to type.
-        if (still || !text.startsWith(shownRef.current)) {
+        if (still || !enabled || !text.startsWith(shownRef.current)) {
+            cancelAnimationFrame(frameRef.current);
+            frameRef.current = 0;
             shownRef.current = text;
             setShown(text);
             return;
@@ -68,7 +73,7 @@ export default function useTypewriter(text = '') {
         };
 
         frameRef.current = requestAnimationFrame(step);
-    }, [text]);
+    }, [text, enabled]);
 
     // Cleared as well as cancelled: a hook that is torn down and set up again,
     // which is what a dev-mode strict remount does, would otherwise see a live
@@ -78,5 +83,5 @@ export default function useTypewriter(text = '') {
         frameRef.current = 0;
     }, []);
 
-    return shown;
+    return enabled ? shown : text;
 }
