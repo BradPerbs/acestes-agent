@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ArrowRight01Icon, Edit02Icon } from 'hugeicons-react';
 import Button from '../ui/Button';
+import { CARD, CARD_HEAD, CHOICE, CHOICE_ICON, FIELD } from './ApprovalRequest';
 import { useT } from '../../i18n';
 
 /**
@@ -8,8 +9,9 @@ import { useT } from '../../i18n';
  *
  * The approval card's sibling, and drawn to the same rules: the tool row's
  * 32px header with the amber dot that means "waiting", a neutral surface
- * lifted by a ring rather than a colour wash, and the answers as a list of
- * full-width rows rather than buttons in a line. What differs is the
+ * lifted by a border rather than a colour wash, and the answers as a list of
+ * full-width rows rather than buttons in a line. The styles are shared with it
+ * so the two cannot drift apart when they stand in the same stack. What differs is the
  * content. There is no command to show verbatim and no server to name; there
  * is a sentence, and under it the answers the agent offered, then a way to
  * say something else, which is always there because the agent's list is a
@@ -19,14 +21,6 @@ import { useT } from '../../i18n';
  * and collapsed to a one-line row in the transcript once answered, with the
  * answer on it so the exchange can be read back.
  */
-
-const CHOICE = `w-full min-h-9 px-2.5 py-2 flex items-center gap-2.5 rounded-lg text-left
-    text-xs font-medium select-none transition-colors outline-none border
-    text-gray-800 dark:text-gray-200
-    border-gray-300 dark:border-white/[0.16]
-    hover:bg-gray-100 hover:border-gray-400
-    dark:hover:bg-white/[0.12] dark:hover:border-white/[0.28]
-    focus-visible:ring-2 focus-visible:ring-gray-900/20 dark:focus-visible:ring-white/25`;
 
 const SETTLED = {
     answered: { labelKey: 'assistant.answered', dot: 'bg-emerald-500' },
@@ -70,11 +64,8 @@ export default function QuestionRequest({ item, onAnswer }) {
     const parked = item.status === 'parked';
 
     return (
-        <div className="rounded-xl overflow-hidden shadow-sm
-            bg-white dark:bg-white/[0.06]
-            ring-1 ring-black/[0.07] dark:ring-white/[0.10]">
-            <div className="h-8 px-2.5 flex items-center gap-2
-                border-b border-black/[0.06] dark:border-white/[0.06]">
+        <div className={CARD}>
+            <div className={CARD_HEAD}>
                 <span aria-hidden="true" className="w-1.5 h-1.5 rounded-full shrink-0 bg-amber-500" />
                 <span className="text-[11px] font-semibold text-gray-900 dark:text-white shrink-0">
                     {t('assistant.asks')}
@@ -92,9 +83,7 @@ export default function QuestionRequest({ item, onAnswer }) {
                 )}
 
                 {item.secret && !parked && (
-                    <div className="rounded-lg transition-colors
-                        border border-gray-300 dark:border-white/[0.16]
-                        focus-within:border-gray-400 dark:focus-within:border-white/30">
+                    <div className={FIELD}>
                         <input
                             autoFocus
                             type="password"
@@ -130,25 +119,21 @@ export default function QuestionRequest({ item, onAnswer }) {
                                 onClick={() => onAnswer(item.requestId, option, true)}
                                 className={CHOICE}
                             >
-                                <span className="w-4 h-4 shrink-0 flex items-center justify-center
-                                    text-gray-400 dark:text-gray-500">
+                                <span className={CHOICE_ICON}>
                                     <ArrowRight01Icon size={14} strokeWidth={2.5} />
                                 </span>
                                 <span className="min-w-0 break-words">{option}</span>
                             </button>
                         ))}
                         <button type="button" onClick={() => setNote('')} className={CHOICE}>
-                            <span className="w-4 h-4 shrink-0 flex items-center justify-center
-                                text-gray-400 dark:text-gray-500">
+                            <span className={CHOICE_ICON}>
                                 <Edit02Icon size={13} strokeWidth={2} />
                             </span>
                             {item.options.length > 0 ? t('assistant.somethingElse') : t('assistant.typeAnswer')}
                         </button>
                     </div>
                 ) : (
-                    <div className="rounded-lg transition-colors
-                        border border-gray-300 dark:border-white/[0.16]
-                        focus-within:border-gray-400 dark:focus-within:border-white/30">
+                    <div className={FIELD}>
                         <textarea
                             autoFocus
                             rows={2}
@@ -171,7 +156,7 @@ export default function QuestionRequest({ item, onAnswer }) {
                                 placeholder:text-gray-400 dark:placeholder:text-gray-600"
                         />
                         <div className="flex items-center justify-end gap-1.5 px-1.5 pb-1.5">
-                            <Button size="sm" variant="outline" onClick={() => setNote(null)}>
+                            <Button size="sm" variant="secondary" onClick={() => setNote(null)}>
                                 {t('common.cancel')}
                             </Button>
                             <Button

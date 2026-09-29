@@ -45,7 +45,7 @@ import { useT } from '../../i18n';
  * an error rather than a question and, worse, tinted the command itself: the
  * one string on the card that has to be read exactly was the hardest thing on
  * it to read. The card is neutral and simply sits above the tool rows around
- * it, lifted by a ring and a shadow rather than by hue, and the amber is spent
+ * it, lifted by a border and a shadow rather than by hue, and the amber is spent
  * on the 6px dot, which is what the transcript already uses to mean "waiting".
  * The shape is the tool row's: a 32px header line with a dot, a title and where
  * it goes, so answering it collapses the card onto a line of that same shape.
@@ -91,34 +91,45 @@ const SETTLED = {
 };
 
 /**
- * The rule for every control on this card, in one place.
+ * The surfaces of this card and of the question card beside it, in one place.
  *
- * The card fills at `white/[0.06]` over `surface-raised`, which composites to
- * the same lightness as `surface-control`. That is the step the app's menu
- * rows and quiet buttons use for their dark borders and hovers, because they
- * are normally drawn on a panel rather than on a card sitting at that level.
- * Anything here that reaches for the ramp is therefore invisible: a border the
- * colour of the card, and a hover that repaints it in its own colour.
+ * Both are drawn on the dark ramp, as the menus and the composer under them
+ * are. They used to fill with translucent white, which composites to grey
+ * rather than to a step of the ramp and does not follow a retint, so the two
+ * cards sat visibly off-colour against the composer's border an inch below.
  *
- * So: overlays, which sit a step off whatever they are drawn on, and a border
- * at rest so a row is a thing you can see before you go looking for it. These
- * are `Button`'s `outline` variant, as a full-width row. Keep them in step.
+ * The card is a menu's surface: the panel's own `surface-raised`, held in by
+ * the composer's `surface-control` border. The answers are the menu's rows,
+ * given a fill at rest one step up so a row is a thing you can see before you
+ * go looking for it, and the next step under the pointer. No outline on each:
+ * four bordered boxes inside a bordered card was a cage, not a list.
  */
-const CHOICE = `w-full h-9 px-2.5 flex items-center gap-2.5 rounded-lg text-left
-    text-xs font-medium select-none transition-colors outline-none border
+export const CARD = `rounded-xl overflow-hidden shadow-sm
+    bg-white dark:bg-surface-raised
+    border border-gray-200 dark:border-surface-control`;
+
+export const CARD_HEAD = `h-8 px-2.5 flex items-center gap-2
+    border-b border-gray-100 dark:border-surface-control`;
+
+export const CHOICE = `w-full min-h-9 px-2.5 py-2 flex items-center gap-2.5 rounded-lg text-left
+    text-xs font-medium select-none transition-colors outline-none
     text-gray-800 dark:text-gray-200
-    border-gray-300 dark:border-white/[0.16]
-    hover:bg-gray-100 hover:border-gray-400
-    dark:hover:bg-white/[0.12] dark:hover:border-white/[0.28]
+    bg-gray-100/70 hover:bg-gray-200/80
+    dark:bg-surface-control/60 dark:hover:bg-surface-hover
     focus-visible:ring-2 focus-visible:ring-gray-900/20 dark:focus-visible:ring-white/25`;
+
+export const CHOICE_ICON = `w-4 h-4 shrink-0 flex items-center justify-center
+    text-gray-400 dark:text-neutral-500`;
+
+/** A field typed into on the card, drawn as the composer is. */
+export const FIELD = `rounded-lg transition-colors
+    border border-gray-300 dark:border-surface-control
+    focus-within:border-gray-400 dark:focus-within:border-neutral-600`;
 
 function Choice({ icon, label, onClick }) {
     return (
         <button type="button" onClick={onClick} className={CHOICE}>
-            <span className="w-4 h-4 shrink-0 flex items-center justify-center
-                text-gray-400 dark:text-gray-500">
-                {icon}
-            </span>
+            <span className={CHOICE_ICON}>{icon}</span>
             {label}
         </button>
     );
@@ -193,9 +204,7 @@ export default function ApprovalRequest({ group, sessions = [], onRespond }) {
     };
 
     return (
-        <div className="rounded-xl overflow-hidden shadow-sm
-            bg-white dark:bg-white/[0.06]
-            ring-1 ring-black/[0.07] dark:ring-white/[0.10]">
+        <div className={CARD}>
 
             {/* The tool row's header, held still: same height, same dot, same
                 title weight. Where the call is going is the other half of the
@@ -209,8 +218,7 @@ export default function ApprovalRequest({ group, sessions = [], onRespond }) {
                 second line. The tooltip opens upwards: this card is pinned near
                 the bottom of the panel, and a label dropping out of the header
                 would land on the command underneath it. */}
-            <div className="h-8 px-2.5 flex items-center gap-2
-                border-b border-black/[0.06] dark:border-white/[0.06]">
+            <div className={CARD_HEAD}>
                 <span aria-hidden="true" className="w-1.5 h-1.5 rounded-full shrink-0 bg-amber-500" />
                 <span className="text-[11px] font-semibold text-gray-900 dark:text-white shrink-0">
                     {title}
@@ -311,9 +319,7 @@ export default function ApprovalRequest({ group, sessions = [], onRespond }) {
                         />
                     </div>
                 ) : (
-                    <div className="rounded-lg transition-colors
-                        border border-gray-300 dark:border-white/[0.16]
-                        focus-within:border-gray-400 dark:focus-within:border-white/30">
+                    <div className={FIELD}>
                         <textarea
                             autoFocus
                             rows={2}
@@ -338,7 +344,7 @@ export default function ApprovalRequest({ group, sessions = [], onRespond }) {
                                 placeholder:text-gray-400 dark:placeholder:text-gray-600"
                         />
                         <div className="flex items-center justify-end gap-1.5 px-1.5 pb-1.5">
-                            <Button size="sm" variant="outline" onClick={() => setNote(null)}>
+                            <Button size="sm" variant="secondary" onClick={() => setNote(null)}>
                                 {t('common.cancel')}
                             </Button>
                             <Button
