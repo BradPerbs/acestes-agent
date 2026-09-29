@@ -16,6 +16,12 @@
   <a href="https://github.com/BradPerbs/acestes-agent/releases/latest"><strong>Download for Windows, macOS and Linux</strong></a>
 </p>
 
+<p align="center">
+  <a href="docs/demo.mp4"><img src="docs/demo.gif" alt="Acestes Agent fixing a failing test suite: it checks its memory, runs the tests, finds the commit that broke them, asks before editing the file, remembers the cause and schedules a nightly check" width="960"></a>
+  <br>
+  <sub>A sample project and sample inventory. <a href="docs/demo.mp4">Watch it as video</a>.</sub>
+</p>
+
 ---
 
 ## Meet Acestes
