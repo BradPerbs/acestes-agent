@@ -106,6 +106,12 @@ jobs:
         if: runner.os == 'Windows'
         run: npm run build:hello
 
+      # The agent's hands on the desktop, built the same way. The Windows
+      # package lists it as an extra resource, so it has to exist by then.
+      - name: Build the desktop helper
+        if: runner.os == 'Windows'
+        run: npm run build:desktop
+
       - run: npm run build:renderer
 
       # ssh2 lists cpu-features as an optional dependency and uses it only to

@@ -225,6 +225,76 @@ function held() {
     return ids;
 }
 
+/** The detached window showing a conversation, or null when it is the main window's or nobody's. */
+function windowOf(conversationId) {
+    for (const entry of windows.values()) {
+        if (!entry.window.isDestroyed() && entry.conversationIds.includes(conversationId)) return entry.window;
+    }
+    return null;
+}
+
+/** Whether a conversation is in a tab anywhere. */
+function showing(conversationId) {
+    return mainTabs.includes(conversationId) || held().includes(conversationId);
+}
+
+/**
+ * The conversations each window has on screen: its tab in front, and with a
+ * split up, every chat in it. By webContents id, since the main window
+ * reports the same way a detached one does. Forgotten with the window.
+ */
+const onScreen = new Map();
+
+function setInView(webContents, conversationIds) {
+    const id = webContents.id;
+    if (!onScreen.has(id)) webContents.once('destroyed', () => onScreen.delete(id));
+    onScreen.set(id, cleanIds(conversationIds));
+    return { success: true };
+}
+
+/**
+ * Where a conversation stands with the person: 'front' when it is on screen
+ * in the window they are using, 'behind' when it is in a tab but not that,
+ * and '' when it is in no tab at all.
+ */
+function sight(conversationId) {
+    const focused = BrowserWindow.getFocusedWindow();
+    if (focused && !focused.isDestroyed() && (onScreen.get(focused.webContents.id) || []).includes(conversationId)) {
+        return 'front';
+    }
+    return showing(conversationId) ? 'behind' : '';
+}
+
+/**
+ * Open conversations as tabs, for the agent.
+ *
+ * Where one is already showing wins, so nothing is shown twice; then the
+ * window showing the conversation that asked (`near`), so a tab the agent
+ * opens lands beside the chat it came from; then the main window. `focus`
+ * brings the first to the front; without it the tabs are added behind the
+ * one being read.
+ */
+function show(conversationIds, { near = '', focus = false } = {}) {
+    const ids = cleanIds(conversationIds);
+    if (ids.length === 0) return { success: false, message: 'Nothing to open.' };
+
+    const live = [...windows.values()].filter(entry => !entry.window.isDestroyed());
+    const target = live.find(entry => ids.some(id => entry.conversationIds.includes(id)))
+        || (near ? live.find(entry => entry.conversationIds.includes(near)) : null);
+    const payload = { conversationIds: ids, focus };
+
+    if (target) {
+        target.window.webContents.send('ai-tabs-adopt', payload);
+        if (focus) {
+            if (target.window.isMinimized()) target.window.restore();
+            target.window.focus();
+        }
+        return { success: true };
+    }
+    notifyMain('ai-tabs-adopt', payload);
+    return { success: true };
+}
+
 function setContext(next) {
     context = {
         sessions: Array.isArray(next?.sessions) ? next.sessions : [],
@@ -258,6 +328,11 @@ module.exports = {
     reattach,
     closeWindow,
     held,
+    windowOf,
+    showing,
+    setInView,
+    sight,
+    show,
     setContext,
     getContext,
     closeAll,

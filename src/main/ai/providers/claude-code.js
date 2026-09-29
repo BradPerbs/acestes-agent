@@ -393,6 +393,13 @@ function userContent(text, images = []) {
 
 /** Our catalog, as the in-process MCP server the SDK expects. */
 function buildToolServer(sdk, toolContext, onEvent) {
+    // Claude Code keeps most MCP tools behind a search the model has to run
+    // first, which is a whole turn before the first click. With computer use
+    // on, those tools are the point of the conversation, so they are loaded
+    // up front; switching it on or off restarts the session, so this is read
+    // once per session.
+    const computerUse = Boolean(toolContext()?.settings?.computerUse);
+    const extras = definition => (definition.group === 'computer' && computerUse ? { alwaysLoad: true } : undefined);
     const tools = catalog.TOOLS.map(definition => sdk.tool(
         definition.name,
         definition.description,
@@ -415,7 +422,8 @@ function buildToolServer(sdk, toolContext, onEvent) {
                     isError: true,
                 };
             }
-        }
+        },
+        extras(definition),
     ));
 
     return sdk.createSdkMcpServer({ name: SERVER_NAME, version: '1.0.0', tools });
@@ -494,6 +502,68 @@ async function listModels({ settings = {} } = {}) {
         }
         await pump.catch(() => {});
     }
+}
+
+/**
+ * A name for a conversation, from a small model with nothing to call.
+ *
+ * Haiku whatever the conversation runs on, the way Claude Code names its own
+ * sessions: it is the cheap one, and a title is a few words. No tools, one
+ * turn, and no session written to disk for a history to list. See titles.js.
+ */
+async function title({ settings = {}, instruction, prompt, signal } = {}) {
+    const executable = findClaude();
+    if (!executable) return '';
+
+    const sdk = await loadSdk();
+    const abortController = new AbortController();
+    const stop = () => abortController.abort();
+    signal?.addEventListener('abort', stop, { once: true });
+
+    const env = accountEnv(settings);
+    if (settings.apiKey) env.ANTHROPIC_API_KEY = settings.apiKey;
+
+    const stream = sdk.query({
+        prompt,
+        options: {
+            pathToClaudeCodeExecutable: executable,
+            model: 'haiku',
+            systemPrompt: instruction,
+            tools: [],
+            allowedTools: [],
+            permissionMode: 'default',
+            maxTurns: 1,
+            persistSession: false,
+            abortController,
+            env,
+            cwd: app.getPath('userData'),
+            settingSources: [],
+        },
+    });
+
+    let text = '';
+    try {
+        for await (const message of stream) {
+            if (message?.type === 'assistant') {
+                for (const block of message.message?.content || []) {
+                    if (block?.type === 'text') text += block.text || '';
+                }
+            }
+            if (message?.type === 'result') {
+                if (typeof message.result === 'string' && message.result) text = message.result;
+                break;
+            }
+        }
+    } finally {
+        signal?.removeEventListener('abort', stop);
+        abortController.abort();
+        try {
+            await stream.return?.();
+        } catch {
+            // Already gone.
+        }
+    }
+    return text;
 }
 
 /**
@@ -945,10 +1015,13 @@ async function readLimits({ settings = {} } = {}) {
     if (!executable) return { identity: null, windows: [], error: 'Claude Code is not installed on this machine.' };
 
     const identity = await authStatus({ settings });
-    if (!identity?.signedIn) return { identity, windows: [] };
+    // No JSON at all is a CLI that did not answer (slow to start, timed
+    // out), not an account that is signed out.
+    if (!identity) return { identity: null, windows: [], error: 'Claude Code did not answer. Try again in a moment.' };
+    if (!identity.signedIn) return { identity, windows: [] };
     // Plan windows are a claude.ai subscription's. A Console login is billed
     // per token and has none to report.
-    if (identity.method && identity.method !== 'claude.ai') return { identity, windows: [] };
+    if (identity.method && identity.method !== 'claude.ai') return { identity, windows: [], planless: true };
 
     const sdk = await loadSdk();
     const input = createInputStream();
@@ -1095,6 +1168,7 @@ function detect() {
 
 module.exports = {
     start,
+    title,
     listModels,
     detect,
     readLimits,

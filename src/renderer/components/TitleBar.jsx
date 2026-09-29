@@ -27,6 +27,7 @@ import WindowControls from './ui/WindowControls';
 import NotificationsMenu from './NotificationsMenu';
 import AgentMark from './assistant/AgentMark';
 import Tooltip from './ui/Tooltip';
+import MarqueeText from './ui/MarqueeText';
 import { TAB_COLORS, segmentStrip, tabColor, withAlpha } from '../lib/tabs';
 
 import { useT } from '../i18n';
@@ -195,6 +196,8 @@ function SessionTab({
     const isLauncher = tab.type === 'launcher';
     const isConversation = tab.type === 'conversation';
     const color = tabColor(tab.color);
+    // A chat's title slides to show its end while pointed at, as in the list.
+    const [hovered, setHovered] = useState(false);
 
     /** Whichever element the tab is: a button, or the field it is renamed in. */
     const tabRef = useRef(null);
@@ -344,6 +347,8 @@ function SessionTab({
                 boxShadow: `inset 0 0 0 1px ${withAlpha(color.hex, active ? 0.5 : 0.28)}`,
             } : undefined}
             onClick={closing ? undefined : () => onSelect(tab.id)}
+            onMouseEnter={isConversation ? () => setHovered(true) : undefined}
+            onMouseLeave={isConversation ? () => setHovered(false) : undefined}
             // Double-click to rename, the way every tab strip that can be
             // renamed does it. The menu carries the same action for discovery.
             onDoubleClick={closing ? undefined : (event) => {
@@ -404,7 +409,19 @@ function SessionTab({
                     </svg>
                 </span>
             </span>
-            <span className="truncate flex-1 text-left min-w-0">{tab.title}</span>
+            {isConversation
+                ? <MarqueeText text={tab.title} playing={hovered && !closing} className="text-left" />
+                : <span className="truncate flex-1 text-left min-w-0">{tab.title}</span>}
+
+            {/* Done while you were elsewhere: a chat that finished answering
+                behind another tab, until it is looked at. */}
+            {tab.finished && !tab.busy && (
+                <span
+                    aria-label={t('titleBar.finished')}
+                    title={t('titleBar.finished')}
+                    className="shrink-0 w-1.5 h-1.5 rounded-full bg-gray-900 dark:bg-white"
+                />
+            )}
 
             {/* Which of several sessions on this host it is. Beside the title
                 rather than inside it: appended to the string it would be the

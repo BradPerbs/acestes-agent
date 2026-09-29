@@ -230,14 +230,29 @@ function entryFor(provider, accountId) {
  * `replace` is for a full answer from the runtime, which is the plan as it
  * stands: a window it no longer mentions is gone. An event names one window
  * and merges over what is there, keeping the status a probe cannot give.
+ *
+ * Most of Claude's events carry no figure at all, only that the turn was
+ * allowed. Such an event keeps the figure already held: while that window
+ * is still open it is the same period, and once it has closed the held one
+ * reads as reset, which is closer to the truth than no figure at all.
  */
 function recordWindows(provider, accountId, windows, { replace = false, source = 'event' } = {}) {
     const entry = entryFor(provider, accountId);
     const now = Date.now();
     const next = replace ? {} : { ...entry.windows };
+    const known = (value) => value !== null && value !== undefined;
     for (const window of windows || []) {
         if (!window?.id) continue;
         const before = entry.windows[window.id];
+        if (!replace && !known(window.used) && known(before?.used)) {
+            const closed = before.resetsAt && before.resetsAt <= now;
+            next[window.id] = {
+                ...before,
+                resetsAt: closed ? before.resetsAt : window.resetsAt || before.resetsAt,
+                status: closed ? before.status || '' : window.status || before.status || '',
+            };
+            continue;
+        }
         next[window.id] = {
             ...window,
             // A probe does not say whether the runtime is refusing; an event

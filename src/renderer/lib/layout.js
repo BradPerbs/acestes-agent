@@ -1,6 +1,7 @@
 // One gutter drives the whole shell: the space above the title bar, below it,
-// and to the left and right of everything are all this value.
-export const APP_GUTTER = 12;
+// and to the left and right of everything are all this value. Kept to a sliver,
+// so the content panel reads as inset into the window rather than floating in it.
+export const APP_GUTTER = 6;
 
 /**
  * Height of the title bar's control row.
@@ -18,7 +19,7 @@ export const TITLE_BAR_HEIGHT = 40;
 export const TITLE_BAR_BOTTOM = APP_GUTTER + TITLE_BAR_HEIGHT;
 
 // Total sidebar width, including the gutter it holds to the content panel.
-export const SIDEBAR_WIDTH = 232;
+export const SIDEBAR_WIDTH = 220 + APP_GUTTER;
 
 // Height of a terminal pane's own header row.
 export const PANE_HEADER_HEIGHT = 44;

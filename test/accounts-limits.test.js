@@ -161,6 +161,22 @@ limits.recordWindows('claude-code', 'default', [{ id: 'five_hour', used: 12, res
 entry = limits.snapshot()['claude-code:default'];
 assert.deepStrictEqual(entry.windows.map(window => window.id), ['five_hour'], 'a full answer drops windows it no longer has');
 
+// An event with no figure, only that the turn was allowed, keeps the one held.
+limits.recordWindows('claude-code', 'default', [limits.fromClaudeEvent({ window: 'five_hour', utilization: null, status: 'allowed', resetsAt: Math.round(future / 1000) })]);
+entry = limits.snapshot()['claude-code:default'];
+assert.strictEqual(entry.windows.find(window => window.id === 'five_hour').used, 12, 'a figureless event does not blank the meter');
+assert.strictEqual(entry.windows.find(window => window.id === 'five_hour').status, 'allowed');
+// One with a figure still moves it.
+limits.recordWindows('claude-code', 'default', [limits.fromClaudeEvent({ window: 'five_hour', utilization: 40, status: 'allowed', resetsAt: Math.round(future / 1000) })]);
+assert.strictEqual(limits.snapshot()['claude-code:default'].windows.find(window => window.id === 'five_hour').used, 40);
+// A figureless event after the held window closed leaves it reading as reset.
+limits.recordWindows('claude-code', 'closed', [{ id: 'five_hour', used: 70, resetsAt: Date.now() - 1000 }], { replace: true, source: 'probe' });
+limits.recordWindows('claude-code', 'closed', [limits.fromClaudeEvent({ window: 'five_hour', utilization: null, status: 'allowed', resetsAt: Math.round(future / 1000) })]);
+const reopened = limits.snapshot()['claude-code:closed'].windows[0];
+assert.strictEqual(reopened.used, 0);
+assert.strictEqual(reopened.lapsed, true);
+limits.forget('claude-code', 'closed');
+
 // A window whose reset has passed reads as reset, not as its old figure.
 limits.recordWindows('codex', 'default', [{ id: 'five_hour', used: 100, resetsAt: Date.now() - 1000, status: 'rejected' }]);
 const lapsed = limits.snapshot()['codex:default'].windows[0];

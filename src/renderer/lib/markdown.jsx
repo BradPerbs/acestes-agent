@@ -35,11 +35,42 @@ const NUMBERED = /^\s*(\d+)[.)]\s+(.*)$/;
  */
 const TABLE_RULE = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
 
+/**
+ * What a bare URL ends on. Prose puts a full stop or a closing bracket straight
+ * after a link far more often than a URL ends in one, so those are left out.
+ */
+const URL_TAIL = /[.,;:!?'")\]]+$/;
+
+/**
+ * A link, opened in the browser rather than in the app.
+ *
+ * The click goes through main, which lets only http and https out: the text is
+ * model output, and a `file:` or `ms-msdt:` link in it is not to be followed.
+ * The href stays so the address shows on hover, as a link's does anywhere.
+ */
+function Link({ href, children }) {
+    return (
+        <a
+            href={href}
+            title={href}
+            onClick={(event) => {
+                event.preventDefault();
+                window.api?.links?.open(href);
+            }}
+            className="underline underline-offset-2 decoration-gray-400 dark:decoration-gray-500
+                hover:decoration-current text-gray-900 dark:text-white [overflow-wrap:anywhere] cursor-pointer"
+        >
+            {children}
+        </a>
+    );
+}
+
 /** Inline spans: code first, so nothing inside backticks is styled further. */
 function inline(text, keyPrefix) {
     const nodes = [];
-    // Code, bold, then italic. Ordered so `**` is never mistaken for two `*`.
-    const pattern = /(`[^`]+`)|(\*\*[^*]+\*\*)|(__[^_]+__)|(\*[^*\n]+\*)/g;
+    // Code, links, bold, then italic. Ordered so `**` is never mistaken for
+    // two `*`, and so a URL with an underscore in it stays one URL.
+    const pattern = /(`[^`]+`)|(\[[^\]\n]+\]\(https?:\/\/[^)\s]+\))|(https?:\/\/[^\s<>`]+)|(\*\*[^*]+\*\*)|(__[^_]+__)|(\*[^*\n]+\*)/g;
     let last = 0;
     let match;
     let index = 0;
@@ -48,10 +79,18 @@ function inline(text, keyPrefix) {
         if (match.index > last) {
             nodes.push(text.slice(last, match.index));
         }
-        const token = match[0];
+        let token = match[0];
         const key = `${keyPrefix}-i${index++}`;
 
-        if (token.startsWith('`')) {
+        if (match[2]) {
+            const split = token.indexOf('](');
+            nodes.push(<Link key={key} href={token.slice(split + 2, -1)}>{token.slice(1, split)}</Link>);
+        } else if (match[3]) {
+            // The tail goes back to the text, and the scan resumes after it.
+            const tail = token.match(URL_TAIL)?.[0] || '';
+            token = token.slice(0, token.length - tail.length);
+            nodes.push(<Link key={key} href={token}>{token}</Link>);
+        } else if (token.startsWith('`')) {
             nodes.push(
                 <code
                     key={key}
@@ -61,11 +100,13 @@ function inline(text, keyPrefix) {
                 </code>
             );
         } else if (token.startsWith('**') || token.startsWith('__')) {
-            nodes.push(<strong key={key} className="font-semibold">{token.slice(2, -2)}</strong>);
+            // Read again inside, so a link in bold is still a link.
+            nodes.push(<strong key={key} className="font-semibold">{inline(token.slice(2, -2), key)}</strong>);
         } else {
-            nodes.push(<em key={key}>{token.slice(1, -1)}</em>);
+            nodes.push(<em key={key}>{inline(token.slice(1, -1), key)}</em>);
         }
         last = match.index + token.length;
+        pattern.lastIndex = last;
     }
 
     if (last < text.length) nodes.push(text.slice(last));

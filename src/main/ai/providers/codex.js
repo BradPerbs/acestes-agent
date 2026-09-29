@@ -363,6 +363,16 @@ async function start({
     let announced = Boolean(resumeSessionId);
     let running = null;
     let abort = null;
+    // Every turn is a fresh `codex exec`, which reads its config again and
+    // warns again. Once a conversation is enough.
+    const warned = new Set();
+    const report = (event) => {
+        if (event.type === 'warning') {
+            if (warned.has(event.message)) return;
+            warned.add(event.message);
+        }
+        onEvent(event);
+    };
 
     /** One turn, from the text going in to the transcript coming out. */
     async function turn(text, images = []) {
@@ -386,7 +396,7 @@ async function start({
             const { events } = await thread.runStreamed(turnInput(body, staged.paths), { signal: abort.signal });
 
             for await (const event of events) {
-                translate(event, onEvent);
+                translate(event, report);
 
                 if (event.type === 'thread.started' && !announced) {
                     announced = true;
@@ -534,8 +544,13 @@ function translate(event, onEvent) {
                 return;
             }
 
+            // Non-fatal, by the SDK's own account: a warning about the
+            // person's Codex setup, such as a hook in ~/.codex/hooks.json
+            // whose timeout it clamped. The turn carries on and answers.
+            // Reported as an error, it ended the turn, and the warning stood
+            // where the answer should have been.
             if (item.type === 'error' && item.message) {
-                onEvent({ type: 'error', message: item.message });
+                onEvent({ type: 'warning', message: item.message });
             }
             return;
         }
@@ -602,6 +617,72 @@ async function listModels({ settings = {} } = {}) {
     } finally {
         server.close();
     }
+}
+
+/**
+ * A name for a conversation, from `codex exec` with nothing to do.
+ *
+ * Its own process rather than a thread on the SDK, for two flags the SDK has
+ * no way to pass: `--ephemeral`, so the question is not a session in the
+ * user's Codex history, and `--ignore-user-config`, so their MCP servers are
+ * not started to answer it. Read-only, in the temp directory, low effort.
+ * See titles.js.
+ */
+function title({ settings = {}, instruction, prompt, signal } = {}) {
+    const binary = findCodex();
+    if (!binary) return Promise.resolve('');
+
+    const args = [
+        'exec', '--ephemeral', '--ignore-user-config', '--skip-git-repo-check', '--json',
+        '--sandbox', 'read-only', '--cd', os.tmpdir(),
+        '--config', 'model_reasoning_effort="low"',
+        '--config', 'web_search="disabled"',
+        '--config', 'approval_policy="never"',
+    ];
+    if (settings.model) args.push('--model', settings.model);
+    args.push('-');
+
+    const env = accountEnv(settings);
+    if (settings.apiKey) env.OPENAI_API_KEY = settings.apiKey;
+
+    return new Promise((resolve) => {
+        let child;
+        try {
+            child = spawn(binary, args, { stdio: ['pipe', 'pipe', 'ignore'], env, windowsHide: true });
+        } catch {
+            resolve('');
+            return;
+        }
+
+        const stop = () => {
+            try { child.kill(); } catch { /* already gone */ }
+        };
+        signal?.addEventListener('abort', stop, { once: true });
+
+        let text = '';
+        let buffer = '';
+        child.stdout.on('data', (chunk) => {
+            buffer += chunk.toString('utf8');
+            let index = buffer.indexOf('\n');
+            while (index >= 0) {
+                const line = buffer.slice(0, index).trim();
+                buffer = buffer.slice(index + 1);
+                index = buffer.indexOf('\n');
+                let event;
+                try { event = JSON.parse(line); } catch { continue; }
+                if (event?.type === 'item.completed' && event.item?.type === 'agent_message') {
+                    text = event.item.text || '';
+                }
+            }
+        });
+        child.on('error', () => resolve(''));
+        child.on('close', () => {
+            signal?.removeEventListener('abort', stop);
+            resolve(text);
+        });
+        child.stdin.on('error', () => {});
+        child.stdin.end(`${instruction}\n\n${prompt}`);
+    });
 }
 
 /** The environment a run or a question runs under: this machine's, moved to the account's home. */
@@ -739,7 +820,8 @@ async function readLimits({ settings = {} } = {}) {
     try {
         await server.ready;
         const identity = describeAccount(await server.request('account/read', { refreshToken: false }));
-        if (!identity.signedIn || identity.method !== 'chatgpt') return { identity, windows: [] };
+        if (!identity.signedIn) return { identity, windows: [] };
+        if (identity.method !== 'chatgpt') return { identity, windows: [], planless: true };
         const limits = await server.request('account/rateLimits/read');
         return { identity, windows: require('../limits').fromCodexLimits(limits) };
     } catch (error) {
@@ -867,6 +949,7 @@ function detect() {
 
 module.exports = {
     start,
+    title,
     listModels,
     detect,
     readLimits,
@@ -880,6 +963,7 @@ module.exports = {
     turnInput,
     threadOptions,
     workspaceFor,
+    translate,
     SERVER_NAME,
     // Pictures go in as files on the turn's command line: see `stageImages`.
     supportsImages: true,

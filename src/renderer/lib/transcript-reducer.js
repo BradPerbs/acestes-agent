@@ -269,6 +269,10 @@ function step(state, event, owned) {
             break;
         }
 
+        // The runtime's name for the conversation, once it has given one.
+        case 'title':
+            return { ...state, title: event.title || '' };
+
         case 'account':
             return { ...state, account: event };
 
@@ -309,6 +313,12 @@ function step(state, event, owned) {
                 text: event.text,
             });
             draft = emptyDraft();
+            break;
+
+        // Something the provider wanted said that is not the end of the turn,
+        // so the turn is left running.
+        case 'warning':
+            edit().push({ kind: 'notice', id: `w-${event.at}-${items.length}`, tone: 'warn', text: event.message });
             break;
 
         case 'tool-failed':
@@ -368,4 +378,7 @@ export const INITIAL = {
     // Both arrive from the runtime rather than being configured here.
     account: null,
     rateLimit: null,
+    // What the runtime named the conversation. Empty until it has, and for
+    // one it never named, where the first message stands in.
+    title: '',
 };

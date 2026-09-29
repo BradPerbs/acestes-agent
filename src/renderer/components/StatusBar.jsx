@@ -33,6 +33,17 @@ import { useT } from '../i18n';
 
 /** How often the bar looks for a figure gone stale. */
 const TICK = 60 * 1000;
+/**
+ * How soon an account is read again when the last check failed, or when a
+ * turn named a window the last check did not have (a five-hour window that
+ * opened since) without giving its figure. A quarter of an hour of a missing
+ * meter for either is too long.
+ */
+const RETRY_AFTER = 3 * 60 * 1000;
+
+/** A window only a turn has named, with no figure yet. */
+const unread = (entry) => (entry?.windows || []).some(window => window.source === 'event'
+    && (window.used === null || window.used === undefined));
 /** Older than this and a figure is drawn faded, as one that may have moved. */
 const FADED_AFTER = 60 * 60 * 1000;
 
@@ -98,7 +109,8 @@ export default function StatusBar({ agentId, agentName = '', tabs, onOpenSetting
                 // are read when their settings card is opened.
                 if (!row.multi || !PLAN_RUNTIMES.has(row.provider)) continue;
                 const at = row.entry?.checkedAt || 0;
-                if (Date.now() - at > STALE_AFTER && !checking.has(keyOf(row.provider, row.account.id))) {
+                const after = row.entry?.error || unread(row.entry) ? RETRY_AFTER : STALE_AFTER;
+                if (Date.now() - at > after && !checking.has(keyOf(row.provider, row.account.id))) {
                     check(row.provider, row.account.id);
                 }
             }

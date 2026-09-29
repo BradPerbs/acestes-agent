@@ -13,9 +13,10 @@ import {
     Settings01Icon,
 } from 'hugeicons-react';
 import { setSidebar, slideSidebar } from '../lib/panelMotion';
-import { cubicBezier, seconds } from '../lib/motion';
+import { cubicBezier, prefersReducedMotion, seconds } from '../lib/motion';
 import AgentMark from './assistant/AgentMark';
 import PanelMenu from './assistant/PanelMenu';
+import MarqueeText from './ui/MarqueeText';
 import { useT } from '../i18n';
 
 /**
@@ -251,13 +252,29 @@ function ConversationRow({ conversation, active, onOpen, onDelete, onPin, delete
     const t = useT();
     const title = conversation.title || t('assistant.newConversation');
     const pinLabel = conversation.pinned ? t('conversations.unpin') : t('conversations.pin');
+    const [hovered, setHovered] = useState(false);
+    const rowRef = useRef(null);
+
+    // A row drawn under a pointer that is already there gets no enter event.
+    useEffect(() => {
+        if (rowRef.current?.matches(':hover')) setHovered(true);
+    }, []);
 
     return (
-        <div className="relative group/row">
+        <div
+            ref={rowRef}
+            className="relative group/row"
+            onMouseEnter={() => setHovered(true)}
+            onMouseLeave={() => setHovered(false)}
+            onFocus={() => setHovered(true)}
+            onBlur={() => setHovered(false)}
+        >
             <button
                 type="button"
                 onClick={onOpen}
-                title={title}
+                // The marquee shows the whole title; the tooltip is for
+                // whoever has asked for things on screen not to move.
+                title={prefersReducedMotion() ? title : undefined}
                 className={`w-full flex items-center gap-2 pl-3 pr-14 py-1.5 rounded-lg text-left text-[13px]
                     transition-colors outline-none
                     focus-visible:ring-2 focus-visible:ring-gray-900/20 dark:focus-visible:ring-white/25
@@ -270,7 +287,7 @@ function ConversationRow({ conversation, active, onOpen, onDelete, onPin, delete
                 {conversation.busy && (
                     <span aria-hidden="true" className="shrink-0 w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
                 )}
-                <span className="min-w-0 flex-1 truncate">{title}</span>
+                <MarqueeText text={title} playing={hovered} />
             </button>
 
             {/* The pin of a pinned row is always shown, at the far right where

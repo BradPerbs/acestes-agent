@@ -139,6 +139,7 @@ function build({ z, ok, fail }) {
                 autonomous: z.boolean().optional().describe('Only when the user said to do it without asking: nothing waits for approval. The blocked list still applies.'),
                 approvals: z.enum(['read-only']).optional().describe('read-only for a task that only reports.'),
                 notify: z.boolean().optional().describe('Notify the user when it ends. Defaults to true.'),
+                open: z.boolean().optional().describe('Show the run\'s conversation in a tab, so the user can watch it work.'),
                 budget: z.object({
                     maxToolCalls: z.number().int().min(1).max(500).optional(),
                     maxCostUsd: z.number().min(0.01).max(100).optional(),
@@ -162,10 +163,14 @@ function build({ z, ok, fail }) {
                     delivery: { notify: input.notify !== false },
                 });
                 if (result.error) return fail(result.error);
+                const shown = input.open && result.conversationId && typeof ctx.conversations?.open === 'function'
+                    ? ctx.conversations.open({ conversationIds: [result.conversationId], focus: false })
+                    : null;
                 return ok({
                     started: true,
                     runId: result.runId,
                     conversationId: result.conversationId,
+                    ...(shown ? { opened: Boolean(shown.opened) } : {}),
                     title,
                     runtime: pinned.provider || 'the agent\'s default',
                     model: pinned.model || 'the agent\'s default',

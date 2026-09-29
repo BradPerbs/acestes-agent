@@ -678,6 +678,12 @@ contextBridge.exposeInMainWorld('api', {
         // got: 'settings' or 'snippets'. The main window listens on the other.
         navigateMain: (nav) => ipcRenderer.invoke('ai-navigate-main', nav),
         onNavigate: (callback) => subscribe('ai-navigate', callback),
+
+        // The chats this window has on screen, so main can tell a turn
+        // ending or a question asked out of sight and say so through the
+        // OS; and the sound that goes with those notifications.
+        setInView: (conversationIds) => ipcRenderer.invoke('ai-in-view-set', conversationIds),
+        onChime: (callback) => subscribe('ai-chime', callback),
     },
 
     /**

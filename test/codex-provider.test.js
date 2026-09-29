@@ -162,6 +162,19 @@ async function run() {
     assert.strictEqual(off.additionalDirectories, undefined);
     assert.strictEqual(off.networkAccessEnabled, false);
 
+    // Codex's error item is a warning, and the answer follows it. As an error
+    // it ended the turn and stood where the answer should have been.
+    const said = [];
+    provider.translate({
+        type: 'item.completed',
+        item: { id: 'item_0', type: 'error', message: 'clamping SessionEnd hook timeout to 3s in hooks.json' },
+    }, event => said.push(event));
+    assert.deepStrictEqual(said, [{ type: 'warning', message: 'clamping SessionEnd hook timeout to 3s in hooks.json' }]);
+
+    const failedTurn = [];
+    provider.translate({ type: 'turn.failed', error: { message: 'boom' } }, event => failedTurn.push(event));
+    assert.deepStrictEqual(failedTurn, [{ type: 'error', message: 'boom' }], 'a failed turn is still an error');
+
     console.log('codex-provider tests passed');
 }
 

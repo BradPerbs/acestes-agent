@@ -116,6 +116,15 @@ async function main() {
         assert.strictEqual(changed[0].status, 'done');
     });
 
+    check('a warning is shown and the turn keeps running', () => {
+        const state = replay([{ type: 'user-message', text: 'hi', at: 1 }]);
+        const after = applyEvent(state, { type: 'warning', message: 'clamping SessionEnd hook timeout to 3s', at: 2 });
+        assert.strictEqual(after.busy, true);
+        const notice = after.items[after.items.length - 1];
+        assert.strictEqual(notice.kind, 'notice');
+        assert.strictEqual(notice.tone, 'warn');
+    });
+
     check('a result lands on the call it answers, not the newest one', () => {
         const state = replay(events.slice(0, 5));
         const after = applyEvent(state, { type: 'tool-result', id: 't1', text: 'ok', at: 1 });
@@ -139,6 +148,14 @@ async function main() {
         ]);
         assert.deepStrictEqual(merged, apart);
         assert.strictEqual(merged.items[1].text, 'Hello');
+    });
+
+    check('a name from the runtime titles the conversation and draws nothing', () => {
+        const before = replay([{ type: 'user-message', text: 'hi', at: 1 }]);
+        const after = applyEvent(before, { type: 'title', title: 'Fix 502 errors on web-01', at: 2 });
+        assert.strictEqual(before.title, '');
+        assert.strictEqual(after.title, 'Fix 502 errors on web-01');
+        assert.strictEqual(after.items, before.items, 'no row for it');
     });
 
     console.log(`\n${passed} passed, ${failed} failed`);

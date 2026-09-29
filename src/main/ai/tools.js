@@ -11,6 +11,7 @@ const checkpoints = require('./checkpoints');
 const inventoryTools = require('./inventory-tools');
 const jobTools = require('./job-tools');
 const delegationTools = require('./delegation-tools');
+const computerTools = require('./computer-tools');
 
 // zod 4 exports both a namespace and a `z` binding depending on how it is
 // reached. Taking either keeps this working whichever the installed build is.
@@ -1152,6 +1153,12 @@ const TOOLS = [
      * Delegation and fan-out. See delegation-tools.js.
      * -------------------------------------------------------------- */
     ...delegationTools.build({ z, ok, fail }),
+
+    /* -------------------------------------------------------------- *
+     * Using this computer: its windows, with the real mouse and
+     * keyboard. See computer-tools.js and computer.js.
+     * -------------------------------------------------------------- */
+    ...computerTools.build({ z, ok, fail }),
 ];
 
 const BY_NAME = new Map(TOOLS.map(tool => [tool.name, tool]));
@@ -1384,6 +1391,8 @@ function commandTextFor(toolName, input) {
     // A shell on this computer is still a shell. What is blocked on a server
     // is blocked here too, container or not.
     if (toolName === 'run_local_command') return String(input?.command ?? '');
+    // Opening an app is starting a program, which is a command by any name.
+    if (toolName === 'open_app') return [input?.app, input?.args].filter(Boolean).join(' ');
     return '';
 }
 

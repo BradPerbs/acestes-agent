@@ -28,6 +28,7 @@ const activity = require('./activity');
 const sessionLog = require('./session-log');
 const assistant = require('./ai');
 const aiWindows = require('./ai/windows');
+const computer = require('./ai/computer');
 const updates = require('./updates');
 const startup = require('./startup');
 const resources = require('./resources');
@@ -260,41 +261,75 @@ function register(getWindow) {
     };
     assistant.setNotifier(broadcast);
     // Whether any window is up, so the assistant can open a session through
-    // a pane when there is one and headless when there is not.
+    // a pane when there is one and headless when there is not; and whether a
+    // conversation is in front of the person, for its notifications.
     assistant.setWindowProbe(
         () => BrowserWindow.getAllWindows().some(window => !window.isDestroyed()),
         () => Boolean(BrowserWindow.getFocusedWindow()),
+        (conversationId) => aiWindows.sight(conversationId),
     );
     headless.setNotifier(broadcast);
     runs.setNotifier(broadcast);
     jobs.setNotifier(broadcast);
 
     /**
-     * An OS notification from the assistant: a run finished while the
-     * window was elsewhere, or stopped on a question. Clicking it brings
-     * the window forward and opens the Runs page.
+     * An OS notification from the assistant: a run finished out of sight,
+     * or stopped on a question. It comes with the app's own chime rather
+     * than the system's, so it sounds the same wherever notification sounds
+     * are set, and once. Clicking it brings forward the chat it is about,
+     * in whichever window holds its tab, or the Runs page for one in none.
      */
-    const toastFromAssistant = ({ title, body }) => {
+    const toastFromAssistant = ({ title, body, conversationId = '' }) => {
+        const anyWindow = () => {
+            const window = getWindow();
+            if (window && !window.isDestroyed()) return window;
+            return BrowserWindow.getAllWindows().find(entry => !entry.isDestroyed()) || null;
+        };
         try {
             if (!Notification.isSupported()) return;
-            const notification = new Notification({ title: String(title || 'Acestes Agent'), body: String(body || '') });
+            const notification = new Notification({
+                title: String(title || 'Acestes Agent'),
+                body: String(body || ''),
+                silent: true,
+            });
             notification.on('click', () => {
-                let window = getWindow();
-                if (!window || window.isDestroyed()) {
-                    window = BrowserWindow.getAllWindows().find(entry => !entry.isDestroyed()) || null;
-                }
+                const window = anyWindow();
                 if (!window) return;
                 if (window.isMinimized()) window.restore();
                 window.show();
                 window.focus();
-                window.webContents.send('ai-navigate', { nav: 'runs' });
+                if (conversationId && aiWindows.showing(conversationId)) aiWindows.show([conversationId], { focus: true });
+                else window.webContents.send('ai-navigate', { nav: 'runs' });
             });
             notification.show();
+            anyWindow()?.webContents.send('ai-chime');
         } catch (error) {
             console.error('Could not show a notification:', error.message);
         }
     };
     assistant.setToaster(toastFromAssistant);
+    // The agent opening conversations as tabs: in the window beside the
+    // chat that asked, which only the window registry knows.
+    assistant.setTabOpener(
+        (conversationIds, options) => aiWindows.show(conversationIds, options),
+        (conversationId) => aiWindows.showing(conversationId),
+    );
+    // Computer use asks the user before it touches an app, and the app it is
+    // about may be covering the chat. The window holding the conversation is
+    // brought forward for the question.
+    computer.configure({
+        surface: (conversationId) => {
+            const window = aiWindows.windowOf(conversationId) || getWindow();
+            if (!window || window.isDestroyed()) return;
+            if (window.isMinimized()) window.restore();
+            // Windows does not hand the foreground to an app in the background
+            // that merely asks; a moment on top is the dependable way to be seen.
+            window.setAlwaysOnTop(true);
+            window.show();
+            window.focus();
+            window.setAlwaysOnTop(false);
+        },
+    });
 
     // The scheduler: fires jobs through the assistant, probes through the
     // agent's local tools, and delivers results through the toast above.
@@ -1557,8 +1592,7 @@ function register(getWindow) {
         // the next question, not to the next conversation.
         assistant.reconfigure(before, next, next.agentId);
 
-        // Only the two that widen what the assistant may do unattended are
-        // logged. The model and the effort are changed from a chip in the
+        // Only the settings that widen what the assistant may do are logged. The model and the effort are changed from a chip in the
         // composer several times an hour, and a security log that fills up
         // with them is a security log nobody reads.
         const changes = [];
@@ -1572,6 +1606,13 @@ function register(getWindow) {
                 to: next.allowLocalTools ? 'allowed' : 'blocked',
             });
         }
+        if (Boolean(before.computerUse) !== Boolean(next.computerUse)) {
+            changes.push({
+                field: 'computer use',
+                from: before.computerUse ? 'on' : 'off',
+                to: next.computerUse ? 'on' : 'off',
+            });
+        }
         if (changes.length > 0) {
             activity.record({
                 category: 'security',
@@ -1579,7 +1620,8 @@ function register(getWindow) {
                 outcome: 'info',
                 target: 'Assistant',
                 detail: `Approvals: ${next.approval}`
-                    + `${next.allowLocalTools ? ', local tools allowed' : ''}`,
+                    + `${next.allowLocalTools ? ', local tools allowed' : ''}`
+                    + `${next.computerUse ? ', computer use on' : ''}`,
                 changes,
             });
         }
@@ -1807,6 +1849,7 @@ function register(getWindow) {
     handle('ai-window-tabs-set', (event, conversationIds) => aiWindows.setTabs(event.sender, conversationIds));
     handle('ai-window-reattach', (event, conversationIds) => aiWindows.reattach(event.sender, conversationIds));
     handle('ai-window-close', (event) => aiWindows.closeWindow(event.sender));
+    handle('ai-in-view-set', (event, conversationIds) => aiWindows.setInView(event.sender, conversationIds));
 
     // The main window saying which terminals are open and which is in front,
     // relayed to every detached window; and a detached window asking to be

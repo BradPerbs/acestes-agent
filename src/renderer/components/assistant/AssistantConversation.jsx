@@ -15,6 +15,7 @@ import useMentionables from '../../hooks/useMentionables';
 import MentionPicker, { MentionIcon, matchMentions } from './MentionPicker';
 import ApprovalRequest from './ApprovalRequest';
 import QuestionRequest from './QuestionRequest';
+import WorkingIndicator from './WorkingIndicator';
 import Transcript, { Notice } from './Transcript';
 import ModelMenu from './ModelMenu';
 import ApprovalMenu from './ApprovalMenu';
@@ -246,13 +247,14 @@ export default function AssistantConversation({
 
     /**
      * What the tab strip says about this tab: what it is about, and whether it
-     * is working. The first thing the user said is the title, as it is in the
-     * history menu; a message that was only a picture or a spec is named by
-     * that.
+     * is working. The runtime's name for the chat once it has one, as in the
+     * history list; until then the first thing the user said, and a message
+     * that was only a picture or a spec is named by that.
      */
     const first = assistant.items.find(item => item.kind === 'user');
     const title = String(
-        first?.text
+        assistant.title
+        || first?.text
         || first?.mentions?.[0]?.name
         || (first?.images?.length ? t('assistant.image') : ''),
     ).replace(/\s+/g, ' ').trim().slice(0, 60);
@@ -670,6 +672,7 @@ export default function AssistantConversation({
                     onAnswer={assistant.answer}
                     onRevert={assistant.revertTurn}
                     onBranch={onOpenConversation ? branchFrom : null}
+                    onOpenConversation={onOpenConversation}
                     onLayout={keepAtBottom}
                 />
 
@@ -683,18 +686,7 @@ export default function AssistantConversation({
                     `busy` is true, but nothing is happening and the thing to
                     look at is the card below. */}
                 {assistant.busy && !assistant.draft.text && asking.length === 0 && questions.length === 0 && (
-                    <div className="flex items-center gap-2 h-8 px-2.5 text-[11px]
-                        text-gray-500 dark:text-gray-500">
-                        <span className="flex gap-1" aria-hidden="true">
-                            <span className="w-1.5 h-1.5 rounded-full bg-current animate-bounce"
-                                style={{ animationDelay: '0ms' }} />
-                            <span className="w-1.5 h-1.5 rounded-full bg-current animate-bounce"
-                                style={{ animationDelay: '150ms' }} />
-                            <span className="w-1.5 h-1.5 rounded-full bg-current animate-bounce"
-                                style={{ animationDelay: '300ms' }} />
-                        </span>
-                        {t('assistant.working')}
-                    </div>
+                    <WorkingIndicator items={assistant.items} />
                 )}
             </div>
 

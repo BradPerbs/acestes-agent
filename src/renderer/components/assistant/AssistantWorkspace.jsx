@@ -197,6 +197,14 @@ function Tab({
                     className="shrink-0 mr-2 w-1.5 h-1.5 rounded-full bg-current animate-pulse"
                 />
             )}
+            {/* Done while you were elsewhere, until the tab is picked. */}
+            {status?.finished && !status.busy && (
+                <span
+                    aria-label={t('titleBar.finished')}
+                    title={t('titleBar.finished')}
+                    className="shrink-0 mr-2 w-1.5 h-1.5 rounded-full bg-gray-900 dark:bg-white"
+                />
+            )}
             <button
                 type="button"
                 aria-label={closeLabel}
@@ -521,25 +529,37 @@ export default function AssistantWorkspace({
         if (holders.length > 0) dropTabs(holders, { park: false });
     }), [dropTabs]);
 
-    // Tabs handed to this strip from a window that closed or gave them back.
-    // Anything already open here is only brought forward.
+    // Tabs handed to this strip from a window that closed or gave them back,
+    // or opened by the agent. Anything already open here is only brought
+    // forward; the agent's arrive behind the tab being read unless it said
+    // `focus`.
+    const adoptTabs = useCallback(({ conversationIds = [], focus = true }) => {
+        setState(current => {
+            const open = new Set(current.tabs.map(tab => tab.conversationId));
+            const fresh = conversationIds
+                .filter(id => id && !open.has(id))
+                .map(id => newTab(id));
+            const first = fresh[0]
+                || current.tabs.find(tab => tab.conversationId === conversationIds[0]);
+            return {
+                tabs: [...current.tabs, ...fresh],
+                activeId: first && focus !== false ? first.id : current.activeId,
+            };
+        });
+    }, []);
     const adopted = useRef(0);
     useEffect(() => {
         if (!adopt || adopt.seq === adopted.current) return;
         adopted.current = adopt.seq;
-        setState(current => {
-            const open = new Set(current.tabs.map(tab => tab.conversationId));
-            const fresh = (adopt.conversationIds || [])
-                .filter(id => id && !open.has(id))
-                .map(id => newTab(id));
-            const first = fresh[0]
-                || current.tabs.find(tab => tab.conversationId === adopt.conversationIds?.[0]);
-            return {
-                tabs: [...current.tabs, ...fresh],
-                activeId: first ? first.id : current.activeId,
-            };
+        adoptTabs(adopt);
+    }, [adopt, adoptTabs]);
+    // A window is handed its own directly, by main. See `windows.show`.
+    useEffect(() => {
+        if (!detached) return undefined;
+        return window.api.ai.onAdoptTabs?.((payload) => {
+            if (Array.isArray(payload?.conversationIds) && payload.conversationIds.length > 0) adoptTabs(payload);
         });
-    }, [adopt]);
+    }, [detached, adoptTabs]);
 
     /* ------------------------------------------------------------------ *
      * Windows
@@ -574,13 +594,19 @@ export default function AssistantWorkspace({
         dropTabs(tabIds, { park: false });
     }, [tabs, dropTabs]);
 
+    const activeConversationId = tabs.find(tab => tab.id === activeId)?.conversationId || '';
+
+    // The chat in front, for main: a turn ending or a question asked in any
+    // other comes with a notification.
+    useEffect(() => {
+        window.api.ai.setInView?.(activeConversationId ? [activeConversationId] : []).catch(() => {});
+    }, [activeConversationId]);
+
     /**
      * The strip's one menu: the chats the app still has, the moves between
      * windows, and closing the panel. Actions are rows of a section with no
      * current value, so picking one runs it and nothing is left ticked.
      */
-    const activeConversationId = tabs.find(tab => tab.id === activeId)?.conversationId || '';
-
     const menuSections = useMemo(() => {
         const several = tabs.length > 1;
         const actions = {};
@@ -769,10 +795,22 @@ export default function AssistantWorkspace({
     const reportStatus = useCallback((tabId, status) => {
         setStatuses(current => {
             const held = current[tabId];
-            if (held && held.title === status.title && held.busy === status.busy) return current;
-            return { ...current, [tabId]: status };
+            // A turn ending behind another tab is marked until the tab is picked.
+            const finished = !status.busy && Boolean(
+                held?.finished || (held?.busy && tabId !== stateRef.current.activeId),
+            );
+            if (held && held.title === status.title && held.busy === status.busy
+                && Boolean(held.finished) === finished) return current;
+            return { ...current, [tabId]: { ...status, finished } };
         });
     }, []);
+
+    // Picking a tab is looking at it, which is what clears the mark.
+    useEffect(() => {
+        setStatuses(current => (current[activeId]?.finished
+            ? { ...current, [activeId]: { ...current[activeId], finished: false } }
+            : current));
+    }, [activeId]);
 
     /**
      * The strip as drawn: the live tabs, with each closing one put back at the

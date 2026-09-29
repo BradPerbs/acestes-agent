@@ -69,7 +69,7 @@ export function Notice({ item }) {
 
 
 /** What one item draws as, or null for one that is shown elsewhere. */
-function RowContent({ item, conversationId, onRespond, onAnswer, onRevert }) {
+function RowContent({ item, conversationId, onRespond, onAnswer, onRevert, onOpenConversation }) {
     const t = useT();
     if (item.kind === 'user') {
         return (
@@ -134,7 +134,7 @@ function RowContent({ item, conversationId, onRespond, onAnswer, onRevert }) {
         // screen twice. It takes its place in the transcript
         // the moment it is answered.
         if (item.approval?.status === 'pending') return null;
-        return <ToolCall key={item.id} item={item} />;
+        return <ToolCall key={item.id} item={item} onOpenConversation={onOpenConversation} />;
     }
     if (item.kind === 'approval') {
         if (item.status === 'pending') return null;
@@ -171,7 +171,7 @@ function RowContent({ item, conversationId, onRespond, onAnswer, onRevert }) {
  * or the turn ending on it, changes.
  */
 const Row = memo(function Row({
-    item, endTurnId, endText, conversationId, onRespond, onAnswer, onRevert, onBranch,
+    item, endTurnId, endText, conversationId, onRespond, onAnswer, onRevert, onBranch, onOpenConversation,
 }) {
     // A question standing is drawn in the dock above the composer instead,
     // and a row with nothing in it would still take a gap in the column.
@@ -191,6 +191,7 @@ const Row = memo(function Row({
                     onRespond={onRespond}
                     onAnswer={onAnswer}
                     onRevert={onRevert}
+                    onOpenConversation={onOpenConversation}
                 />
             )}
             {ends && (
@@ -287,6 +288,8 @@ function Transcript({
     onAnswer,
     onRevert,
     onBranch,
+    /** Open a conversation by id in a tab: one a tool call started. */
+    onOpenConversation,
     /** Told after every change to what is drawn, so the panel can follow the bottom. */
     onLayout,
 }) {
@@ -317,8 +320,8 @@ function Transcript({
     // One object for the props every row shares, so a segment can tell they
     // have not changed with one comparison.
     const rowProps = useMemo(
-        () => ({ conversationId, onRespond, onAnswer, onRevert, onBranch }),
-        [conversationId, onRespond, onAnswer, onRevert, onBranch],
+        () => ({ conversationId, onRespond, onAnswer, onRevert, onBranch, onOpenConversation }),
+        [conversationId, onRespond, onAnswer, onRevert, onBranch, onOpenConversation],
     );
 
     const start = Math.min(from, items.length);

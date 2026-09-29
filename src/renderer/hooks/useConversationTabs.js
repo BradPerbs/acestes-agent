@@ -344,9 +344,11 @@ export default function useConversationTabs({
         if (result?.success) dropTabs(tabIds, { park: false });
     }, [dropTabs]);
 
-    // Tabs handed to this strip from a window that closed or gave them back.
-    // Anything already open here is only brought forward.
-    useEffect(() => window.api.ai.onAdoptTabs?.(({ conversationIds }) => {
+    // Tabs handed to this strip from a window that closed or gave them back,
+    // or opened by the agent. Anything already open here is only brought
+    // forward. The agent's arrive behind the tab being read unless it said
+    // `focus`: the person is reading the chat that opened them.
+    useEffect(() => window.api.ai.onAdoptTabs?.(({ conversationIds, focus = true }) => {
         if (!Array.isArray(conversationIds) || conversationIds.length === 0) return;
         const open = new Map(tabsRef.current
             .filter(tab => tab.type === 'conversation')
@@ -356,7 +358,7 @@ export default function useConversationTabs({
             .map(id => createConversationTab(id));
         if (fresh.length > 0) setTabs(current => [...current, ...fresh]);
         const first = fresh[0]?.id || open.get(conversationIds[0]);
-        if (first) setActiveTabId(first);
+        if (first && focus !== false) setActiveTabId(first);
     }), [setTabs, setActiveTabId]);
 
     // Another window has opened one of these, so it goes from here: neither

@@ -74,7 +74,9 @@ function overview() {
  *
  * A full answer replaces the windows kept for it, since it is the plan as it
  * is now. A runtime too old to answer the plan question leaves them alone:
- * what the last turn's events said is still the best figure there is.
+ * what the last turn's events said is still the best figure there is. So
+ * does an answer with no windows from an account still signed in to a plan:
+ * that is a runtime that could not say this time, not a plan with none.
  */
 function check(provider, accountId = accounts.DEFAULT_ID) {
     const runner = RUNNERS[provider];
@@ -93,8 +95,10 @@ function check(provider, accountId = accounts.DEFAULT_ID) {
         if (answer.error) {
             limits.recordError(provider, accountId, answer.error);
         } else {
-            limits.recordWindows(provider, accountId, answer.windows || [], {
-                replace: !answer.unsupported,
+            const windows = answer.windows || [];
+            const full = windows.length > 0 || answer.planless || answer.identity?.signedIn === false;
+            limits.recordWindows(provider, accountId, windows, {
+                replace: !answer.unsupported && full,
                 source: 'probe',
             });
         }

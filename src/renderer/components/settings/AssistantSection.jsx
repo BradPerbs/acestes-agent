@@ -45,6 +45,9 @@ const APPROVALS = ['always', 'writes', 'never'];
 
 const COMMAND_MODES = ['terminal', 'background'];
 
+/** How fast the agent's cursor and typing go. See main/ai/computer.js. */
+const COMPUTER_PACES = ['slow', 'normal', 'fast'];
+
 /**
  * The shortest a "is this agent here" check is allowed to take.
  *
@@ -487,6 +490,43 @@ export default function AssistantSection() {
                         />
                     }
                 />
+
+                {/* The desktop itself: Windows only for now, since the helper
+                    that drives it is a Windows program. */}
+                {window.api.platform === 'win32' && (
+                    <>
+                        <SettingRow
+                            className={DIVIDED}
+                            align="center"
+                            title={t('settings.assistant.computerUse')}
+                            description={t('settings.assistant.computerUseDesc')}
+                            control={
+                                <Toggle
+                                    ariaLabel={t('settings.assistant.computerUse')}
+                                    checked={Boolean(settings.computerUse)}
+                                    onChange={(value) => update({ computerUse: value })}
+                                />
+                            }
+                        />
+                        <Reveal open={Boolean(settings.computerUse)}>
+                            <SettingRow
+                                className={DIVIDED}
+                                title={t('settings.assistant.computerPace')}
+                                description={t('settings.assistant.computerPaceDesc')}
+                            >
+                                <SegmentedControl
+                                    ariaLabel={t('settings.assistant.computerPace')}
+                                    segments={COMPUTER_PACES.map(value => ({
+                                        value,
+                                        label: t(`settings.assistant.computerPace.${value}`),
+                                    }))}
+                                    value={settings.computerPace || 'normal'}
+                                    onChange={(value) => update({ computerPace: value })}
+                                />
+                            </SettingRow>
+                        </Reveal>
+                    </>
+                )}
 
                 <SettingRow
                     className={DIVIDED}

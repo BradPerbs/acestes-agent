@@ -27,6 +27,16 @@ import { INITIAL, applyEvent, applyBatch, replay } from '../lib/transcript-reduc
 const ENDS_TURN = new Set(['result', 'error', 'interrupted', 'closed', 'user-message']);
 
 /**
+ * A conversation read back, named the way the list names it. The log is
+ * capped, so a long chat has lost its first message and the event that
+ * named it, and the tab would otherwise fall back to a recent message.
+ */
+function restore(past) {
+    const state = replay(past.events);
+    return past.title ? { ...state, title: past.title } : state;
+}
+
+/**
  * The panel's target, as the main process takes it: a mode, the session a tool
  * call falls back to when it names none, and the explicit set a pinned scope
  * fences the conversation to. Built by `lib/assistant-scope`.
@@ -156,7 +166,7 @@ export default function useAssistant({
                     if (cancelled) return;
                     if (past?.found) {
                         adopt(given);
-                        replaceState(replay(past.events));
+                        replaceState(restore(past));
                         setPinned(past.pinned || null);
                         setRunPolicy(past.runPolicy || null);
                         setStarting(false);
@@ -237,7 +247,7 @@ export default function useAssistant({
             if (id !== conversationRef.current) return;
             window.api.ai.history(id).then((past) => {
                 if (past?.found && id === conversationRef.current) {
-                    replaceState(previous => ({ ...replay(past.events), busy: previous.busy, draft: previous.draft }));
+                    replaceState(previous => ({ ...restore(past), busy: previous.busy, draft: previous.draft }));
                 }
             }).catch(() => {});
         });
@@ -386,7 +396,7 @@ export default function useAssistant({
         }
         if (conversationId) await window.api.ai.park(conversationId);
         adopt(id);
-        replaceState(replay(past.events));
+        replaceState(restore(past));
         setPinned(past.pinned || null);
         setRunPolicy(past.runPolicy || null);
     }, [conversationId, refreshConversations, adopt]);
@@ -451,6 +461,7 @@ export default function useAssistant({
         costUsd: state.costUsd,
         account: state.account,
         rateLimit: state.rateLimit,
+        title: state.title,
         conversationId,
         conversations,
         // The runtime, model and effort this conversation is pinned to, or

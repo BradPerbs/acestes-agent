@@ -502,6 +502,7 @@ export default {
     'titleBar.disconnect': 'Disconnect',
     'titleBar.disconnectAll': 'Disconnect all',
     'titleBar.closeTab': 'Close tab',
+    'titleBar.finished': 'Finished',
     'titleBar.closeOthers': 'Close others',
     'titleBar.closeRight': 'Close to the right',
     'titleBar.ungroup': 'Ungroup',
@@ -1003,6 +1004,15 @@ export default {
     'settings.assistant.localToolsDesc': 'Lets the assistant read and write local files and run '
         + 'local commands, each one stopping for approval first. Switch it off to keep the panel '
         + 'to the servers only. Looking things up on the web stays available either way.',
+    'settings.assistant.computerUse': 'Use this computer',
+    'settings.assistant.computerUseDesc': 'Lets the agent work desktop apps with the real mouse and keyboard, where you '
+        + 'can watch the cursor move. It asks before it touches each app, and a badge says when it is driving. Click or '
+        + 'type anywhere outside Acestes to take over; Esc stops it.',
+    'settings.assistant.computerPace': 'Pace',
+    'settings.assistant.computerPaceDesc': 'How fast the cursor travels and the typing goes. Slow is easiest to follow.',
+    'settings.assistant.computerPace.slow': 'Slow',
+    'settings.assistant.computerPace.normal': 'Normal',
+    'settings.assistant.computerPace.fast': 'Fast',
     'settings.assistant.allowList': 'Commands that never need approval',
     'settings.assistant.allowListDesc': 'One per line, matched on the whole first words. A command '
         + 'containing a pipe, a redirect, a semicolon, a substitution or a second line is always '
@@ -1650,6 +1660,14 @@ export default {
     'assistant.exportConversation': 'Save as Markdown…',
     'assistant.chatHistory': 'Chat history',
     'assistant.working': 'Working',
+    // Shown one at a time while the agent works, turning over every few
+    // seconds, so a list of any length separated by `|`. Grouped by what the
+    // running tool is doing; `think` is the one between tools.
+    'assistant.working.think': 'Thinking|Pondering|Mulling it over|Connecting the dots|Scheming|Puzzling it out|Cooking something up|Chewing on it|Plotting the route|Weighing options',
+    'assistant.working.shell': 'Running commands|Poking the shell|Crunching|Watching the output|Wrangling processes|Talking to the machine|Turning the cranks',
+    'assistant.working.read': 'Reading|Digging through files|Sifting|Scanning|Rummaging around|Getting the lay of the land|Following the trail',
+    'assistant.working.write': 'Writing code|Tinkering|Stitching it together|Hammering away|Polishing|Wiring things up|Shaping it',
+    'assistant.working.connect': 'Dialing in|Opening a line|Shaking hands|Tunneling through|Knocking on the door',
     'assistant.send': 'Send',
     'assistant.attachImage': 'Add an image',
     'assistant.removeImage': 'Remove image',
@@ -1759,6 +1777,27 @@ export default {
     'assistant.didSearchFiles': 'Searched files',
     'assistant.didSearchConversations': 'Searched past conversations',
     'assistant.didReadConversation': 'Read a past conversation',
+    'assistant.didDelegate': 'Delegated',
+    'assistant.didFanOut': 'Ran across hosts',
+    'assistant.didStartTask': 'Started a background task',
+    'assistant.didNewConversation': 'Started a conversation',
+    'assistant.didBranchConversation': 'Branched a conversation',
+    'assistant.didOpenConversation': 'Opened a conversation',
+    'assistant.didMessageConversation': 'Messaged a conversation',
+    'assistant.didCheckConversations': 'Checked on conversations',
+    'assistant.didListWindows': 'Listed the windows',
+    'assistant.didOpenApp': 'Opened',
+    'assistant.didReadScreen': 'Read the window',
+    'assistant.didClick': 'Clicked',
+    'assistant.didPressKeys': 'Pressed',
+    'assistant.didScroll': 'Scrolled',
+    'assistant.didDrag': 'Dragged',
+    'assistant.didWaitFor': 'Waited for',
+    'assistant.didReadText': 'Read the text of',
+    'assistant.didSteps': 'Did',
+    'assistant.openConversation': 'Open',
+    'assistant.openConversations': 'Open {count}',
+    'assistant.openConversationHint': 'Open the conversation this started in a tab',
     'assistant.localTerminal': 'Terminal',
     'assistant.localTerminalShow': 'Open a terminal',
     'assistant.localTerminalHide': 'Hide the terminals',

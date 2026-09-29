@@ -82,6 +82,11 @@ async function start(options) {
     });
 }
 
+/** A name for a conversation, from the same model on the same server. See titles.js. */
+async function title({ settings: current = {}, instruction, prompt, signal } = {}) {
+    return engine.ask({ endpoint: endpoint(current), model: await resolveModel(current), instruction, prompt, signal });
+}
+
 /**
  * What this machine has loaded.
  *
@@ -127,6 +132,7 @@ async function detect({ settings: current = {} } = {}) {
 
 module.exports = {
     start,
+    title,
     listModels,
     detect,
     endpoint,

@@ -74,6 +74,9 @@ const APPROVALS = new Set(['always', 'writes', 'never']);
  */
 const COMMAND_MODES = new Set(['terminal', 'background']);
 
+/** How fast the agent's cursor and typing go on this computer. See computer.js. */
+const COMPUTER_PACES = new Set(['slow', 'normal', 'fast']);
+
 /**
  * Where a local model server is listening.
  *
@@ -151,6 +154,12 @@ const DEFAULTS = {
     // After a turn that did real work, ask the agent to write down what is
     // worth keeping. Off by default: it is an extra turn, and a visible one.
     autoRemember: false,
+    // Whether the agent may use this computer's apps with the real mouse and
+    // keyboard. Off until someone switches it on: it is the one tool that acts
+    // where the person is working. See computer.js.
+    computerUse: false,
+    // How fast the cursor travels and the typing goes, so it can be followed.
+    computerPace: 'normal',
     /**
      * Which sign-in each runtime uses for this agent, by runtime: an id from
      * accounts.js, or nothing for the login the machine already has. Only
@@ -257,6 +266,8 @@ function sanitize(raw) {
         next.transcriptLines = clampNumber(raw.transcriptLines, DEFAULTS.transcriptLines, 20, 2000);
         if ('allowLocalTools' in raw) next.allowLocalTools = Boolean(raw.allowLocalTools);
         if ('autoRemember' in raw) next.autoRemember = Boolean(raw.autoRemember);
+        if ('computerUse' in raw) next.computerUse = Boolean(raw.computerUse);
+        if (COMPUTER_PACES.has(raw.computerPace)) next.computerPace = raw.computerPace;
         if (Array.isArray(raw.autoApproveCommands)) {
             next.autoApproveCommands = raw.autoApproveCommands
                 .map(entry => String(entry || '').trim().toLowerCase())
@@ -354,7 +365,7 @@ const PER_AGENT = [
     'provider', 'model', 'effort', 'approval', 'commandMode', 'maxTurns',
     'transcriptLines', 'allowLocalTools', 'autoApproveCommands',
     'blockedCommands', 'quickPrompts', 'instructions', 'autoRemember',
-    'accounts',
+    'accounts', 'computerUse', 'computerPace',
 ];
 
 const pick = (source, keys) => Object.fromEntries(

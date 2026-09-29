@@ -120,6 +120,9 @@ function pack(conversation) {
         // Claude Code keeps a session in the account's own folder.
         accountId: conversation.accountId || '',
         title: conversation.title || '',
+        // Whether the title is still the draft waiting to be named. A
+        // question still out when the app closed is asked again.
+        titleSource: conversation.titleSource === 'draft' || conversation.titleSource === 'naming' ? 'draft' : '',
         // Kept at the top of the list by the user. Their choice, so it
         // outlives the app the way a title does.
         pinned: Boolean(conversation.pinned),
@@ -258,6 +261,7 @@ function unpack(record, currentProvider) {
         needsRestart: false,
         costUsd: Number.isFinite(record.costUsd) ? record.costUsd : 0,
         title: typeof record.title === 'string' ? record.title : '',
+        titleSource: record.titleSource === 'draft' ? 'draft' : '',
         pinned: record.pinned === true,
         settingsPatch: readSettingsPatch(record.settingsPatch),
         carryOver: typeof record.carryOver === 'string' ? record.carryOver : '',

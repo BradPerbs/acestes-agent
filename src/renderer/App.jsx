@@ -1913,6 +1913,13 @@ function App() {
     }, [agents, removeAgent, t]);
 
     /**
+     * Conversation tabs whose turn ended while they were out of sight, marked
+     * on the strip until they are looked at. A turn that ends in front of the
+     * user has been seen ending, so only an unseen one counts.
+     */
+    const [finishedTabIds, setFinishedTabIds] = useState(() => new Set());
+
+    /**
      * What the tab strip needs to know, which is about the tab's focused pane
      * rather than the tab. Derived rather than mirrored into the tab, so a
      * split can never leave the strip describing a pane that is gone.
@@ -1928,6 +1935,7 @@ function App() {
                 title: tab.customTitle || status?.title || t('assistant.newConversation'),
                 renamed: Boolean(tab.customTitle),
                 busy: Boolean(status?.busy),
+                finished: finishedTabIds.has(tab.id),
                 agentLook: lookFor(tab.agentId),
             };
         }
@@ -1957,7 +1965,7 @@ function App() {
             sessionCount: sessions.length,
             liveCount: sessions.filter(pane => pane.connected).length,
         };
-    }), [tabs, sessionOrdinals, conversationStatuses, lookFor, t]);
+    }), [tabs, sessionOrdinals, conversationStatuses, finishedTabIds, lookFor, t]);
 
     const activeTab = tabs.find(tab => tab.id === activeTabId);
 
@@ -1980,6 +1988,50 @@ function App() {
         ),
         [conversationSplit.layout],
     );
+
+    // The chats on screen: the tab in front, and with the split up, every
+    // chat in it, since a pane beside the focused one is seen finishing too.
+    const splitShown = Boolean(conversationSplit.active && conversationSplit.layout)
+        && activeTab?.type === 'conversation';
+    const inView = useCallback(
+        (tabId) => tabId === activeTabId || (splitShown && splitTabIds.has(tabId)),
+        [activeTabId, splitShown, splitTabIds],
+    );
+    const inViewRef = useRef(inView);
+    inViewRef.current = inView;
+
+    // Main is told which chats are on screen, so a turn ending or a question
+    // asked in one that is not comes with a notification. Keyed by the list,
+    // so a render that changes nothing sends nothing.
+    const inViewKey = tabs
+        .filter(tab => tab.type === 'conversation' && tab.conversationId && inView(tab.id))
+        .map(tab => tab.conversationId)
+        .join('\n');
+    useEffect(() => {
+        window.api.ai.setInView?.(inViewKey ? inViewKey.split('\n') : []).catch(() => {});
+    }, [inViewKey]);
+
+    // A tab going from busy to idle out of sight has finished. Read through
+    // the ref so switching tabs alone never looks like a turn ending.
+    const wasBusy = useRef({});
+    useEffect(() => {
+        const ended = [];
+        for (const [tabId, status] of Object.entries(conversationStatuses)) {
+            const busy = Boolean(status?.busy);
+            if (wasBusy.current[tabId] && !busy && !inViewRef.current(tabId)) ended.push(tabId);
+            wasBusy.current[tabId] = busy;
+        }
+        if (ended.length > 0) setFinishedTabIds(current => new Set([...current, ...ended]));
+    }, [conversationStatuses]);
+
+    // Looking at a tab is what clears it; closing one lets it go.
+    useEffect(() => {
+        setFinishedTabIds((current) => {
+            if (current.size === 0) return current;
+            const kept = [...current].filter(tabId => !inView(tabId) && tabs.some(tab => tab.id === tabId));
+            return kept.length === current.size ? current : new Set(kept);
+        });
+    }, [inView, tabs]);
 
     // What the assistant's own windows cannot see: the same three things the
     // panel in this window is handed, published to main and relayed on.

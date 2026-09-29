@@ -10,6 +10,8 @@ const diff = require('./diff');
 const checkpoints = require('./checkpoints');
 const archive = require('./archive');
 const searchModule = require('./search');
+const titles = require('./titles');
+const computer = require('./computer');
 const { readImages } = require('./images');
 const { readMentions, mentionBlock, stripMentions } = require('./mentions');
 const store = require('../store');
@@ -118,17 +120,58 @@ let notify = () => {};
 // by asking a window that is not there.
 let hasWindow = () => false;
 let windowFocused = () => false;
+// Where a conversation stands with the person: 'front', 'behind' or ''. See
+// `windows.sight`.
+let sight = () => '';
 // An OS notification, provided by ipc, for a run that finished or stopped
-// on a question while nobody was looking at the window.
+// on a question while nobody was looking at it.
 let toast = () => {};
 
-function setWindowProbe(fn, focused) {
+function setWindowProbe(fn, focused, sees) {
     hasWindow = typeof fn === 'function' ? fn : () => false;
     if (typeof focused === 'function') windowFocused = focused;
+    if (typeof sees === 'function') sight = sees;
+}
+
+/** A conversation and the ones its questions are forwarded up to, nearest first. */
+function lineOf(conversation) {
+    const line = [];
+    for (let at = conversation; at && line.length <= MAX_DELEGATION_DEPTH; at = conversations.get(at.parentId || '')) {
+        line.push(at);
+    }
+    return line;
+}
+
+/**
+ * Whether nobody is looking at a conversation, and so whether to say so
+ * through the OS: no window focused, or its tab behind another. On screen
+ * through the chat its questions are forwarded to counts as seen, and one
+ * in no tab at all is left to the chat that started it, which is.
+ */
+function unseen(conversation) {
+    if (!hasWindow()) return false;
+    if (!windowFocused()) return true;
+    const places = lineOf(conversation).map(entry => sight(entry.id));
+    return !places.includes('front') && places.includes('behind');
+}
+
+/** The chat a notification about a conversation opens: its own tab, or the nearest showing its cards. */
+function tabFor(conversation) {
+    return (lineOf(conversation).find(entry => sight(entry.id)) || conversation).id;
 }
 
 function setToaster(fn) {
     toast = typeof fn === 'function' ? fn : () => {};
+}
+
+// Opening conversations as tabs, and whether one is in a tab anywhere.
+// Provided by ipc, which knows which window holds what. See `windows.show`.
+let openTabs = () => ({ success: false, message: 'No window is open.' });
+let inTab = () => false;
+
+function setTabOpener(open, showing) {
+    openTabs = typeof open === 'function' ? open : () => ({ success: false, message: 'No window is open.' });
+    inTab = typeof showing === 'function' ? showing : () => false;
 }
 
 /**
@@ -313,10 +356,14 @@ function create(target = {}) {
         accountId: '',
         needsRestart: false,
         costUsd: 0,
-        // Taken from the first thing the user says, which is what the history
-        // menu has to label the entry with. Nothing else here knows what a
-        // conversation was about.
+        // Drafted from the first thing the user says, then replaced by the
+        // runtime's own few words for it: see `nameConversation`.
         title: '',
+        // Where the title came from: 'draft' (the first message, tidied,
+        // still to be named), 'naming' (the runtime has been asked),
+        // 'model' or 'message' (settled). Empty for one set outright, by a
+        // job or a delegation, which is never renamed.
+        titleSource: '',
         // Kept at the top of the list by the user: see `pin`.
         pinned: false,
         createdAt: Date.now(),
@@ -332,8 +379,12 @@ function create(target = {}) {
         // made with, so a changed default does not change what it costs.
         settingsPatch: null,
         // For a conversation one agent opened to delegate to another: whose
-        // it is, and how deep the chain is. See delegateApiFor.
+        // it is, and how deep the chain is. See delegateApiFor. `parentId`
+        // is also where its questions are forwarded; `spawnedFrom` is only
+        // who started it, for one the agent opened in the open. See
+        // conversationsApiFor.
         parentId: '',
+        spawnedFrom: '',
         depth: 0,
     });
     return { conversationId: id, agentId, ...scope };
@@ -739,6 +790,29 @@ function branch(conversationId, turnId) {
     let end = source.events.findIndex((event, index) => index > start && event.type === 'user-message');
     if (end < 0) end = source.events.length;
 
+    return copyUpTo(source, end);
+}
+
+/**
+ * Where a branch after turn `turn` ends, for the agent, which knows turns by
+ * their number rather than by a timestamp: 1 is the first message and what
+ * came of it, -1 the latest, and none at all is everything so far.
+ */
+function turnEnd(events, turn) {
+    const starts = [];
+    events.forEach((event, index) => {
+        if (event.type === 'user-message') starts.push(index);
+    });
+    if (!turn) return { end: events.length, turns: starts.length };
+    const number = turn > 0 ? turn : starts.length + turn + 1;
+    if (number < 1 || number > starts.length) {
+        return { error: `That conversation has ${starts.length} turn${starts.length === 1 ? '' : 's'}.` };
+    }
+    return { end: number < starts.length ? starts[number] : events.length, turns: number };
+}
+
+/** A new conversation holding `source` up to the event at `end`. */
+function copyUpTo(source, end) {
     const created = create({
         agentId: source.agentId,
         scope: source.scope,
@@ -747,8 +821,20 @@ function branch(conversationId, turnId) {
         hostIds: source.hostIds,
     });
     const copy = conversations.get(created.conversationId);
-    copy.events = source.events.slice(0, end)
-        .filter(event => !archive.isTransient(event.type))
+    const kept = source.events.slice(0, end).filter(event => !archive.isTransient(event.type));
+    // Taken mid-turn, which is when the agent branches its own conversation,
+    // the range holds calls still waiting on a result and questions only the
+    // source can answer. In the copy they would spin, or ask, for ever.
+    const answered = new Set(kept.filter(event => event.type === 'tool-result').map(event => event.id));
+    const settled = new Set(kept
+        .filter(event => event.type === 'approval-settled' || event.type === 'question-settled')
+        .map(event => event.requestId));
+    copy.events = kept
+        .filter((event) => {
+            if (event.type === 'tool-call') return answered.has(event.id);
+            if (event.type === 'approval-request' || event.type === 'question-request') return settled.has(event.requestId);
+            return true;
+        })
         .map(event => (event.type === 'turn-changes' || event.type === 'turn-reverted'
             ? { ...event, from: event.from || source.id }
             : event));
@@ -815,7 +901,9 @@ function resolved(agentId) {
  * Settings the SDK bakes into a running query and cannot be told about later.
  * Changing one of these means the query has to be started again.
  */
-const RESTART_ON = ['provider', 'maxTurns', 'allowLocalTools'];
+// computerUse among them: Claude Code loads the computer tools up front only
+// while it is on (see providers/claude-code.js).
+const RESTART_ON = ['provider', 'maxTurns', 'allowLocalTools', 'computerUse'];
 
 /**
  * Whether a change of settings moved the runtime a conversation is on to
@@ -985,19 +1073,23 @@ function requestApproval(conversation, { toolName, name, input, local, signal = 
             signal.addEventListener('abort', giveUp, { once: true });
         }
 
-        if (parked) {
+        // A job's parked run always says so; a chat's, when nobody is
+        // looking at it, since the turn stands still until they answer.
+        if (parked || unseen(conversation)) {
             try {
                 const summary = name === 'run_command' ? String(input?.command || '') : summarise(catalog.redactInput(input));
-                runs.park(conversation.runId, `Waiting for approval: ${name} ${summary}`.slice(0, 400));
-                emit(conversation, { type: 'run-parked', runId: conversation.runId, name });
+                if (parked) {
+                    runs.park(conversation.runId, `Waiting for approval: ${name} ${summary}`.slice(0, 400));
+                    emit(conversation, { type: 'run-parked', runId: conversation.runId, name });
+                }
                 toast({
                     title: `${conversation.title || 'A run'} is waiting for you`,
-                    body: `The agent wants to ${name.replace(/_/g, ' ')}${summary ? `: ${summary.slice(0, 120)}` : ''}`,
-                    conversationId: conversation.id,
+                    body: secrets.scrub(`The agent wants to ${name.replace(/_/g, ' ')}${summary ? `: ${summary.slice(0, 120)}` : ''}`),
+                    conversationId: tabFor(conversation),
                     runId: conversation.runId,
                 });
             } catch (error) {
-                console.error('Could not park a run:', error.message);
+                console.error(parked ? 'Could not park a run:' : 'Could not announce an approval:', error.message);
             }
         }
 
@@ -1093,6 +1185,15 @@ function requestQuestion(conversation, { question, options = [], secret = '', si
                         + 'End your turn now, saying in one line what you asked. Their answer arrives as their next message.',
                 }, 'parked');
             }, { once: true });
+        }
+
+        // A question nobody sees holds the turn until it times out.
+        if (unseen(conversation)) {
+            toast({
+                title: `${conversation.title || 'The agent'} has a question`,
+                body: secrets.scrub(String(question || '').replace(/\s+/g, ' ')).slice(0, 200),
+                conversationId: tabFor(conversation),
+            });
         }
 
         emit(conversation, {
@@ -1239,6 +1340,12 @@ function ensureProvider(conversation) {
             hooks: (event, payload) => runHooks(conversation, event, payload),
             // Handing work to another agent, or to many hosts. See delegateApiFor.
             delegate: delegateApiFor(conversation),
+            // Conversations started, branched and opened in the open. See
+            // conversationsApiFor.
+            conversations: conversationsApiFor(conversation),
+            // This computer's apps, with the real mouse and keyboard. See
+            // computerApiFor.
+            computer: computerApiFor(conversation),
             // The envelope, read fresh too: a folder granted or a container
             // switched on mid-run applies to the next call.
             sandbox: agents.sandbox(conversation.agentId),
@@ -1459,6 +1566,7 @@ function beginRun(conversation, { kind = 'interactive', trigger = { source: 'win
         }
         runs.beginStep(runId, { kind: 'turn', name: 'turn' });
         conversation.runId = runId;
+        conversation.quietRunId = conversation.remembering ? runId : '';
         emit(conversation, { type: 'run-started', runId, kind });
         runHooks(conversation, 'run-start', { kind, title: conversation.title || '' }).catch(() => {});
         return runId;
@@ -1468,7 +1576,7 @@ function beginRun(conversation, { kind = 'interactive', trigger = { source: 'win
     }
 }
 
-// conversationId -> resolve, for a parent waiting on a delegated run.
+// conversationId -> Set of resolve, for a parent waiting on a child's run.
 const runWaiters = new Map();
 
 /**
@@ -1491,9 +1599,14 @@ function lastReply(conversation) {
 
 /** Close the run a conversation is on, whichever way the turn ended. */
 function endRun(conversation, status, detail = {}) {
+    // The mouse is held for a turn, never longer: the badge goes and the
+    // person has their desk back, whichever way the turn ended.
+    computer.release(conversation.id);
     const runId = conversation.runId;
     if (!runId) return;
     conversation.runId = '';
+    // The note-taking turn after a real one is not news of its own.
+    const quiet = runId === conversation.quietRunId;
     const unattended = conversation.runKind !== 'interactive';
     try {
         const turn = runs.openStep(runId, 'turn');
@@ -1509,11 +1622,12 @@ function endRun(conversation, status, detail = {}) {
 
     runHooks(conversation, 'run-end', { status, title: conversation.title || '', summary: lastReply(conversation).slice(0, 2000) }).catch(() => {});
 
-    // A parent waiting on this delegated run is told, whichever way it went.
-    const waiter = runWaiters.get(conversation.id);
-    if (waiter) {
+    // A parent waiting on this run is told, whichever way it went.
+    const waiting = runWaiters.get(conversation.id);
+    if (waiting) {
         runWaiters.delete(conversation.id);
-        waiter({ status, runId, summary: lastReply(conversation), reason: detail.reason || '' });
+        const outcome = { status, runId, summary: lastReply(conversation), reason: detail.reason || '' };
+        for (const settle of waiting) settle(outcome);
     }
 
     if (unattended) {
@@ -1525,12 +1639,12 @@ function endRun(conversation, status, detail = {}) {
         return;
     }
 
-    if (status === 'done' && hasWindow() && !windowFocused()) {
-        // Finished while the person was elsewhere.
+    // Finished while the person was elsewhere.
+    if (status === 'done' && !quiet && unseen(conversation)) {
         toast({
             title: `${conversation.title || 'The agent'} is done`,
             body: lastReply(conversation).replace(/\s+/g, ' ').slice(0, 200),
-            conversationId: conversation.id,
+            conversationId: tabFor(conversation),
             runId,
         });
     }
@@ -1575,7 +1689,55 @@ function findAgent(nameOrId) {
     return agents.snapshot().agents.find(agent => agent.id === nameOrId || agent.name.toLowerCase() === wanted) || null;
 }
 
-async function runChild(parent, { agentId, brief, hostIds = [], title = '' }) {
+/**
+ * Wait for a conversation's run to end, whichever way.
+ *
+ * Registered before the message goes, so a turn that ends at once is not
+ * missed. `cancel` is for a message that never went. Out of time, a hidden
+ * run is stopped (`stop`), since nobody else is watching it; one in a tab is
+ * only no longer waited for.
+ */
+function waitForRun(conversation, { reason = 'The run took too long.', stop = true } = {}) {
+    let settle = null;
+    let timer = null;
+    const forget = () => {
+        const waiting = runWaiters.get(conversation.id);
+        if (!waiting) return;
+        waiting.delete(settle);
+        if (waiting.size === 0) runWaiters.delete(conversation.id);
+    };
+    const ended = new Promise((resolve) => {
+        settle = (outcome) => {
+            clearTimeout(timer);
+            resolve(outcome);
+        };
+        timer = setTimeout(() => {
+            forget();
+            if (stop) interrupt(conversation.id).catch(() => {});
+            resolve({ status: 'failed', reason, summary: lastReply(conversation) });
+        }, DELEGATION_TIMEOUT);
+        if (!runWaiters.has(conversation.id)) runWaiters.set(conversation.id, new Set());
+        runWaiters.get(conversation.id).add(settle);
+    });
+    const cancel = () => {
+        forget();
+        clearTimeout(timer);
+    };
+    return { ended, cancel };
+}
+
+/** The child's cost is the parent's cost. */
+function tallyChild(parent, outcome) {
+    try {
+        const childRun = runs.get(outcome.runId);
+        if (parent.runId && childRun) runs.tally(parent.runId, { costUsd: childRun.costUsd });
+    } catch { /* counted nowhere, which is the lesser harm */ }
+}
+
+/** Most tabs one fan-out opens: past that it is a wall of tabs, not a view. */
+const MAX_OPENED_FAN_OUT = 12;
+
+async function runChild(parent, { agentId, brief, hostIds = [], title = '', open = false }) {
     const created = create({
         agentId,
         scope: hostIds.length ? 'targets' : (parent.scope === 'targets' ? 'targets' : 'global'),
@@ -1593,43 +1755,35 @@ async function runChild(parent, { agentId, brief, hostIds = [], title = '' }) {
     child.runPolicy = parent.runPolicy || null;
     child.settingsPatch = parent.settingsPatch || null;
 
-    const ended = new Promise((resolve) => {
-        runWaiters.set(child.id, resolve);
-        setTimeout(() => {
-            if (runWaiters.delete(child.id)) {
-                interrupt(child.id).catch(() => {});
-                resolve({ status: 'failed', reason: 'The delegated run took too long.', summary: lastReply(child) });
-            }
-        }, DELEGATION_TIMEOUT);
-    });
+    // In a tab while it works, when asked: the brief lands where the user
+    // can watch it. Its questions still come to the parent as well, since
+    // the parent is where the user is waiting.
+    const shown = open ? showConversations(parent, [child.id]) : null;
 
+    const waiting = waitForRun(child, { reason: 'The delegated run took too long.' });
     const sent = await send(child.id, brief);
     if (!sent.success) {
-        runWaiters.delete(child.id);
+        waiting.cancel();
         return { conversationId: child.id, status: 'failed', reason: sent.message || 'The brief could not be sent.', summary: '' };
     }
-    const outcome = await ended;
-    // The child's cost is the parent's cost.
-    try {
-        const childRun = runs.get(outcome.runId);
-        if (parent.runId && childRun) runs.tally(parent.runId, { costUsd: childRun.costUsd });
-    } catch { /* counted nowhere, which is the lesser harm */ }
+    const outcome = await waiting.ended;
+    tallyChild(parent, outcome);
     setTimeout(() => { park(child.id).catch(() => {}); }, 0);
-    return { conversationId: child.id, agentId, ...outcome };
+    return { conversationId: child.id, agentId, ...outcome, ...(shown ? { opened: shown.opened } : {}) };
 }
 
 function delegateApiFor(conversation) {
     const tooDeep = () => (conversation.depth || 0) >= MAX_DELEGATION_DEPTH;
     return {
         /** Hand a brief to an agent (by name) or to this one, and wait. */
-        run: async ({ agent = '', brief, title = '' }) => {
+        run: async ({ agent = '', brief, title = '', open = false }) => {
             if (tooDeep()) return { error: `Delegation stops ${MAX_DELEGATION_DEPTH} levels deep. Do this part yourself.` };
             const target = agent ? findAgent(agent) : agents.get(conversation.agentId);
             if (!target) return { error: `There is no agent called "${agent}".` };
-            return runChild(conversation, { agentId: target.id, brief, title });
+            return runChild(conversation, { agentId: target.id, brief, title, open });
         },
         /** The same brief once per host, each child pinned to its host. */
-        fanOut: async ({ hostIds, brief, title = '' }) => {
+        fanOut: async ({ hostIds, brief, title = '', open = false }) => {
             if (tooDeep()) return { error: `Delegation stops ${MAX_DELEGATION_DEPTH} levels deep. Do this part yourself.` };
             const hosts = store.getHosts();
             const wanted = hostIds.map(id => hosts.find(host => host.id === id)).filter(Boolean);
@@ -1638,13 +1792,15 @@ function delegateApiFor(conversation) {
             let index = 0;
             const worker = async () => {
                 while (index < wanted.length) {
-                    const host = wanted[index];
+                    const position = index;
+                    const host = wanted[position];
                     index += 1;
                     const outcome = await runChild(conversation, {
                         agentId: conversation.agentId,
                         brief: `On the host "${host.name}" (id ${host.id}), and only there:\n\n${brief}`,
                         hostIds: [host.id],
                         title: title ? `${title} · ${host.name}` : `${conversation.title || 'Fan-out'} · ${host.name}`,
+                        open: open && position < MAX_OPENED_FAN_OUT,
                     });
                     results.push({ hostId: host.id, host: host.name, ...outcome });
                 }
@@ -1653,6 +1809,232 @@ function delegateApiFor(conversation) {
             return { results };
         },
         agents: () => agents.snapshot().agents.map(agent => ({ id: agent.id, name: agent.name })),
+    };
+}
+
+/* ------------------------------------------------------------------ *
+ * Conversations beside this one
+ *
+ * What delegate does out of sight, done in the open: a conversation the
+ * agent starts or branches is a chat like one the user starts, in a tab of
+ * its own when there is a window, and it carries on after this turn unless
+ * the agent waits for it. The rules are a hand-off's: never a looser policy
+ * than the conversation that made it, two deep at most, and a handful
+ * working at once, since each is a runtime of its own.
+ * ------------------------------------------------------------------ */
+
+const MAX_WORKING_CHILDREN = 6;
+
+/** Conversations this one started, branched or delegated to. */
+function childrenOf(conversation) {
+    return [...conversations.values()].filter(entry => (
+        entry.spawnedFrom === conversation.id || entry.parentId === conversation.id
+    ));
+}
+
+/** Open conversations as tabs, beside the one that asked. */
+function showConversations(asker, conversationIds, { focus = false } = {}) {
+    if (!hasWindow()) return { opened: false, reason: 'No window is open; it is on the Conversations page.' };
+    const result = openTabs(conversationIds, { near: asker.id, focus });
+    return result?.success
+        ? { opened: true }
+        : { opened: false, reason: result?.message || 'The window did not open it.' };
+}
+
+/**
+ * This computer's apps, for one conversation. The rules are computer.js's;
+ * what it needs from here is what only the conversation knows, read fresh on
+ * every call: its title, what kind of run it is, the agent's settings and
+ * name, a question card to ask the user on, and its secrets to type from.
+ */
+function computerApiFor(conversation) {
+    return computer.apiFor({
+        id: conversation.id,
+        title: () => conversation.title,
+        runKind: () => conversation.runKind,
+        settings: () => effectiveSettings(conversation),
+        agentName: () => agents.get(conversation.agentId)?.name || '',
+        ask: payload => requestQuestion(conversation, payload),
+        resolveSecrets: text => secrets.forAgent(conversation.agentId).resolve(text),
+    });
+}
+
+// The desktop is held by one conversation while it works, and Esc stops that
+// conversation's turn.
+computer.configure({
+    isBusy: conversationId => Boolean(conversations.get(conversationId)?.busy),
+    interrupt: conversationId => interrupt(conversationId),
+});
+
+function conversationsApiFor(conversation) {
+    const isChild = (entry) => Boolean(entry)
+        && (entry.spawnedFrom === conversation.id || entry.parentId === conversation.id);
+
+    const refusal = () => {
+        if ((conversation.depth || 0) >= MAX_DELEGATION_DEPTH) {
+            return `Conversations stop ${MAX_DELEGATION_DEPTH} levels deep. Do this part yourself.`;
+        }
+        if (childrenOf(conversation).filter(entry => entry.busy).length >= MAX_WORKING_CHILDREN) {
+            return `${MAX_WORKING_CHILDREN} of the conversations you started are still working. Wait for one to finish.`;
+        }
+        return '';
+    };
+
+    /** What a new conversation takes from this one, before anything is sent. */
+    const adopt = (child, title = '') => {
+        child.spawnedFrom = conversation.id;
+        child.depth = (conversation.depth || 0) + 1;
+        // A chat like the user's when this is one; out of sight like a
+        // delegated run when this is a job's, which also keeps a job from
+        // reaching the job tools through a conversation it started.
+        child.runKind = conversation.runKind === 'interactive' ? 'interactive' : 'delegated';
+        // Never looser than this one.
+        child.runPolicy = conversation.runPolicy || null;
+        // Told as an event, like a name the runtime gives it, so the tab
+        // and a panel rebuilt from the log say it too.
+        if (title) {
+            child.title = secrets.scrub(title);
+            child.titleSource = '';
+            emit(child, { type: 'title', title: child.title });
+        }
+    };
+
+    /**
+     * A message into a child, waited on when asked. While the agent waits,
+     * the child's questions come here as well, where the user is; one in no
+     * tab at all sends them here for good, or nobody would see them.
+     */
+    const drive = async (child, message, { wait = false, visible = false } = {}) => {
+        if (wait || !visible) child.parentId = conversation.id;
+        child.runTrigger = { source: 'agent', parentRunId: conversation.runId || '', parentConversationId: conversation.id };
+        const waiting = wait ? waitForRun(child, { stop: !visible }) : null;
+        const sent = await send(child.id, message);
+        // What the user sends in the tab later is theirs.
+        if (child.runKind === 'interactive') child.runTrigger = null;
+        if (!sent.success) {
+            waiting?.cancel();
+            return { error: sent.message || 'The message could not be sent.' };
+        }
+        if (!waiting) return { status: 'working' };
+        const outcome = await waiting.ended;
+        tallyChild(conversation, outcome);
+        if (visible) child.parentId = '';
+        return { status: outcome.status, report: outcome.summary || '', ...(outcome.reason ? { reason: outcome.reason } : {}) };
+    };
+
+    /** Open it, send the first message if there is one, and report. */
+    const launch = async (child, { message = '', open = true, focus = false, wait = false }) => {
+        const shown = open ? showConversations(conversation, [child.id], { focus }) : { opened: false };
+        archive.save();
+        const driven = message ? await drive(child, message, { wait, visible: shown.opened }) : { status: 'idle' };
+        if (driven.error) return { error: `${driven.error} (conversation ${child.id})` };
+        return {
+            conversationId: child.id,
+            title: child.title || '',
+            opened: shown.opened,
+            ...(open && shown.reason ? { note: shown.reason } : {}),
+            ...driven,
+        };
+    };
+
+    return {
+        /** A new conversation, this agent's or another's, with a first message. */
+        start: async ({ agent = '', message = '', title = '', open = true, focus = false, wait = false }) => {
+            const refused = refusal();
+            if (refused) return { error: refused };
+            const target = agent ? findAgent(agent) : agents.get(conversation.agentId);
+            if (!target) return { error: `There is no agent called "${agent}".` };
+            // Pointed where this one is: "another chat" is about the same machines.
+            const created = create({
+                agentId: target.id,
+                scope: conversation.scope,
+                sessionId: conversation.boundSessionId,
+                sessionIds: conversation.sessionIds,
+                hostIds: conversation.hostIds,
+            });
+            const child = conversations.get(created.conversationId);
+            adopt(child, title);
+            // On this chat's model when it is the same agent's.
+            if (target.id === conversation.agentId && conversation.settingsPatch) {
+                child.settingsPatch = { ...conversation.settingsPatch };
+            }
+            return launch(child, { message, open, focus, wait });
+        },
+
+        /** One of this agent's conversations, copied up to a turn, carrying on from there. */
+        branch: async ({ conversationId = '', turn = 0, message = '', title = '', open = true, focus = false, wait = false }) => {
+            const refused = refusal();
+            if (refused) return { error: refused };
+            hydrate();
+            const source = conversations.get(conversationId || conversation.id);
+            if (!source || source.agentId !== conversation.agentId) {
+                return { error: `There is no conversation ${conversationId} of this agent's. search_conversations lists what there is.` };
+            }
+            const cut = turnEnd(source.events, turn);
+            if (cut.error) return { error: cut.error };
+            const copied = copyUpTo(source, cut.end);
+            if (!copied.success) return { error: copied.message };
+            const child = conversations.get(copied.conversationId);
+            adopt(child, title);
+            const launched = await launch(child, { message, open, focus, wait });
+            return launched.error ? launched : { ...launched, from: source.id, turns: cut.turns };
+        },
+
+        /** Conversations shown in tabs: this agent's, or ones this one started. */
+        open: ({ conversationIds = [], focus = false }) => {
+            hydrate();
+            const found = [];
+            const missing = [];
+            for (const id of conversationIds) {
+                const entry = conversations.get(id);
+                if (entry && (entry.agentId === conversation.agentId || isChild(entry))) found.push(id);
+                else missing.push(id);
+            }
+            if (found.length === 0) return { error: 'None of those are conversations of this agent\'s or ones you started.' };
+            return {
+                ...showConversations(conversation, found, { focus }),
+                conversationIds: found,
+                ...(missing.length ? { notFound: missing } : {}),
+            };
+        },
+
+        /** A follow-up to a conversation this one started. */
+        message: async ({ conversationId, message, wait = false }) => {
+            const child = conversations.get(conversationId);
+            if (!isChild(child)) {
+                return { error: 'Only a conversation you started, branched or delegated to from here can be sent a message.' };
+            }
+            if (child.busy) {
+                return { error: 'It is still working on the last message. Wait for it with check_conversations first.' };
+            }
+            const driven = await drive(child, message, { wait, visible: inTab(child.id) });
+            return driven.error ? driven : { conversationId: child.id, ...driven };
+        },
+
+        /**
+         * What this conversation started and how each is doing, waiting first
+         * for the one named in `waitFor` if it is still working.
+         */
+        check: async ({ waitFor = '' } = {}) => {
+            const awaited = waitFor ? conversations.get(waitFor) : null;
+            if (waitFor && !isChild(awaited)) return { error: `${waitFor} is not a conversation you started.` };
+            if (awaited?.busy) {
+                const visible = inTab(awaited.id);
+                const outcome = await waitForRun(awaited, { stop: !visible }).ended;
+                tallyChild(conversation, outcome);
+            }
+            return {
+                conversations: childrenOf(conversation).map(entry => ({
+                    conversationId: entry.id,
+                    title: entry.title || '',
+                    agent: agents.get(entry.agentId)?.name || entry.agentId,
+                    kind: entry.spawnedFrom === conversation.id ? 'started' : 'delegated',
+                    working: Boolean(entry.busy),
+                    inTab: inTab(entry.id),
+                    lastReply: lastReply(entry).slice(0, 1500),
+                })),
+            };
+        },
     };
 }
 
@@ -1758,6 +2140,9 @@ function exportMarkdown(conversationId, { full = false, messagesOnly = false } =
                 break;
             case 'error':
                 lines.push(`> **Error:** ${event.text || event.message || ''}`, '');
+                break;
+            case 'warning':
+                lines.push(`> **Warning:** ${event.message || ''}`, '');
                 break;
             case 'approval-settled':
                 lines.push(`_Approval: ${event.status}_`, '');
@@ -2195,10 +2580,15 @@ async function send(conversationId, text, attachments = [], tagged = []) {
         return { success: false, message: 'This agent cannot read images. Claude Code and Codex can.' };
     }
 
-    if (!conversation.title) {
-        // Scrubbed like the message itself: the first line is the title in
-        // every list, and "my api key is ..." is a common first line.
-        conversation.title = secrets.scrub((body || mentions[0]?.name || images[0].name).replace(/\s+/g, ' ').slice(0, 80));
+    // The first message, tidied, names the chat until the runtime has named
+    // it properly (see `nameConversation`). A draft that was only "hi" gives
+    // way to the next message. Scrubbed like the message itself: the title is
+    // in every list, and "my api key is ..." is a common first line.
+    const drafted = !conversation.title
+        || (conversation.titleSource === 'draft' && titles.tooThin(conversation.title) && body && !titles.tooThin(body));
+    if (drafted) {
+        conversation.title = secrets.scrub(titles.fromMessage(body || mentions[0]?.name || images[0].name));
+        conversation.titleSource = 'draft';
     }
 
     // The transcript keeps what was tagged and not what it said: the records
@@ -2209,7 +2599,11 @@ async function send(conversationId, text, attachments = [], tagged = []) {
         ...(images.length ? { images } : {}),
         ...(mentions.length ? { mentions: stripMentions(mentions) } : {}),
     });
+    // Told to the panel like the runtime's name will be, so the tab and the
+    // header say what the list says from the first moment.
+    if (drafted) emit(conversation, { type: 'title', title: conversation.title });
     conversation.busy = true;
+    nameConversation(conversation);
 
     // A message sent into a turn still going is a new turn of the same run
     // as far as the log is concerned; one sent into a quiet conversation
@@ -2289,6 +2683,59 @@ async function send(conversationId, text, attachments = [], tagged = []) {
     }
 }
 
+/**
+ * Name a conversation by what it is about, once enough has been said to.
+ *
+ * Asked of the runtime the conversation runs on, under the same account, so
+ * nothing goes anywhere the chat itself does not. Off to the side of the
+ * turn: the draft is up already, and the answer replaces it when it comes. A
+ * first message too thin to name ("hi") waits for the second. Asked once; a
+ * runtime with no way to ask, or a question that fails, leaves the draft.
+ */
+function nameConversation(conversation) {
+    if (conversation.titleSource !== 'draft') return;
+    const said = conversation.events
+        .filter(event => event.type === 'user-message' && event.text)
+        .map(event => event.text)
+        .slice(0, 2);
+    if (said.length === 0) return;
+    if (said.length === 1 && titles.tooThin(said[0])) return;
+
+    const current = effectiveSettings(conversation);
+    const provider = PROVIDERS[current.provider];
+    if (typeof provider?.title !== 'function') {
+        conversation.titleSource = 'message';
+        return;
+    }
+
+    conversation.titleSource = 'naming';
+    const draft = conversation.title;
+    titles.generate(provider, { settings: current, messages: said }).then((name) => {
+        // Closed, or retitled some other way, while the question was out.
+        if (conversations.get(conversation.id) !== conversation) return;
+        if (conversation.titleSource !== 'naming' || conversation.title !== draft) return;
+
+        const title = secrets.scrub(name);
+        conversation.titleSource = title ? 'model' : 'message';
+        if (!title) {
+            archive.save();
+            return;
+        }
+        conversation.title = title;
+        if (conversation.runId) {
+            try {
+                runs.setTitle(conversation.runId, title);
+            } catch (error) {
+                console.error('Could not retitle the run:', error.message);
+            }
+        }
+        // An event rather than a quiet change, so every panel showing this
+        // conversation, and every list of them, is told; and in the log, so
+        // a panel rebuilt from it arrives at the same name.
+        emit(conversation, { type: 'title', title });
+    });
+}
+
 async function interrupt(conversationId) {
     const conversation = conversations.get(conversationId);
     if (!conversation?.session) return { success: false };
@@ -2344,6 +2791,7 @@ async function close(conversationId) {
     if (!conversation) return { success: true };
     conversations.delete(conversationId);
     checkpoints.forget(conversationId);
+    computer.forget(conversationId);
     // Thrown away for good, so it goes from the file too. Suspended during a
     // shutdown, which closes every conversation without meaning to forget any
     // of them.
@@ -2641,6 +3089,7 @@ module.exports = {
     setNotifier,
     setWindowProbe,
     setToaster,
+    setTabOpener,
     cancelRun,
     startJobRun,
     resumeJobRun,
@@ -2681,6 +3130,13 @@ module.exports = {
     respondToQuestion,
     settings,
     // For the checkpoint tests, which play a turn's events through without
-    // a runtime behind them.
-    _test: { emit: (conversationId, event) => emit(conversations.get(conversationId), event) },
+    // a runtime behind them, and the conversation tools' tests, which drive
+    // one conversation's API the way its tools do.
+    _test: {
+        emit: (conversationId, event) => emit(conversations.get(conversationId), event),
+        providers: PROVIDERS,
+        conversationsApi: (conversationId) => conversationsApiFor(conversations.get(conversationId)),
+        conversation: (conversationId) => conversations.get(conversationId),
+        turnEnd,
+    },
 };

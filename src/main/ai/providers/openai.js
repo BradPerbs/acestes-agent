@@ -77,6 +77,12 @@ async function start(options) {
     });
 }
 
+/** A name for a conversation, from the same model behind the same key. See titles.js. */
+async function title({ settings: current = {}, instruction, prompt, signal } = {}) {
+    if (!current.apiKey) return '';
+    return engine.ask({ endpoint: endpoint(current), model: await resolveModel(current), instruction, prompt, signal });
+}
+
 /**
  * What the API offers. Hundreds on OpenRouter, so nothing is marked
  * preferred: an unpinned conversation goes to the first row, which the
@@ -102,6 +108,7 @@ async function detect({ settings: current = {} } = {}) {
 
 module.exports = {
     start,
+    title,
     listModels,
     detect,
     endpoint,
