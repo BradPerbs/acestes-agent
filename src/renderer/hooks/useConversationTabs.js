@@ -257,8 +257,10 @@ export default function useConversationTabs({
      * ------------------------------------------------------------------ */
 
     /** A new tab at the end of the strip, brought to the front. */
-    const addTab = useCallback((conversationId = '', agentId = '') => {
-        const tab = createConversationTab(conversationId, agentId);
+    const addTab = useCallback((conversationId = '', agentId = '', { keepAgent = false } = {}) => {
+        // `keepAgent` for a chat started with a particular agent on purpose,
+        // which stays that agent's rather than following the selection.
+        const tab = { ...createConversationTab(conversationId, agentId), ...(keepAgent ? { keepAgent } : {}) };
         setTabs(current => [...current, tab]);
         setActiveTabId(tab.id);
         return tab.id;

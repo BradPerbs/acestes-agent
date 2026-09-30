@@ -1504,14 +1504,14 @@ static class DesktopHelper
             y = (int)Math.Round(point.Y);
 
             AutomationElement hit = At(x, y);
-            if (hit != null && !Related(hit, element))
+            if (hit != null && !Related(hit, element) && !PassesThrough(hit, x, y))
             {
                 // The clickable point can be a corner another element overlaps;
                 // the middle is the next best guess before giving up.
                 int middleX = (int)Math.Round(bounds.X + bounds.Width / 2);
                 int middleY = (int)Math.Round(bounds.Y + bounds.Height / 2);
                 AutomationElement middle = At(middleX, middleY);
-                if (middle != null && Related(middle, element))
+                if (middle != null && (Related(middle, element) || PassesThrough(middle, middleX, middleY)))
                 {
                     x = middleX;
                     y = middleY;
@@ -1522,6 +1522,8 @@ static class DesktopHelper
                 }
             }
             answer["rect"] = new object[] { (int)bounds.X, (int)bounds.Y, (int)bounds.Width, (int)bounds.Height };
+            // What is being aimed at, by name, for the card in the corner.
+            answer["label"] = Summary(element);
         }
         else
         {
@@ -1697,6 +1699,24 @@ static class DesktopHelper
         catch (Exception)
         {
             return null;
+        }
+    }
+
+    /// <summary>
+    /// A hit on Acestes's own corner card, which clicks go straight through:
+    /// it covers nothing. What actually takes the click at that point is the
+    /// window beneath, and if that is Acestes too, Allowed refuses it later.
+    /// </summary>
+    static bool PassesThrough(AutomationElement hit, int x, int y)
+    {
+        try
+        {
+            uint pid = (uint)hit.Current.ProcessId;
+            return Protected.Contains(pid) && !Protected.Contains(PidOf(RootAt(x, y)));
+        }
+        catch (Exception)
+        {
+            return false;
         }
     }
 

@@ -2,6 +2,7 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'rea
 import { gsap } from 'gsap';
 import {
     ArrowRight01Icon,
+    BubbleChatAddIcon,
     Cancel01Icon,
     Delete02Icon,
     PinIcon,
@@ -389,6 +390,7 @@ function Sidebar({
     onNewConversation,
     onDeleteConversation,
     onPinConversation,
+    onNewConversationWith,
 }) {
     const t = useT();
 
@@ -422,33 +424,45 @@ function Sidebar({
 
     /**
      * The agent menu: every agent, the one selected ticked, and under them
-     * the two things done to the list itself. A bin on an agent's row is
-     * offered only while there is another to fall back to.
+     * the way to make another. Each row does its own things on hover: start
+     * a chat with that agent there and then, without switching the column
+     * to it, and edit it. A bin is offered only while there is another agent
+     * to fall back to.
      */
-    const agentSections = useMemo(() => {
-        const actions = { new: onNewAgent, rename: onRenameAgent };
-        return [
-            {
-                heading: t('agents.heading'),
-                value: activeAgent?.id || '',
-                onChange: (id) => onSelectAgent?.(id),
-                options: agents.map(agent => ({
-                    value: agent.id,
-                    label: agent.name,
-                    icon: <AgentMark size={14} look={agent} />,
-                    onRemove: agents.length > 1 ? () => onDeleteAgent?.(agent.id) : undefined,
-                })),
-            },
-            {
-                value: '',
-                onChange: (value) => actions[value]?.(),
-                options: [
-                    { value: 'new', label: t('agents.new'), icon: <PlusSignIcon size={14} strokeWidth={2} /> },
-                    { value: 'rename', label: t('agents.rename'), icon: <PencilEdit02Icon size={14} strokeWidth={1.5} /> },
+    const agentSections = useMemo(() => [
+        {
+            heading: t('agents.heading'),
+            value: activeAgent?.id || '',
+            onChange: (id) => onSelectAgent?.(id),
+            options: agents.map(agent => ({
+                value: agent.id,
+                label: agent.name,
+                icon: <AgentMark size={14} look={agent} />,
+                actions: [
+                    {
+                        key: 'chat',
+                        label: t('agents.chatWith', { name: agent.name }),
+                        icon: <BubbleChatAddIcon size={14} strokeWidth={1.6} />,
+                        onClick: () => onNewConversationWith?.(agent.id),
+                    },
+                    {
+                        key: 'edit',
+                        label: t('agents.editNamed', { name: agent.name }),
+                        icon: <PencilEdit02Icon size={13} strokeWidth={1.6} />,
+                        onClick: () => onRenameAgent?.(agent.id),
+                    },
                 ],
-            },
-        ];
-    }, [agents, activeAgent, onSelectAgent, onNewAgent, onRenameAgent, onDeleteAgent, t]);
+                onRemove: agents.length > 1 ? () => onDeleteAgent?.(agent.id) : undefined,
+            })),
+        },
+        {
+            value: '',
+            onChange: () => onNewAgent?.(),
+            options: [
+                { value: 'new', label: t('agents.new'), icon: <PlusSignIcon size={14} strokeWidth={2} /> },
+            ],
+        },
+    ], [agents, activeAgent, onSelectAgent, onNewAgent, onRenameAgent, onDeleteAgent, onNewConversationWith, t]);
 
     /**
      * The quick search: a box under the heading that narrows the column by

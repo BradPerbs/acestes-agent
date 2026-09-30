@@ -12,6 +12,7 @@ const archive = require('./archive');
 const searchModule = require('./search');
 const titles = require('./titles');
 const computer = require('./computer');
+const overlay = require('./overlay');
 const { readImages } = require('./images');
 const { readMentions, mentionBlock, stripMentions } = require('./mentions');
 const store = require('../store');
@@ -673,6 +674,9 @@ function emit(conversation, event) {
     }
 
     trackEdits(conversation, stamped);
+
+    // The corner card for an agent at work on the desktop. See overlay.js.
+    if (overlay.watching(conversation.id)) overlay.event(conversation.id, stamped, conversation.title);
 
     if (conversation.parentId && FORWARDED.has(stamped.type) && !stamped.via) {
         const parent = conversations.get(conversation.parentId);
@@ -1913,6 +1917,13 @@ function computerApiFor(conversation) {
 computer.configure({
     isBusy: conversationId => Boolean(conversations.get(conversationId)?.busy),
     interrupt: conversationId => interrupt(conversationId),
+    // Who is at work on the desktop, for the card in the corner of the screen.
+    driversChanged: ids => overlay.drivers(ids.map((id) => {
+        const conversation = conversations.get(id);
+        const agent = conversation ? agents.get(conversation.agentId) : null;
+        return { id, title: conversation?.title || '', agent: agent?.name || '', look: agent?.look || null };
+    })),
+    aimed: (conversationId, label) => overlay.aimed(conversationId, label),
 });
 
 function conversationsApiFor(conversation) {

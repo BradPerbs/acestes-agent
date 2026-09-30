@@ -289,13 +289,16 @@ function App() {
      * its terminals started in its folders, not the ones in the sidebar.
      * Safe because such a tab has nothing in main yet: the conversation is
      * made on the first message, under the tab's agent at that moment.
+     * The one exception is a chat started with a named agent from the agent
+     * menu, which was asked for as that agent's and so stays it.
      */
     useEffect(() => {
         if (!activeAgentId) return;
         setTabs((previous) => {
             let moved = false;
             const next = previous.map((tab) => {
-                if (tab.type !== 'conversation' || tab.conversationId || tab.agentId === activeAgentId) return tab;
+                if (tab.type !== 'conversation' || tab.conversationId || tab.keepAgent
+                    || tab.agentId === activeAgentId) return tab;
                 moved = true;
                 return { ...tab, agentId: activeAgentId };
             });
@@ -313,7 +316,7 @@ function App() {
 
     /**
      * The agent whose mark a conversation wears, which is what carries the
-     * look: its colour and crest. The record itself rather than a
+     * look: its colour, helmet and crest. The record itself rather than a
      * look made from it, so it is the same object from one render to the next.
      */
     const lookFor = useCallback((agentId) => (
@@ -1689,6 +1692,12 @@ function App() {
         [addConversationTab, activeAgentId],
     );
 
+    /** A chat with a given agent, from the agent menu, without selecting it. */
+    const handleNewConversationWith = useCallback(
+        (agentId) => addConversationTab('', agentId, { keepAgent: true }),
+        [addConversationTab],
+    );
+
     const handleOpenConversation = useCallback(
         (conversationId) => openConversation(conversationId, activeAgentId),
         [openConversation, activeAgentId],
@@ -1883,18 +1892,20 @@ function App() {
     const [agentDialog, setAgentDialog] = useState(null);
 
     const handleNewAgent = useCallback(() => setAgentDialog({ agent: null }), []);
-    const handleRenameAgent = useCallback(() => {
-        if (activeAgent) setAgentDialog({ agent: activeAgent });
-    }, [activeAgent]);
+    /** Any agent by id, from its row in the agent menu; the selected one without. */
+    const handleRenameAgent = useCallback((agentId) => {
+        const agent = agentId ? agents.find(entry => entry.id === agentId) : activeAgent;
+        if (agent) setAgentDialog({ agent });
+    }, [agents, activeAgent]);
 
     const handleSaveAgentName = useCallback(async (name, look, sandbox = null) => {
         // The dialog hands back the part of the envelope it edits: the mode
         // at creation, and the folders either time. The registry patches, so
         // the network and session settings on the Sandbox card are untouched.
         const patch = sandbox ? { sandbox } : {};
-        const { color, crest } = look;
-        if (agentDialog?.agent) await saveAgent({ id: agentDialog.agent.id, name, color, crest, ...patch });
-        else await saveAgent({ name, color, crest, ...patch });
+        const { color, helmet, crest } = look;
+        if (agentDialog?.agent) await saveAgent({ id: agentDialog.agent.id, name, color, helmet, crest, ...patch });
+        else await saveAgent({ name, color, helmet, crest, ...patch });
     }, [agentDialog, saveAgent]);
 
     const handleDeleteAgent = useCallback((agentId) => {
@@ -2094,6 +2105,7 @@ function App() {
                     onNewAgent={handleNewAgent}
                     onRenameAgent={handleRenameAgent}
                     onDeleteAgent={handleDeleteAgent}
+                    onNewConversationWith={handleNewConversationWith}
                     // A conversation in front lights the list it is in; any
                     // inventory page lights the one entry for all of them.
                     activeNav={activeTab?.type === 'conversation'

@@ -663,6 +663,25 @@ contextBridge.exposeInMainWorld('api', {
         reattach: (conversationIds) => ipcRenderer.invoke('ai-window-reattach', conversationIds),
         closeWindow: () => ipcRenderer.invoke('ai-window-close'),
         onAdoptTabs: (callback) => subscribe('ai-tabs-adopt', callback),
+        // The corner overlay's rows: the agents at work on the desktop.
+        onActivity: (callback) => subscribe('ai-activity', callback),
+        // The composer's microphone: 16 kHz mono samples in, the words out,
+        // transcribed on this machine. `onSpeech` hears how the first use's
+        // model download is going. See main/ai/speech.js.
+        transcribe: (samples, options) => ipcRenderer.invoke('ai-transcribe', { samples, ...(options || {}) }),
+        onSpeech: (callback) => subscribe('ai-speech', callback),
+        // Whether each engine can be used, and installing Faster-Whisper's
+        // Python package, for the Voice input settings.
+        speechStatus: (options) => ipcRenderer.invoke('ai-speech-status', options || {}),
+        speechInstall: () => ipcRenderer.invoke('ai-speech-install'),
+        speechDownload: () => ipcRenderer.invoke('ai-speech-download'),
+        // Live dictation (Parakeet): audio streamed in as it is recorded,
+        // `onDictation` hearing the words so far, stop handing back the rest.
+        dictationStart: () => ipcRenderer.invoke('ai-dictation-start'),
+        dictationAudio: (id, samples) => ipcRenderer.send('ai-dictation-audio', id, samples),
+        dictationStop: (id) => ipcRenderer.invoke('ai-dictation-stop', id),
+        dictationCancel: (id) => ipcRenderer.invoke('ai-dictation-cancel', id),
+        onDictation: (callback) => subscribe('ai-dictation', callback),
         // Another window has opened these, so this one is to let them go: a
         // conversation is shown in one place.
         onReleaseTabs: (callback) => subscribe('ai-tabs-release', callback),
@@ -747,6 +766,9 @@ contextBridge.exposeInMainWorld('api', {
         remove: (agentId, id) => ipcRenderer.invoke('memory-remove', { agentId, id }),
         search: (agentId, query, limit) => ipcRenderer.invoke('memory-search', { agentId, query, limit }),
         status: (agentId) => ipcRenderer.invoke('memory-status', agentId),
+        // A JSON file of one agent's notes, written or read where the user picks.
+        exportFile: (agentId) => ipcRenderer.invoke('memory-export', agentId),
+        importFile: (agentId) => ipcRenderer.invoke('memory-import', agentId),
         onChange: (callback) => subscribe('memory-changed', callback),
     },
 

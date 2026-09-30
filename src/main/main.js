@@ -4,6 +4,8 @@ const fs = require('fs');
 const path = require('path');
 const ipc = require('./ipc');
 const aiWindows = require('./ai/windows');
+const aiOverlay = require('./ai/overlay');
+const speech = require('./ai/speech');
 const transport = require('./transport');
 const cloudSnapshot = require('./cloud-snapshot');
 const scheduler = require('./runs/scheduler');
@@ -111,6 +113,10 @@ function createWindow() {
         // runs; with it gone they have nothing to show and nothing to hand
         // their tabs back to.
         aiWindows.closeAll();
+        // And the corner card, which would otherwise keep the app alive, and
+        // the Faster-Whisper worker, if voice input started one.
+        aiOverlay.close();
+        speech.shutdown();
         mainWindow = null;
     });
 

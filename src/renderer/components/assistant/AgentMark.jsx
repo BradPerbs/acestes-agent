@@ -4,13 +4,14 @@ import { agentLook } from '../../lib/agent-look';
 import { REST, drawHelmet, framing, helmetMask, whenHelmetReady } from './helmet/renderer';
 
 /**
- * An agent's mark: a Corinthian helmet in ink, turned three quarters on.
+ * An agent's mark: a helmet in ink, turned three quarters on. A Corinthian
+ * unless the agent picked another.
  *
  * Acestes was a king in the Aeneid, so the face is a warrior's. It is drawn
  * from a real model (see `helmet/renderer.js`, and `scripts/helmets` for
- * where the model comes from), live, so it can be turned. `look` is which
- * crest it wears and in which of the agent colours; it takes an agent, a
- * `{ color, crest }` or a bare colour id.
+ * where the models come from), live, so it can be turned. `look` is which
+ * helmet it is, which crest it wears and in which of the agent colours; it
+ * takes an agent, a `{ color, helmet, crest }` or a bare colour id.
  *
  * Two ways of showing it:
  *
@@ -34,27 +35,30 @@ import { REST, drawHelmet, framing, helmetMask, whenHelmetReady } from './helmet
  * helmet in its resting pose (`helmet/still.js`), and does not turn.
  */
 
-let ready = null;
-const waitingForReady = new Set();
-whenHelmetReady().then((ok) => {
-    ready = ok;
-    for (const done of waitingForReady) done();
-    waitingForReady.clear();
-});
+/** Per helmet: whether it can be drawn, once its mesh has loaded. */
+const ready = new Map();
+// The Corinthian is the one almost every mark wears, so it starts loading at once.
+whenHelmetReady().then((ok) => { ready.set('corinthian', ok); });
 
-/** Whether the helmet can be drawn: null while it loads, then true or false. */
-function useHelmetReady() {
-    const [state, setState] = useState(ready);
+/** Whether `helmet` can be drawn: null while it loads, then true or false. */
+function useHelmetReady(helmet) {
+    const known = ready.has(helmet) ? ready.get(helmet) : null;
+    const [state, setState] = useState({ helmet, ok: known });
     useEffect(() => {
-        if (ready !== null) {
-            setState(ready);
+        if (ready.has(helmet)) {
+            setState({ helmet, ok: ready.get(helmet) });
             return undefined;
         }
-        const done = () => setState(ready);
-        waitingForReady.add(done);
-        return () => waitingForReady.delete(done);
-    }, []);
-    return state;
+        let current = true;
+        setState({ helmet, ok: null });
+        whenHelmetReady(helmet).then((ok) => {
+            ready.set(helmet, ok);
+            if (current) setState({ helmet, ok });
+        });
+        return () => { current = false; };
+    }, [helmet]);
+    // the state is a render behind when the helmet changes; what is known now wins
+    return state.helmet === helmet ? state.ok : known;
 }
 
 /** The device pixel ratio, kept up to date when the window moves to another screen. */
@@ -150,12 +154,12 @@ const RANGE = (() => {
     return angles;
 })();
 
-function LiveMark({ size, crest, paper, ratio, tint, wrapperProps }) {
+function LiveMark({ size, helmet, crest, paper, ratio, tint, wrapperProps }) {
     const wrapper = useRef(null);
     const canvas = useRef(null);
     // A canvas bigger than the mark, so the helmet can turn without running
     // off it, placed so that at rest it sits exactly where a still one would.
-    const place = useMemo(() => framing(crest, RANGE), [crest]);
+    const place = useMemo(() => framing(helmet, crest, RANGE), [helmet, crest]);
     const canvasSize = size * place.grow;
     const pixels = Math.max(1, Math.round(canvasSize * ratio));
 
@@ -167,10 +171,14 @@ function LiveMark({ size, crest, paper, ratio, tint, wrapperProps }) {
         let last = performance.now();
         let frame = 0;
         let onScreen = true;
+        // A frame can still come once the mark is gone: React lets go of the
+        // element before it runs this effect's cleanup, and an observer's
+        // report can arrive after it is disconnected. That frame does nothing.
+        let alive = true;
 
         const tick = (now) => {
             frame = 0;
-            if (!onScreen) return;
+            if (!alive || !onScreen || !wrapper.current) return;
             const dt = Math.min(0.1, (now - last) / 1000);
             last = now;
             let targetYaw = REST.yaw, targetPitch = REST.pitch;
@@ -185,7 +193,7 @@ function LiveMark({ size, crest, paper, ratio, tint, wrapperProps }) {
             const k = 1 - Math.exp(-dt / LAG);
             yaw += (targetYaw - yaw) * k;
             pitch += (targetPitch - pitch) * k;
-            drawHelmet(node, { crest, size, canvasSize, yaw, pitch, range: RANGE, line: colour, paper });
+            drawHelmet(node, { helmet, crest, size, canvasSize, yaw, pitch, range: RANGE, line: colour, paper });
             frame = requestAnimationFrame(tick);
         };
 
@@ -200,9 +208,10 @@ function LiveMark({ size, crest, paper, ratio, tint, wrapperProps }) {
         });
         visibility.observe(node);
         const stopFollowing = followPointer();
-        const stopTheme = onThemeChange(() => { colour = getComputedStyle(wrapper.current).color; });
+        const stopTheme = onThemeChange(() => { if (wrapper.current) colour = getComputedStyle(wrapper.current).color; });
         frame = requestAnimationFrame(tick);
         return () => {
+            alive = false;
             cancelAnimationFrame(frame);
             visibility.disconnect();
             stopFollowing();
@@ -210,7 +219,7 @@ function LiveMark({ size, crest, paper, ratio, tint, wrapperProps }) {
         };
         // `tint` is here for the colour: it is read from the element's style,
         // which changes when the agent's colour does as well as the theme.
-    }, [crest, size, canvasSize, paper, pixels, tint]);
+    }, [helmet, crest, size, canvasSize, paper, pixels, tint]);
 
     return (
         <span ref={wrapper} {...wrapperProps}>
@@ -230,11 +239,11 @@ function LiveMark({ size, crest, paper, ratio, tint, wrapperProps }) {
     );
 }
 
-function StillMark({ size, crest, paper, pixels, wrapperProps }) {
+function StillMark({ size, helmet, crest, paper, pixels, wrapperProps }) {
     const [ink, ground] = useMemo(() => [
-        helmetMask({ crest, size, pixels, layer: 'ink' }),
-        paper ? helmetMask({ crest, size, pixels, layer: 'paper' }) : null,
-    ], [crest, size, pixels, paper]);
+        helmetMask({ helmet, crest, size, pixels, layer: 'ink' }),
+        paper ? helmetMask({ helmet, crest, size, pixels, layer: 'paper' }) : null,
+    ], [helmet, crest, size, pixels, paper]);
     const layer = (url) => ({ WebkitMaskImage: `url(${url})`, maskImage: `url(${url})` });
 
     return (
@@ -246,13 +255,16 @@ function StillMark({ size, crest, paper, pixels, wrapperProps }) {
 }
 
 /** The one drawing, for where the helmet cannot be drawn live. */
-function DrawnMark({ crest, paper, wrapperProps }) {
+function DrawnMark({ helmet, crest, paper, wrapperProps }) {
     const [drawing, setDrawing] = useState(null);
     useEffect(() => {
         let current = true;
-        import('./helmet/still').then(({ default: still }) => { if (current) setDrawing(still[crest] || still.plume); });
+        import('./helmet/still').then(({ default: still }) => {
+            const drawings = still[helmet] || still.corinthian;
+            if (current) setDrawing(drawings[crest] || drawings.none || drawings.plume);
+        });
         return () => { current = false; };
-    }, [crest]);
+    }, [helmet, crest]);
 
     return (
         <span {...wrapperProps}>
@@ -269,10 +281,10 @@ function DrawnMark({ crest, paper, wrapperProps }) {
 }
 
 export default function AgentMark({ size = 18, animated = false, mono = false, look = null, className = '' }) {
-    const { color, crest } = agentLook(look);
+    const { color, helmet, crest } = agentLook(look);
     const ink = agentInk(color);
     const paper = mono ? null : ink.paper;
-    const canDraw = useHelmetReady();
+    const canDraw = useHelmetReady(helmet);
     const ratio = usePixelRatio();
     const pixels = Math.max(1, Math.round(size * ratio));
     const live = animated && !stillMotion();
@@ -289,7 +301,7 @@ export default function AgentMark({ size = 18, animated = false, mono = false, l
 
     // While the model loads, an empty box of the right size, so nothing moves when it arrives.
     if (canDraw === null) return <span {...wrapperProps} />;
-    if (canDraw === false) return <DrawnMark crest={crest} paper={paper} wrapperProps={wrapperProps} />;
-    if (live) return <LiveMark size={size} crest={crest} paper={paper} ratio={ratio} tint={mono ? 'mono' : `${ink.line}/${ink.lineDark}`} wrapperProps={wrapperProps} />;
-    return <StillMark size={size} crest={crest} paper={paper} pixels={pixels} wrapperProps={wrapperProps} />;
+    if (canDraw === false) return <DrawnMark helmet={helmet} crest={crest} paper={paper} wrapperProps={wrapperProps} />;
+    if (live) return <LiveMark size={size} helmet={helmet} crest={crest} paper={paper} ratio={ratio} tint={mono ? 'mono' : `${ink.line}/${ink.lineDark}`} wrapperProps={wrapperProps} />;
+    return <StillMark size={size} helmet={helmet} crest={crest} paper={paper} pixels={pixels} wrapperProps={wrapperProps} />;
 }

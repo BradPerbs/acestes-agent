@@ -29,6 +29,8 @@ const sessionLog = require('./session-log');
 const assistant = require('./ai');
 const aiWindows = require('./ai/windows');
 const computer = require('./ai/computer');
+const overlay = require('./ai/overlay');
+const speech = require('./ai/speech');
 const updates = require('./updates');
 const startup = require('./startup');
 const resources = require('./resources');
@@ -334,10 +336,15 @@ function register(getWindow) {
         // capture, so the user's own screen sharing still shows the app.
         hideFromCapture: (on) => {
             for (const window of BrowserWindow.getAllWindows()) {
-                if (!window.isDestroyed()) window.setContentProtection(Boolean(on));
+                // The corner overlay is kept out of capture all the time.
+                if (window.isDestroyed() || overlay.isOverlay(window)) continue;
+                window.setContentProtection(Boolean(on));
             }
         },
     });
+    // The card in the corner of the screen while an agent is at work, drawn
+    // by the same bundle as this window. See ai/overlay.js.
+    overlay.configure({ urlOf: () => getWindow()?.webContents.getURL() || '' });
 
     // The scheduler: fires jobs through the assistant, probes through the
     // agent's local tools, and delivers results through the toast above.
@@ -1846,7 +1853,119 @@ function register(getWindow) {
         memory.search(String(agentId || agents.activeId()), String(query || ''), limit || 20));
     handle('memory-status', (event, agentId) => memory.status(String(agentId || agents.activeId())));
 
+    // One agent's notebook as a JSON file, and a file like it read into
+    // another. The file is plain text on purpose: the notes are what the
+    // page shows anyway, and nothing secret belongs in them.
+    handle('memory-export', async (event, agentId) => {
+        const owner = String(agentId || agents.activeId());
+        const name = agents.get(owner)?.name || '';
+        const payload = memory.exportAgent(owner, { name });
+        const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'agent';
+        const stamp = new Date().toISOString().slice(0, 10);
+        const { canceled, filePath } = await dialog.showSaveDialog(getWindow(), {
+            title: 'Export memory',
+            defaultPath: `${slug}-memory-${stamp}.json`,
+            filters: [{ name: 'JSON', extensions: ['json'] }],
+        });
+        if (canceled || !filePath) return { success: false, canceled: true };
+        try {
+            fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), 'utf8');
+        } catch (error) {
+            return { success: false, message: `Could not write the file: ${error.message}` };
+        }
+        return { success: true, path: filePath, count: payload.entries.length };
+    });
+
+    handle('memory-import', async (event, agentId) => {
+        const owner = String(agentId || agents.activeId());
+        const { canceled, filePaths } = await dialog.showOpenDialog(getWindow(), {
+            title: 'Import memory',
+            properties: ['openFile'],
+            filters: [
+                { name: 'JSON', extensions: ['json'] },
+                { name: 'All Files', extensions: ['*'] },
+            ],
+        });
+        if (canceled || !filePaths?.[0]) return { success: false, canceled: true };
+
+        let payload;
+        try {
+            // A full notebook is a few megabytes; anything far past that is
+            // not one, and is not worth reading whole to find that out.
+            if (fs.statSync(filePaths[0]).size > 64 * 1024 * 1024) {
+                return { success: false, message: 'That file is too large to be a memory export' };
+            }
+            payload = JSON.parse(fs.readFileSync(filePaths[0], 'utf8').replace(/^﻿/, ''));
+        } catch {
+            return { success: false, message: 'That file is not valid JSON' };
+        }
+
+        const result = memory.importAgent(owner, payload);
+        if (!result) return { success: false, message: 'That file holds no notes' };
+
+        // What an agent remembers goes into every conversation it has, so a
+        // batch of it arriving from a file is worth a line.
+        activity.record({
+            category: 'data',
+            action: 'memory.import',
+            target: agents.get(owner)?.name || 'Agent',
+            detail: `${result.added} note(s) added, ${result.updated} updated, ${result.skipped} skipped`
+                + ` from ${path.basename(filePaths[0])}`,
+        });
+        return { success: true, ...result };
+    });
+
     /* ---------------- Assistant: windows of its own ---------------- */
+
+    // The composer's microphone, transcribed here, by the engine and model
+    // chosen in Settings. See ai/speech.js.
+    speech.setNotifier(state => broadcast('ai-speech', state));
+    handle('ai-transcribe', async (event, payload) => {
+        const current = assistant.settings.get();
+        if (!current.voiceInput) return { text: '', error: 'Voice input is switched off in Settings.' };
+        try {
+            return await speech.transcribe(payload?.samples, {
+                engine: current.voiceEngine,
+                model: current.voiceModel,
+                language: current.voiceLanguage,
+                appLanguage: payload?.language || '',
+            });
+        } catch (error) {
+            return { text: '', error: error.message };
+        }
+    });
+    handle('ai-speech-status', (event, options) => speech.status({ fresh: Boolean(options?.fresh) }));
+    // Installing Faster-Whisper's package is the user's to start, from Settings.
+    handle('ai-speech-install', () => speech.install());
+    // Parakeet's model, fetched ahead of the first use, from Settings.
+    handle('ai-speech-download', async () => {
+        try {
+            await speech.parakeet.download();
+            return { ok: true };
+        } catch (error) {
+            return { ok: false, error: error.message };
+        }
+    });
+
+    // Live dictation (Parakeet): audio streamed in while the user talks, the
+    // words so far sent back to the window that is listening, the rest handed
+    // over on stop. See ai/parakeet.js.
+    handle('ai-dictation-start', (event) => {
+        const current = assistant.settings.get();
+        if (!current.voiceInput) return { error: 'Voice input is switched off in Settings.' };
+        const sender = event.sender;
+        return speech.parakeet.start({
+            onUpdate: (update) => {
+                if (!sender.isDestroyed()) sender.send('ai-dictation', update);
+            },
+        });
+    });
+    ipcMain.on('ai-dictation-audio', (event, id, samples) => {
+        if (vault.isLocked()) return;
+        speech.parakeet.audio(id, samples);
+    });
+    handle('ai-dictation-stop', (event, id) => speech.parakeet.stop(id));
+    handle('ai-dictation-cancel', (event, id) => speech.parakeet.cancel(id));
 
     // Lifting tabs into a window, and what that window is told. See
     // `ai/windows.js`. The parent is whichever window asked, so a window

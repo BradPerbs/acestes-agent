@@ -97,6 +97,74 @@ export function insideFaces(mesh, normals, crest) {
     });
 }
 
+/**
+ * The same for any helmet, found from where the head would be (the middle of
+ * the helmet, crest aside): a face is the inside if it turns towards the head
+ * and is the first thing a ray from the head to it meets. The test by
+ * direction alone takes the side of a horn or the top of a brim for the
+ * inside, since they turn towards the middle too; from the head they are
+ * behind the shell.
+ *
+ * Rays are only tested against the faces in the same patch of the sky around
+ * the head, a grid of polar angle and azimuth each face is filed under.
+ */
+export function insideFromHead(mesh, normals, crest) {
+    const { verts, faces } = mesh;
+    const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+    faces.forEach((face, i) => {
+        if (crest[i]) return;
+        for (const v of face) for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], verts[v][k]); hi[k] = Math.max(hi[k], verts[v][k]); }
+    });
+    const head = [0, 1, 2].map(k => (lo[k] + hi[k]) / 2);
+
+    const T = 96, P = 192;
+    const direction = p => unit(sub(p, head));
+    const cellOf = ([x, y, z]) => [
+        Math.min(T - 1, Math.floor((Math.acos(Math.max(-1, Math.min(1, y))) / Math.PI) * T)),
+        Math.min(P - 1, Math.floor(((Math.atan2(z, x) + Math.PI) / (2 * Math.PI)) * P)),
+    ];
+    const cells = Array.from({ length: T * P }, () => []);
+    faces.forEach((face, i) => {
+        const at = face.map(v => cellOf(direction(verts[v])));
+        const t0 = Math.min(...at.map(c => c[0])), t1 = Math.max(...at.map(c => c[0]));
+        const p0 = Math.min(...at.map(c => c[1])), p1 = Math.max(...at.map(c => c[1]));
+        const pole = t0 <= 1 || t1 >= T - 2; // near a pole the azimuth means little: every one
+        const wraps = p1 - p0 > P / 2; // across the seam behind: the short way round
+        for (let t = Math.max(0, t0 - 1); t <= Math.min(T - 1, t1 + 1); t++) {
+            const [from, to] = pole ? [0, P - 1] : wraps ? [p1 - 1, p0 + P + 1] : [p0 - 1, p1 + 1];
+            for (let p = from; p <= to; p++) cells[t * P + ((p + P) % P)].push(i);
+        }
+    });
+
+    /** How far along the ray from `o` in direction `d` it meets `face`, or Infinity. */
+    const meet = (o, d, face) => {
+        const [a, b, c] = face.map(v => verts[v]);
+        const e1 = sub(b, a), e2 = sub(c, a);
+        const p = cross(d, e2);
+        const det = dot(e1, p);
+        if (Math.abs(det) < 1e-12) return Infinity;
+        const s = sub(o, a);
+        const u = dot(s, p) / det;
+        if (u < 0 || u > 1) return Infinity;
+        const q = cross(s, e1);
+        const v = dot(d, q) / det;
+        if (v < 0 || u + v > 1) return Infinity;
+        const t = dot(e2, q) / det;
+        return t > 1e-6 ? t : Infinity;
+    };
+
+    return faces.map((face, i) => {
+        if (crest[i]) return false;
+        const middle = [0, 1, 2].map(k => (verts[face[0]][k] + verts[face[1]][k] + verts[face[2]][k]) / 3);
+        const back = sub(head, middle);
+        if (dot(normals[i], back) <= 0) return false;
+        const distance = Math.hypot(...back);
+        const d = back.map(c => -c / distance);
+        const [t, p] = cellOf(d);
+        return cells[t * P + p].every(j => j === i || meet(head, d, faces[j]) >= distance * 0.995);
+    });
+}
+
 /* ---- Closing the helmet once the crest is off ---------------------------- */
 
 /** The holes in a set of faces: loops of edges that only one face uses. */

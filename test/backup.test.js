@@ -399,6 +399,34 @@ check('memories round trip with their ids', () => {
     assert.strictEqual(again.skipped, 1);
 });
 
+check('one notebook exports as a file and imports into another agent', () => {
+    const file = JSON.parse(JSON.stringify(memoryC.exportAgent(workAgentId, { name: 'Work' })));
+    assert.strictEqual(file.format, 'acestes-memory');
+    assert.strictEqual(file.agent.name, 'Work');
+    assert.strictEqual(file.entries.length, 1);
+
+    const result = memoryD.importAgent('other-agent', file);
+    assert.deepStrictEqual(result, { added: 1, updated: 0, skipped: 0 });
+    const notes = memoryD.list('other-agent');
+    assert.strictEqual(notes[0].text, 'The user prefers vim.');
+    assert.strictEqual(notes[0].source, 'user');
+    assert.strictEqual(notes[0].createdAt, file.entries[0].createdAt);
+
+    // The same file again adds nothing; a newer copy of the note replaces it.
+    assert.deepStrictEqual(memoryD.importAgent('other-agent', file), { added: 0, updated: 0, skipped: 1 });
+    const newer = { ...file.entries[0], text: 'The user prefers neovim.', updatedAt: file.entries[0].updatedAt + 1 };
+    assert.deepStrictEqual(memoryD.importAgent('other-agent', { entries: [newer] }), { added: 0, updated: 1, skipped: 0 });
+    assert.strictEqual(memoryD.list('other-agent')[0].text, 'The user prefers neovim.');
+});
+
+check('a notebook import takes bare lists and plain sentences, and refuses anything else', () => {
+    const result = memoryD.importAgent('list-agent', ['Staging runs Ubuntu 22.04.', { text: '  ' }, 'staging runs ubuntu 22.04.']);
+    assert.deepStrictEqual(result, { added: 1, updated: 0, skipped: 2 });
+    assert.strictEqual(memoryD.list('list-agent')[0].source, 'agent');
+    assert.strictEqual(memoryD.importAgent('list-agent', { hosts: [] }), null);
+    assert.strictEqual(memoryD.importAgent('list-agent', null), null);
+});
+
 check('jobs round trip with fresh execution state', () => {
     assert.strictEqual(jobsResult.added, 1);
     const job = jobsD.get(createdJob.job.id);

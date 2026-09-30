@@ -253,6 +253,21 @@ async function flushEmbeds(store) {
 
 const copy = (entry) => ({ ...entry, tags: [...entry.tags] });
 
+/**
+ * The oldest go first once the notebook is full: what was true years ago is
+ * the least likely thing in it still to be true.
+ */
+function trim(store) {
+    if (store.entries.length <= MAX_ENTRIES) return;
+    const dropped = store.entries
+        .sort((a, b) => a.updatedAt - b.updatedAt)
+        .splice(0, store.entries.length - MAX_ENTRIES);
+    for (const old of dropped) {
+        store.vectors.delete(old.id);
+        store.pending.delete(old.id);
+    }
+}
+
 /** Every note, most recently touched first. */
 function list(agentId) {
     return [...load(agentId).entries]
@@ -279,17 +294,7 @@ function add(agentId, { text, tags, source } = {}) {
     }
 
     store.entries.push(entry);
-    // The oldest go first once the notebook is full: what was true years ago
-    // is the least likely thing in it still to be true.
-    if (store.entries.length > MAX_ENTRIES) {
-        const dropped = store.entries
-            .sort((a, b) => a.updatedAt - b.updatedAt)
-            .splice(0, store.entries.length - MAX_ENTRIES);
-        for (const old of dropped) {
-            store.vectors.delete(old.id);
-            store.pending.delete(old.id);
-        }
-    }
+    trim(store);
     persist(store);
 
     store.pending.add(entry.id);
@@ -519,15 +524,7 @@ function importAll(payload, { overwrite = false } = {}) {
                 result.skipped++;
             }
         }
-        if (store.entries.length > MAX_ENTRIES) {
-            const dropped = store.entries
-                .sort((a, b) => a.updatedAt - b.updatedAt)
-                .splice(0, store.entries.length - MAX_ENTRIES);
-            for (const old of dropped) {
-                store.vectors.delete(old.id);
-                store.pending.delete(old.id);
-            }
-        }
+        trim(store);
         if (changed) {
             persist(store);
             scheduleEmbed(store);
@@ -536,4 +533,93 @@ function importAll(payload, { overwrite = false } = {}) {
     return result;
 }
 
-module.exports = { setNotifier, list, add, update, remove, search, relevant, summary, moveAll, status, exportAll, importAll };
+/* ------------------------------------------------------------------ *
+ * One notebook as a file
+ * ------------------------------------------------------------------ */
+
+const FORMAT = 'acestes-memory';
+
+/**
+ * One agent's notebook as a file a person can keep or hand to another agent:
+ * the notes, their dates and who wrote them. Not the index, which the
+ * machine that imports it builds for itself.
+ */
+function exportAgent(agentId, { name = '' } = {}) {
+    return {
+        format: FORMAT,
+        version: VERSION,
+        exportedAt: new Date().toISOString(),
+        agent: { id: String(agentId || ''), name: String(name || '') },
+        entries: list(agentId),
+    };
+}
+
+/**
+ * The notes a file holds, in whichever shape it came: an export from the
+ * Memory page, a notebook file from this folder (the same `entries`), or a
+ * bare list of notes or of plain sentences. Null when it is none of these.
+ */
+function entriesIn(payload) {
+    let raw = null;
+    if (Array.isArray(payload)) raw = payload;
+    else if (Array.isArray(payload?.entries)) raw = payload.entries;
+    if (!raw) return null;
+    return raw.map(item => (typeof item === 'string' ? { text: item } : item));
+}
+
+/**
+ * Fold a file's notes into one agent's notebook. A note that is already
+ * there under the same id keeps whichever copy was touched last; one that
+ * says what another note already says is left out, as `add` would. The rest
+ * arrive with their own dates and author, and are indexed in the background.
+ */
+function importAgent(agentId, payload) {
+    const incoming = entriesIn(payload);
+    if (!incoming) return null;
+
+    const store = load(agentId);
+    const result = { added: 0, updated: 0, skipped: 0 };
+    for (const raw of incoming) {
+        const entry = normalizeEntry(raw);
+        if (!entry) {
+            result.skipped += 1;
+            continue;
+        }
+
+        const held = store.entries.find(note => note.id === entry.id);
+        if (held) {
+            if (entry.updatedAt <= held.updatedAt) {
+                result.skipped += 1;
+                continue;
+            }
+            if (entry.text !== held.text) {
+                store.vectors.delete(held.id);
+                store.pending.add(held.id);
+            }
+            Object.assign(held, entry);
+            result.updated += 1;
+            continue;
+        }
+
+        const said = entry.text.toLowerCase();
+        if (store.entries.some(note => note.text.toLowerCase() === said)) {
+            result.skipped += 1;
+            continue;
+        }
+        store.entries.push(entry);
+        store.pending.add(entry.id);
+        result.added += 1;
+    }
+
+    if (result.added || result.updated) {
+        trim(store);
+        persist(store);
+        scheduleEmbed(store);
+    }
+    return result;
+}
+
+module.exports = {
+    setNotifier, list, add, update, remove, search, relevant, summary, moveAll, status,
+    exportAll, importAll, exportAgent, importAgent,
+};

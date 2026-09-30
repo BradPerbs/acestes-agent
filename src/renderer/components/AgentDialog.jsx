@@ -7,13 +7,13 @@ import Field, { FIELD_CLASS } from './ui/Field';
 import SegmentedControl from './ui/SegmentedControl';
 import AgentMark from './assistant/AgentMark';
 import { AGENT_COLORS } from '../lib/agent-colors';
-import { AGENT_CRESTS, agentLook } from '../lib/agent-look';
+import { AGENT_CRESTS, AGENT_HELMETS, agentLook, helmetCrests } from '../lib/agent-look';
 import { useT } from '../i18n';
 
 /**
  * Naming an agent, new or renamed, and picking how its mark looks.
  *
- * The look (a colour, and the crest or none) is what tells one agent's mark
+ * The look (a colour, a helmet, and what it wears on top) is what tells one agent's mark
  * from another's across the app, so it is chosen here, where the agent is
  * made, with the mark itself drawn in each choice on offer rather than a row
  * of paint chips and a list of names.
@@ -200,37 +200,46 @@ function ModeInfo() {
 /**
  * One row of choices for a part of the look, each drawn as the mark wearing
  * it, in the colour already picked, so what is being chosen is the whole
- * face and not a word for part of it.
+ * face and not a word for part of it. `lookFor` is the look an option would
+ * make; an option not in `available` is shown but cannot be picked.
  */
-function LookChoice({ label, options, value, look, part, onChange }) {
+function LookChoice({ label, options, value, lookFor, part, onChange, available = options, wide = false }) {
     const t = useT();
     return (
         <div className="flex flex-col gap-1.5">
             <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">{label}</span>
-            <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label={label}>
-                {options.map(option => (
-                    <button
-                        key={option}
-                        type="button"
-                        role="radio"
-                        aria-checked={value === option}
-                        onClick={() => onChange(option)}
-                        className={`flex items-center gap-2 px-2.5 py-2 rounded-xl border transition-colors outline-none
-                            focus-visible:ring-2 focus-visible:ring-gray-900/20 dark:focus-visible:ring-white/25
-                            ${value === option
-                                ? 'border-gray-900 dark:border-white bg-gray-50 dark:bg-white/[0.06]'
-                                : 'border-gray-200 dark:border-neutral-700 hover:border-gray-300 dark:hover:border-neutral-600'}`}
-                    >
-                        <AgentMark size={30} look={{ ...look, [part]: option }} />
-                        <span className="text-xs font-medium text-gray-800 dark:text-gray-200 truncate">
-                            {t(`agents.${part}.${option}`)}
-                        </span>
-                    </button>
-                ))}
+            <div className={`grid ${wide ? 'grid-cols-3' : 'grid-cols-2'} gap-2`} role="radiogroup" aria-label={label}>
+                {options.map((option) => {
+                    const disabled = !available.includes(option);
+                    return (
+                        <button
+                            key={option}
+                            type="button"
+                            role="radio"
+                            aria-checked={value === option}
+                            disabled={disabled}
+                            onClick={() => onChange(option)}
+                            className={`flex items-center gap-2 px-2.5 py-2 rounded-xl border transition-colors outline-none
+                                focus-visible:ring-2 focus-visible:ring-gray-900/20 dark:focus-visible:ring-white/25
+                                disabled:opacity-40 disabled:cursor-not-allowed
+                                ${value === option
+                                    ? 'border-gray-900 dark:border-white bg-gray-50 dark:bg-white/[0.06]'
+                                    : 'border-gray-200 dark:border-neutral-700 enabled:hover:border-gray-300 dark:enabled:hover:border-neutral-600'}`}
+                        >
+                            <AgentMark size={30} look={lookFor(option)} />
+                            <span className="text-xs font-medium text-gray-800 dark:text-gray-200 truncate">
+                                {t(`agents.${part}.${option}`)}
+                            </span>
+                        </button>
+                    );
+                })}
             </div>
         </div>
     );
 }
+
+/** `crest` on `helmet` if it can wear it, or the crest it usually wears. */
+const crestOn = (helmet, crest) => (helmetCrests(helmet).includes(crest) ? crest : helmetCrests(helmet)[0]);
 
 export default function AgentDialog({ agent = null, suggestedLook = null, onClose, onSave }) {
     const t = useT();
@@ -329,13 +338,30 @@ export default function AgentDialog({ agent = null, suggestedLook = null, onClos
                     </div>
                 </div>
 
+                {/* Each helmet shown, and picked, in the crest already chosen
+                    where it can wear it, or else in the one it usually wears. */}
+                <LookChoice
+                    label={t('agents.helmetLabel')}
+                    part="helmet"
+                    options={AGENT_HELMETS.map(entry => entry.id)}
+                    value={look.helmet}
+                    lookFor={helmet => ({ ...look, helmet, crest: crestOn(helmet, look.crest) })}
+                    onChange={helmet => setLook(current => ({ ...current, helmet, crest: crestOn(helmet, current.crest) }))}
+                    wide
+                />
+
+                {/* Always there, so the dialog does not change height under the
+                    pointer; a helmet whose own ornaments stand where a crest
+                    would (the kabuto) can only be bare. */}
                 <LookChoice
                     label={t('agents.crestLabel')}
                     part="crest"
                     options={AGENT_CRESTS}
+                    available={helmetCrests(look.helmet)}
                     value={look.crest}
-                    look={look}
+                    lookFor={crest => ({ ...look, crest })}
                     onChange={setPart('crest')}
+                    wide
                 />
 
                 {!agent && (

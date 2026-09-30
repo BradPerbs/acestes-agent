@@ -68,12 +68,20 @@ function normalizeHook(raw) {
 const COLORS = ['sky', 'violet', 'emerald', 'amber', 'rose', 'orange', 'teal', 'slate', 'white', 'black'];
 
 /**
- * Whether the helmet on the mark wears its crest, by id, the same way: the
- * helmet is drawn in the renderer (`components/assistant/helmet`), and this
- * list only has to agree with it. An agent saved before there was a choice
- * wears the crest.
+ * What the helmet on the mark wears on top, by id, the same way: the helmet
+ * is drawn in the renderer (`components/assistant/helmet`), and this list
+ * only has to agree with it. An agent saved before there was a choice wears
+ * the first, the plume.
  */
-const CRESTS = ['plume', 'none'];
+const CRESTS = ['plume', 'transverse', 'horns', 'crown', 'feathers', 'none'];
+
+/**
+ * Which helmet the mark is, by id, the same way again. An agent saved before
+ * there was a choice wears the first, the Corinthian. Which crests a helmet
+ * can wear is the renderer's to say (`lib/agent-look.js`): one it cannot
+ * wear gives way to one it can, whatever is stored.
+ */
+const HELMETS = ['corinthian', 'trojan', 'attic', 'galea', 'viking', 'greathelm', 'barbute', 'morion', 'kabuto'];
 
 const filePath = () => path.join(app.getPath('userData'), 'agents.json');
 
@@ -246,6 +254,7 @@ function normalizeAgent(raw) {
         id,
         name: clean(raw.name) || DEFAULT_NAME,
         color: COLORS.includes(raw.color) ? raw.color : COLORS[0],
+        helmet: HELMETS.includes(raw.helmet) ? raw.helmet : HELMETS[0],
         crest: CRESTS.includes(raw.crest) ? raw.crest : CRESTS[0],
         createdAt: Number.isFinite(raw.createdAt) ? raw.createdAt : Date.now(),
         // The assistant settings this agent overrides. Validated by the
@@ -263,11 +272,12 @@ function normalizeAgent(raw) {
     };
 }
 
-function fresh(name = DEFAULT_NAME, color = COLORS[0], crest = CRESTS[0]) {
+function fresh(name = DEFAULT_NAME, color = COLORS[0], crest = CRESTS[0], helmet = HELMETS[0]) {
     return {
         id: nextId('agent'),
         name,
         color: COLORS.includes(color) ? color : COLORS[0],
+        helmet: HELMETS.includes(helmet) ? helmet : HELMETS[0],
         crest: CRESTS.includes(crest) ? crest : CRESTS[0],
         createdAt: Date.now(),
         settings: {},
@@ -325,6 +335,7 @@ function publicAgent(agent) {
         id: agent.id,
         name: agent.name,
         color: agent.color,
+        helmet: agent.helmet,
         crest: agent.crest,
         createdAt: agent.createdAt,
         mcpServers: agent.mcpServers.map(server => ({ ...server, env: { ...server.env }, headers: { ...(server.headers || {}) } })),
@@ -391,13 +402,14 @@ function select(id) {
  * A new one is selected on creation: making an agent and then having to pick
  * it is two steps for one intention.
  */
-function save({ id, name, color, crest, mcpServers, sandbox: envelope, hooks: hookList } = {}) {
+function save({ id, name, color, helmet, crest, mcpServers, sandbox: envelope, hooks: hookList } = {}) {
     const current = load();
     const existing = id ? current.agents.find(agent => agent.id === id) : null;
 
     if (existing) {
         if (name !== undefined) existing.name = clean(name) || existing.name;
         if (COLORS.includes(color)) existing.color = color;
+        if (HELMETS.includes(helmet)) existing.helmet = helmet;
         if (CRESTS.includes(crest)) existing.crest = crest;
         if (Array.isArray(mcpServers)) {
             existing.mcpServers = mcpServers.map(server => normalizeServer(server, existing.id)).filter(Boolean).slice(0, MAX_SERVERS);
@@ -419,7 +431,7 @@ function save({ id, name, color, crest, mcpServers, sandbox: envelope, hooks: ho
         return { ...snapshot(), error: `At most ${MAX_AGENTS} agents.` };
     }
 
-    const agent = fresh(clean(name) || DEFAULT_NAME, color, crest);
+    const agent = fresh(clean(name) || DEFAULT_NAME, color, crest, helmet);
     if (Array.isArray(mcpServers)) {
         agent.mcpServers = mcpServers.map(server => normalizeServer(server, agent.id)).filter(Boolean).slice(0, MAX_SERVERS);
     }

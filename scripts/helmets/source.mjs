@@ -21,8 +21,8 @@ export const SOURCE = {
     file: 'files/Helm.stl',
 };
 
-/** One file out of a zip archive, by name. Only what this archive needs: stored or deflated entries. */
-function unzip(buffer, name) {
+/** One file out of a zip archive, by name. Only what these archives need: stored or deflated entries. */
+export function unzip(buffer, name) {
     // the end of central directory record, searched for from the back
     let end = buffer.length - 22;
     while (end >= 0 && buffer.readUInt32LE(end) !== 0x06054b50) end -= 1;
@@ -62,7 +62,7 @@ export async function fetchSource(cacheDir) {
 }
 
 /** Triangles out of an STL, binary or text. */
-function readSTL(buffer) {
+export function readSTL(buffer) {
     const count = buffer.readUInt32LE(80);
     const triangles = [];
     if (84 + count * 50 === buffer.length) {
@@ -87,7 +87,7 @@ function readSTL(buffer) {
 }
 
 /** Shared corners made one vertex: an STL stores every triangle's corners separately. */
-function weld(triangles, tolerance) {
+export function weld(triangles, tolerance) {
     const index = new Map();
     const verts = [];
     const faces = [];

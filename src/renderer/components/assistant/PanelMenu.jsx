@@ -62,6 +62,14 @@ import { useT } from '../../i18n';
  * a button nested in a button is not a thing, and it only appears on hover: a
  * delete on every row of a list you are scanning is an invitation to misclick.
  *
+ * Or `actions`, for a row that is a thing with more than one verb: the agent
+ * menu, where an agent can be picked, but also edited, or talked to straight
+ * away without being picked first. Each is `{ key, label, icon, onClick }`,
+ * drawn with the bin in the same hover strip, in order, and picking one shuts
+ * the menu, since each of them goes somewhere. The row gives the strip room
+ * only while it shows, so a name is not cut short for buttons that are not
+ * there, and the tick steps aside for it.
+ *
  * A row is meant to be read, not decoded. Two lines, and the separation between
  * them comes from the title going the whole way to white rather than from the
  * description being dimmed into the background: a description at 11px has to
@@ -100,6 +108,23 @@ const REMOVE = `absolute right-1 top-1/2 -translate-y-1/2 w-6 h-6 rounded-md
     text-gray-400 dark:text-neutral-500
     hover:bg-red-500/10 hover:text-red-500 dark:hover:text-red-400`;
 
+/** The hover strip of a row with `actions`, and one button in it. */
+const ACTIONS = `absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5
+    opacity-0 pointer-events-none transition-opacity
+    group-hover/row:opacity-100 group-hover/row:pointer-events-auto
+    group-focus-within/row:opacity-100 group-focus-within/row:pointer-events-auto`;
+
+const ACTION = `w-6 h-6 rounded-md flex items-center justify-center transition-colors
+    text-gray-500 dark:text-neutral-400
+    hover:bg-gray-900/[0.07] hover:text-gray-900 dark:hover:bg-white/[0.08] dark:hover:text-white`;
+
+const ACTION_DANGER = `w-6 h-6 rounded-md flex items-center justify-center transition-colors
+    text-gray-400 dark:text-neutral-500
+    hover:bg-red-500/10 hover:text-red-500 dark:hover:text-red-400`;
+
+/** One button's width and the strip's gap, for the room a row makes for them. */
+const ACTION_ROOM = 26;
+
 /**
  * The box on a checkable row.
  *
@@ -135,13 +160,22 @@ function CheckBox({ checked }) {
  * the same reason the hook exists: the wrapper is an `inline-flex` span, and a
  * full-width row inside a content-sized box is a row that collapses.
  */
-function Row({ option, section, checked, onPick }) {
+function Row({ option, section, checked, onPick, onClose }) {
     const t = useT();
     const { triggerProps, tooltip } = useTooltip({
         label: option.tooltip,
         hint: option.tooltipHint,
         placement: 'left',
     });
+
+    const actions = option.actions || [];
+    const strip = actions.length > 0;
+    const room = strip ? (actions.length + (option.onRemove ? 1 : 0)) * ACTION_ROOM + 6 : 0;
+    const act = (event, run) => {
+        event.stopPropagation();
+        onClose();
+        run();
+    };
 
     return (
         <div className="relative group/row">
@@ -151,7 +185,10 @@ function Row({ option, section, checked, onPick }) {
                 aria-checked={checked}
                 {...triggerProps}
                 onClick={onPick}
-                className={`${ITEM} ${option.onRemove ? 'pr-8' : ''}
+                style={strip ? { '--room': `${room}px` } : undefined}
+                className={`${ITEM}
+                    ${option.onRemove && !strip ? 'pr-8' : ''}
+                    ${strip ? 'group-hover/row:pr-[var(--room)] group-focus-within/row:pr-[var(--room)]' : ''}
                     ${checked && !section.multi ? SELECTED : HOVER}`}
             >
                 {/* The box and the mark are one leading block on a tighter gap
@@ -202,12 +239,41 @@ function Row({ option, section, checked, onPick }) {
                     <Tick02Icon
                         size={14}
                         strokeWidth={2.5}
-                        className="shrink-0 text-gray-900 dark:text-white"
+                        className={`shrink-0 text-gray-900 dark:text-white
+                            ${strip ? 'group-hover/row:hidden group-focus-within/row:hidden' : ''}`}
                     />
                 )}
             </button>
 
-            {option.onRemove && (
+            {strip && (
+                <div className={ACTIONS}>
+                    {actions.map(action => (
+                        <button
+                            key={action.key}
+                            type="button"
+                            aria-label={action.label}
+                            title={action.label}
+                            onClick={(event) => act(event, action.onClick)}
+                            className={ACTION}
+                        >
+                            {action.icon}
+                        </button>
+                    ))}
+                    {option.onRemove && (
+                        <button
+                            type="button"
+                            aria-label={t('common.deleteNamed', { name: option.label })}
+                            title={t('common.delete')}
+                            onClick={(event) => act(event, option.onRemove)}
+                            className={ACTION_DANGER}
+                        >
+                            <Delete02Icon size={13} strokeWidth={1.5} />
+                        </button>
+                    )}
+                </div>
+            )}
+
+            {option.onRemove && !strip && (
                 <button
                     type="button"
                     aria-label={t('common.deleteNamed', { name: option.label })}
@@ -358,6 +424,7 @@ export default function PanelMenu({
                                             option={option}
                                             section={section}
                                             checked={checked}
+                                            onClose={() => setOpen(false)}
                                             onPick={() => {
                                                 // A checkable row leaves the menu
                                                 // open: picking three servers

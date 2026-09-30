@@ -1,12 +1,22 @@
 import { memo, useCallback, useEffect, useState } from 'react';
-import { BrainIcon, Delete02Icon, Edit02Icon, PlusSignIcon, SearchRemoveIcon } from 'hugeicons-react';
+import toast from 'react-hot-toast';
+import {
+    BrainIcon,
+    Delete02Icon,
+    Download04Icon,
+    Edit02Icon,
+    FileImportIcon,
+    PlusSignIcon,
+    SearchRemoveIcon,
+} from 'hugeicons-react';
 import Dialog from './ui/Dialog';
-import Button from './ui/Button';
+import Button, { IconButton } from './ui/Button';
 import ConfirmDialog from './ui/ConfirmDialog';
 import EmptyFrame from './ui/EmptyFrame';
 import Field, { FIELD_CLASS } from './ui/Field';
 import SearchField from './ui/SearchField';
 import { useT } from '../i18n';
+import { toastOptions } from '../lib/toast';
 
 /**
  * What the selected agent remembers, as a list a person can read and edit.
@@ -159,6 +169,36 @@ function MemoryPanel({ agentId = '' }) {
         });
     }, [agentId, refresh, t]);
 
+    // The notebook as a file, and a file like it into this agent's notebook.
+    // Main owns the dialogs; a cancelled one comes back as `canceled`.
+    const exportNotes = useCallback(async () => {
+        const result = await window.api.memory.exportFile(agentId);
+        if (result?.canceled) return;
+        if (result?.success) {
+            toast.success(t('memory.exported', { count: result.count }), toastOptions({ duration: 2400 }));
+        } else {
+            toast.error(result?.message || t('memory.exportFailed'), toastOptions());
+        }
+    }, [agentId, t]);
+
+    const importNotes = useCallback(async () => {
+        const result = await window.api.memory.importFile(agentId);
+        if (result?.canceled) return;
+        if (!result?.success) {
+            toast.error(result?.message || t('memory.importFailed'), toastOptions());
+            return;
+        }
+        refresh();
+        if (!result.added && !result.updated) {
+            toast(t('memory.importNothing'), toastOptions({ duration: 2400 }));
+            return;
+        }
+        const parts = [t('memory.imported', { count: result.added })];
+        if (result.updated) parts.push(t('memory.importUpdated', { count: result.updated }));
+        if (result.skipped) parts.push(t('memory.importSkipped', { count: result.skipped }));
+        toast.success(parts.join(' · '), toastOptions({ duration: 3200 }));
+    }, [agentId, refresh, t]);
+
     return (
         <div className="flex flex-col gap-4 h-full min-h-0" id="memory-panel">
             <div className="flex flex-wrap items-center gap-2 shrink-0">
@@ -169,6 +209,17 @@ function MemoryPanel({ agentId = '' }) {
                     placeholder={t('memory.search')}
                 />
                 <div className="flex items-center gap-2 shrink-0 ml-auto">
+                    <IconButton
+                        onClick={importNotes}
+                        title={t('memory.import')}
+                        icon={<FileImportIcon size={18} strokeWidth={1.75} />}
+                    />
+                    <IconButton
+                        onClick={exportNotes}
+                        disabled={entries.length === 0}
+                        title={t('memory.export')}
+                        icon={<Download04Icon size={18} strokeWidth={1.75} />}
+                    />
                     <Button
                         variant="primary"
                         icon={<PlusSignIcon size={16} strokeWidth={2.5} />}

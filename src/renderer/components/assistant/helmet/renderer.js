@@ -25,17 +25,39 @@
  * face openings cut out of it and a hair of space where the helmet passes in
  * front of its crest. Lines at that size are only a grey smudge.
  *
- * The mesh (`mesh.js`, made by `scripts/helmets`) is loaded on first use, in
- * a chunk of its own: at a few hundred kilobytes it has no business in the
- * bundle every window starts with.
+ * Each helmet's mesh (`meshes/`, made by `scripts/helmets`) is loaded the
+ * first time a mark wears it, in a chunk of its own: at a few hundred
+ * kilobytes each they have no business in the bundle every window starts
+ * with, and most people only ever see one or two of them.
  */
 
 const INSIDE = 1, CREST = 2, PATCH = 4;
 
+/** The helmets, by the id an agent's look stores (see `lib/agent-look.js`). */
+const MESHES = {
+    corinthian: () => import('./meshes/corinthian.js'),
+    trojan: () => import('./meshes/trojan.js'),
+    attic: () => import('./meshes/attic.js'),
+    galea: () => import('./meshes/galea.js'),
+    viking: () => import('./meshes/viking.js'),
+    greathelm: () => import('./meshes/greathelm.js'),
+    barbute: () => import('./meshes/barbute.js'),
+    morion: () => import('./meshes/morion.js'),
+    kabuto: () => import('./meshes/kabuto.js'),
+};
+const FIRST = 'corinthian';
+
 /** The pose a mark rests in: the face turned a little under half way, looked on from a little above. */
 export const REST = { yaw: 48, pitch: 14 };
 
-function decode(base64) {
+/**
+ * A crest fitted to a helmet (`crests` in its mesh file) is packed at half
+ * its size: in the helmet's frame it can stand taller than the helmet, and
+ * the packing only holds -1 to 1.
+ */
+const PIECE_SCALE = 2;
+
+function decode(base64, scale = 1) {
     const bin = atob(base64);
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
@@ -46,7 +68,7 @@ function decode(base64) {
     const nV = u32(), nF = u32(), nMend = u32(), nCP = u32(), nCB = u32(), nS = u32(), nSP = u32();
     const pad4 = (n) => Math.ceil(n / 4) * 4;
     const positions = new Float32Array(nV * 3);
-    for (let i = 0; i < nV * 3; i++) { positions[i] = view.getInt16(o, true) / 32767; o += 2; }
+    for (let i = 0; i < nV * 3; i++) { positions[i] = (view.getInt16(o, true) / 32767) * scale; o += 2; }
     const faces = new Uint16Array(nF * 3);
     for (let i = 0; i < nF * 3; i++) { faces[i] = view.getUint16(o, true); o += 2; }
     const flags = bytes.slice(o, o + nF);
@@ -62,7 +84,7 @@ function decode(base64) {
     for (let i = 0; i < nS; i++) counts.push(view.getUint16(o + i * 2, true));
     o += pad4(nS * 2);
     const strandPts = new Float32Array(nSP * 3);
-    for (let i = 0; i < nSP * 3; i++) { strandPts[i] = view.getInt16(o, true) / 32767; o += 2; }
+    for (let i = 0; i < nSP * 3; i++) { strandPts[i] = (view.getInt16(o, true) / 32767) * scale; o += 2; }
     return { nV, nF, positions, faces, flags, mended, creases, nCP, nCB, counts, strandPts };
 }
 
@@ -214,13 +236,12 @@ function segmentVao(gl, prog, corner, data) {
     return { vao, count: data.length / 6 };
 }
 
-function build(meshBase64) {
+/** The context every mark shares, and what it draws with; null where there is no WebGL2. */
+function context() {
     const canvas = document.createElement('canvas');
     canvas.width = canvas.height = 256;
     const gl = canvas.getContext('webgl2', { antialias: false, alpha: true, premultipliedAlpha: true, preserveDrawingBuffer: true, depth: false });
     if (!gl) return null;
-    const mesh = decode(meshBase64);
-    const { positions: P, faces: F, flags, nF } = mesh;
 
     const shellProg = compile(gl, SHELL_VS, SHELL_FS);
     const segProg = compile(gl, SEG_VS, SEG_FS);
@@ -229,82 +250,6 @@ function build(meshBase64) {
     const corner = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, corner);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, -1, 1, -1, 0, 1, 1, 1]), gl.STATIC_DRAW);
-
-    const segments = (pairs) => {
-        const out = new Float32Array(pairs.length * 3);
-        for (let i = 0; i < pairs.length; i++) {
-            const v = pairs[i] * 3;
-            out[i * 3] = P[v]; out[i * 3 + 1] = P[v + 1]; out[i * 3 + 2] = P[v + 2];
-        }
-        return out;
-    };
-
-    /** The shell and the lines for one crest option. */
-    const variant = (keep, creasePairs, withStrands) => {
-        const list = [];
-        for (let f = 0; f < nF; f++) if (keep(flags[f])) list.push(f);
-        const data = new Float32Array(list.length * 3 * 7);
-        let o = 0;
-        let min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
-        for (const f of list) {
-            const a = F[f * 3] * 3, b = F[f * 3 + 1] * 3, c = F[f * 3 + 2] * 3;
-            let n = mesh.mended.get(f);
-            if (!n) {
-                const ux = P[b] - P[a], uy = P[b + 1] - P[a + 1], uz = P[b + 2] - P[a + 2];
-                const vx = P[c] - P[a], vy = P[c + 1] - P[a + 1], vz = P[c + 2] - P[a + 2];
-                const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
-                const l = Math.hypot(nx, ny, nz) || 1;
-                n = [nx / l, ny / l, nz / l];
-            }
-            const kind = flags[f] & INSIDE ? 1 : (flags[f] & CREST ? 2 : 0);
-            for (const v of [a, b, c]) {
-                data[o++] = P[v]; data[o++] = P[v + 1]; data[o++] = P[v + 2];
-                data[o++] = n[0]; data[o++] = n[1]; data[o++] = n[2];
-                data[o++] = kind;
-                for (let k = 0; k < 3; k++) { min[k] = Math.min(min[k], P[v + k]); max[k] = Math.max(max[k], P[v + k]); }
-            }
-        }
-        const vao = gl.createVertexArray();
-        gl.bindVertexArray(vao);
-        gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
-        gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
-        for (const [name, size, off] of [['aPos', 3, 0], ['aNormal', 3, 12], ['aKind', 1, 24]]) {
-            const loc = gl.getAttribLocation(shellProg, name);
-            gl.enableVertexAttribArray(loc);
-            gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 28, off);
-        }
-        gl.bindVertexArray(null);
-
-        // The strands are packed so that any first few are spread evenly
-        // along the crest, and `ends` says where each one's segments stop,
-        // so a smaller mark can draw fewer of them and still cover it.
-        const strands = [];
-        const ends = [0];
-        if (withStrands) {
-            let p = 0;
-            for (const n of mesh.counts) {
-                for (let k = 0; k < n - 1; k++) {
-                    const s = mesh.strandPts;
-                    const a = (p + k) * 3, b = (p + k + 1) * 3;
-                    strands.push(s[a], s[a + 1], s[a + 2], s[b], s[b + 1], s[b + 2]);
-                }
-                ends.push(strands.length / 6);
-                p += n;
-            }
-        }
-        // points to fit the frame to: every tenth vertex is plenty
-        const fitPoints = [];
-        for (let i = 0; i < data.length; i += 7 * 10) fitPoints.push([data[i], data[i + 1], data[i + 2]]);
-        return {
-            shell: { vao, count: list.length * 3 },
-            creases: segmentVao(gl, segProg, corner, segments(creasePairs)),
-            strands: { ...segmentVao(gl, segProg, corner, new Float32Array(strands)), ends },
-            fitPoints,
-        };
-    };
-
-    const plume = variant(fl => !(fl & PATCH), mesh.creases.subarray(0, mesh.nCP * 2), true);
-    const none = variant(fl => !(fl & CREST), mesh.creases.subarray(mesh.nCP * 2), false);
 
     const quad = gl.createVertexArray();
     gl.bindVertexArray(quad);
@@ -316,8 +261,8 @@ function build(meshBase64) {
     gl.bindVertexArray(null);
 
     return {
-        canvas, gl, shellProg, segProg, inkProg, quad, target: null,
-        variants: { plume, none },
+        canvas, gl, shellProg, segProg, inkProg, corner, quad, target: null,
+        helmets: {},
         frames: new Map(),
         u: {
             shell: uniforms(gl, shellProg, ['uMVP', 'uRot']),
@@ -326,6 +271,109 @@ function build(meshBase64) {
         },
     };
 }
+
+/**
+ * The shell and lines of the faces of `mesh` that `keep` keeps, in the shared
+ * context: one part of what a mark draws, a helmet or a crest standing on it.
+ */
+function part(s, mesh, keep, creasePairs, withStrands) {
+    const { gl, shellProg, segProg, corner } = s;
+    const { positions: P, faces: F, flags, nF } = mesh;
+
+    const segments = (pairs) => {
+        const out = new Float32Array(pairs.length * 3);
+        for (let i = 0; i < pairs.length; i++) {
+            const v = pairs[i] * 3;
+            out[i * 3] = P[v]; out[i * 3 + 1] = P[v + 1]; out[i * 3 + 2] = P[v + 2];
+        }
+        return out;
+    };
+
+    const list = [];
+    for (let f = 0; f < nF; f++) if (keep(flags[f])) list.push(f);
+    const data = new Float32Array(list.length * 3 * 7);
+    let o = 0;
+    let min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+    for (const f of list) {
+        const a = F[f * 3] * 3, b = F[f * 3 + 1] * 3, c = F[f * 3 + 2] * 3;
+        let n = mesh.mended.get(f);
+        if (!n) {
+            const ux = P[b] - P[a], uy = P[b + 1] - P[a + 1], uz = P[b + 2] - P[a + 2];
+            const vx = P[c] - P[a], vy = P[c + 1] - P[a + 1], vz = P[c + 2] - P[a + 2];
+            const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+            const l = Math.hypot(nx, ny, nz) || 1;
+            n = [nx / l, ny / l, nz / l];
+        }
+        const kind = flags[f] & INSIDE ? 1 : (flags[f] & CREST ? 2 : 0);
+        for (const v of [a, b, c]) {
+            data[o++] = P[v]; data[o++] = P[v + 1]; data[o++] = P[v + 2];
+            data[o++] = n[0]; data[o++] = n[1]; data[o++] = n[2];
+            data[o++] = kind;
+            for (let k = 0; k < 3; k++) { min[k] = Math.min(min[k], P[v + k]); max[k] = Math.max(max[k], P[v + k]); }
+        }
+    }
+    const vao = gl.createVertexArray();
+    gl.bindVertexArray(vao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+    gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+    for (const [name, size, off] of [['aPos', 3, 0], ['aNormal', 3, 12], ['aKind', 1, 24]]) {
+        const loc = gl.getAttribLocation(shellProg, name);
+        gl.enableVertexAttribArray(loc);
+        gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 28, off);
+    }
+    gl.bindVertexArray(null);
+
+    // The strands are packed so that any first few are spread evenly
+    // along the crest, and `ends` says where each one's segments stop,
+    // so a smaller mark can draw fewer of them and still cover it.
+    const strands = [];
+    const ends = [0];
+    if (withStrands) {
+        let p = 0;
+        for (const n of mesh.counts) {
+            for (let k = 0; k < n - 1; k++) {
+                const s = mesh.strandPts;
+                const a = (p + k) * 3, b = (p + k + 1) * 3;
+                strands.push(s[a], s[a + 1], s[a + 2], s[b], s[b + 1], s[b + 2]);
+            }
+            ends.push(strands.length / 6);
+            p += n;
+        }
+    }
+    // points to fit the frame to: every tenth vertex is plenty
+    const fitPoints = [];
+    for (let i = 0; i < data.length; i += 7 * 10) fitPoints.push([data[i], data[i + 1], data[i + 2]]);
+    return {
+        shell: { vao, count: list.length * 3 },
+        creases: segmentVao(gl, segProg, corner, segments(creasePairs)),
+        strands: { ...segmentVao(gl, segProg, corner, new Float32Array(strands)), ends },
+        fitPoints,
+    };
+}
+
+/**
+ * One helmet's shell and lines, for each crest it can wear, in the shared
+ * context: its own crest (the Corinthian's and the Trojan's plume), none,
+ * and each of `crests`, the other crests fitted to it, which stand on the
+ * helmet without its own.
+ */
+function helmetFrom(s, meshBase64, crests = {}) {
+    const mesh = decode(meshBase64);
+    const own = part(s, mesh, fl => !(fl & PATCH), mesh.creases.subarray(0, mesh.nCP * 2), true);
+    // A helmet with no crest to take off draws the same either way.
+    const bare = mesh.flags.some(fl => fl & CREST)
+        ? part(s, mesh, fl => !(fl & CREST), mesh.creases.subarray(mesh.nCP * 2), false)
+        : own;
+    const kinds = { plume: drawn([own]), none: drawn([bare]) };
+    for (const [crest, pieceBase64] of Object.entries(crests)) {
+        const piece = decode(pieceBase64, PIECE_SCALE);
+        kinds[crest] = drawn([bare, part(s, piece, () => true, piece.creases.subarray(0, piece.nCP * 2), true)]);
+    }
+    return kinds;
+}
+
+/** What a mark draws for one crest: its parts, and the points its frame is fitted to. */
+const drawn = parts => ({ parts, fitPoints: parts.flatMap(p => p.fitPoints) });
 
 function ensureTarget(s, size) {
     const { gl } = s;
@@ -376,12 +424,18 @@ function frame(variant, angles) {
     return { cx: (minX + maxX) / 2, cy: (minY + maxY) / 2, half, scale: 1 / half };
 }
 
-/** The frame for one crest and set of angles, worked out once. */
-function frameFor(s, crest, angles) {
-    const key = `${crest}|${JSON.stringify(angles)}`;
+/** One helmet in one crest, or null while its mesh loads or where nothing can be drawn. */
+function variantOf(s, helmet, crest) {
+    const kinds = s && s.helmets[helmet];
+    return kinds ? kinds[crest] || kinds.plume : null;
+}
+
+/** The frame for one helmet, crest and set of angles, worked out once. */
+function frameFor(s, helmet, crest, angles) {
+    const key = `${helmet}|${crest}|${JSON.stringify(angles)}`;
     let found = s.frames.get(key);
     if (!found) {
-        found = frame(s.variants[crest] || s.variants.plume, angles);
+        found = frame(variantOf(s, helmet, crest), angles);
         s.frames.set(key, found);
     }
     return found;
@@ -394,10 +448,10 @@ function frameFor(s, crest, angles) {
  * the frame that holds every angle is bigger than the one that holds the
  * resting pose, and not centred on the same point.
  */
-export function framing(crest, range) {
-    if (!shared) return { grow: 1, dx: 0, dy: 0 };
-    const rest = frameFor(shared, crest, [[REST.yaw, REST.pitch]]);
-    const all = frameFor(shared, crest, range);
+export function framing(helmet, crest, range) {
+    if (!variantOf(shared, helmet, crest)) return { grow: 1, dx: 0, dy: 0 };
+    const rest = frameFor(shared, helmet, crest, [[REST.yaw, REST.pitch]]);
+    const all = frameFor(shared, helmet, crest, range);
     return {
         grow: all.half / rest.half,
         dx: (all.cx - rest.cx) / (2 * rest.half),
@@ -419,33 +473,40 @@ function toRgba(colour) {
     return [(r / 255) * a, (g / 255) * a, (b / 255) * a, a];
 }
 
-let shared = null;
-let loading = null;
+// The context: undefined until the first helmet loads, null where there is no WebGL2.
+let shared;
+const loading = new Map();
 
 /**
- * Load the mesh and set up the context, once. Resolves to whether the helmet
- * can be drawn at all: false where there is no WebGL2 to draw it with.
+ * Load one helmet's mesh, once, setting up the context with the first.
+ * Resolves to whether it can be drawn: false where there is no WebGL2 to
+ * draw it with. An id it does not know loads the Corinthian.
  */
-export function whenHelmetReady() {
-    if (!loading) {
-        loading = import('./mesh.js')
-            .then(({ default: mesh }) => {
-                shared = build(mesh);
-                return Boolean(shared);
+export function whenHelmetReady(helmet = FIRST) {
+    const id = MESHES[helmet] ? helmet : FIRST;
+    if (!loading.has(id)) {
+        loading.set(id, MESHES[id]()
+            .then(({ default: mesh, crests }) => {
+                if (shared === undefined) shared = context();
+                if (!shared) return false;
+                shared.helmets[id] = helmetFrom(shared, mesh, crests);
+                return true;
             })
             .catch((error) => {
-                console.warn('The helmet could not be drawn:', error);
-                shared = null;
+                console.warn(`The ${id} helmet could not be drawn:`, error);
+                if (shared === undefined) shared = null;
                 return false;
-            });
+            }));
     }
-    return loading;
+    return loading.get(id);
 }
 
 /**
- * Draw the helmet into `out`, a 2D canvas, filling it.
+ * Draw a helmet into `out`, a 2D canvas, filling it.
  *
- * - `crest`: 'plume' or 'none'.
+ * - `helmet`: which one (see `MESHES`), loaded first with `whenHelmetReady`.
+ * - `crest`: which crest it wears, or 'none' (see `lib/agent-look.js`); one
+ *   it was not given draws as its own.
  * - `yaw`, `pitch`: in degrees, how far the face is turned to the side and
  *   how far down the viewer looks on it.
  * - `range`: the angles the frame must hold, as [[yaw, pitch], ...]; by
@@ -457,16 +518,16 @@ export function whenHelmetReady() {
  * - `size`: the mark's size in CSS pixels, which sets the line weights and
  *   whether it is drawn as lines or as a glyph.
  */
-export function drawHelmet(out, { crest = 'plume', yaw = REST.yaw, pitch = REST.pitch, range = null, line = '#111111', paper = null, size = 64, canvasSize = size } = {}) {
-    if (!shared) return false;
+export function drawHelmet(out, { helmet = FIRST, crest = 'plume', yaw = REST.yaw, pitch = REST.pitch, range = null, line = '#111111', paper = null, size = 64, canvasSize = size } = {}) {
+    const variant = variantOf(shared, helmet, crest);
+    if (!variant) return false;
     const s = shared;
     const { gl } = s;
-    const variant = s.variants[crest] || s.variants.plume;
     const px = out.width * 2; // drawn at twice the size of the canvas, copied down
     const t = ensureTarget(s, px);
     const scalePx = px / canvasSize; // internal pixels per CSS pixel
 
-    const fr = frameFor(s, crest, range || [[yaw, pitch]]);
+    const fr = frameFor(s, helmet, crest, range || [[yaw, pitch]]);
 
     const R = rotation(yaw, pitch);
     const k = fr.scale;
@@ -499,24 +560,28 @@ export function drawHelmet(out, { crest = 'plume', yaw = REST.yaw, pitch = REST.
     gl.useProgram(s.shellProg);
     gl.uniformMatrix4fv(s.u.shell.uMVP, false, mvp);
     gl.uniformMatrix3fv(s.u.shell.uRot, false, rot);
-    gl.bindVertexArray(variant.shell.vao);
-    gl.drawArrays(gl.TRIANGLES, 0, variant.shell.count);
+    for (const { shell } of variant.parts) {
+        gl.bindVertexArray(shell.vao);
+        gl.drawArrays(gl.TRIANGLES, 0, shell.count);
+    }
     if (!glyph) {
         gl.depthMask(false);
         gl.useProgram(s.segProg);
         gl.uniformMatrix4fv(s.u.seg.uMVP, false, mvp);
         gl.uniform2f(s.u.seg.uHalf, px / 2, px / 2);
         gl.uniform1f(s.u.seg.uBias, 0.006);
-        gl.uniform1f(s.u.seg.uWidth, lineW * scalePx);
-        gl.bindVertexArray(variant.creases.vao);
-        gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, variant.creases.count);
-        // all of them on a big mark; fewer as it shrinks, or they close up into grey
+        // all the strands on a big mark; fewer as it shrinks, or they close up into grey
         const share = Math.max(0.2, Math.min(1, (size - 30) / 190));
-        const shown = variant.strands.ends[Math.round((variant.strands.ends.length - 1) * share)];
-        if (size >= 44 && shown) {
-            gl.uniform1f(s.u.seg.uWidth, strandW * scalePx);
-            gl.bindVertexArray(variant.strands.vao);
-            gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, shown);
+        for (const { creases, strands } of variant.parts) {
+            gl.uniform1f(s.u.seg.uWidth, lineW * scalePx);
+            gl.bindVertexArray(creases.vao);
+            gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, creases.count);
+            const shown = strands.ends[Math.round((strands.ends.length - 1) * share)];
+            if (size >= 44 && shown) {
+                gl.uniform1f(s.u.seg.uWidth, strandW * scalePx);
+                gl.bindVertexArray(strands.vao);
+                gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, shown);
+            }
         }
         gl.depthMask(true);
     }
@@ -574,14 +639,14 @@ let scratch = null;
  * the line weights). Null until the helmet is ready, or where it cannot be
  * drawn.
  */
-export function helmetMask({ crest = 'plume', size, pixels, layer = 'ink' }) {
-    if (!shared) return null;
-    const key = `${crest}|${size}|${pixels}|${layer}`;
+export function helmetMask({ helmet = FIRST, crest = 'plume', size, pixels, layer = 'ink' }) {
+    if (!variantOf(shared, helmet, crest)) return null;
+    const key = `${helmet}|${crest}|${size}|${pixels}|${layer}`;
     let url = masks.get(key);
     if (!url) {
         if (!scratch) scratch = document.createElement('canvas');
         scratch.width = scratch.height = pixels;
-        drawHelmet(scratch, { crest, size, line: '#ffffff', paper: layer === 'paper' ? '#ffffff' : null });
+        drawHelmet(scratch, { helmet, crest, size, line: '#ffffff', paper: layer === 'paper' ? '#ffffff' : null });
         url = scratch.toDataURL('image/png');
         masks.set(key, url);
     }

@@ -1,7 +1,7 @@
 /**
- * The look an agent's mark wears: a colour, and the crest or none, each one
- * of a known list, kept across a save and refused when it is not one the
- * renderer can draw.
+ * The look an agent's mark wears: a colour, a helmet, and the crest or none,
+ * each one of a known list, kept across a save and refused when it is not one
+ * the renderer can draw.
  *
  * `electron` is stubbed so the registry runs under plain node against a
  * scratch userData folder.
@@ -86,11 +86,43 @@ check('a crest nobody can draw is refused rather than stored', () => {
     assert.strictEqual(shown(result.saved).crest, 'plume');
 });
 
+check('an agent saved before there was a choice of helmet wears the Corinthian', () => {
+    assert.strictEqual(shown('agent-1').helmet, 'corinthian');
+});
+
+check('a new agent wears the helmet it was given, and an edit can change it alone', () => {
+    const result = agents.save({ name: 'Ronin', color: 'rose', helmet: 'kabuto', crest: 'none' });
+    assert.strictEqual(shown(result.saved).helmet, 'kabuto');
+
+    agents.save({ id: result.saved, helmet: 'greathelm' });
+    const agent = shown(result.saved);
+    assert.strictEqual(agent.helmet, 'greathelm');
+    assert.strictEqual(agent.color, 'rose', 'the colour is untouched');
+    assert.strictEqual(agent.crest, 'none', 'the crest is untouched');
+});
+
+check('every crest there is can be worn and is kept', () => {
+    for (const crest of ['plume', 'transverse', 'horns', 'crown', 'feathers', 'none']) {
+        const result = agents.save({ name: `Crested ${crest}`, helmet: 'galea', crest });
+        assert.strictEqual(shown(result.saved).crest, crest);
+    }
+});
+
+check('a helmet nobody can draw is refused rather than stored', () => {
+    agents.save({ id: 'agent-1', helmet: 'fedora' });
+    assert.strictEqual(shown('agent-1').helmet, 'corinthian');
+
+    const result = agents.save({ name: 'Hatless', helmet: '../../etc' });
+    assert.strictEqual(shown(result.saved).helmet, 'corinthian');
+});
+
 check('the look is written to disk and read back', () => {
     const text = fs.readFileSync(path.join(userData, 'agents.json'), 'utf8');
-    const scout = JSON.parse(text).agents.find(agent => agent.name === 'Scout');
+    const saved = JSON.parse(text).agents;
+    const scout = saved.find(agent => agent.name === 'Scout');
     assert.strictEqual(scout.color, 'black');
     assert.strictEqual(scout.crest, 'none');
+    assert.strictEqual(saved.find(agent => agent.name === 'Ronin').helmet, 'greathelm');
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

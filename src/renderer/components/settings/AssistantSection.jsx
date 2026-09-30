@@ -11,6 +11,7 @@ import Reveal from '../ui/Reveal';
 import SandboxCard from './SandboxCard';
 import HooksCard from './HooksCard';
 import AccountsCard from './AccountsCard';
+import VoiceCard from './VoiceCard';
 import { useT } from '../../i18n';
 
 /**
@@ -617,6 +618,7 @@ export default function AssistantSection() {
 
             <SandboxCard agentId={settings.agentId} />
             <HooksCard agentId={settings.agentId} />
+            <VoiceCard settings={settings} update={update} fieldClass={FIELD_CLASS} />
 
             <div
                 ref={promptsRef}

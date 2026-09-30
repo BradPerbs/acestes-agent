@@ -6,6 +6,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 import LockScreen from './components/LockScreen';
 import ScreenshotView from './components/ScreenshotView';
 import AssistantWindow from './components/assistant/AssistantWindow';
+import ActivityOverlay from './components/assistant/ActivityOverlay';
 import { applyAppColors } from './lib/app-colors';
 import { playChime } from './lib/chime';
 import { DEFAULT_TOAST_MS, MAX_TOAST_MS, TOAST_EXIT_MS } from './lib/toast';
@@ -57,6 +58,8 @@ import './input.css';
 const hashParams = new URLSearchParams(window.location.hash.slice(1));
 const screenshotId = hashParams.get('screenshot');
 const assistantWindowId = hashParams.get('assistant');
+// The card in the corner of the screen while an agent is at work.
+const activityOverlay = hashParams.has('activity');
 
 // The sound of the assistant's notifications, played by whichever window
 // main picks, so it is heard once however many are open.
@@ -120,7 +123,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 ? <ScreenshotView id={screenshotId} />
                 : assistantWindowId
                     ? <AssistantWindow />
-                    : <Root />}
+                    : activityOverlay
+                        ? <ActivityOverlay />
+                        : <Root />}
         </ErrorBoundary>
     </React.StrictMode>
 );

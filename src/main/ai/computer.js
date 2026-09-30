@@ -263,6 +263,10 @@ let hooks = {
     surface: () => {},
     // Keeps Acestes's own windows out of a screenshot, and lets them back in.
     hideFromCapture: () => {},
+    // Told who is driving whenever that changes, for the corner overlay.
+    driversChanged: () => {},
+    // Told what an action is aimed at, by name, for the corner overlay.
+    aimed: () => {},
     // How a captcha service is reached. A test hands in its own.
     fetch: (...args) => globalThis.fetch(...args),
 };
@@ -303,6 +307,15 @@ function onEvent(message) {
     if (message.event === 'took-over' || message.event === 'escape') pauseAll(message.event);
 }
 
+/** Whoever is watching who drives (the corner overlay) hears it on every change. */
+function announce() {
+    try {
+        hooks.driversChanged([...drivers.keys()]);
+    } catch (error) {
+        console.error('Could not tell who is driving:', error.message);
+    }
+}
+
 /** What the badge says: the agent by name, or how many are at it. */
 function badge() {
     const names = [...drivers.values()].map(entry => entry.name);
@@ -324,6 +337,7 @@ const PAUSED = {
  */
 function release(conversationId) {
     if (!drivers.delete(conversationId)) return;
+    announce();
     if (drivers.size === 0) {
         const wasDriving = driving;
         driving = false;
@@ -393,6 +407,7 @@ function apiFor(state) {
         if (!me) {
             me = { name: state.agentName() || 'The agent', pausedBy: '', counted: false };
             drivers.set(state.id, me);
+            announce();
         }
         if (me.pausedBy) return PAUSED[me.pausedBy];
         if (!driving || helperPaused || !me.counted) {
@@ -528,6 +543,7 @@ function apiFor(state) {
         }
         const refused = await consent(target.window);
         if (refused) return { error: refused };
+        if (target.label) hooks.aimed(state.id, target.label);
         return { target };
     };
 

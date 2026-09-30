@@ -77,6 +77,10 @@ const COMMAND_MODES = new Set(['terminal', 'background']);
 /** How fast the agent's cursor and typing go on this computer. See computer.js. */
 const COMPUTER_PACES = new Set(['slow', 'normal', 'fast']);
 
+/** Who turns speech into text, and how big a model. See speech.js. */
+const VOICE_ENGINES = new Set(['parakeet', 'whisper', 'faster-whisper']);
+const VOICE_MODELS = new Set(['tiny', 'base', 'small', 'medium', 'large-v3', 'turbo']);
+
 /**
  * Where a local model server is listening.
  *
@@ -160,6 +164,16 @@ const DEFAULTS = {
     computerUse: false,
     // How fast the cursor travels and the typing goes, so it can be followed.
     computerPace: 'normal',
+    // Speaking a message instead of typing it: the composer's microphone,
+    // transcribed on this machine. On from the start with Parakeet, which
+    // writes as the user talks and needs nothing installed; the two Whispers
+    // are the others, for languages Parakeet does not know. The model and
+    // language are theirs: the language is the app's own when empty
+    // (Faster-Whisper detects it, as Parakeet does). See speech.js.
+    voiceInput: true,
+    voiceEngine: 'parakeet',
+    voiceModel: 'base',
+    voiceLanguage: '',
     /**
      * Which sign-in each runtime uses for this agent, by runtime: an id from
      * accounts.js, or nothing for the login the machine already has. Only
@@ -268,6 +282,10 @@ function sanitize(raw) {
         if ('autoRemember' in raw) next.autoRemember = Boolean(raw.autoRemember);
         if ('computerUse' in raw) next.computerUse = Boolean(raw.computerUse);
         if (COMPUTER_PACES.has(raw.computerPace)) next.computerPace = raw.computerPace;
+        if ('voiceInput' in raw) next.voiceInput = Boolean(raw.voiceInput);
+        if (VOICE_ENGINES.has(raw.voiceEngine)) next.voiceEngine = raw.voiceEngine;
+        if (VOICE_MODELS.has(raw.voiceModel)) next.voiceModel = raw.voiceModel;
+        if (typeof raw.voiceLanguage === 'string' && /^[a-z]{0,3}$/.test(raw.voiceLanguage)) next.voiceLanguage = raw.voiceLanguage;
         if (Array.isArray(raw.autoApproveCommands)) {
             next.autoApproveCommands = raw.autoApproveCommands
                 .map(entry => String(entry || '').trim().toLowerCase())

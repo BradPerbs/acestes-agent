@@ -19,6 +19,7 @@ import WorkingIndicator from './WorkingIndicator';
 import Transcript, { Notice } from './Transcript';
 import ModelMenu from './ModelMenu';
 import ApprovalMenu from './ApprovalMenu';
+import DictationButton from './DictationButton';
 import { useT } from '../../i18n';
 import { groupApprovals } from '../../lib/approvals';
 import { IMAGE_TYPES, imageFiles, readImage } from '../../lib/images';
@@ -207,6 +208,8 @@ export default function AssistantConversation({
     const [imageProviders, setImageProviders] = useState([]);
     /** Why the last file did not make it in, shown under the thumbnails. */
     const [imageNotice, setImageNotice] = useState('');
+    // What the microphone has to say for itself: nothing heard, no access.
+    const [voiceNotice, setVoiceNotice] = useState('');
 
     /**
      * What this message points at, tagged with `@`: hosts, snippets, notes,
@@ -232,6 +235,39 @@ export default function AssistantConversation({
 
     const scrollRef = useRef(null);
     const inputRef = useRef(null);
+
+    /**
+     * What was said, added to the message rather than over it: dictation is
+     * often the second half of something typed. Live, the words so far arrive
+     * again and again, each time replacing the last, after the message as it
+     * stood when the talking began; the box is read-only meanwhile, so the
+     * two cannot cross. At the end the box grows to fit and takes the focus,
+     * so it can be read over and sent with Enter. Nothing said, or thrown
+     * away, leaves the message as it was.
+     */
+    const textNow = useRef(text);
+    textNow.current = text;
+    const spokenAfter = useRef(null);
+    const [dictating, setDictating] = useState(false);
+    const addDictation = useCallback((spoken, { final = true } = {}) => {
+        setVoiceNotice('');
+        if (spokenAfter.current === null) spokenAfter.current = textNow.current;
+        const before = spokenAfter.current;
+        const words = String(spoken || '').trim();
+        setText(before.trim() && words ? `${before.replace(/\s+$/, '')} ${words}` : (words || before));
+        setDictating(!final);
+        if (final) spokenAfter.current = null;
+        requestAnimationFrame(() => {
+            const field = inputRef.current;
+            if (!field) return;
+            field.style.height = 'auto';
+            field.style.height = `${Math.min(field.scrollHeight, 160)}px`;
+            field.scrollTop = field.scrollHeight;
+            if (!final) return;
+            field.focus();
+            field.setSelectionRange(field.value.length, field.value.length);
+        });
+    }, []);
     const fileRef = useRef(null);
     const stickToBottom = useRef(true);
 
@@ -378,6 +414,8 @@ export default function AssistantConversation({
     const submit = useCallback(() => {
         const body = text.trim();
         if ((!body && images.length === 0 && mentions.length === 0) || assistant.busy) return;
+        // Not halfway through a sentence: stop the microphone first.
+        if (dictating) return;
         setText('');
         setImages([]);
         setImageNotice('');
@@ -390,7 +428,7 @@ export default function AssistantConversation({
             images.map(({ name, mediaType, data }) => ({ name, mediaType, data })),
             mentions.map(({ kind, id }) => ({ kind, id })),
         );
-    }, [text, images, mentions, assistant]);
+    }, [text, images, mentions, assistant, dictating]);
 
     /**
      * What is being tagged, if anything: an `@` at the caret, at the start of
@@ -501,6 +539,11 @@ export default function AssistantConversation({
     };
 
     const onKeyDown = (event) => {
+        // Nothing is sent halfway through a sentence.
+        if (dictating && event.key === 'Enter') {
+            event.preventDefault();
+            return;
+        }
         // The picker is driven from here so the caret never leaves the field.
         if (mention && matches.length > 0) {
             if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
@@ -824,10 +867,16 @@ export default function AssistantConversation({
                             {imageNotice}
                         </div>
                     )}
+                    {voiceNotice && (
+                        <div className="px-3 pt-2 text-xs text-amber-600 dark:text-amber-400">
+                            {voiceNotice}
+                        </div>
+                    )}
                     <textarea
                         ref={inputRef}
                         rows={1}
                         value={text}
+                        readOnly={dictating}
                         onChange={onText}
                         onKeyDown={onKeyDown}
                         onClick={(event) => setMention(readMention(event.target.value, event.target.selectionStart))}
@@ -918,6 +967,18 @@ export default function AssistantConversation({
                                     loading={readingModels}
                                     onRefresh={() => readModels(providers, { refresh: true })}
                                     onChange={changeModel}
+                                />
+                            )}
+
+                            {/* Speaking instead of typing, when switched on
+                                in Settings. The words land in the box above,
+                                to read over and send: as they are spoken,
+                                with Parakeet. */}
+                            {settings?.voiceInput && (
+                                <DictationButton
+                                    live={settings.voiceEngine === 'parakeet'}
+                                    onText={addDictation}
+                                    onNotice={setVoiceNotice}
                                 />
                             )}
 
