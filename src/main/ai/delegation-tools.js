@@ -239,10 +239,12 @@ function build({ z, ok, fail }) {
             readOnly: true,
             description:
                 'The conversations you started, branched or delegated to from this one: whether each is still '
-                + 'working, whether it is in a tab, and its latest reply. Pass waitFor to wait until that one '
-                + 'finishes first. Use read_conversation for one in full.',
+                + 'working, whether it is in a tab, and its latest reply. Pass waitFor to wait for that one to finish, '
+                + 'for a minute at most: past that you get how far it has got. You rarely need to wait at all, since '
+                + 'a conversation you started reports to this one by itself when it finishes. Use read_conversation '
+                + 'for one in full.',
             shape: {
-                waitFor: z.string().max(80).optional().describe('A conversation to wait for until its current turn ends.'),
+                waitFor: z.string().max(80).optional().describe('A conversation to wait for, up to a minute.'),
             },
             handler: async (input, ctx) => {
                 const conversations = chats(ctx);

@@ -172,24 +172,132 @@ function conversation(id, overrides = {}) {
         assert.strictEqual(drive.on, true);
         assert.ok(/^Acestes is using your computer/.test(drive.label), drive.label);
         const click = requests.find(request => request.cmd === 'click');
-        assert.deepStrictEqual([click.x, click.y, click.glide], [50, 60, computer.PACES.fast.glide]);
+        assert.deepStrictEqual([click.x, click.y], [50, 60]);
+        const pace = computer.PACES.fast.glide;
+        assert.ok(click.glide >= pace * 0.84 && click.glide <= pace * 1.16, `glide ${click.glide} is the pace, give or take a hand`);
         assert.deepStrictEqual(click.rect, [40, 50, 20, 20], 'the outline goes where it aims');
     });
 
-    await check('another conversation waits while one is driving, and gets it once that turn ends', async () => {
+    await check('two conversations share the desktop, one action at a time, and the badge counts them', async () => {
+        clearLog();
         const other = conversation('c-other');
-        const blocked = await other.api.click({ element: 3 });
-        assert.ok(/in use by another conversation, "Chat c-click"/.test(blocked.error), blocked.error);
+        busy.add('c-other');
+        // Both at once: neither is turned away, and their actions do not interleave.
+        const [first, second] = await Promise.all([
+            conversation('c-click').api.click({ element: 3 }),
+            other.api.click({ element: 3 }),
+        ]);
+        assert.ok(!first.error && !second.error, first.error || second.error);
+        const trail = sent().filter(request => ['target', 'click'].includes(request.cmd)).map(request => `${request.owner}:${request.cmd}`);
+        assert.deepStrictEqual(trail, ['c-click:target', 'c-click:click', 'c-other:target', 'c-other:click'], 'each action runs whole before the next');
+        const recount = sent().filter(request => request.cmd === 'drive' && request.on).at(-1);
+        assert.strictEqual(recount.label, '2 agents are using your computer · Esc to stop');
+
         clearLog();
         busy.delete('c-click');
         computer.release('c-click');
         await new Promise(resolve => setTimeout(resolve, 50));
-        assert.ok(sent().some(request => request.cmd === 'drive' && request.on === false), 'the badge goes at the end of the turn');
-        busy.add('c-other');
-        const result = await other.api.click({ element: 3 });
-        assert.ok(!result.error, result.error);
+        assert.ok(sent().some(request => request.cmd === 'drive' && request.on && /^Acestes is using/.test(request.label)), 'one left: named again');
+        assert.ok(!sent().some(request => request.cmd === 'drive' && request.on === false), 'the badge stays while anyone drives');
+        clearLog();
         busy.delete('c-other');
         computer.release('c-other');
+        await new Promise(resolve => setTimeout(resolve, 50));
+        assert.ok(sent().some(request => request.cmd === 'drive' && request.on === false), 'the last one out takes the badge');
+    });
+
+    await check('each conversation keeps its own numbers, and types into its own window', async () => {
+        clearLog();
+        const left = conversation('c-left');
+        const right = conversation('c-right');
+        busy.add('c-left');
+        busy.add('c-right');
+        await left.api.read({ window: 'notepad' });
+        await right.api.read({ window: 'cmd' });
+        assert.deepStrictEqual(sent().filter(request => request.cmd === 'tree').map(request => request.owner), ['c-left', 'c-right']);
+        // The left agent last worked in Notepad; the right one in the prompt.
+        await left.api.keys({ keys: 'ctrl+s', window: 'notepad' });
+        await right.api.keys({ keys: 'enter', window: 'cmd' });
+        assert.strictEqual(computer._test.homes().get('c-left').hwnd, 101);
+        assert.strictEqual(computer._test.homes().get('c-right').hwnd, 202);
+        clearLog();
+        await left.api.type({ text: 'more' });
+        const focus = sent().find(request => request.cmd === 'focus');
+        assert.strictEqual(focus.hwnd, 101, 'typing with no target goes back to its own window, not the one in front');
+        busy.delete('c-left');
+        busy.delete('c-right');
+        computer.release('c-left');
+        computer.release('c-right');
+    });
+
+    await check('after a batch, an agent is handed its own window, not whichever another agent brought forward', async () => {
+        const mine = conversation('c-mine');
+        const theirs = conversation('c-theirs');
+        busy.add('c-mine');
+        busy.add('c-theirs');
+        await mine.api.click({ element: 3 });
+        await theirs.api.keys({ keys: 'enter', window: 'cmd' });
+        clearLog();
+        const result = await mine.api.steps({ steps: [{ do: 'pause', seconds: 0.1 }] });
+        assert.strictEqual(result.screen.window.app, 'Notepad.exe', 'its own window, though the prompt is in front');
+        assert.strictEqual(sent().filter(request => request.cmd === 'tree').at(-1).hwnd, 101);
+        busy.delete('c-mine');
+        busy.delete('c-theirs');
+        computer.release('c-mine');
+        computer.release('c-theirs');
+    });
+
+    await check('with another agent queued for the mouse, the cursor hurries', async () => {
+        clearLog();
+        const first = conversation('c-hurry-1');
+        const second = conversation('c-hurry-2');
+        busy.add('c-hurry-1');
+        busy.add('c-hurry-2');
+        await Promise.all([first.api.click({ element: 3, read: false }), second.api.click({ element: 3, read: false })]);
+        const glides = sent().filter(request => request.cmd === 'click').map(request => request.glide);
+        const pace = computer.PACES.fast.glide;
+        assert.ok(glides[0] < pace * 0.7, `the first, with someone waiting, hurried: ${glides[0]}`);
+        assert.ok(glides[1] > pace * 0.8, `the second, with nobody waiting, did not: ${glides[1]}`);
+        for (const id of ['c-hurry-1', 'c-hurry-2']) {
+            busy.delete(id);
+            computer.release(id);
+        }
+    });
+
+    await check('long text is typed faster, so no one action keeps the mouse for long', async () => {
+        clearLog();
+        const { api } = conversation('c-long');
+        busy.add('c-long');
+        await api.type({ text: 'x'.repeat(400), read: false });
+        assert.strictEqual(sent().find(request => request.cmd === 'type').cps, 160, '400 characters in two and a half seconds');
+        clearLog();
+        await api.type({ text: 'short', read: false });
+        assert.ok(sent().find(request => request.cmd === 'type').cps <= computer.PACES.fast.cps * 1.2, 'short text at the pace');
+        busy.delete('c-long');
+        computer.release('c-long');
+    });
+
+    await check('a conversation started for the same job has what its parent was allowed', async () => {
+        const parent = conversation('c-parent');
+        await parent.api.read({ window: 'notepad' });
+        const child = conversation('c-child', { lineage: () => ['c-parent'] });
+        await child.api.read({ window: 'notepad' });
+        assert.strictEqual(child.asked.length, 0, 'not asked again');
+        await child.api.read({ window: 'cmd' });
+        assert.strictEqual(child.asked.length, 1, 'an app the parent was never allowed is still asked about');
+    });
+
+    await check('arrange_windows places each window, asking about each app, and says where they went', async () => {
+        clearLog();
+        const { api } = conversation('c-arrange');
+        busy.add('c-arrange');
+        const result = await api.arrange({ windows: [{ window: 'notepad', place: 'left' }, { window: 'cmd', place: 'right', monitor: 2 }] });
+        assert.ok(!result.error, result.error);
+        const places = sent().filter(request => request.cmd === 'place');
+        assert.deepStrictEqual(places.map(request => [request.hwnd, request.slot, request.monitor]), [[101, 'left', ''], [202, 'right', '2']]);
+        assert.deepStrictEqual(result.placed.map(entry => entry.place), ['left', 'right']);
+        busy.delete('c-arrange');
+        computer.release('c-arrange');
     });
 
     await check('the Acestes window is refused by the helper, and the refusal is passed on', async () => {

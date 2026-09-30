@@ -153,6 +153,10 @@ function ensureHelper() {
         waiting.resolve(message);
     });
     child.stderr.on('data', (chunk) => console.error('desktop helper:', String(chunk).trim()));
+    // A request written as the helper goes arrives as a broken pipe, emitted
+    // rather than thrown. Unheard, it would take the whole app down with it;
+    // the exit below is what answers everything that was waiting.
+    child.stdin.on('error', () => {});
 
     const gone = (reason) => {
         if (helper === state) helper = null;
@@ -163,7 +167,8 @@ function ensureHelper() {
         }
         state.pending.clear();
         // Whoever was driving has to be driven again by a fresh helper.
-        if (holder) holder.driving = false;
+        driving = false;
+        helperPaused = false;
     };
     child.on('error', error => gone(`The desktop helper could not start: ${error.message}`));
     child.on('exit', code => gone(`The desktop helper stopped (exit ${code}).`));
@@ -201,10 +206,44 @@ async function call(cmd, payload = {}, timeout = 30000) {
 
 /* ------------------------------------------------------------------ *
  * Who is driving
+ *
+ * Several conversations can use the desktop at once. Most of an agent's
+ * time is thinking, not moving the mouse, so while one thinks another can
+ * act: each action takes the mouse for the second it needs (aim, move,
+ * click, look) and hands it back. A conversation is a driver from its first
+ * action to the end of its turn, and the badge counts the drivers. The user
+ * taking over, or pressing Esc, stops every one of them.
  * ------------------------------------------------------------------ */
 
-// { conversationId, title, driving, pausedBy }
-let holder = null;
+// conversationId -> { name, pausedBy }
+const drivers = new Map();
+// Whether the helper's badge and hooks are on, and whether it has paused
+// itself on the user's hand since they were last switched on.
+let driving = false;
+let helperPaused = false;
+// The one mouse, as a queue: each action runs whole before the next starts.
+let mouse = Promise.resolve();
+// conversationId -> the window it was last working in, which is where
+// typing and keys aimed at nothing in particular go, whoever acted since.
+const homes = new Map();
+
+// How many actions are queued for the mouse right now, so the one holding
+// it can hurry when others are waiting.
+let waiting = 0;
+
+function withMouse(work) {
+    waiting += 1;
+    const start = () => {
+        waiting -= 1;
+        return work();
+    };
+    const turn = mouse.then(start, start);
+    mouse = turn.catch(() => {});
+    return turn;
+}
+
+/** Longer text types faster, so no one action keeps the mouse for long. */
+const TYPE_SECONDS = 2.5;
 // conversationId -> Set of process names the user allowed
 const consents = new Map();
 // conversationId -> the latest screenshot's frame: which window, the screen
@@ -250,15 +289,27 @@ function configure(next = {}) {
     if (timing) captchaTiming = { ...CAPTCHA_TIMING, ...timing, solver: { ...CAPTCHA_TIMING.solver, ...(timing.solver || {}) } };
 }
 
-function onEvent(message) {
-    if (!holder) return;
-    if (message.event === 'took-over') {
-        holder.pausedBy = 'took-over';
-    } else if (message.event === 'escape') {
-        holder.pausedBy = 'escape';
-        const id = holder.conversationId;
-        Promise.resolve().then(() => hooks.interrupt(id)).catch(() => {});
+/** The user's hand stops everyone: taking over pauses every driver, Esc ends every driver's turn. */
+function pauseAll(code) {
+    helperPaused = true;
+    for (const [id, entry] of drivers) {
+        if (entry.pausedBy === code) continue;
+        entry.pausedBy = code;
+        if (code === 'escape') Promise.resolve().then(() => hooks.interrupt(id)).catch(() => {});
     }
+}
+
+function onEvent(message) {
+    if (message.event === 'took-over' || message.event === 'escape') pauseAll(message.event);
+}
+
+/** What the badge says: the agent by name, or how many are at it. */
+function badge() {
+    const names = [...drivers.values()].map(entry => entry.name);
+    const label = names.length > 1
+        ? `${names.length} agents are using your computer · Esc to stop`
+        : `${names[0] || 'The agent'} is using your computer · Esc to stop`;
+    return call('drive', { on: true, label, paused: 'Paused · you have control', stopped: 'Stopped' }, 10000);
 }
 
 const PAUSED = {
@@ -267,19 +318,29 @@ const PAUSED = {
     escape: 'The user pressed Esc to stop. Stop here and wait for them.',
 };
 
-/** Hand the desktop back: the badge goes, the hooks go. At the end of every turn. */
+/**
+ * A conversation's turn is over: it stops being a driver. The last one out
+ * takes the badge and the hooks with it; otherwise the badge recounts.
+ */
 function release(conversationId) {
-    if (!holder || holder.conversationId !== conversationId) return;
-    const wasDriving = holder.driving;
-    holder = null;
-    if (wasDriving && helper) call('drive', { on: false }, 5000).catch(() => {});
+    if (!drivers.delete(conversationId)) return;
+    if (drivers.size === 0) {
+        const wasDriving = driving;
+        driving = false;
+        helperPaused = false;
+        if (wasDriving && helper) call('drive', { on: false }, 5000).catch(() => {});
+    } else if (driving && !helperPaused) {
+        badge().catch(() => {});
+    }
 }
 
-/** A conversation thrown away forgets what it was allowed. */
+/** A conversation thrown away forgets what it was allowed, and its numbers. */
 function forget(conversationId) {
     release(conversationId);
     consents.delete(conversationId);
     frames.delete(conversationId);
+    homes.delete(conversationId);
+    if (helper) call('forget', { whose: conversationId }, 5000).catch(() => {});
 }
 
 /* ------------------------------------------------------------------ *
@@ -294,7 +355,18 @@ function forget(conversationId) {
  */
 function apiFor(state) {
     const settings = () => state.settings() || {};
-    const pace = () => PACES[settings().computerPace] || PACES.normal;
+    /**
+     * How fast the cursor travels and the keys go in: the agent's own pace,
+     * nearly twice as quick while another agent is queued for the mouse (so
+     * the one waiting gets it sooner), and never exactly the same twice, the
+     * way a hand is not.
+     */
+    const pace = () => {
+        const base = PACES[settings().computerPace] || PACES.normal;
+        const hurry = waiting > 0 ? 0.55 : 1;
+        const vary = 0.85 + Math.random() * 0.3;
+        return { glide: Math.round(base.glide * hurry * vary), cps: Math.round(base.cps / hurry) };
+    };
 
     /** May this conversation use the computer at all. */
     const allowed = () => {
@@ -310,42 +382,56 @@ function apiFor(state) {
         return '';
     };
 
-    /** Take the mouse for this turn, or say who has it. */
+    /**
+     * Become one of this turn's drivers. The desktop is shared: others may
+     * be driving too, and the mouse is taken per action, not held here. The
+     * badge is switched on, or recounted when another agent joins, or put
+     * back after the user's hand paused it and this is a new turn.
+     */
     const drive = async () => {
-        if (holder && holder.conversationId !== state.id && hooks.isBusy(holder.conversationId)) {
-            return `The desktop is in use by another conversation, "${holder.title || 'untitled'}". Wait for it to finish, `
-                + 'or tell the user it is busy.';
+        let me = drivers.get(state.id);
+        if (!me) {
+            me = { name: state.agentName() || 'The agent', pausedBy: '', counted: false };
+            drivers.set(state.id, me);
         }
-        if (!holder || holder.conversationId !== state.id) {
-            if (holder?.driving) await call('drive', { on: false }, 5000);
-            holder = { conversationId: state.id, title: state.title(), driving: false, pausedBy: '' };
-        }
-        if (holder.pausedBy) return PAUSED[holder.pausedBy];
-        if (!holder.driving) {
-            const name = state.agentName() || 'The agent';
-            const answer = await call('drive', {
-                on: true,
-                label: `${name} is using your computer · Esc to stop`,
-                paused: 'Paused · you have control',
-                stopped: 'Stopped',
-            }, 10000);
+        if (me.pausedBy) return PAUSED[me.pausedBy];
+        if (!driving || helperPaused || !me.counted) {
+            const answer = await badge();
             if (!answer.ok) return answer.error || 'The desktop helper did not start.';
-            holder.driving = true;
+            driving = true;
+            helperPaused = false;
+            me.counted = true;
         }
         return '';
     };
 
+    /** Every request carries whose it is, so each agent keeps its own numbers. */
+    const callFor = (cmd, payload = {}, timeout) => call(cmd, { ...payload, owner: state.id }, timeout);
+
+    /** Whether the user allowed this app to this conversation, or to the one that started it. */
+    const allowedApp = (app) => {
+        const family = [state.id, ...(typeof state.lineage === 'function' ? state.lineage() : [])];
+        return family.some(id => consents.get(id)?.has(app));
+    };
+
+    /** The window in front after an action is where this agent is working now. */
+    const remember = async () => {
+        const answer = await callFor('foreground');
+        if (answer.ok && answer.window && !answer.window.protected) homes.set(state.id, answer.window);
+    };
+
     /**
-     * The user's say-so for one app, once per conversation. Acestes is
-     * brought forward for the question, since the app it is about may well be
-     * covering it.
+     * The user's say-so for one app, once per conversation. A conversation
+     * another one started for the same job (to work side by side) has what
+     * its parent was allowed, so the user is not asked again per agent.
+     * Acestes is brought forward for the question, since the app it is about
+     * may well be covering it.
      */
     const consent = async (window) => {
         if (!window) return '';
         const app = String(window.process || '').toLowerCase();
         if (!app) return '';
-        const granted = consents.get(state.id);
-        if (granted?.has(app)) return '';
+        if (allowedApp(app)) return '';
 
         const title = String(window.title || '').slice(0, 80);
         const warning = warningFor(app);
@@ -371,7 +457,7 @@ function apiFor(state) {
     /** A failure from the helper, as the agent should read it. */
     const explain = (answer) => {
         if (answer.code === 'took-over' || answer.code === 'escape') {
-            if (holder && holder.conversationId === state.id) holder.pausedBy = answer.code;
+            pauseAll(answer.code);
             return PAUSED[answer.code];
         }
         return answer.error || 'The desktop helper could not do that.';
@@ -379,7 +465,7 @@ function apiFor(state) {
 
     /** The windows, front to back, as the agent sees them. */
     const listWindows = async () => {
-        const answer = await call('windows');
+        const answer = await callFor('windows');
         if (!answer.ok) return { error: explain(answer) };
         return { windows: answer.windows };
     };
@@ -431,7 +517,7 @@ function apiFor(state) {
             point = toScreen(x, y);
             if (point.error) return point;
         }
-        const target = await call('target', element
+        const target = await callFor('target', element
             ? { element }
             : { x: point.x, y: point.y, hwnd: point.frame.screen ? 0 : point.frame.hwnd });
         if (!target.ok) return { error: explain(target) };
@@ -454,7 +540,7 @@ function apiFor(state) {
         await new Promise(resolve => setTimeout(resolve, 60));
         let answer;
         try {
-            answer = await call('capture', { hwnd: window.hwnd, monitor: screen, ...IMAGE }, 20000);
+            answer = await callFor('capture', { hwnd: window.hwnd, monitor: screen, ...IMAGE }, 20000);
         } finally {
             hooks.hideFromCapture(false);
         }
@@ -504,22 +590,24 @@ function apiFor(state) {
     };
 
     /**
-     * The window in front, after an action, the way the agent has been
+     * This agent's own window after an action, the way the agent has been
      * looking at it: read, or pictured when it has been working from
-     * screenshots of that window. The agent looked after nearly every action
-     * anyway, and each look was a turn of its own, seconds of thinking to ask
-     * for what the action could have handed back. An app the user has not
-     * allowed is named but not looked at.
+     * screenshots of that window. Its own, not whichever is in front: with
+     * another agent at work, the window in front can be theirs a moment
+     * later, and handing that back had an agent chasing a paste that had
+     * gone exactly where it meant it to. The agent looked after nearly every
+     * action anyway, and each look was a turn of its own. An app the user
+     * has not allowed is named but not looked at.
      */
     const look = async (window = null) => {
-        let target = window;
+        let target = window || homes.get(state.id) || null;
         if (!target) {
-            const front = await call('foreground');
+            const front = await callFor('foreground');
             target = front.ok ? front.window : null;
         }
         if (!target || target.protected) return {};
         const app = String(target.process || '').toLowerCase();
-        if (!consents.get(state.id)?.has(app)) {
+        if (!allowedApp(app)) {
             return { now: `${target.process} is in front ("${target.title}"). read_screen it to carry on; the user is asked first.` };
         }
         const frame = frames.get(state.id);
@@ -527,12 +615,12 @@ function apiFor(state) {
             const picture = await snap(target, { screen: frame.screen });
             if (!picture.error) return picture;
         }
-        const answer = await call('tree', { hwnd: target.hwnd, maxNodes: 300 }, 45000);
+        const answer = await callFor('tree', { hwnd: target.hwnd, maxNodes: 300 }, 45000);
         return answer.ok ? { screen: present(answer) } : {};
     };
 
     const clickAt = async (target, { button = 'left', count = 1, modifiers = '' } = {}) => {
-        const answer = await call('click', {
+        const answer = await callFor('click', {
             x: target.x,
             y: target.y,
             rect: target.rect,
@@ -544,9 +632,24 @@ function apiFor(state) {
         return answer.ok ? { answer } : { error: explain(answer) };
     };
 
-    /** The window in front, if the user allowed its app. */
+    /**
+     * Where typing, keys or a scroll aimed at nothing in particular go: the
+     * window this agent was last working in, brought back to the front if
+     * another agent has been at work since; the window in front when it has
+     * none yet, or it has closed. Only if the user allowed its app.
+     */
     const front = async () => {
-        const answer = await call('foreground');
+        const home = homes.get(state.id);
+        if (home) {
+            const focused = await callFor('focus', { hwnd: home.hwnd });
+            if (focused.ok && focused.window) {
+                const denied = await consent(focused.window);
+                return denied ? { error: denied } : { window: focused.window };
+            }
+            if (focused.code !== 'gone') return { error: explain(focused) };
+            homes.delete(state.id);
+        }
+        const answer = await callFor('foreground');
         if (!answer.ok) return { error: explain(answer) };
         const denied = await consent(answer.window);
         return denied ? { error: denied } : { window: answer.window };
@@ -573,7 +676,7 @@ function apiFor(state) {
             if (shown.error) return shown;
         }
         if (replace) {
-            const cleared = await call('keys', { keys: 'ctrl+a' });
+            const cleared = await callFor('keys', { keys: 'ctrl+a' });
             if (!cleared.ok) return { error: explain(cleared) };
         }
         // A secret is filled in here, at the last moment. The model wrote
@@ -582,8 +685,10 @@ function apiFor(state) {
         // show a reference and have the secret typed into its own form.
         const filled = raw ? String(text ?? '') : state.resolveSecrets(String(text ?? ''));
         if (!filled) return { error: 'Nothing to type.' };
-        const { cps } = pace();
-        const answer = await call('type', { text: filled, cps }, 15000 + Math.ceil((filled.length / cps) * 1500));
+        // Short text at the pace, so it can be followed; long text (an
+        // address, a paragraph) sped up to be done in a couple of seconds.
+        const cps = Math.max(pace().cps, Math.ceil(filled.length / TYPE_SECONDS));
+        const answer = await callFor('type', { text: filled, cps }, 15000 + Math.ceil((filled.length / cps) * 1500));
         if (!answer.ok) return { error: explain(answer) };
         return { typed: `${answer.typed} characters` };
     };
@@ -595,13 +700,13 @@ function apiFor(state) {
             if (picked.error) return picked;
             const denied = await consent(picked.window);
             if (denied) return { error: denied };
-            const focused = await call('focus', { hwnd: picked.window.hwnd });
+            const focused = await callFor('focus', { hwnd: picked.window.hwnd });
             if (!focused.ok) return { error: explain(focused) };
         } else {
             const shown = await front();
             if (shown.error) return shown;
         }
-        const answer = await call('keys', { keys, repeat });
+        const answer = await callFor('keys', { keys, repeat });
         if (!answer.ok) return { error: explain(answer) };
         return { pressed: keys };
     };
@@ -619,7 +724,7 @@ function apiFor(state) {
             const w = shown.window;
             target = { x: Math.round(w.x + w.width / 2), y: Math.round(w.y + w.height / 2) };
         }
-        const answer = await call('scroll', { x: target.x, y: target.y, rect: target.rect, direction, amount, glide: pace().glide });
+        const answer = await callFor('scroll', { x: target.x, y: target.y, rect: target.rect, direction, amount, glide: pace().glide });
         if (!answer.ok) return { error: explain(answer) };
         return settled(answer, { scrolled: `${direction} ${amount || 3}` });
     };
@@ -629,7 +734,7 @@ function apiFor(state) {
         if (from.error) return from;
         const to = await aim({ element: toElement, x: toX, y: toY });
         if (to.error) return to;
-        const answer = await call('drag', {
+        const answer = await callFor('drag', {
             x: from.target.x,
             y: from.target.y,
             toX: to.target.x,
@@ -653,7 +758,7 @@ function apiFor(state) {
         const limit = Math.min(60, Math.max(1, seconds || timeout || 10));
         const deadline = Date.now() + limit * 1000;
         do {
-            const answer = await call('tree', { hwnd: picked.window.hwnd, find: String(text), role: role || '' }, 45000);
+            const answer = await callFor('tree', { hwnd: picked.window.hwnd, find: String(text), role: role || '' }, 45000);
             if (!answer.ok) return { error: explain(answer) };
             if (answer.found) return { found: `${answer.found.r} "${answer.found.n}"`, window: picked.window };
             await new Promise(resolve => setTimeout(resolve, 400));
@@ -687,13 +792,16 @@ function apiFor(state) {
     const between = ([low, high]) => low + Math.random() * (high - low);
 
     /** Esc, or a hand on the mouse, heard between the steps of a long job. */
-    const stopped = () => (holder && holder.conversationId === state.id && holder.pausedBy ? PAUSED[holder.pausedBy] : '');
+    const stopped = () => {
+        const code = drivers.get(state.id)?.pausedBy;
+        return code ? PAUSED[code] : '';
+    };
 
     const CAPTCHA_NAMES = { recaptcha: 'reCAPTCHA', hcaptcha: 'hCaptcha', turnstile: 'Cloudflare check', arkose: 'Arkose puzzle' };
     const named = widget => CAPTCHA_NAMES[widget?.kind] || 'captcha';
 
     const scanCaptchas = async (window) => {
-        const answer = await call('captcha', { hwnd: window.hwnd }, 45000);
+        const answer = await callFor('captcha', { hwnd: window.hwnd }, 45000);
         if (!answer.ok) return { error: explain(answer) };
         return { widgets: answer.widgets || [], images: answer.images || [] };
     };
@@ -730,7 +838,7 @@ function apiFor(state) {
 
     /** A press the way a hand makes one: the helper's natural reach, never faster than a person would. */
     const pressAt = async ({ x, y }, rect) => {
-        const answer = await call('click', {
+        const answer = await callFor('click', {
             x, y, ...(rect ? { rect } : {}), natural: true, glide: Math.max(420, pace().glide), settle: 80,
         });
         return answer.ok ? {} : { error: explain(answer) };
@@ -738,7 +846,7 @@ function apiFor(state) {
 
     /** An element from the scan, aimed at afresh; where the scan saw it, if its frame was redrawn since. */
     const pressElement = async (id, rect) => {
-        const target = await call('target', { element: id });
+        const target = await callFor('target', { element: id });
         let box = rect;
         if (target.ok) {
             const refused = await consent(target.window);
@@ -756,7 +864,7 @@ function apiFor(state) {
         await sleep(60);
         let answer;
         try {
-            answer = await call('capture', { region, ...IMAGE, format: 'jpeg' }, 20000);
+            answer = await callFor('capture', { region, ...IMAGE, format: 'jpeg' }, 20000);
         } finally {
             hooks.hideFromCapture(false);
         }
@@ -852,7 +960,7 @@ function apiFor(state) {
         for (const [index, [from, to]] of pairs.entries()) {
             const stop = stopped();
             if (stop) return { error: stop };
-            const answer = await call('drag', { x: from.x, y: from.y, toX: to.x, toY: to.y, glide: Math.max(500, pace().glide) });
+            const answer = await callFor('drag', { x: from.x, y: from.y, toX: to.x, toY: to.y, glide: Math.max(500, pace().glide) });
             if (!answer.ok) return { error: explain(answer) };
             if (index < pairs.length - 1) await sleep(between(captchaTiming.tiles));
         }
@@ -886,7 +994,7 @@ function apiFor(state) {
      * alone: pressing Verify is this code's call.
      */
     const solveChallenge = async (window, widget, solver) => {
-        const focused = await call('focus', { hwnd: window.hwnd });
+        const focused = await callFor('focus', { hwnd: window.hwnd });
         if (!focused.ok) return { error: explain(focused) };
         const kind = puzzleKind(widget);
         if (kind === 'area') return refreshRound(widget, 'This round asked for a shape drawn around something, which cannot be answered yet.');
@@ -1066,7 +1174,7 @@ function apiFor(state) {
     const textCaptcha = async (window, input) => {
         let region;
         if (input.element) {
-            const target = await call('target', { element: input.element });
+            const target = await callFor('target', { element: input.element });
             if (!target.ok) return { error: explain(target) };
             region = target.rect;
             if (!region) return { error: `Element ${input.element} has no place on screen.` };
@@ -1085,7 +1193,7 @@ function apiFor(state) {
         }
         const solver = captcha.pick({ resolve: state.resolveSecrets, kind: 'text', wanted: input.service });
         if (solver.error) return { error: `${solver.error} Until then, ask the user what the picture says with ask_user.` };
-        const focused = await call('focus', { hwnd: window.hwnd });
+        const focused = await callFor('focus', { hwnd: window.hwnd });
         if (!focused.ok) return { error: explain(focused) };
         const shot = await grab(region);
         if (shot.error) return shot;
@@ -1109,7 +1217,7 @@ function apiFor(state) {
         if (place.error) return place;
         const solver = captcha.pick({ resolve: state.resolveSecrets, kind: 'points', wanted: input.service });
         if (solver.error) return { error: `${solver.error} Until then, ask the user to solve it with ask_user.` };
-        const focused = await call('focus', { hwnd: window.hwnd });
+        const focused = await callFor('focus', { hwnd: window.hwnd });
         if (!focused.ok) return { error: explain(focused) };
         const shot = await grab(place.region);
         if (shot.error) return shot;
@@ -1131,13 +1239,50 @@ function apiFor(state) {
         };
     };
 
-    /** An action as a tool: take the mouse, do it, and hand back the window. */
+    /**
+     * An action as a tool: take the mouse, do it, look, and give the mouse
+     * back. Held for the action alone, so another agent's action can come
+     * next while this one's model thinks about the result.
+     */
     const act = step => async (input = {}) => {
         const refused = await begin();
         if (refused) return { error: refused };
-        const result = await step(input);
-        if (result.error) return result;
-        return input.read === false ? result : { ...result, ...(await look()) };
+        const done = await withMouse(async () => {
+            const result = await step(input);
+            if (result.error) return { result };
+            await remember();
+            if (input.read === false) return { result };
+            return pictured() ? { result: { ...result, ...(await look()) } } : { result, later: true };
+        });
+        // A read of the tree moves nothing and needs nothing on top, so it
+        // is done after the mouse is handed on: the next agent's action
+        // starts while this one's window is being read.
+        return done.later ? { ...done.result, ...(await look()) } : done.result;
+    };
+
+    /**
+     * Whether the look after an action will be a picture. A picture is of
+     * the screen as it is, so it is taken while the mouse is still held,
+     * before anyone else brings their own window forward.
+     */
+    const pictured = () => {
+        const frame = frames.get(state.id);
+        const home = homes.get(state.id);
+        return frame?.mode === 'image' && state.canSee() && (frame.screen || frame.hwnd === home?.hwnd);
+    };
+
+    /** The look at the end of a batch, held for a picture and not for a read. */
+    const lookAfter = () => (pictured() ? withMouse(() => look()) : look());
+
+    /** An action that is not one of the steps (opening, pictures, a captcha), with the mouse held throughout. */
+    const held = work => async (input = {}) => {
+        const refused = await begin();
+        if (refused) return { error: refused };
+        return withMouse(async () => {
+            const result = await work(input);
+            if (!result.error) await remember();
+            return result;
+        });
     };
 
     return {
@@ -1159,10 +1304,8 @@ function apiFor(state) {
             };
         },
 
-        async open({ app, args = '' }) {
-            const refused = await begin();
-            if (refused) return { error: refused };
-            const answer = await call('launch', { target: app, args }, 30000);
+        open: held(async ({ app, args = '' }) => {
+            const answer = await callFor('launch', { target: app, args }, 30000);
             if (!answer.ok) return { error: explain(answer) };
             // Approving the launch is not approving what it opened. An app
             // that restores its last session (Notepad, Office, an IDE) comes
@@ -1176,7 +1319,7 @@ function apiFor(state) {
                 check: 'Read what is in the window before typing into it: an app may reopen the user\'s own documents.',
                 ...(denied ? {} : await look(answer.window)),
             };
-        },
+        }),
 
         async read({ window, under, maxElements, offscreen }) {
             const refused = allowed();
@@ -1191,7 +1334,7 @@ function apiFor(state) {
                 if (denied) return { error: denied };
                 payload = { hwnd: picked.window.hwnd };
             }
-            const answer = await call('tree', { ...payload, maxNodes: maxElements || 300, offscreen: Boolean(offscreen) }, 45000);
+            const answer = await callFor('tree', { ...payload, maxNodes: maxElements || 300, offscreen: Boolean(offscreen) }, 45000);
             if (!answer.ok) return { error: explain(answer) };
             // Reading the tree again is a sign of going back to it: the
             // actions after this hand back reads, not pictures.
@@ -1201,9 +1344,7 @@ function apiFor(state) {
         },
 
         /** A picture of a window, brought to the front first, or of the monitor it is on. */
-        async screenshot({ window, screen }) {
-            const refused = await begin();
-            if (refused) return { error: refused };
+        screenshot: held(async ({ window, screen }) => {
             if (!state.canSee()) {
                 return { error: 'The runtime this agent is on cannot see images. Use read_screen and read_text, or switch to one that can (Claude Code, Codex).' };
             }
@@ -1211,10 +1352,36 @@ function apiFor(state) {
             if (picked.error) return picked;
             const denied = await consent(picked.window);
             if (denied) return { error: denied };
-            const focused = await call('focus', { hwnd: picked.window.hwnd });
+            const focused = await callFor('focus', { hwnd: picked.window.hwnd });
             if (!focused.ok) return { error: explain(focused) };
             return snap(focused.window || picked.window, { screen: Boolean(screen) });
-        },
+        }),
+
+        /**
+         * Windows put where they are wanted: side by side for two agents, or
+         * two apps being worked between, quarters for four, one filling the
+         * screen. Each window's app needs the user's say-so, like any other
+         * control of it. Screenshots taken before are of windows that have
+         * since moved, so pixel positions from them are refused until retaken.
+         */
+        arrange: held(async ({ windows: wanted = [] }) => {
+            const placed = [];
+            for (const entry of wanted) {
+                const picked = await pickWindow(entry.window);
+                if (picked.error) return { error: picked.error, ...(placed.length ? { placed } : {}) };
+                const denied = await consent(picked.window);
+                if (denied) return { error: denied, ...(placed.length ? { placed } : {}) };
+                const answer = await callFor('place', {
+                    hwnd: picked.window.hwnd,
+                    slot: entry.place,
+                    monitor: entry.monitor === undefined ? '' : String(entry.monitor),
+                });
+                if (!answer.ok) return { error: explain(answer), ...(placed.length ? { placed } : {}) };
+                const [x, y, width, height] = answer.bounds;
+                placed.push({ ...brief(answer.window), place: entry.place, at: `${x},${y} ${width}×${height}` });
+            }
+            return { placed };
+        }),
 
         /**
          * A closer look at part of the latest screenshot, at the screen's own
@@ -1242,7 +1409,7 @@ function apiFor(state) {
             await new Promise(resolve => setTimeout(resolve, 60));
             let answer;
             try {
-                answer = await call('capture', { region, ...IMAGE }, 20000);
+                answer = await callFor('capture', { region, ...IMAGE }, 20000);
             } finally {
                 hooks.hideFromCapture(false);
             }
@@ -1268,7 +1435,7 @@ function apiFor(state) {
                 if (denied) return { error: denied };
                 payload = { hwnd: picked.window.hwnd };
             }
-            const answer = await call('text', payload, 45000);
+            const answer = await callFor('text', payload, 45000);
             if (!answer.ok) return { error: explain(answer) };
             const whole = String(answer.text || '');
             const start = Math.max(0, Math.min(Number(offset) || 0, whole.length));
@@ -1299,6 +1466,10 @@ function apiFor(state) {
          * Several actions in one turn, in order, stopping at the first that
          * fails. The numbers from the last read hold for all of them, since
          * nothing is read in between; the window is read once, at the end.
+         * The mouse is taken per step, and not at all for a pause or a wait,
+         * so another agent's steps can fall in between. Each step aims afresh
+         * and typing goes back to this agent's own window, so they do not
+         * trip over each other.
          */
         async steps({ steps = [] }) {
             const refused = await begin();
@@ -1307,9 +1478,14 @@ function apiFor(state) {
             for (const [index, step] of steps.entries()) {
                 const run = STEPS[step?.do];
                 if (!run) return { error: `Step ${index + 1}: there is no action "${step?.do}".` };
-                const result = await run(step);
+                const idle = step.do === 'pause' || step.do === 'wait_for';
+                const result = idle ? await run(step) : await withMouse(async () => {
+                    const outcome = await run(step);
+                    if (!outcome.error) await remember();
+                    return outcome;
+                });
                 if (result.error) {
-                    const after = await look();
+                    const after = await lookAfter();
                     const screen = after.screen ? `\n\nThe window now:\n${after.screen.elements}` : (after.now ? `\n\n${after.now}` : '');
                     return {
                         error: `Step ${index + 1} of ${steps.length} (${step.do}) failed: ${result.error}`
@@ -1318,7 +1494,7 @@ function apiFor(state) {
                 }
                 done.push(`${index + 1}. ${Object.entries(result).filter(([key]) => key !== 'window').map(([key, value]) => `${key} ${value}`).join(', ')}`);
             }
-            return { done, ...(await look()) };
+            return { done, ...(await lookAfter()) };
         },
 
         /**
@@ -1326,16 +1502,14 @@ function apiFor(state) {
          * text read into a field (into), or any other click puzzle given by
          * its corners in the latest screenshot.
          */
-        async captcha(input = {}) {
-            const refused = await begin();
-            if (refused) return { error: refused };
+        captcha: held(async (input = {}) => {
             const picked = await pickWindow(input.window);
             if (picked.error) return picked;
             const denied = await consent(picked.window);
             if (denied) return { error: denied };
             // A widget behind another window, or in a minimised one, is not on
             // screen to be seen or pressed.
-            const focused = await call('focus', { hwnd: picked.window.hwnd });
+            const focused = await callFor('focus', { hwnd: picked.window.hwnd });
             if (!focused.ok) return { error: explain(focused) };
             if (input.into) return textCaptcha(picked.window, input);
             if (hasCorners(input)) return regionCaptcha(picked.window, input);
@@ -1343,7 +1517,7 @@ function apiFor(state) {
                 return { error: 'element names the picture of a text captcha; say where its answer goes with into. For anything else, leave it out and the captcha is found by itself.' };
             }
             return autoCaptcha(picked.window, input);
-        },
+        }),
     };
 }
 
@@ -1386,10 +1560,15 @@ module.exports = {
             helperCommand = command;
         },
         setPlatform: (value) => { platform = value; },
-        holder: () => holder,
+        drivers: () => drivers,
+        homes: () => homes,
         reset: () => {
             shutdown();
-            holder = null;
+            drivers.clear();
+            homes.clear();
+            driving = false;
+            helperPaused = false;
+            mouse = Promise.resolve();
             consents.clear();
             frames.clear();
             captchaTiming = CAPTCHA_TIMING;

@@ -189,6 +189,7 @@ static class DesktopHelper
             object id = request.ContainsKey("id") ? request["id"] : null;
             cancelled = false;
             acting = Actions.Contains(Text(request, "cmd"));
+            Open(Text(request, "owner"));
             Dictionary<string, object> answer;
             try
             {
@@ -208,6 +209,7 @@ static class DesktopHelper
                 answer = Failure("failed", error.Message);
             }
             acting = false;
+            Close();
             answer["id"] = id;
             Emit(answer);
         }
@@ -262,6 +264,8 @@ static class DesktopHelper
             case "scroll": return Scroll(request);
             case "drag": return Drag(request);
             case "drive": return Drive(request);
+            case "place": return Place(request);
+            case "forget": return Forget(Text(request, "whose"));
             default: throw new Stop("unknown", "Unknown command: " + Text(request, "cmd"));
         }
     }
@@ -338,7 +342,7 @@ static class DesktopHelper
     // the mouse is a hand fighting the agent's.
     static volatile bool acting;
 
-    static readonly HashSet<string> Actions = new HashSet<string> { "focus", "launch", "target", "click", "type", "keys", "scroll", "drag" };
+    static readonly HashSet<string> Actions = new HashSet<string> { "focus", "launch", "target", "click", "type", "keys", "scroll", "drag", "place" };
 
     /// <summary>
     /// The person's input, by the rule the badge promises. Clicking or typing
@@ -617,6 +621,88 @@ static class DesktopHelper
         return answer;
     }
 
+    /// <summary>
+    /// A window moved and sized to part of a monitor's working area: a half,
+    /// a quarter, the middle, or all of it. Several agents working side by
+    /// side each get their own part of the screen, so reaching into one never
+    /// covers another. The size asked for is the size seen: Windows 10 and
+    /// later draw an invisible resize border around a window, which is added
+    /// back so neighbours meet edge to edge.
+    /// </summary>
+    static Dictionary<string, object> Place(Dictionary<string, object> request)
+    {
+        RequireDriving();
+        IntPtr window = Handle(request, "hwnd");
+        if (window == IntPtr.Zero || !Native.IsWindow(window)) throw new Stop("gone", "That window is gone. List the windows again.");
+        Allowed(window);
+
+        string slot = Text(request, "slot").ToLowerInvariant();
+        Rectangle area = ScreenFor(window, Text(request, "monitor")).WorkingArea;
+        int halfWidth = area.Width / 2;
+        int halfHeight = area.Height / 2;
+        Rectangle target;
+        switch (slot)
+        {
+            case "left": target = new Rectangle(area.X, area.Y, halfWidth, area.Height); break;
+            case "right": target = new Rectangle(area.X + halfWidth, area.Y, area.Width - halfWidth, area.Height); break;
+            case "top": target = new Rectangle(area.X, area.Y, area.Width, halfHeight); break;
+            case "bottom": target = new Rectangle(area.X, area.Y + halfHeight, area.Width, area.Height - halfHeight); break;
+            case "top-left": target = new Rectangle(area.X, area.Y, halfWidth, halfHeight); break;
+            case "top-right": target = new Rectangle(area.X + halfWidth, area.Y, area.Width - halfWidth, halfHeight); break;
+            case "bottom-left": target = new Rectangle(area.X, area.Y + halfHeight, halfWidth, area.Height - halfHeight); break;
+            case "bottom-right": target = new Rectangle(area.X + halfWidth, area.Y + halfHeight, area.Width - halfWidth, area.Height - halfHeight); break;
+            case "center": target = new Rectangle(area.X + area.Width / 8, area.Y + area.Height / 10, area.Width * 3 / 4, area.Height * 4 / 5); break;
+            case "full": case "maximize": target = area; break;
+            default: throw new Stop("bad-request", "Unknown place \"" + slot + "\".");
+        }
+
+        // A maximised or minimised window ignores a new size until restored.
+        if (Native.IsIconic(window) || Native.IsZoomed(window))
+        {
+            Native.ShowWindow(window, 9);
+            Thread.Sleep(150);
+        }
+        if (slot == "maximize")
+        {
+            Native.SetWindowPos(window, IntPtr.Zero, target.X, target.Y, target.Width, target.Height, 0x0004 | 0x0010);
+            Native.ShowWindow(window, 3);
+        }
+        else
+        {
+            Native.RECT outer;
+            Native.GetWindowRect(window, out outer);
+            object[] seen = Bounds(window);
+            int left = (int)seen[0] - outer.Left;
+            int top = (int)seen[1] - outer.Top;
+            int right = outer.Right - ((int)seen[0] + (int)seen[2]);
+            int bottom = outer.Bottom - ((int)seen[1] + (int)seen[3]);
+            Native.SetWindowPos(window, IntPtr.Zero,
+                target.X - left, target.Y - top, target.Width + left + right, target.Height + top + bottom,
+                0x0004 | 0x0010);
+        }
+        Thread.Sleep(120);
+
+        var answer = new Dictionary<string, object>();
+        answer["window"] = Describe(window);
+        answer["bounds"] = Bounds(window);
+        return answer;
+    }
+
+    /// <summary>The window's own monitor, the primary one, or the nth from the left.</summary>
+    static Screen ScreenFor(IntPtr window, string monitor)
+    {
+        if (monitor == "primary") return Screen.PrimaryScreen;
+        int number;
+        if (int.TryParse(monitor, out number))
+        {
+            var screens = new List<Screen>(Screen.AllScreens);
+            screens.Sort((a, b) => a.Bounds.X != b.Bounds.X ? a.Bounds.X.CompareTo(b.Bounds.X) : a.Bounds.Y.CompareTo(b.Bounds.Y));
+            if (number < 1 || number > screens.Count) throw new Stop("bad-request", "There are " + screens.Count + " monitors; number them from 1, left to right.");
+            return screens[number - 1];
+        }
+        return Screen.FromHandle(window);
+    }
+
     /// <summary>To the front, by the gentlest way that works. Windows refuses a background process that simply asks.</summary>
     static void BringForward(IntPtr window)
     {
@@ -700,6 +786,51 @@ static class DesktopHelper
     static Dictionary<int, IntPtr> elementRoots = new Dictionary<int, IntPtr>();
     static int counter;
     static CacheRequest cache;
+
+    /// <summary>
+    /// One agent's numbers. Several conversations can share the desktop, each
+    /// working in its own window, and one reading its window must not renumber
+    /// what another is about to click. Every request names its owner, and the
+    /// worker opens that owner's book before handling it; it handles one
+    /// request at a time, so swapping the fields is safe.
+    /// </summary>
+    class Book
+    {
+        public Dictionary<int, AutomationElement> Elements = new Dictionary<int, AutomationElement>();
+        public Dictionary<int, IntPtr> Roots = new Dictionary<int, IntPtr>();
+        public int Counter;
+    }
+
+    static readonly Dictionary<string, Book> Books = new Dictionary<string, Book>();
+    static Book book;
+
+    static void Open(string owner)
+    {
+        if (!Books.TryGetValue(owner, out book))
+        {
+            book = new Book();
+            Books[owner] = book;
+        }
+        elements = book.Elements;
+        elementRoots = book.Roots;
+        counter = book.Counter;
+    }
+
+    static void Close()
+    {
+        if (book == null) return;
+        // A read replaces the dictionaries rather than clearing them.
+        book.Elements = elements;
+        book.Roots = elementRoots;
+        book.Counter = counter;
+    }
+
+    /// <summary>A conversation gone: its numbers go with it.</summary>
+    static Dictionary<string, object> Forget(string owner)
+    {
+        Books.Remove(owner);
+        return new Dictionary<string, object>();
+    }
 
     const int MaxVisited = 2500;
     const int MaxChildren = 80;
@@ -1749,7 +1880,11 @@ static class DesktopHelper
                 UnicodeEvent(letter, false);
                 UnicodeEvent(letter, true);
             }
-            Thread.Sleep(pause);
+            // The same average pace, never the same gap twice: a metronome
+            // reads as a machine, a rhythm as someone typing.
+            double spread;
+            lock (Chance) spread = 0.55 + Chance.NextDouble() * 0.9;
+            Thread.Sleep(Math.Max(1, (int)(pause * spread)));
         }
         var answer = new Dictionary<string, object>();
         answer["typed"] = text.Length;
@@ -2460,6 +2595,8 @@ static class Native
     [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr window);
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr window, int command);
     [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr window);
+    [DllImport("user32.dll")] public static extern bool IsZoomed(IntPtr window);
+    [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr window, IntPtr after, int x, int y, int width, int height, uint flags);
     [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr window);
     [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr window);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(IntPtr window, StringBuilder text, int max);

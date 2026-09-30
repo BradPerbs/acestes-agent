@@ -238,6 +238,28 @@ function build({ z, ok, fail }) {
         },
 
         {
+            name: 'arrange_windows',
+            title: 'Arrange windows',
+            readOnly: true,
+            writes: true,
+            description:
+                'Put windows where you want them, in one call: side by side (left and right), in quarters, at the '
+                + 'top or bottom, in the middle, filling a monitor, or maximised. Use it to work between two apps '
+                + 'without switching, and before starting a second agent on the desktop, so each works in its own '
+                + 'half and neither covers the other. Screenshots taken before are of windows that have moved: take '
+                + 'new ones before clicking by position.',
+            shape: {
+                windows: z.array(z.object({
+                    window: z.string().min(1).max(300).describe('Its id from list_windows, part of its title, or its app.'),
+                    place: z.enum(['left', 'right', 'top', 'bottom', 'top-left', 'top-right', 'bottom-left', 'bottom-right', 'center', 'full', 'maximize']),
+                    monitor: z.union([z.number().int().min(1).max(8), z.literal('primary')]).optional()
+                        .describe('Which monitor: 1, 2... from the left, or "primary". Defaults to the one it is on.'),
+                })).min(1).max(8),
+            },
+            handler: (input, ctx) => run(ctx, 'arrange', input),
+        },
+
+        {
             name: 'do_steps',
             title: 'Do several steps',
             readOnly: true,

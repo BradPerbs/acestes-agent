@@ -1628,6 +1628,8 @@ function endRun(conversation, status, detail = {}) {
         runWaiters.delete(conversation.id);
         const outcome = { status, runId, summary: lastReply(conversation), reason: detail.reason || '' };
         for (const settle of waiting) settle(outcome);
+    } else {
+        reportToParent(conversation, status);
     }
 
     if (unattended) {
@@ -1724,6 +1726,33 @@ function waitForRun(conversation, { reason = 'The run took too long.', stop = tr
         clearTimeout(timer);
     };
     return { ended, cancel };
+}
+
+/**
+ * A conversation this one started, finishing a turn nobody was waiting on.
+ * The parent gets a line in its chat saying so, with the start of what the
+ * child said, and the whole of it for its next turn. So the parent is free
+ * to report its own part and stop, rather than sit waiting for the other to
+ * finish, and nothing the child found is lost.
+ */
+function reportToParent(child, status) {
+    if (!child.spawnedFrom) return;
+    const parent = conversations.get(child.spawnedFrom);
+    if (!parent) return;
+    const said = lastReply(child);
+    const title = child.title || 'The conversation you started';
+    const how = status === 'done' ? 'finished' : status === 'cancelled' ? 'was stopped' : 'stopped on an error';
+    const opening = said.replace(/\s+/g, ' ').slice(0, 280);
+    emit(parent, {
+        type: 'notice',
+        tone: status === 'done' ? 'info' : 'warn',
+        text: `"${title}" ${how}.${opening ? ` ${opening}${said.length > 280 ? '…' : ''}` : ''}`,
+    });
+    parent.pendingNote = [
+        parent.pendingNote,
+        `The conversation you started, "${title}" (${child.id}), ${how}. What it said last:\n${said.slice(0, 4000)}`,
+    ].filter(Boolean).join('\n\n');
+    archive.save();
 }
 
 /** The child's cost is the parent's cost. */
@@ -1825,6 +1854,9 @@ function delegateApiFor(conversation) {
 
 const MAX_WORKING_CHILDREN = 6;
 
+/** How long check_conversations waits for a conversation before saying how far it has got. */
+let CHECK_WAIT = 60 * 1000;
+
 /** Conversations this one started, branched or delegated to. */
 function childrenOf(conversation) {
     return [...conversations.values()].filter(entry => (
@@ -1858,6 +1890,21 @@ function computerApiFor(conversation) {
         resolveSecrets: text => secrets.forAgent(conversation.agentId).resolve(text),
         // Whether the runtime answering can be shown a screenshot.
         canSee: () => PROVIDERS[effectiveSettings(conversation).provider]?.supportsImages === true,
+        // The conversations that started this one, nearest first: an agent
+        // started to work beside its parent may control what the parent was
+        // allowed to, without the user being asked again.
+        lineage: () => {
+            const chain = [];
+            let current = conversation;
+            while (chain.length < 3) {
+                const up = current.spawnedFrom || current.parentId;
+                if (!up || chain.includes(up)) break;
+                chain.push(up);
+                current = conversations.get(up);
+                if (!current) break;
+            }
+            return chain;
+        },
     });
 }
 
@@ -2020,12 +2067,31 @@ function conversationsApiFor(conversation) {
         check: async ({ waitFor = '' } = {}) => {
             const awaited = waitFor ? conversations.get(waitFor) : null;
             if (waitFor && !isChild(awaited)) return { error: `${waitFor} is not a conversation you started.` };
+            let stillGoing = false;
             if (awaited?.busy) {
+                // A minute at most. Waiting out a long job in silence left the
+                // user looking at an agent that had finished its own part and
+                // said nothing for minutes; better to come back with how far
+                // the other one has got, and say so.
                 const visible = inTab(awaited.id);
-                const outcome = await waitForRun(awaited, { stop: !visible }).ended;
-                tallyChild(conversation, outcome);
+                const waiting = waitForRun(awaited, { stop: !visible });
+                const outcome = await Promise.race([
+                    waiting.ended,
+                    new Promise(resolve => setTimeout(() => resolve(null), CHECK_WAIT)),
+                ]);
+                if (outcome) {
+                    tallyChild(conversation, outcome);
+                } else {
+                    waiting.cancel();
+                    stillGoing = true;
+                }
             }
             return {
+                ...(stillGoing ? {
+                    stillWorking: `"${awaited.title || awaited.id}" is still at it; its latest word is below. Tell the user what `
+                        + 'you have and where it stands rather than waiting on in silence: its report comes to this '
+                        + 'conversation by itself when it finishes.',
+                } : {}),
                 conversations: childrenOf(conversation).map(entry => ({
                     conversationId: entry.id,
                     title: entry.title || '',
@@ -3140,5 +3206,7 @@ module.exports = {
         conversationsApi: (conversationId) => conversationsApiFor(conversations.get(conversationId)),
         conversation: (conversationId) => conversations.get(conversationId),
         turnEnd,
+        reportToParent: (conversationId, status) => reportToParent(conversations.get(conversationId), status),
+        setCheckWait: (ms) => { CHECK_WAIT = ms; },
     },
 };

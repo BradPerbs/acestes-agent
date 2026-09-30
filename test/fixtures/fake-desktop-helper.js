@@ -157,6 +157,8 @@ const send = message => process.stdout.write(`${JSON.stringify(message)}\n`);
 
 send({ event: 'ready', version: 'fake', elevated: false });
 
+let front = WINDOWS[0];
+
 readline.createInterface({ input: process.stdin }).on('line', (line) => {
     const request = JSON.parse(line);
     fs.appendFileSync(log, `${line}\n`);
@@ -165,8 +167,18 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
 
     switch (request.cmd) {
         case 'windows': return reply({ windows: WINDOWS });
-        case 'foreground': return reply({ window: WINDOWS[0] });
-        case 'focus': return reply({ window: WINDOWS.find(w => w.hwnd === request.hwnd) || WINDOWS[0] });
+        // The window in front is whichever was last brought forward.
+        case 'foreground': return reply({ window: front });
+        case 'focus': {
+            front = WINDOWS.find(w => w.hwnd === request.hwnd) || WINDOWS[0];
+            return reply({ window: front });
+        }
+        case 'place': {
+            const window = WINDOWS.find(w => w.hwnd === request.hwnd) || WINDOWS[0];
+            const x = request.slot === 'right' ? 1280 : 0;
+            return reply({ window, bounds: [x, 0, 1280, 1400] });
+        }
+        case 'forget': return reply({});
         case 'drive': return reply({});
         case 'tree': {
             const window = WINDOWS.find(w => w.hwnd === request.hwnd) || WINDOWS[0];
@@ -190,6 +202,8 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
                 return reply({ x: request.x, y: request.y, window: WINDOWS[0], ...(request.hwnd ? { frame } : {}) });
             }
             const window = request.element === 7 ? WINDOWS[1] : WINDOWS[0];
+            // Aiming brings the element's window forward, as the real one does.
+            front = window;
             const rect = RECTS[request.element];
             if (rect) return reply({ x: rect[0] + rect[2] / 2, y: rect[1] + rect[3] / 2, rect, window });
             return reply({ x: 50, y: 60, rect: [40, 50, 20, 20], window });
@@ -225,7 +239,10 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
             captchaDrag(request.x, request.y);
             return reply({ under: 'pane "Canvas"', window: WINDOWS[0] });
         }
-        case 'launch': return reply({ window: { ...WINDOWS[0], hwnd: 303, title: 'Untitled - Paint', process: 'mspaint.exe' } });
+        case 'launch': {
+            front = { ...WINDOWS[0], hwnd: 303, title: 'Untitled - Paint', process: 'mspaint.exe' };
+            return reply({ window: front });
+        }
         default: return refuse('unknown', `Unknown command: ${request.cmd}`);
     }
 });

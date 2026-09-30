@@ -221,6 +221,33 @@ function playConversation(conversationId) {
         assert.ok((await api.check({ waitFor: stranger })).error);
     });
 
+    await check('waiting on a conversation gives up after the wait, and says how far it has got', async () => {
+        assistant._test.setCheckWait(60);
+        const child = assistant._test.conversation(started);
+        assistant._test.emit(started, { type: 'user-message', text: 'Read the tickets' });
+        assistant._test.emit(started, { type: 'assistant-text', text: '22 of 27 read. Continuing with #4029.' });
+        child.busy = true;
+        const began = Date.now();
+        const listed = await api.check({ waitFor: started });
+        child.busy = false;
+        assistant._test.setCheckWait(60 * 1000);
+        assert.ok(Date.now() - began < 2000, 'not left waiting');
+        assert.ok(/still at it/.test(listed.stillWorking), listed.stillWorking);
+        const entry = listed.conversations.find(item => item.conversationId === started);
+        assert.strictEqual(entry.lastReply, '22 of 27 read. Continuing with #4029.');
+    });
+
+    await check('a conversation that finishes on its own reports to the one that started it', async () => {
+        const parent = assistant._test.conversation(parentId);
+        parent.pendingNote = '';
+        assistant._test.emit(started, { type: 'assistant-text', text: 'All 27 read. Two can be answered now: #4017 and #3942.' });
+        assistant._test.reportToParent(started, 'done');
+        const notice = assistant.history(parentId).events.filter(event => event.type === 'notice').at(-1);
+        assert.ok(/finished\. All 27 read/.test(notice.text), notice.text);
+        assert.ok(parent.pendingNote.includes('#4017 and #3942'), 'the whole report waits for its next turn');
+        assert.ok(parent.pendingNote.includes(started));
+    });
+
     console.log('\nlimits');
 
     await check('a child two deep cannot start or branch any further', async () => {

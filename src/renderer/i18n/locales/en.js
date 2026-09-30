@@ -1795,6 +1795,7 @@ export default {
     'assistant.didWaitFor': 'Waited for',
     'assistant.didReadText': 'Read the text of',
     'assistant.didSteps': 'Did',
+    'assistant.didArrange': 'Arranged',
     'assistant.didScreenshot': 'Took a screenshot',
     'assistant.didZoom': 'Zoomed in',
     'assistant.didSolveCaptcha': 'Worked the captcha',

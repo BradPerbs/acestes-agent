@@ -67,6 +67,7 @@ const TITLES = {
     wait_for: 'assistant.didWaitFor',
     read_text: 'assistant.didReadText',
     do_steps: 'assistant.didSteps',
+    arrange_windows: 'assistant.didArrange',
     screenshot: 'assistant.didScreenshot',
     zoom: 'assistant.didZoom',
     solve_captcha: 'assistant.didSolveCaptcha',
@@ -206,6 +207,8 @@ export function describeCall(name, input = {}) {
                     : step.do === 'keys' ? step.keys
                         : [step.do, aimedAt(step.element, step.x, step.y)].filter(Boolean).join(' '))).join(' → '),
             };
+        case 'arrange_windows':
+            return { mono: false, text: (input.windows || []).map(entry => `${entry.window} ${entry.place}`).join(', ') };
         case 'read_terminal':
             return {
                 mono: false,
