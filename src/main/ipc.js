@@ -44,6 +44,7 @@ const container = require('./ai/container');
 const headless = require('./ai/headless');
 const runs = require('./runs');
 const jobs = require('./runs/jobs');
+const jobTemplates = require('./runs/job-templates');
 const scheduler = require('./runs/scheduler');
 const mcpLibrary = require('./ai/mcp-library');
 const mcpProbe = require('./ai/mcp-probe');
@@ -1732,6 +1733,14 @@ function register(getWindow) {
     handle('jobs-token', (event, jobId) => jobs.get(jobId)?.token || '');
     // "grok 4.6 xhigh" to a runtime, a model and an effort, for the dialog.
     handle('jobs-resolve-model', (event, { agentId, query } = {}) => assistant.resolveModel(agentId, query));
+    // The next few times a schedule fires, before it is saved.
+    handle('jobs-preview', (event, { schedule, count } = {}) => jobs.preview(schedule, { count: Number(count) || 3 }));
+    // The job library: templates, and one filled in as a spec to review or
+    // save. Nothing is created until the page sends the spec to jobs-create.
+    handle('jobs-templates', (event, filter) => jobTemplates.list(filter || {}));
+    handle('jobs-template-instantiate', (event, { template, values, tz, agentId, name } = {}) => (
+        jobTemplates.instantiate(template, values || {}, { tz, agentId, name })
+    ));
 
     /* ---------------- MCP library ---------------- */
 

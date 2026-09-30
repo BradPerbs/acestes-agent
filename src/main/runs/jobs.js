@@ -190,12 +190,77 @@ function nextRunAt(job, now = Date.now()) {
     }
 }
 
+/**
+ * The next few times a schedule fires, for the page to show before saving.
+ *
+ * Takes what parseSchedule takes. An interval is counted from now, the way
+ * a new job's would be. Event and webhook schedules have no times; `next`
+ * is empty and `text` says what they wait for.
+ */
+function preview(input, { count = 3, now = Date.now() } = {}) {
+    const parsed = parseSchedule(input, now);
+    if (parsed.error) return { error: parsed.error };
+    const schedule = parsed.schedule;
+    const next = [];
+    let cursor = { schedule, runCount: 0, lastRunAt: null };
+    let from = now;
+    for (let index = 0; index < Math.max(1, Math.min(count, 10)); index += 1) {
+        const at = nextRunAt(cursor, from);
+        if (!at) break;
+        next.push(at);
+        if (schedule.kind === 'at') break;
+        cursor = { ...cursor, runCount: cursor.runCount + 1, lastRunAt: at };
+        from = at + 1000;
+    }
+    return { schedule, text: describeSchedule(schedule), next };
+}
+
+const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+/**
+ * The cron expressions people actually write, read back in words: "every
+ * day at 09:00", "weekdays at 08:30", "Mondays at 09:00", "every 15
+ * minutes". Anything more involved is shown as the expression itself.
+ */
+function describeCron(expr) {
+    const fields = String(expr || '').trim().split(/\s+/);
+    if (fields.length !== 5) return `cron ${expr}`;
+    const [minute, hour, dom, month, dow] = fields;
+    const pad = (value) => String(value).padStart(2, '0');
+
+    if (month !== '*') return `cron ${expr}`;
+    const everyMinutes = /^\*\/(\d+)$/.exec(minute);
+    if (everyMinutes && hour === '*' && dom === '*' && dow === '*') return `every ${everyMinutes[1]} minutes`;
+    if (/^\d+$/.test(minute) && hour === '*' && dom === '*' && dow === '*') {
+        return minute === '0' ? 'every hour' : `every hour at :${pad(minute)}`;
+    }
+    const everyHours = /^\*\/(\d+)$/.exec(hour);
+    if (/^\d+$/.test(minute) && everyHours && dom === '*' && dow === '*') return `every ${everyHours[1]} hours`;
+
+    if (!/^\d+$/.test(minute) || !/^\d+(,\d+)*$/.test(hour)) return `cron ${expr}`;
+    const times = hour.split(',').map(value => `${pad(value)}:${pad(minute)}`).join(' and ');
+
+    if (dom === '*' && dow === '*') return `every day at ${times}`;
+    if (dom === '*' && (dow === '1-5' || dow === 'MON-FRI')) return `weekdays at ${times}`;
+    if (dom === '*' && (dow === '0,6' || dow === '6,0' || dow === 'SAT,SUN')) return `weekends at ${times}`;
+    if (dom === '*' && /^[0-7](,[0-7])*$/.test(dow)) {
+        const names = dow.split(',').map(value => `${DAYS[Number(value) % 7]}s`);
+        return `${names.join(', ')} at ${times}`;
+    }
+    if (dow === '*' && /^\d+$/.test(dom)) {
+        const day = Number(dom);
+        const suffix = day % 10 === 1 && day !== 11 ? 'st' : day % 10 === 2 && day !== 12 ? 'nd' : day % 10 === 3 && day !== 13 ? 'rd' : 'th';
+        return `monthly on the ${day}${suffix} at ${times}`;
+    }
+    return `cron ${expr}`;
+}
+
 function describeSchedule(schedule) {
     switch (schedule?.kind) {
         case 'at': return `once, at ${new Date(schedule.at).toLocaleString()}`;
         case 'every': return `every ${describeSpan(schedule.everyMs)}`;
         case 'heartbeat': return `every ${describeSpan(schedule.everyMs)}, after the probe`;
-        case 'cron': return `cron ${schedule.expr}${schedule.tz ? ` (${schedule.tz})` : ''}`;
+        case 'cron': return `${describeCron(schedule.expr)}${schedule.tz ? ` (${schedule.tz})` : ''}`;
         case 'event': return `when a host goes ${schedule.event === 'host-online' ? 'online' : 'offline'}`;
         case 'webhook': return 'on a webhook';
         default: return '';
@@ -252,6 +317,7 @@ function rowToJob(row) {
         missed: row.missed,
         keepAfterRun: Boolean(row.keep_after_run),
         createdBy: row.created_by,
+        template: row.template || '',
         token: row.token,
         lastRunAt: row.last_run_at,
         lastStatus: row.last_status,
@@ -305,6 +371,7 @@ function create(raw = {}, now = Date.now()) {
         missed: MISSED.has(raw.missed) ? raw.missed : 'skip',
         keepAfterRun: Boolean(raw.keepAfterRun),
         createdBy: raw.createdBy === 'agent' ? 'agent' : 'user',
+        template: clean(raw.template, 80),
         token: parsed.schedule.kind === 'webhook' ? crypto.randomBytes(24).toString('base64url') : '',
     };
     const next = job.enabled ? nextRunAt({ ...job, runCount: 0, lastRunAt: null }, now) : null;
@@ -312,11 +379,11 @@ function create(raw = {}, now = Date.now()) {
     const db = database.open();
     db.prepare(`
         INSERT INTO jobs (id, agent_id, name, enabled, schedule, prompt, session, policy, provider, model, effort, delivery, missed,
-                          keep_after_run, created_by, token, next_run_at, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                          keep_after_run, created_by, template, token, next_run_at, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(job.id, job.agentId, job.name, job.enabled ? 1 : 0, json(job.schedule), job.prompt, job.session,
         json(job.policy), job.provider, job.model, job.effort, json(job.delivery), job.missed, job.keepAfterRun ? 1 : 0,
-        job.createdBy, job.token, next, now, now);
+        job.createdBy, job.template, job.token, next, now, now);
     const saved = get(job.id);
     notify('jobs-changed', { jobId: job.id, agentId });
     return { job: saved };
@@ -559,17 +626,18 @@ function importAll(records, { overwrite = false } = {}) {
             missed: MISSED.has(raw.missed) ? raw.missed : 'skip',
             keepAfterRun: Boolean(raw.keepAfterRun),
             createdBy: raw.createdBy === 'agent' ? 'agent' : 'user',
+            template: clean(raw.template, 80),
             token: parsed.schedule.kind === 'webhook' && raw.token ? String(raw.token) : (parsed.schedule.kind === 'webhook' ? crypto.randomBytes(24).toString('base64url') : ''),
         };
         const next = job.enabled ? nextRunAt({ ...job, runCount: 0, lastRunAt: null }, now) : null;
         if (existing) db.prepare('DELETE FROM jobs WHERE id = ?').run(id);
         db.prepare(`
             INSERT INTO jobs (id, agent_id, name, enabled, schedule, prompt, session, policy, provider, model, effort, delivery, missed,
-                              keep_after_run, created_by, token, next_run_at, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                              keep_after_run, created_by, template, token, next_run_at, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(job.id, job.agentId, job.name, job.enabled ? 1 : 0, json(job.schedule), job.prompt, job.session,
             json(job.policy), job.provider, job.model, job.effort, json(job.delivery), job.missed, job.keepAfterRun ? 1 : 0,
-            job.createdBy, job.token, next, now, now);
+            job.createdBy, job.template, job.token, next, now, now);
         if (existing) result.replaced++;
         else result.added++;
         notify('jobs-changed', { jobId: job.id, agentId: job.agentId });
@@ -582,7 +650,9 @@ module.exports = {
     parseSchedule,
     normalizeSchedule,
     nextRunAt,
+    preview,
     describeSchedule,
+    describeCron,
     spanMs,
     get,
     list,

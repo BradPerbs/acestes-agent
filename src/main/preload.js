@@ -747,6 +747,11 @@ contextBridge.exposeInMainWorld('api', {
         // A model the way a person names it, resolved across the agent's
         // runtimes: `{ provider, model, label, effort }` or `{ error }`.
         resolveModel: (agentId, query) => ipcRenderer.invoke('jobs-resolve-model', { agentId, query }),
+        // `{ schedule, text, next: [stamps] }` or `{ error }`, nothing saved.
+        preview: (schedule, count = 3) => ipcRenderer.invoke('jobs-preview', { schedule, count }),
+        // The job library, and one template filled in as `{ spec }` or `{ error }`.
+        templates: (filter) => ipcRenderer.invoke('jobs-templates', filter || {}),
+        fromTemplate: (payload) => ipcRenderer.invoke('jobs-template-instantiate', payload || {}),
         onChange: (callback) => subscribe('jobs-changed', callback),
     },
 

@@ -183,6 +183,44 @@ function build({ z, ok, fail }) {
         },
 
         {
+            name: 'list_job_templates',
+            title: 'List the job templates',
+            readOnly: true,
+            description:
+                'The ready-made jobs in the app\'s library: a daily digest of a GitHub repository\'s open issues, '
+                + 'pull requests waiting on review, failed CI runs, security alerts, disk space, failed services, '
+                + 'pending updates, certificate expiry, failed logins, a website-down alert, backup freshness and '
+                + 'more. Each has a tested brief, a schedule and the fields it needs. When the user asks for '
+                + 'something one of these covers, schedule it with schedule_job and `template` rather than '
+                + 'writing the brief yourself.',
+            shape: {
+                query: z.string().max(80).optional().describe('Words to narrow the list, e.g. "github" or "disk".'),
+            },
+            handler: async (input) => {
+                const library = require('../runs/job-templates');
+                return ok({
+                    templates: library.list({ query: input.query || '' }).map(template => ({
+                        id: template.id,
+                        name: template.name,
+                        description: template.description,
+                        schedule: template.scheduleText,
+                        approvals: template.approvals,
+                        needs: template.needs || '',
+                        fields: template.fields.map(field => ({
+                            key: field.key,
+                            label: field.label,
+                            type: field.type,
+                            required: Boolean(field.required),
+                            ...(field.default ? { default: field.default } : {}),
+                            ...(field.type === 'host' ? { note: 'A host name from list_hosts, empty for every host, or "@local" for this computer.' } : {}),
+                            ...(field.type === 'time' ? { note: 'HH:MM, in the timezone you pass to schedule_job.' } : {}),
+                        })),
+                    })),
+                });
+            },
+        },
+
+        {
             name: 'schedule_job',
             title: 'Schedule a job',
             readOnly: false,
@@ -193,11 +231,15 @@ function build({ z, ok, fail }) {
                 + '(an interval with a local probe command that runs first; you are only woken if it prints '
                 + 'something or fails). The run gets the parking policy by default: anything that changes a '
                 + 'system waits for the user. Say "read-only" for a job that only reports. Only schedule what '
-                + 'the user asked to have done on a schedule.',
+                + 'the user asked to have done on a schedule. To use a template from list_job_templates, pass '
+                + '`template` and its `values`; the schedule and prompt then come from the template unless you '
+                + 'give your own.',
             shape: {
-                name: z.string().min(1).max(120).describe('A short name the user will see.'),
-                schedule: z.string().min(1).max(200).describe('"in 20m", "every 2h", a cron expression, or an ISO date.'),
-                prompt: z.string().min(1).max(20000).describe('What to do when the job fires, written as instructions to yourself.'),
+                name: z.string().min(1).max(120).optional().describe('A short name the user will see. Defaults to the template\'s name.'),
+                schedule: z.string().min(1).max(200).optional().describe('"in 20m", "every 2h", a cron expression, or an ISO date. Needed unless a template is given.'),
+                prompt: z.string().min(1).max(20000).optional().describe('What to do when the job fires, written as instructions to yourself. Needed unless a template is given.'),
+                template: z.string().max(80).optional().describe('A template id from list_job_templates.'),
+                values: z.record(z.string(), z.string()).optional().describe('With template: the answers to its fields, by key.'),
                 timezone: z.string().max(80).optional().describe('IANA timezone for a cron expression, e.g. Europe/Rome.'),
                 approvals: z.enum(['read-only', 'park']).optional().describe('read-only reports only; park (default) waits for the user on a change.'),
                 autonomous: z.boolean().optional().describe('Only when the user said the job should act without asking: nothing waits for approval. The blocked list still applies.'),
@@ -215,24 +257,42 @@ function build({ z, ok, fail }) {
             handler: async (input, ctx) => {
                 const jobs = api(ctx);
                 if (!jobs) return fail('Jobs are not available here.');
-                let schedule = input.schedule;
-                if (input.probe) {
+
+                // A template fills in whatever the call leaves out.
+                let base = null;
+                if (input.template) {
+                    const library = require('../runs/job-templates');
+                    const made = library.instantiate(input.template, input.values || {}, { tz: input.timezone || '', name: input.name || '' });
+                    if (made.error) return fail(`${made.error} Read list_job_templates for the fields it takes.`);
+                    base = made.spec;
+                } else if (!input.name || !input.schedule || !input.prompt) {
+                    return fail('A job needs a name, a schedule and a prompt, or a template from list_job_templates.');
+                }
+
+                let schedule = input.schedule || base?.schedule;
+                if (input.schedule && input.probe) {
                     const every = /^every\s+(.+)$/i.exec(String(schedule).trim());
                     if (!every) return fail('A heartbeat needs an "every ..." schedule.');
                     schedule = { kind: 'heartbeat', every: every[1], probe: { command: input.probe } };
-                } else if (input.timezone && !/^(in|every|at)\s/i.test(String(schedule))) {
+                } else if (input.schedule && input.timezone && !/^(in|every|at)\s/i.test(String(schedule))) {
                     schedule = { kind: 'cron', expr: schedule, tz: input.timezone };
                 }
                 const pin = await pinFrom(jobs, input);
                 if (pin.error) return fail(pin.error);
                 const { pinned } = pin;
+                // A template's own approvals (most are read-only) stand unless
+                // the call asks for something else.
+                const approvals = base && !input.approvals && input.autonomous !== true
+                    ? base.policy.approvals
+                    : policyFor(input);
                 const result = jobs.create({
-                    name: input.name,
+                    name: input.name || base?.name,
                     schedule,
-                    prompt: input.prompt,
+                    prompt: input.prompt || base?.prompt,
                     ...pinned,
-                    policy: { approvals: policyFor(input), budget: input.budget || {} },
+                    policy: { approvals, budget: input.budget || base?.policy.budget || {} },
                     delivery: { notify: input.notify !== false },
+                    ...(base ? { missed: base.missed, template: base.template } : {}),
                 });
                 if (result.error) return fail(result.error);
                 return ok({

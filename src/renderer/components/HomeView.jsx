@@ -169,7 +169,7 @@ function HomeView({
             )}
 
             {activeNav === 'jobs' && (
-                <JobsPanel agentId={agentId} hosts={allHosts} />
+                <JobsPanel agentId={agentId} hosts={allHosts} reachedForPage={reachedForPage} onOpenConversation={onOpenConversation} />
             )}
 
             {activeNav === 'runs' && (

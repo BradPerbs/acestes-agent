@@ -242,6 +242,86 @@ const NOW = Date.parse('2026-09-02T12:00:00Z');
         assert.strictEqual(jobs.get(job.id).runCount, 1);
     });
 
+    await check('cron schedules read back in words, and the unusual ones as the expression', () => {
+        assert.strictEqual(jobs.describeCron('0 9 * * *'), 'every day at 09:00');
+        assert.strictEqual(jobs.describeCron('30 9 * * 1-5'), 'weekdays at 09:30');
+        assert.strictEqual(jobs.describeCron('0 9 * * 1'), 'Mondays at 09:00');
+        assert.strictEqual(jobs.describeCron('0 8,18 * * *'), 'every day at 08:00 and 18:00');
+        assert.strictEqual(jobs.describeCron('0 9 1 * *'), 'monthly on the 1st at 09:00');
+        assert.strictEqual(jobs.describeCron('0 * * * *'), 'every hour');
+        assert.strictEqual(jobs.describeCron('*/15 * * * *'), 'every 15 minutes');
+        assert.strictEqual(jobs.describeCron('5 4 * 2 *'), 'cron 5 4 * 2 *');
+        assert.strictEqual(jobs.describeSchedule({ kind: 'cron', expr: '0 9 * * *', tz: 'UTC' }), 'every day at 09:00 (UTC)');
+    });
+
+    await check('the preview lists the next times a schedule fires, or why it never will', () => {
+        const cron = jobs.preview({ kind: 'cron', expr: '0 9 * * 1-5', tz: 'UTC' }, { count: 3, now: NOW });
+        assert.deepStrictEqual(cron.next.map(stamp => new Date(stamp).toISOString()), [
+            '2026-09-03T09:00:00.000Z', '2026-09-04T09:00:00.000Z', '2026-09-07T09:00:00.000Z',
+        ]);
+        const every = jobs.preview('every 2h', { count: 2, now: NOW });
+        assert.deepStrictEqual(every.next, [NOW + 7200000, NOW + 14400000]);
+        assert.strictEqual(jobs.preview('in 20m', { count: 3, now: NOW }).next.length, 1, 'once is once');
+        assert.deepStrictEqual(jobs.preview({ kind: 'webhook' }, { now: NOW }).next, []);
+        assert.ok(jobs.preview('every 10s', { now: NOW }).error);
+    });
+
+    await check('a job keeps the template it came from', () => {
+        const made = jobs.create({ agentId: 'a', name: 'Issues', schedule: '0 9 * * *', prompt: 'x', template: 'github-open-issues' }, NOW);
+        assert.strictEqual(made.job.template, 'github-open-issues');
+        assert.strictEqual(jobs.get(made.job.id).template, 'github-open-issues');
+        const back = jobs.importAll([{ ...made.job, id: 'job-imported' }]);
+        assert.strictEqual(back.added, 1);
+        assert.strictEqual(jobs.get('job-imported').template, 'github-open-issues');
+    });
+
+    await check('every template fills in to a job that saves', () => {
+        const templates = require(path.join(ROOT, 'runs', 'job-templates'));
+        assert.ok(templates.list().length >= 15);
+        for (const template of templates.list()) {
+            const values = Object.fromEntries(template.fields.map(field => [field.key, ({
+                text: 'octo/repo', url: 'https://example.com/health', number: '5', time: '07:15', host: '',
+            })[field.type]]));
+            const made = templates.instantiate(template.id, values, { tz: 'UTC', agentId: 'a' });
+            assert.ok(!made.error, `${template.id}: ${made.error}`);
+            assert.ok(!/\{\{\w+\}\}/.test(made.spec.prompt), `${template.id} left a blank in its prompt`);
+            const saved = jobs.create(made.spec, NOW);
+            assert.ok(!saved.error, `${template.id}: ${saved.error}`);
+            assert.strictEqual(saved.job.template, template.id);
+            if (template.fields.some(field => field.type === 'time')) {
+                assert.ok(saved.job.schedule.expr.startsWith('15 7 '), `${template.id} took the time`);
+            }
+        }
+    });
+
+    await check('a template refuses what is missing or malformed', () => {
+        const templates = require(path.join(ROOT, 'runs', 'job-templates'));
+        assert.ok(/Repository/.test(templates.instantiate('github-open-issues', {}).error));
+        assert.ok(/time/.test(templates.instantiate('github-open-issues', { repo: 'o/r', time: '25:00' }).error));
+        assert.ok(/http/.test(templates.instantiate('website-down', { url: 'https://x.test/"; rm -rf ~' }).error));
+        assert.ok(templates.instantiate('nope', {}).error);
+        const issues = templates.instantiate('github-open-issues', { repo: 'octo/repo' }, { tz: 'Europe/Rome' }).spec;
+        assert.strictEqual(issues.schedule.tz, 'Europe/Rome');
+        assert.strictEqual(issues.policy.approvals, 'read-only');
+        assert.ok(issues.prompt.includes('gh issue list --repo octo/repo'));
+        const disk = templates.instantiate('disk-space', { hosts: 'web-01' }).spec;
+        assert.ok(disk.prompt.includes('the host "web-01"'));
+        const backup = templates.instantiate('backup-freshness', { folder: '/srv/backups' }).spec;
+        assert.ok(backup.prompt.includes('on this computer'));
+        const down = templates.instantiate('website-down', { url: 'https://example.com/health?full=1&x=2' }).spec;
+        assert.strictEqual(down.schedule.kind, 'heartbeat');
+        assert.ok(down.schedule.probe.command.includes('"https://example.com/health?full=1&x=2"'));
+    });
+
+    await check('runs can be read for one job, or for every job at once', () => {
+        const job = jobs.create({ agentId: 'hist', name: 'History', schedule: 'every 1h', prompt: 'x' }, NOW).job;
+        runs.create({ agentId: 'hist', kind: 'scheduled', jobId: job.id, title: 'History' });
+        runs.create({ agentId: 'hist', kind: 'interactive', title: 'A chat' });
+        assert.strictEqual(runs.list({ jobId: job.id }).length, 1);
+        assert.strictEqual(runs.list({ agentId: 'hist', jobs: true }).length, 1);
+        assert.strictEqual(runs.list({ agentId: 'hist' }).length, 2);
+    });
+
     await check('keepAlive says whether any job is switched on', () => {
         assert.strictEqual(scheduler.keepAlive(), true);
         for (const job of jobs.list({ enabled: true })) jobs.update(job.id, { enabled: false });

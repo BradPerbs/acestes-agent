@@ -90,6 +90,10 @@ const MIGRATIONS = [
     `
     ALTER TABLE jobs ADD COLUMN provider TEXT NOT NULL DEFAULT '';
     `,
+    `
+    ALTER TABLE jobs ADD COLUMN template TEXT NOT NULL DEFAULT '';
+    CREATE INDEX runs_job ON runs (job_id, updated_at DESC);
+    `,
 ];
 
 function file() {

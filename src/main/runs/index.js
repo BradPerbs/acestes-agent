@@ -336,12 +336,18 @@ function openStep(runId, kind, name = '') {
  * Listing and recovery
  * ------------------------------------------------------------------ */
 
-function list({ agentId = '', status = '', conversationId = '', limit = 100, offset = 0 } = {}) {
+/**
+ * `jobId` narrows to one job's runs; `jobs: true` to the runs any job
+ * started, which is how the Jobs page reads every job's history at once.
+ */
+function list({ agentId = '', status = '', conversationId = '', jobId = '', jobs = false, limit = 100, offset = 0 } = {}) {
     const db = database.open();
     const where = [];
     const values = [];
     if (agentId) { where.push('agent_id = ?'); values.push(agentId); }
     if (conversationId) { where.push('conversation_id = ?'); values.push(conversationId); }
+    if (jobId) { where.push('job_id = ?'); values.push(jobId); }
+    else if (jobs) where.push("job_id != ''");
     if (status) {
         const wanted = Array.isArray(status) ? status : [status];
         where.push(`status IN (${wanted.map(() => '?').join(', ')})`);
