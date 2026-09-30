@@ -67,6 +67,9 @@ const TITLES = {
     wait_for: 'assistant.didWaitFor',
     read_text: 'assistant.didReadText',
     do_steps: 'assistant.didSteps',
+    screenshot: 'assistant.didScreenshot',
+    zoom: 'assistant.didZoom',
+    solve_captcha: 'assistant.didSolveCaptcha',
 };
 
 /** Where a computer action was aimed: an element from the last read, or a point. */
@@ -182,6 +185,20 @@ export function describeCall(name, input = {}) {
             return { mono: false, text: input.text || '' };
         case 'read_text':
             return { mono: false, text: input.element ? `element ${input.element}` : (input.window || '') };
+        case 'screenshot':
+            return { mono: false, text: [input.window, input.screen ? 'whole screen' : ''].filter(Boolean).join(' · ') };
+        case 'zoom':
+            return { mono: true, text: `${input.x0},${input.y0} → ${input.x1},${input.y1}` };
+        case 'solve_captcha':
+            return {
+                mono: false,
+                text: [
+                    input.window,
+                    input.into ? `answer into element ${input.into}` : '',
+                    input.x0 !== undefined ? `${input.x0},${input.y0} → ${input.x1},${input.y1}` : '',
+                    input.instruction || '',
+                ].filter(Boolean).join(' · '),
+            };
         case 'do_steps':
             return {
                 mono: false,

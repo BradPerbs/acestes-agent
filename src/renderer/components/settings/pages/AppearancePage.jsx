@@ -4,6 +4,7 @@ import SettingsPage from '../ui/SettingsPage';
 import SettingCard from '../ui/SettingCard';
 import SettingRow, { DIVIDED } from '../ui/SettingRow';
 import AppColorsDialog from '../AppColorsDialog';
+import TerminalColorsCard from '../TerminalColorsCard';
 import { CUSTOM_THEME } from '../../../hooks/useTheme';
 import {
     APP_COLOR_PRESETS,
@@ -103,13 +104,18 @@ export default function AppearancePage({
     appColors,
     onThemeChange,
     onAppColorsChange,
+    terminalTheme,
+    customTerminalTheme,
+    onTerminalThemeChange,
+    onCustomTerminalThemeChange,
 }) {
     const t = useT();
     const [editorOpen, setEditorOpen] = useState(false);
 
     const colors = sanitizeAppColors(appColors || DEFAULT_APP_COLORS);
     const customSelected = theme === CUSTOM_THEME;
-    const activePreset = matchPreset(colors);
+    // On Light, Dark or System no palette is in use, so none is marked.
+    const activePreset = customSelected ? matchPreset(colors) : null;
 
     const applyColors = (next, message) => {
         onAppColorsChange?.(next);
@@ -165,51 +171,49 @@ export default function AppearancePage({
                     </div>
                 </SettingRow>
 
-                {/* Only under Custom: these colours are what that theme *is*, and
-                    a palette picker that changed nothing on Light or Dark would
-                    be a control that lies. */}
-                {customSelected && (
-                    <SettingRow
-                        className={DIVIDED}
-                        title={t('settings.appearance.appColors')}
-                        description={t('settings.appearance.appColorsDesc')}
+                {/* Shown on every theme so the palettes can be found. They
+                    stay honest on Light or Dark because picking one also
+                    switches the app to Custom (see applyColors). */}
+                <SettingRow
+                    className={DIVIDED}
+                    title={t('settings.appearance.appColors')}
+                    description={t('settings.appearance.appColorsDesc')}
+                >
+                    <div
+                        className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(104px,1fr))]
+                            max-h-[22rem] overflow-y-auto pr-1 -mr-1"
+                        id="app-palette-selector"
                     >
-                        <div
-                            className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(104px,1fr))]
-                                max-h-[22rem] overflow-y-auto pr-1 -mr-1"
-                            id="app-palette-selector"
-                        >
-                            {APP_COLOR_PRESETS.map((option) => (
-                                <button
-                                    key={option.id}
-                                    className={tileClass(activePreset === option.id)}
-                                    data-app-palette={option.id}
-                                    onClick={() => applyColors(
-                                        option.colors,
-                                        t('settings.appearance.appColorsChanged', { palette: option.label }),
-                                    )}
-                                >
-                                    <PaletteSwatch colors={option.colors} />
-                                    <span className={labelClass(activePreset === option.id)}>
-                                        {option.label}
-                                    </span>
-                                </button>
-                            ))}
+                        {APP_COLOR_PRESETS.map((option) => (
+                            <button
+                                key={option.id}
+                                className={tileClass(activePreset === option.id)}
+                                data-app-palette={option.id}
+                                onClick={() => applyColors(
+                                    option.colors,
+                                    t('settings.appearance.appColorsChanged', { palette: option.label }),
+                                )}
+                            >
+                                <PaletteSwatch colors={option.colors} />
+                                <span className={labelClass(activePreset === option.id)}>
+                                    {option.label}
+                                </span>
+                            </button>
+                        ))}
 
-                            {/* Where a hand-picked palette shows up, so colours
-                                that match no preset are still shown as the one
-                                in use. Nothing to click: it is already on. */}
-                            {!activePreset && (
-                                <div className={`${tileClass(true)} cursor-default`} data-app-palette="custom">
-                                    <PaletteSwatch colors={colors} />
-                                    <span className={labelClass(true)}>
-                                        {t('settings.appearance.yours')}
-                                    </span>
-                                </div>
-                            )}
-                        </div>
-                    </SettingRow>
-                )}
+                        {/* Where a hand-picked palette shows up, so colours
+                            that match no preset are still shown as the one
+                            in use. Nothing to click: it is already on. */}
+                        {customSelected && !activePreset && (
+                            <div className={`${tileClass(true)} cursor-default`} data-app-palette="custom">
+                                <PaletteSwatch colors={colors} />
+                                <span className={labelClass(true)}>
+                                    {t('settings.appearance.yours')}
+                                </span>
+                            </div>
+                        )}
+                    </div>
+                </SettingRow>
 
                 {customSelected && (
                     <SettingRow
@@ -231,6 +235,12 @@ export default function AppearancePage({
                 )}
             </SettingCard>
 
+            <TerminalColorsCard
+                terminalTheme={terminalTheme}
+                customTerminalTheme={customTerminalTheme}
+                onTerminalThemeChange={onTerminalThemeChange}
+                onCustomTerminalThemeChange={onCustomTerminalThemeChange}
+            />
 
             {editorOpen && (
                 <AppColorsDialog

@@ -1,7 +1,7 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { gsap } from 'gsap';
 import {
-    ArrowDown01Icon,
+    ArrowRight01Icon,
     Cancel01Icon,
     Delete02Icon,
     PinIcon,
@@ -11,6 +11,7 @@ import {
     PlusSignIcon,
     Search01Icon,
     Settings01Icon,
+    UnfoldMoreIcon,
 } from 'hugeicons-react';
 import { setSidebar, slideSidebar } from '../lib/panelMotion';
 import { cubicBezier, prefersReducedMotion, seconds } from '../lib/motion';
@@ -28,19 +29,44 @@ import { useT } from '../i18n';
  * screen lit. Changing the agent changes all of it.
  */
 
-const ITEM = 'nav-item flex items-center gap-3 rounded-xl cursor-pointer transition-colors';
-const ACTIVE = 'bg-gray-900/[0.08] dark:bg-surface-control text-gray-900 dark:text-white';
-const IDLE = 'text-gray-600 dark:text-gray-400 hover:bg-gray-900/[0.04] dark:hover:bg-surface-raised';
+const ACTIVE = 'bg-gray-900/[0.06] dark:bg-surface-control text-gray-900 dark:text-white';
+const IDLE = 'text-gray-600 dark:text-gray-400 hover:bg-gray-900/[0.04] dark:hover:bg-surface-control/60 '
+    + 'hover:text-gray-900 dark:hover:text-gray-200';
+
+/**
+ * The agent's card at the top of the column: who it is and its two places,
+ * lifted one step off the column's ground so they read as one thing, the
+ * agent, rather than three rows that happen to sit together. The
+ * conversations under it stay on the ground, since they are the column's
+ * running list rather than part of the agent.
+ */
+const CARD = `flex flex-col p-1 rounded-2xl
+    bg-white dark:bg-surface-raised
+    ring-1 ring-black/[0.05] dark:ring-white/[0.05]
+    shadow-[0_1px_2px_rgba(16,24,40,0.04),0_1px_3px_rgba(16,24,40,0.03)] dark:shadow-none`;
+
+const FOCUS = 'outline-none focus-visible:ring-2 focus-visible:ring-gray-900/20 dark:focus-visible:ring-white/25';
 
 /** How many chats the column lists before it is a page's job. */
 const LIST_LIMIT = 40;
 
 function NavItem({ label, icon, active, onClick }) {
     return (
-        <div className={`${ITEM} px-3 py-2.5 ${active ? ACTIVE : IDLE}`} onClick={onClick}>
-            {icon}
-            <span className="text-sm">{label}</span>
-        </div>
+        <button
+            type="button"
+            onClick={onClick}
+            aria-current={active ? 'page' : undefined}
+            className={`nav-item group/nav w-full flex items-center gap-2.5 h-9 px-2 rounded-xl text-left
+                text-[13px] font-medium transition-colors ${FOCUS} ${active ? ACTIVE : IDLE}`}
+        >
+            <span className={`shrink-0 flex transition-colors
+                ${active
+                    ? 'text-gray-900 dark:text-white'
+                    : 'text-gray-400 dark:text-neutral-500 group-hover/nav:text-gray-700 dark:group-hover/nav:text-gray-300'}`}>
+                {icon}
+            </span>
+            <span className="truncate">{label}</span>
+        </button>
     );
 }
 
@@ -146,7 +172,7 @@ function ConversationsHeading({
     }, [open]);
 
     return (
-        <div ref={rowRef} className="relative mt-2 mx-1.5 h-9">
+        <div ref={rowRef} className="relative mt-4 mx-1.5 h-9">
             {/* The heading face. Inert while the search is open, since it is
                 still there under the pill. */}
             <div className={`absolute inset-0 flex items-center ${open ? 'pointer-events-none' : ''}`}>
@@ -155,13 +181,23 @@ function ConversationsHeading({
                     type="button"
                     tabIndex={open ? -1 : 0}
                     onClick={onOpenPage}
-                    className={`flex-1 min-w-0 pl-1.5 py-1.5 text-left text-[11px] font-semibold uppercase tracking-wider
-                        transition-colors truncate
+                    // Said in the column's own voice rather than as a label
+                    // stamped over it; the chevron on hover is what says the
+                    // heading goes somewhere.
+                    className={`group/title flex-1 min-w-0 flex items-center gap-1 pl-1.5 py-1.5 text-left
+                        text-[12px] font-medium transition-colors ${FOCUS} rounded-md
                         ${active
                             ? 'text-gray-900 dark:text-white'
                             : 'text-gray-500 dark:text-neutral-500 hover:text-gray-900 dark:hover:text-gray-200'}`}
                 >
-                    {t('nav.conversations')}
+                    <span className="truncate">{t('nav.conversations')}</span>
+                    <ArrowRight01Icon
+                        size={12}
+                        strokeWidth={2}
+                        className="shrink-0 transition-all duration-150 opacity-0 -translate-x-1
+                            group-hover/title:opacity-100 group-hover/title:translate-x-0
+                            group-focus-visible/title:opacity-100 group-focus-visible/title:translate-x-0"
+                    />
                 </button>
                 <button
                     ref={magnifierRef}
@@ -275,11 +311,16 @@ function ConversationRow({ conversation, active, onOpen, onDelete, onPin, delete
                 // The marquee shows the whole title; the tooltip is for
                 // whoever has asked for things on screen not to move.
                 title={prefersReducedMotion() ? title : undefined}
-                className={`w-full flex items-center gap-2 pl-3 pr-14 py-1.5 rounded-lg text-left text-[13px]
-                    transition-colors outline-none
-                    focus-visible:ring-2 focus-visible:ring-gray-900/20 dark:focus-visible:ring-white/25
+                // The title has the row to itself until the actions are asked
+                // for: a pinned row keeps room for its pin, and hover or focus
+                // makes room for both. Held back all the time, the gap cut
+                // every title short for buttons that were not there.
+                className={`w-full flex items-center gap-2 pl-3 h-8 rounded-lg text-left text-[13px]
+                    transition-colors ${FOCUS}
+                    ${conversation.pinned ? 'pr-8' : 'pr-3'} group-hover/row:pr-14 group-focus-within/row:pr-14
                     ${active
-                        ? 'bg-gray-900/[0.08] dark:bg-surface-control text-gray-900 dark:text-white'
+                        ? 'bg-white dark:bg-surface-control text-gray-900 dark:text-white '
+                            + 'ring-1 ring-black/[0.05] dark:ring-0 shadow-[0_1px_2px_rgba(16,24,40,0.05)] dark:shadow-none'
                         : 'text-gray-600 dark:text-gray-400 hover:bg-gray-900/[0.04] dark:hover:bg-surface-raised '
                             + 'hover:text-gray-900 dark:hover:text-gray-200'}`}
             >
@@ -442,57 +483,62 @@ function Sidebar({
             ref={navRef}
             className="bg-gray-100 dark:bg-surface-base flex flex-col shrink-0 overflow-hidden"
         >
-            <div className="flex flex-col gap-1 flex-1 min-h-0">
-                {/* Who this column is about. Drawn as a menu rather than a
-                    page, since choosing an agent is a switch, not a place to
-                    go. Portalled: the column clips, and a list of agents
-                    hanging off its foot would be cut off at the first row. */}
-                <PanelMenu
-                    portal
-                    menuClassName="w-64"
-                    sections={agentSections}
-                    trigger={({ open, toggle }) => (
-                        <button
-                            type="button"
-                            aria-haspopup="menu"
-                            aria-expanded={open}
-                            onClick={toggle}
-                            className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-left
-                                transition-colors outline-none
-                                focus-visible:ring-2 focus-visible:ring-gray-900/20 dark:focus-visible:ring-white/25
-                                ${open ? ACTIVE : 'hover:bg-gray-900/[0.04] dark:hover:bg-surface-raised'}`}
-                        >
-                            <AgentMark size={26} look={activeAgent} />
-                            <span className="min-w-0 flex-1">
-                                <span className="block text-sm font-semibold truncate text-gray-900 dark:text-white">
-                                    {activeAgent?.name || t('agents.agent')}
+            <div className="flex flex-col gap-0.5 flex-1 min-h-0">
+                <div className={CARD}>
+                    {/* Who this column is about. Drawn as a menu rather than a
+                        page, since choosing an agent is a switch, not a place to
+                        go. Portalled: the column clips, and a list of agents
+                        hanging off its foot would be cut off at the first row. */}
+                    <PanelMenu
+                        portal
+                        menuClassName="w-64"
+                        sections={agentSections}
+                        trigger={({ open, toggle }) => (
+                            <button
+                                type="button"
+                                aria-haspopup="menu"
+                                aria-expanded={open}
+                                onClick={toggle}
+                                className={`w-full flex items-center gap-2.5 px-2 py-2 rounded-xl text-left
+                                    transition-colors ${FOCUS}
+                                    ${open ? ACTIVE : 'hover:bg-gray-900/[0.04] dark:hover:bg-surface-control/60'}`}
+                            >
+                                <AgentMark size={28} look={activeAgent} />
+                                <span className="min-w-0 flex-1">
+                                    <span className="block text-[13px] leading-5 font-semibold truncate
+                                        text-gray-900 dark:text-white">
+                                        {activeAgent?.name || t('agents.agent')}
+                                    </span>
+                                    <span className="block text-[11px] leading-4 truncate text-gray-500 dark:text-neutral-500">
+                                        {t('agents.agent')}
+                                    </span>
                                 </span>
-                                <span className="block text-[11px] leading-tight truncate text-gray-500 dark:text-gray-500">
-                                    {t('agents.agent')}
-                                </span>
-                            </span>
-                            <ArrowDown01Icon
-                                size={14}
-                                strokeWidth={2}
-                                className={`shrink-0 text-gray-400 dark:text-gray-500 transition-transform
-                                    ${open ? 'rotate-180' : ''}`}
-                            />
-                        </button>
-                    )}
-                />
+                                {/* Up and down rather than down: this opens a
+                                    list to switch between, not a section. */}
+                                <UnfoldMoreIcon
+                                    size={14}
+                                    strokeWidth={2}
+                                    className="shrink-0 text-gray-400 dark:text-neutral-500"
+                                />
+                            </button>
+                        )}
+                    />
 
-                <NavItem
-                    label={t('nav.inventory')}
-                    icon={<Layers01Icon className="w-5 h-5" size={20} strokeWidth={1.5} />}
-                    active={activeNav === 'inventory'}
-                    onClick={() => onNavChange('inventory')}
-                />
-                <NavItem
-                    label={t('nav.settings')}
-                    icon={<Settings01Icon className="w-5 h-5" size={20} strokeWidth={1.5} />}
-                    active={activeNav === 'settings'}
-                    onClick={() => onNavChange('settings')}
-                />
+                    <div aria-hidden="true" className="mx-2 my-1 h-px bg-gray-900/[0.06] dark:bg-white/[0.05]" />
+
+                    <NavItem
+                        label={t('nav.inventory')}
+                        icon={<Layers01Icon size={17} strokeWidth={1.6} />}
+                        active={activeNav === 'inventory'}
+                        onClick={() => onNavChange('inventory')}
+                    />
+                    <NavItem
+                        label={t('nav.settings')}
+                        icon={<Settings01Icon size={17} strokeWidth={1.6} />}
+                        active={activeNav === 'settings'}
+                        onClick={() => onNavChange('settings')}
+                    />
+                </div>
 
                 {/* The conversations: a heading that is also the way to the
                     page listing all of them, the plus beside it, and the

@@ -329,6 +329,14 @@ function register(getWindow) {
             window.focus();
             window.setAlwaysOnTop(false);
         },
+        // The agent's screenshots leave Acestes out: it never sees its own
+        // chat, or the cards it is waiting on. Only for the moment of the
+        // capture, so the user's own screen sharing still shows the app.
+        hideFromCapture: (on) => {
+            for (const window of BrowserWindow.getAllWindows()) {
+                if (!window.isDestroyed()) window.setContentProtection(Boolean(on));
+            }
+        },
     });
 
     // The scheduler: fires jobs through the assistant, probes through the

@@ -324,7 +324,7 @@ export default {
 
     /* ---- Settings: Appearance ---- */
     'settings.appearance.title': 'Оформление',
-    'settings.appearance.desc': 'Как выглядит само приложение.',
+    'settings.appearance.desc': 'Как выглядят приложение и его терминалы.',
     'settings.appearance.theme': 'Тема',
     'settings.appearance.themeDesc': 'Выберите тему интерфейса, которая вам больше нравится',
     'settings.appearance.themeCustomDesc': 'Приложение использует вашу собственную палитру. '

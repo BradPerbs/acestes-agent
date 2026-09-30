@@ -253,6 +253,8 @@ static class DesktopHelper
             case "launch": return Launch(Text(request, "target"), Text(request, "args"));
             case "tree": return Tree(request);
             case "text": return ReadText(request);
+            case "capture": return Capture(request);
+            case "captcha": return Captchas(request);
             case "target": return Target(request);
             case "click": return Click(request);
             case "type": return TypeText(request);
@@ -1073,6 +1075,198 @@ static class DesktopHelper
         return string.Join("\n", lines.ToArray());
     }
 
+    /* ---------------------------------------------------------------- *
+     * Seeing: captchas
+     * ---------------------------------------------------------------- */
+
+    /// <summary>
+    /// The captcha widgets in a window, found by the address of the frame each
+    /// lives in, which reads the same in every language where the words on it
+    /// do not. Each comes with its checkbox and that box's state, and a
+    /// challenge with its buttons and what it asks. Everything reported is
+    /// numbered on from the last read, so the agent can act on it and the
+    /// numbers it already holds stay good. Also any image named as a captcha,
+    /// for the kind that is a picture of letters beside a field.
+    /// </summary>
+    static Dictionary<string, object> Captchas(Dictionary<string, object> request)
+    {
+        IntPtr window = Handle(request, "hwnd");
+        if (window == IntPtr.Zero || !Native.IsWindow(window)) throw new Stop("gone", "That window is gone. List the windows again.");
+        if (Protected.Contains(PidOf(window))) throw new Stop("protected", "That is the Acestes window itself, which the agent may not read.");
+        AutomationElement root = FromHandle(window);
+        if (root == null) throw new Stop("gone", "That window cannot be read.");
+        object[] box = Bounds(window);
+        var area = new WinRect((int)box[0], (int)box[1], Math.Max(1, (int)box[2]), Math.Max(1, (int)box[3]));
+
+        var condition = new OrCondition(
+            new PropertyCondition(AutomationElement.IsValuePatternAvailableProperty, true),
+            new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Image));
+        AutomationElementCollection all;
+        using (Props().Activate()) all = root.FindAll(TreeScope.Descendants, condition);
+
+        var widgets = new List<object>();
+        var images = new List<object>();
+        foreach (AutomationElement element in all)
+        {
+            string role = RoleOf(element);
+            if (role == "image")
+            {
+                string name = CachedText(element, AutomationElement.NameProperty);
+                // The word on its own: "captcha", "CAPTCHA image", but not a
+                // solver's logo ("2Captcha") on a page about them.
+                if (images.Count >= 5 || !System.Text.RegularExpressions.Regex.IsMatch(name, @"\bcaptcha\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase)) continue;
+                WinRect bounds = element.Current.BoundingRectangle;
+                var image = new Dictionary<string, object>();
+                image["id"] = Register(element, window);
+                image["name"] = Clip(name, 80);
+                image["rect"] = RectOf(bounds);
+                image["visible"] = Shown(element, bounds, area);
+                images.Add(image);
+                continue;
+            }
+            // A link's value is its address, and a field's is whatever was
+            // typed: neither is a frame.
+            if (role == "link" || role == "edit" || role == "combo box") continue;
+            string url = CachedText(element, ValuePattern.ValueProperty);
+            if (!url.StartsWith("http", StringComparison.OrdinalIgnoreCase)) continue;
+            string[] kind = CaptchaKind(url);
+            if (kind == null || widgets.Count >= 8) continue;
+
+            WinRect frame = element.Current.BoundingRectangle;
+            var widget = new Dictionary<string, object>();
+            widget["kind"] = kind[0];
+            widget["part"] = kind[1];
+            widget["url"] = Clip(url, 300);
+            widget["id"] = Register(element, window);
+            widget["rect"] = RectOf(frame);
+            widget["visible"] = Shown(element, frame, area);
+            Inside(element, window, area, widget);
+            widgets.Add(widget);
+        }
+
+        var answer = new Dictionary<string, object>();
+        answer["window"] = Describe(window);
+        answer["widgets"] = widgets;
+        answer["images"] = images;
+        return answer;
+    }
+
+    /// <summary>Which captcha a frame's address belongs to, and which part of it: { kind, part }, or null.</summary>
+    static string[] CaptchaKind(string url)
+    {
+        string address = url.ToLowerInvariant();
+        if (address.Contains("/recaptcha/api2/anchor") || address.Contains("/recaptcha/enterprise/anchor")) return new[] { "recaptcha", "checkbox" };
+        if (address.Contains("/recaptcha/api2/bframe") || address.Contains("/recaptcha/enterprise/bframe")) return new[] { "recaptcha", "challenge" };
+        if (address.Contains("hcaptcha.com") && address.Contains("frame=checkbox")) return new[] { "hcaptcha", "checkbox" };
+        if (address.Contains("hcaptcha.com") && address.Contains("frame=challenge")) return new[] { "hcaptcha", "challenge" };
+        if (address.Contains("challenges.cloudflare.com")) return new[] { "turnstile", "checkbox" };
+        if (address.Contains("arkoselabs.com") || address.Contains("funcaptcha.com")) return new[] { "arkose", "challenge" };
+        return null;
+    }
+
+    /// <summary>What a captcha frame holds: its checkbox, its named buttons, and the words it shows.</summary>
+    static void Inside(AutomationElement frame, IntPtr window, WinRect area, Dictionary<string, object> widget)
+    {
+        AutomationElementCollection inner;
+        try
+        {
+            using (Props().Activate()) inner = frame.FindAll(TreeScope.Descendants, Automation.ControlViewCondition);
+        }
+        catch (Exception)
+        {
+            return;
+        }
+        var buttons = new List<object>();
+        var words = new StringBuilder();
+        string last = null;
+        int seen = 0;
+        foreach (AutomationElement element in inner)
+        {
+            if (++seen > 400) break;
+            string role = RoleOf(element);
+            string name = CachedText(element, AutomationElement.NameProperty);
+            if (role == "check box")
+            {
+                if (widget.ContainsKey("checkbox")) continue;
+                WinRect bounds = element.Current.BoundingRectangle;
+                var check = new Dictionary<string, object>();
+                check["id"] = Register(element, window);
+                check["name"] = Clip(name, 80);
+                check["rect"] = RectOf(bounds);
+                check["state"] = ToggleOf(element);
+                check["visible"] = Shown(element, bounds, area);
+                widget["checkbox"] = check;
+                continue;
+            }
+            if (role == "button" && buttons.Count < 30)
+            {
+                string automationId = "";
+                string className = "";
+                try
+                {
+                    automationId = element.Current.AutomationId ?? "";
+                    className = element.Current.ClassName ?? "";
+                }
+                catch (Exception)
+                {
+                }
+                // An image tile is a button with no name: the solver finds
+                // those by looking, so only the named ones are worth listing.
+                if (name.Length == 0 && automationId.Length == 0) continue;
+                WinRect bounds = element.Current.BoundingRectangle;
+                var button = new Dictionary<string, object>();
+                button["id"] = Register(element, window);
+                button["name"] = Clip(name, 80);
+                if (automationId.Length > 0) button["aid"] = automationId;
+                if (className.Length > 0) button["cls"] = Clip(className, 120);
+                button["rect"] = RectOf(bounds);
+                button["enabled"] = CachedFlag(element, AutomationElement.IsEnabledProperty, true);
+                button["visible"] = Shown(element, bounds, area);
+                buttons.Add(button);
+                continue;
+            }
+            if (role == "text" && name.Length > 0 && name != last && words.Length < 600)
+            {
+                if (words.Length > 0) words.Append(' ');
+                words.Append(name);
+                last = name;
+            }
+        }
+        widget["buttons"] = buttons;
+        widget["text"] = Clip(words.ToString(), 600);
+    }
+
+    static int Register(AutomationElement element, IntPtr root)
+    {
+        int id = ++counter;
+        elements[id] = element;
+        elementRoots[id] = root;
+        return id;
+    }
+
+    static object[] RectOf(WinRect bounds)
+    {
+        if (bounds.IsEmpty) return new object[] { 0, 0, 0, 0 };
+        return new object[] { (int)Math.Round(bounds.X), (int)Math.Round(bounds.Y), (int)Math.Round(bounds.Width), (int)Math.Round(bounds.Height) };
+    }
+
+    /// <summary>On screen for real: not marked off screen, not collapsed to nothing, and inside the window rather than parked far outside it.</summary>
+    static bool Shown(AutomationElement element, WinRect bounds, WinRect area)
+    {
+        if (bounds.IsEmpty || bounds.Width < 8 || bounds.Height < 8) return false;
+        if (CachedFlag(element, AutomationElement.IsOffscreenProperty)) return false;
+        return bounds.IntersectsWith(area);
+    }
+
+    static string ToggleOf(AutomationElement element)
+    {
+        if (!CachedFlag(element, AutomationElement.IsTogglePatternAvailableProperty)) return "";
+        object toggle = Cached(element, TogglePattern.ToggleStateProperty);
+        if (!(toggle is ToggleState)) return "";
+        var value = (ToggleState)toggle;
+        return value == ToggleState.On ? "checked" : value == ToggleState.Off ? "unchecked" : "mixed";
+    }
+
     static string RoleOf(AutomationElement element)
     {
         object type = Cached(element, AutomationElement.ControlTypeProperty);
@@ -1203,6 +1397,18 @@ static class DesktopHelper
             x = Number(request, "x", int.MinValue);
             y = Number(request, "y", int.MinValue);
             if (x == int.MinValue || y == int.MinValue) throw new Stop("bad-request", "Give an element id, or x and y.");
+            // A point in a screenshot of a window: that window to the front
+            // first, so the point lands on what the screenshot showed, and
+            // where the window is now, so the caller can tell if it moved.
+            IntPtr owner = Handle(request, "hwnd");
+            if (owner != IntPtr.Zero)
+            {
+                if (!Native.IsWindow(owner)) throw new Stop("gone", "The window in the screenshot is gone. Take another.");
+                Allowed(owner);
+                if (Native.GetForegroundWindow() != owner) BringForward(owner);
+                Guard();
+                answer["frame"] = Bounds(owner);
+            }
         }
 
         IntPtr at = RootAt(x, y);
@@ -1211,6 +1417,144 @@ static class DesktopHelper
         answer["y"] = y;
         if (at != IntPtr.Zero) answer["window"] = Describe(at);
         return answer;
+    }
+
+    /* ---------------------------------------------------------------- *
+     * Seeing: pictures
+     * ---------------------------------------------------------------- */
+
+    /// <summary>A window's edges as drawn: GetWindowRect counts the invisible resize border, DWM does not.</summary>
+    static object[] Bounds(IntPtr window)
+    {
+        Native.RECT rect;
+        if (Native.DwmGetWindowAttribute(window, 9, out rect, Marshal.SizeOf(typeof(Native.RECT))) != 0)
+        {
+            Native.GetWindowRect(window, out rect);
+        }
+        return new object[] { rect.Left, rect.Top, rect.Right - rect.Left, rect.Bottom - rect.Top };
+    }
+
+    /// <summary>The whole monitor a window is on.</summary>
+    static object[] MonitorOf(IntPtr window)
+    {
+        IntPtr monitor = Native.MonitorFromWindow(window, 2);
+        var info = new Native.MONITORINFO();
+        info.cbSize = Marshal.SizeOf(typeof(Native.MONITORINFO));
+        Native.GetMonitorInfo(monitor, ref info);
+        return new object[] { info.rcMonitor.Left, info.rcMonitor.Top, info.rcMonitor.Right - info.rcMonitor.Left, info.rcMonitor.Bottom - info.rcMonitor.Top };
+    }
+
+    /// <summary>
+    /// A picture of part of the screen: a window as drawn, the monitor it is
+    /// on, or a region, shrunk to what the model is sent (the long edge and the
+    /// pixel count both capped). Whatever is excluded from capture stays out,
+    /// which is the overlays here and Acestes when it asks. The answer says
+    /// where the picture came from and at what scale, so a point in it can be
+    /// found on the screen again.
+    /// </summary>
+    static Dictionary<string, object> Capture(Dictionary<string, object> request)
+    {
+        int x;
+        int y;
+        int width;
+        int height;
+        IntPtr window = Handle(request, "hwnd");
+        object raw;
+        var region = request.TryGetValue("region", out raw) ? raw as System.Collections.IList : null;
+        if (region != null && region.Count == 4)
+        {
+            x = Convert.ToInt32(region[0]);
+            y = Convert.ToInt32(region[1]);
+            width = Convert.ToInt32(region[2]);
+            height = Convert.ToInt32(region[3]);
+        }
+        else
+        {
+            if (window == IntPtr.Zero || !Native.IsWindow(window)) throw new Stop("gone", "That window is gone. List the windows again.");
+            Allowed(window);
+            object[] box = Flag(request, "monitor") ? MonitorOf(window) : Bounds(window);
+            x = (int)box[0];
+            y = (int)box[1];
+            width = (int)box[2];
+            height = (int)box[3];
+        }
+
+        // Only what is on a screen can be copied.
+        int left = Native.GetSystemMetrics(76);
+        int top = Native.GetSystemMetrics(77);
+        int right = left + Native.GetSystemMetrics(78);
+        int bottom = top + Native.GetSystemMetrics(79);
+        int x2 = Math.Min(right, x + width);
+        int y2 = Math.Min(bottom, y + height);
+        x = Math.Max(left, x);
+        y = Math.Max(top, y);
+        width = x2 - x;
+        height = y2 - y;
+        if (width < 4 || height < 4) throw new Stop("off-screen", "That is not on any screen.");
+
+        bool jpeg = Text(request, "format") == "jpeg";
+        int maxLong = Math.Max(256, Number(request, "maxLong", 1568));
+        double maxPixels = Math.Max(65536, Number(request, "maxPixels", 1150000));
+        double scale = Math.Min(1.0, Math.Min((double)maxLong / Math.Max(width, height), Math.Sqrt(maxPixels / ((double)width * height))));
+        int outWidth = Math.Max(1, (int)Math.Round(width * scale));
+        int outHeight = Math.Max(1, (int)Math.Round(height * scale));
+
+        string data;
+        using (var shot = new Bitmap(width, height, PixelFormat.Format24bppRgb))
+        {
+            using (var g = Graphics.FromImage(shot))
+            {
+                g.CopyFromScreen(x, y, 0, 0, new Size(width, height), CopyPixelOperation.SourceCopy);
+            }
+            using (var small = scale < 1.0 ? Shrink(shot, outWidth, outHeight) : null)
+            using (var stream = new MemoryStream())
+            {
+                if (jpeg)
+                {
+                    // For a captcha service, which caps what it takes: a grid
+                    // of photos is several times smaller this way.
+                    var quality = new EncoderParameters(1);
+                    quality.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, 88L);
+                    (small ?? shot).Save(stream, JpegCodec(), quality);
+                }
+                else
+                {
+                    (small ?? shot).Save(stream, ImageFormat.Png);
+                }
+                data = Convert.ToBase64String(stream.ToArray());
+            }
+        }
+
+        var answer = new Dictionary<string, object>();
+        answer["data"] = data;
+        answer["mediaType"] = jpeg ? "image/jpeg" : "image/png";
+        answer["width"] = outWidth;
+        answer["height"] = outHeight;
+        answer["region"] = new object[] { x, y, width, height };
+        answer["scale"] = scale;
+        return answer;
+    }
+
+    static ImageCodecInfo JpegCodec()
+    {
+        foreach (var codec in ImageCodecInfo.GetImageEncoders())
+        {
+            if (codec.FormatID == ImageFormat.Jpeg.Guid) return codec;
+        }
+        throw new Stop("failed", "This Windows has no JPEG encoder.");
+    }
+
+    static Bitmap Shrink(Bitmap source, int width, int height)
+    {
+        var small = new Bitmap(width, height, PixelFormat.Format24bppRgb);
+        using (var g = Graphics.FromImage(small))
+        {
+            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+            g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+            g.SmoothingMode = SmoothingMode.HighQuality;
+            g.DrawImage(source, new Rectangle(0, 0, width, height));
+        }
+        return small;
     }
 
     static AutomationElement At(int x, int y)
@@ -1238,11 +1582,19 @@ static class DesktopHelper
                 step = walker.GetParent(step);
                 if (step != null && Automation.Compare(step, target)) return true;
             }
+            // A hit on one of the target's own containers is a hit on the
+            // target: a browser's hit test can stop at the element holding a
+            // frame (a captcha's iframe) rather than go into it. Only up to
+            // the page itself, though: a document, pane or window that
+            // answered could be hiding whatever really sits on top.
             step = target;
-            for (int level = 0; level < 3 && step != null; level++)
+            for (int level = 0; level < 10 && step != null; level++)
             {
                 step = walker.GetParent(step);
-                if (step != null && Automation.Compare(step, hit)) return true;
+                if (step == null) break;
+                ControlType type = step.Current.ControlType;
+                if (level >= 3 && (type == ControlType.Document || type == ControlType.Pane || type == ControlType.Window)) break;
+                if (Automation.Compare(step, hit)) return true;
             }
         }
         catch (Exception)
@@ -1284,9 +1636,19 @@ static class DesktopHelper
         int count = Math.Max(1, Math.Min(3, Number(request, "count", 1)));
         int glide = Number(request, "glide", 300);
         var modifiers = Combo(Text(request, "modifiers"), true);
+        bool natural = Flag(request, "natural");
 
         ShowOutline(request);
-        Glide(x, y, glide);
+        if (natural)
+        {
+            Reach(x, y, glide);
+            // A hand arrives, then presses.
+            Thread.Sleep(60 + Chance.Next(160));
+        }
+        else
+        {
+            Glide(x, y, glide);
+        }
         Guard();
         Allowed(RootAt(x, y));
 
@@ -1296,7 +1658,7 @@ static class DesktopHelper
         for (int index = 0; index < count; index++)
         {
             MouseEvent(down, 0);
-            Thread.Sleep(25);
+            Thread.Sleep(natural ? 55 + Chance.Next(75) : 25);
             MouseEvent(up, 0);
             if (index < count - 1) Thread.Sleep(70);
         }
@@ -1479,6 +1841,82 @@ static class DesktopHelper
             if (due > 0) Thread.Sleep(due);
         }
         MoveTo(x, y);
+    }
+
+    static readonly Random Chance = new Random();
+
+    /// <summary>
+    /// The cursor as a hand moves it, for the widgets that judge a person by
+    /// how the pointer arrives (a captcha's checkbox): a curve that differs
+    /// every time, quick off the mark and slow to settle, a slight tremor on
+    /// the way, and on a longer reach a small overshoot put right. Checked for
+    /// a stop at every step, like Glide.
+    /// </summary>
+    static void Reach(int x, int y, int duration, bool correcting = false)
+    {
+        Native.POINT from;
+        Native.GetCursorPos(out from);
+        double dx = x - from.X;
+        double dy = y - from.Y;
+        double distance = Math.Sqrt(dx * dx + dy * dy);
+        if (distance < 2 || duration <= 0)
+        {
+            MoveTo(x, y);
+            return;
+        }
+
+        int aimX = x;
+        int aimY = y;
+        bool overshoot = !correcting && distance > 180 && Chance.NextDouble() < 0.55;
+        if (overshoot)
+        {
+            double past = 3 + Chance.NextDouble() * Math.Min(14, distance * 0.025);
+            aimX = (int)Math.Round(x + dx / distance * past + (Chance.NextDouble() - 0.5) * 4);
+            aimY = (int)Math.Round(y + dy / distance * past + (Chance.NextDouble() - 0.5) * 4);
+        }
+        double ax = aimX - from.X;
+        double ay = aimY - from.Y;
+        double normalX = -dy / distance;
+        double normalY = dx / distance;
+        double spread = Math.Min(90, distance * (0.08 + Chance.NextDouble() * 0.17));
+        double side = Chance.NextDouble() < 0.5 ? -1 : 1;
+        double f1 = 0.2 + Chance.NextDouble() * 0.2;
+        double f2 = 0.6 + Chance.NextDouble() * 0.2;
+        double b1 = spread * side * (0.5 + Chance.NextDouble() * 0.5);
+        double b2 = spread * side * (Chance.NextDouble() - 0.3) * 0.8;
+        double c1x = from.X + ax * f1 + normalX * b1;
+        double c1y = from.Y + ay * f1 + normalY * b1;
+        double c2x = from.X + ax * f2 + normalX * b2;
+        double c2y = from.Y + ay * f2 + normalY * b2;
+
+        double scale = Math.Max(0.5, Math.Min(1.4, Math.Sqrt(distance / 650.0)));
+        int total = (int)(duration * scale * (0.85 + Chance.NextDouble() * 0.35));
+        if (correcting) total = Math.Max(60, total / 3);
+        int frames = Math.Max(6, total / 9);
+
+        var clock = Stopwatch.StartNew();
+        for (int frame = 1; frame <= frames; frame++)
+        {
+            Guard();
+            double t = (double)frame / frames;
+            double u = Math.Pow(t, 0.8);
+            double s = u * u * u * (10 - 15 * u + 6 * u * u);
+            double r = 1 - s;
+            double px = r * r * r * from.X + 3 * r * r * s * c1x + 3 * r * s * s * c2x + s * s * s * aimX;
+            double py = r * r * r * from.Y + 3 * r * r * s * c1y + 3 * r * s * s * c2y + s * s * s * aimY;
+            double shake = frame < frames ? r * 0.9 : 0;
+            px += (Chance.NextDouble() - 0.5) * 2 * shake;
+            py += (Chance.NextDouble() - 0.5) * 2 * shake;
+            MoveTo((int)Math.Round(px), (int)Math.Round(py));
+            int due = (int)(total * t) - (int)clock.ElapsedMilliseconds;
+            if (due > 0) Thread.Sleep(due);
+        }
+        MoveTo(aimX, aimY);
+        if (overshoot)
+        {
+            Thread.Sleep(40 + Chance.Next(90));
+            Reach(x, y, duration, true);
+        }
     }
 
     static void MoveTo(int x, int y)
@@ -1928,6 +2366,15 @@ static class Native
     }
 
     [StructLayout(LayoutKind.Sequential)]
+    public struct MONITORINFO
+    {
+        public int cbSize;
+        public RECT rcMonitor;
+        public RECT rcWork;
+        public uint dwFlags;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
     public struct SIZE
     {
         public int cx;
@@ -2029,6 +2476,9 @@ static class Native
     [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint attach, uint to, bool on);
     [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
     [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(IntPtr window, int attribute, out int value, int size);
+    [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(IntPtr window, int attribute, out RECT value, int size);
+    [DllImport("user32.dll")] public static extern IntPtr MonitorFromWindow(IntPtr window, uint flags);
+    [DllImport("user32.dll")] public static extern bool GetMonitorInfo(IntPtr monitor, ref MONITORINFO info);
     [DllImport("user32.dll")] public static extern bool SetWindowDisplayAffinity(IntPtr window, uint affinity);
     [DllImport("user32.dll", SetLastError = true)] public static extern IntPtr SetWindowsHookEx(int id, HookProc proc, IntPtr module, uint thread);
     [DllImport("user32.dll")] public static extern bool UnhookWindowsHookEx(IntPtr hook);

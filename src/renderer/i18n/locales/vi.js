@@ -298,7 +298,7 @@ export default {
 
     /* ---- Settings: Appearance ---- */
     'settings.appearance.title': 'Giao diện',
-    'settings.appearance.desc': 'Diện mạo của chính ứng dụng.',
+    'settings.appearance.desc': 'Diện mạo của ứng dụng và các terminal.',
     'settings.appearance.theme': 'Chủ đề',
     'settings.appearance.themeDesc': 'Chọn chủ đề giao diện bạn thích',
     'settings.appearance.themeCustomDesc': 'Ứng dụng đang dùng bảng màu riêng của bạn. Chọn một '

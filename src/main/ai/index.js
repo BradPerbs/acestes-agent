@@ -1856,6 +1856,8 @@ function computerApiFor(conversation) {
         agentName: () => agents.get(conversation.agentId)?.name || '',
         ask: payload => requestQuestion(conversation, payload),
         resolveSecrets: text => secrets.forAgent(conversation.agentId).resolve(text),
+        // Whether the runtime answering can be shown a screenshot.
+        canSee: () => PROVIDERS[effectiveSettings(conversation).provider]?.supportsImages === true,
     });
 }
 

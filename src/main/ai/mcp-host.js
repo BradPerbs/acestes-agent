@@ -222,7 +222,7 @@ function callHandler(definition, { toolContext, requestApproval, onEvent }) {
                     // on a person knows when the client stopped waiting.
                     const result = await catalog.invoke(definition, input || {}, { ...context, signal });
                     return {
-                        content: [{ type: 'text', text: String(result.text ?? '') }],
+                        content: catalog.contentOf(result),
                         isError: Boolean(result.isError),
                     };
                 } catch (error) {

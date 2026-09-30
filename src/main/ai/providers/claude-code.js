@@ -408,7 +408,7 @@ function buildToolServer(sdk, toolContext, onEvent) {
             try {
                 const result = await catalog.invoke(definition, input || {}, toolContext());
                 return {
-                    content: [{ type: 'text', text: String(result.text ?? '') }],
+                    content: catalog.contentOf(result),
                     isError: Boolean(result.isError),
                 };
             } catch (error) {

@@ -310,7 +310,7 @@ export default {
 
     /* ---- Settings: Appearance ---- */
     'settings.appearance.title': 'Aspeto',
-    'settings.appearance.desc': 'O aspeto da própria aplicação.',
+    'settings.appearance.desc': 'O aspeto da aplicação e dos seus terminais.',
     'settings.appearance.theme': 'Tema',
     'settings.appearance.themeDesc': 'Escolha o tema de interface que prefere',
     'settings.appearance.themeCustomDesc': 'A aplicação está a usar a sua própria paleta. Escolha '

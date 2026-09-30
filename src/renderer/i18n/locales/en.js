@@ -691,7 +691,7 @@ export default {
      * Settings: Appearance
      * ---------------------------------------------------------------- */
     'settings.appearance.title': 'Appearance',
-    'settings.appearance.desc': 'How the app itself looks.',
+    'settings.appearance.desc': 'How the app and its terminals look.',
     'settings.appearance.theme': 'Theme',
     'settings.appearance.themeDesc': 'Select your preferred interface theme',
     'settings.appearance.themeCustomDesc': 'The app is using your own palette. Pick one to start '
@@ -1795,6 +1795,9 @@ export default {
     'assistant.didWaitFor': 'Waited for',
     'assistant.didReadText': 'Read the text of',
     'assistant.didSteps': 'Did',
+    'assistant.didScreenshot': 'Took a screenshot',
+    'assistant.didZoom': 'Zoomed in',
+    'assistant.didSolveCaptcha': 'Worked the captcha',
     'assistant.openConversation': 'Open',
     'assistant.openConversations': 'Open {count}',
     'assistant.openConversationHint': 'Open the conversation this started in a tab',

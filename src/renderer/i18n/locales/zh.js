@@ -288,7 +288,7 @@ export default {
 
     /* ---- Settings: Appearance ---- */
     'settings.appearance.title': '外观',
-    'settings.appearance.desc': '应用本身的外观。',
+    'settings.appearance.desc': '应用及其终端的外观。',
     'settings.appearance.theme': '主题',
     'settings.appearance.themeDesc': '选择你偏好的界面主题',
     'settings.appearance.themeCustomDesc': '应用正在使用你自己的配色。可以从下面挑一个作为起点，也可以逐项自行设置。',

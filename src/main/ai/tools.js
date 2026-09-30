@@ -169,6 +169,20 @@ function ok(payload) {
     return { text: typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2) };
 }
 
+/**
+ * A result as MCP content: its text, then any pictures it carries (a
+ * screenshot). The pictures go to the runtime and on to the model; the
+ * transcript is built from the text alone, so they never pile up in the
+ * saved history.
+ */
+function contentOf(result) {
+    const content = [{ type: 'text', text: String(result?.text ?? '') }];
+    for (const image of Array.isArray(result?.images) ? result.images : []) {
+        if (image?.data) content.push({ type: 'image', data: image.data, mimeType: image.mediaType || 'image/png' });
+    }
+    return content;
+}
+
 function fail(message) {
     return { text: message, isError: true };
 }
@@ -1551,6 +1565,7 @@ module.exports = {
     TOOLS,
     BY_NAME,
     invoke,
+    contentOf,
     SECRET_FIELDS,
     redactInput,
     isAutoApproved,

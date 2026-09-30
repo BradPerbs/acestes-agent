@@ -105,6 +105,56 @@ export const APP_COLOR_PRESETS = [
         colors: { base: '#00212b', raised: '#002b36', control: '#073642', hover: '#0f4a58', active: '#175c6c', muted: '#7d9295' },
     },
     {
+        id: 'one-dark',
+        label: 'One Dark',
+        colors: { base: '#21252b', raised: '#282c34', control: '#31363f', hover: '#3a404b', active: '#474e5d', muted: '#6b7384' },
+    },
+    {
+        id: 'monokai',
+        label: 'Monokai',
+        colors: { base: '#1e1f1c', raised: '#272822', control: '#34352d', hover: '#3e3d32', active: '#49483e', muted: '#75715e' },
+    },
+    {
+        id: 'github-dark',
+        label: 'GitHub Dark',
+        colors: { base: '#010409', raised: '#0d1117', control: '#161b22', hover: '#21262d', active: '#30363d', muted: '#7d8590' },
+    },
+    {
+        id: 'ayu-mirage',
+        label: 'Ayu Mirage',
+        colors: { base: '#1a1f29', raised: '#1f2430', control: '#272d38', hover: '#2f3746', active: '#3a4458', muted: '#707a8c' },
+    },
+    {
+        id: 'kanagawa',
+        label: 'Kanagawa',
+        colors: { base: '#16161d', raised: '#1f1f28', control: '#2a2a37', hover: '#363646', active: '#4a4a5e', muted: '#727169' },
+    },
+    {
+        id: 'palenight',
+        label: 'Palenight',
+        colors: { base: '#1f2233', raised: '#292d3e', control: '#32364a', hover: '#3c4157', active: '#444267', muted: '#676e95' },
+    },
+    {
+        id: 'night-owl',
+        label: 'Night Owl',
+        colors: { base: '#010e1a', raised: '#011627', control: '#0b2942', hover: '#13344f', active: '#1d3b53', muted: '#5f7e97' },
+    },
+    {
+        id: 'horizon',
+        label: 'Horizon',
+        colors: { base: '#16161c', raised: '#1c1e26', control: '#232530', hover: '#2e303e', active: '#3b3e51', muted: '#6c6f93' },
+    },
+    {
+        id: 'synthwave',
+        label: 'Synthwave',
+        colors: { base: '#1e1a2b', raised: '#262335', control: '#2f2a43', hover: '#372f52', active: '#463a66', muted: '#848bbd' },
+    },
+    {
+        id: 'cobalt',
+        label: 'Cobalt',
+        colors: { base: '#122738', raised: '#193549', control: '#1f4662', hover: '#25506e', active: '#2d5b7c', muted: '#7896ad' },
+    },
+    {
         id: 'ocean',
         label: 'Ocean',
         colors: { base: '#08131f', raised: '#0d1b2a', control: '#1b263b', hover: '#24354f', active: '#2e4363', muted: '#6f83a3' },
@@ -118,6 +168,21 @@ export const APP_COLOR_PRESETS = [
         id: 'ember',
         label: 'Ember',
         colors: { base: '#17110f', raised: '#211917', control: '#332624', hover: '#423230', active: '#543f3c', muted: '#96736c' },
+    },
+    {
+        id: 'slate',
+        label: 'Slate',
+        colors: { base: '#0b1120', raised: '#0f172a', control: '#1e293b', hover: '#273449', active: '#334155', muted: '#64748b' },
+    },
+    {
+        id: 'moss',
+        label: 'Moss',
+        colors: { base: '#0f1712', raised: '#151f19', control: '#1f2d24', hover: '#29392f', active: '#34473b', muted: '#6b8a75' },
+    },
+    {
+        id: 'wine',
+        label: 'Wine',
+        colors: { base: '#1a0f14', raised: '#22141b', control: '#321e28', hover: '#402734', active: '#523243', muted: '#9a6b82' },
     },
 ];
 
