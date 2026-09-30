@@ -146,6 +146,26 @@ function StreamingText({ text, onReveal, active = true }) {
 }
 
 /**
+ * How long streamed text can sit still, in ms, before the working line comes
+ * back under it. The model often writes a sentence and then spends a long
+ * while composing the call that follows, a big edit most of all, and in that
+ * gap the draft is on screen, not growing, and nothing says the turn is alive.
+ */
+const QUIET_AFTER = 1200;
+
+/** Whether `text` is there and has not changed for `QUIET_AFTER`. */
+function useQuiet(text) {
+    const [quiet, setQuiet] = useState(false);
+    useEffect(() => {
+        setQuiet(false);
+        if (!text) return undefined;
+        const timer = setTimeout(() => setQuiet(true), QUIET_AFTER);
+        return () => clearTimeout(timer);
+    }, [text]);
+    return quiet;
+}
+
+/**
  * The conversation itself: everything inside the card.
  *
  * Split from the column around it because the column is what animates, and it
@@ -403,10 +423,13 @@ export default function AssistantConversation({
         if (node && stickToBottom.current) node.scrollTop = node.scrollHeight;
     }, []);
 
+    const draftQuiet = useQuiet(assistant.draft.text);
+
     // `busy` too: the row under a turn arrives when it ends, not with an item.
+    // And the draft falling quiet, which is when the working line reappears.
     useLayoutEffect(() => {
         keepAtBottom();
-    }, [assistant.items, assistant.draft.text, assistant.busy, keepAtBottom]);
+    }, [assistant.items, assistant.draft.text, assistant.busy, draftQuiet, keepAtBottom]);
 
     /** Whether the agent answering can be sent a picture. */
     const canAttach = Boolean(settings && imageProviders.includes(settings.provider));
@@ -727,8 +750,11 @@ export default function AssistantConversation({
 
                 {/* Not while a question is standing: the turn is still open, so
                     `busy` is true, but nothing is happening and the thing to
-                    look at is the card below. */}
-                {assistant.busy && !assistant.draft.text && asking.length === 0 && questions.length === 0 && (
+                    look at is the card below. Not while words are arriving
+                    either, since they say it well enough, but back as soon as
+                    they stop and the turn has not. */}
+                {assistant.busy && (!assistant.draft.text || draftQuiet)
+                    && asking.length === 0 && questions.length === 0 && (
                     <WorkingIndicator items={assistant.items} />
                 )}
             </div>

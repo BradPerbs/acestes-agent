@@ -2,6 +2,7 @@ import { memo, useEffect, useLayoutEffect, useMemo, useState, useRef, useCallbac
 import { createPortal } from 'react-dom';
 import {
     ArrowRight01Icon,
+    BubbleChatAddIcon,
     Cancel01Icon,
     CancelCircleIcon,
     Copy01Icon,
@@ -598,6 +599,8 @@ function TitleBar({
     onGroupDelete,
     onTabDetach,
     onConversationDelete,
+    /** A fresh conversation with the agent a conversation tab belongs to. */
+    onNewConversationWith,
     /** The plus: a conversation with the agent on, a session launcher with it off. */
     onNewTab,
     newTabLabel,
@@ -841,6 +844,13 @@ function TitleBar({
                 onClick: () => onTabDisconnect(tab.id),
                 disabled: tab.liveCount === 0,
             },
+            // The tab's own agent, not whichever one is selected, and left
+            // unselected: this is a second chat with it, not a switch to it.
+            isConversation && tab.agentLook && {
+                label: t('agents.chatWith', { name: tab.agentLook.name }),
+                icon: <BubbleChatAddIcon size={size} />,
+                onClick: () => onNewConversationWith?.(tab.agentLook.id),
+            },
             isConversation && {
                 label: t('assistant.detachOnly'),
                 icon: <LinkSquare02Icon size={size} />,
@@ -878,7 +888,7 @@ function TitleBar({
     }, [
         menu, sessionTabs, groups, onTabDuplicate, onTabReconnect, onTabDisconnect,
         onTabRename, onTabColor, onTabGroup, onTabUngroup, onTabNewGroup,
-        onTabDetach, onConversationDelete,
+        onTabDetach, onConversationDelete, onNewConversationWith,
         handleTabClose, handleCloseOthers, handleCloseRight, startRename, t,
     ]);
 

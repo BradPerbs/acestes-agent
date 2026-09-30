@@ -2091,6 +2091,7 @@ function App() {
                     onBroadcastChange={setBroadcast}
                     onTabDetach={(tabId) => detachConversationTabs([tabId])}
                     onConversationDelete={handleDeleteConversationTab}
+                    onNewConversationWith={handleNewConversationWith}
                     onNewTab={assistantShown ? handleNewConversation : handleNewTab}
                     newTabLabel={assistantShown ? t('titleBar.newConversation') : t('newTab.title')}
                     onNewSession={handleNewTab}
