@@ -58,71 +58,39 @@ whichever the job needs.
 
 ## An opinionated agent
 
-Acestes is not a blank canvas that does whatever a prompt says. It takes
-positions on how work should be done, and they are built in rather than
-suggested:
+Not a blank canvas. It has views on how work should be done, and they are
+built in:
 
-- **It works where you can see.** On a server it types into a real
-  terminal in front of you by default; on your code it edits the file you
-  granted it and shows the change. What it did is on your screen, not in a
-  summary of what it says it did.
-- **Memory is a notebook, not a transcript.** It keeps short facts it decided
-  were worth keeping, in plain text you can read and edit, rather than
-  quietly mining every conversation.
-- **It asks, in the open.** Anything that changes a system or a file stops
-  on a card you can read to the end of, with the exact command or the exact
-  change on it. When it needs a decision from you, it puts the question on
-  a card with the answers it sees, instead of guessing or burying the
-  question in a paragraph.
-- **Secrets go one way.** The agent can save a host with its password or
-  key, but nothing it reads back ever carries one, and a secret never lands
-  in a transcript or a log.
-- **Every agent is a person, not a mode.** Two agents in one window have
-  separate memories, inventories, folders and sessions, and one cannot
-  reach into the other's.
-- **It runs on the agent you already have.** Claude Code, Codex, Cursor,
-  OpenCode or any of the others below, already installed and signed in. No
-  new subscription and no key to paste.
+- **It works where you can see.** Edits show as a diff. On a server,
+  commands run in a real terminal in front of you.
+- **Memory is a notebook, not a transcript.** Short facts it chose to keep,
+  in plain text you can edit.
+- **It asks in the open.** Every change waits on a card showing the exact
+  command or diff. Questions come with answers to pick from.
+- **Secrets go one way.** It can store a password or key, but never reads
+  one back. None ever lands in a transcript or a log.
+- **Every agent is its own person.** Separate memory, inventory, folders and
+  sessions. One can't reach into another's.
+- **It runs on the agent you already have.** Claude Code, Codex, Cursor and
+  [more](#your-runtime-your-choice). No new subscription, no key to paste.
 
 ## An agent, not a chatbot
 
-- **It remembers.** Every agent keeps a memory that grows with every
-  conversation: how your projects are laid out, what your machines are, how
-  you like things done, what the fix turned out to be. Indexed on your own
-  machine, searched by meaning, never sent anywhere to be stored. It can
-  also search its own past conversations and read them back in full, so
-  "how did we fix this last time" has an answer.
-- **It does the work.** On your code it reads, searches and edits inside the
-  folders you grant it and runs whatever the project needs. On a server it
-  opens the session, reads what is on the screen, runs the commands, checks
-  the result and reports back. An edit replaces the passage it read rather
-  than rewriting the file, so the approval card shows the change and not the
-  whole file.
-- **It carries its own kit.** Folders, hosts, keys, proxies, snippets,
-  playbooks and MCP tool servers live in the agent's inventory, laid out
-  like a bag in a game. The agent can look through its own bag, read a
-  playbook you wrote for it before starting a job, and keep the bag itself:
-  add the host it was just told about, save a procedure that worked as a
-  playbook, register an MCP server. It sees and edits its own records and
-  the shared ones, never another agent's.
-- **It stays inside the fence.** Grant an agent a folder when you create it
-  and it can list, read, search, edit and run commands there and nowhere
-  else. Turn on the container and that fence becomes a wall.
-- **It works while you are away.** A job is a prompt on a schedule, on a
-  monitored host going down, on a webhook, or after a probe that decides
-  whether waking the agent is worth it. Every run is written down as it
-  goes, survives the app restarting, and stops on a card that waits for
-  you as long as it takes. The app stays up for its jobs after you close
-  the window.
-- **It can share the work.** The same check on twenty hosts is one fan-out,
-  a conversation per host and the reports gathered. A task that belongs to
-  another agent you set up is handed over with its own memory and rules.
-- **It asks before it breaks things.** You choose how much it does on its own:
-  everything on approval, reads without asking, or full autonomy. A blocked
-  list stops the truly dangerous commands before they reach a server. Your
-  own hooks run around every tool call, on every runtime.
-- **It never shows you a password.** Credentials stay in the app's vault,
-  encrypted. The agent names a host; the app makes the connection.
+- **It remembers.** How your projects are laid out, how you like things
+  done, what the fix turned out to be. Stored on your machine and searched
+  by meaning. It can reread past conversations too.
+- **It does the work.** Reads, searches and edits your code, runs the build,
+  opens a shell on the server and checks the result.
+- **It carries its own kit.** Folders, hosts, keys, snippets, playbooks and
+  MCP servers live in its inventory. It keeps that up to date itself.
+- **It stays inside the fence.** It only touches the folders you grant it.
+  Turn on the container and the fence becomes a wall.
+- **It works while you're away.** Jobs run on a schedule, a webhook or a
+  host going down, and keep running after you close the window.
+- **It shares the work.** Run one check across twenty hosts, or hand a task
+  to another agent.
+- **You decide how much it does alone.** Ask for everything, only for
+  changes, or never. Dangerous commands are blocked outright.
 
 ## A team of them
 
