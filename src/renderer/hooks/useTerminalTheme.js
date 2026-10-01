@@ -514,6 +514,23 @@ export const TERMINAL_THEMES = {
         cyan: '#86e1fc',
         white: '#c8d3f5',
     },
+    // Pairs with the app's Black palette. ANSI black is lifted off the
+    // background so text drawn in it is still visible.
+    'black': {
+        background: '#000000',
+        foreground: '#d4d4d4',
+        cursor: '#ffffff',
+        cursorAccent: '#000000',
+        selectionBackground: 'rgba(255, 255, 255, 0.18)',
+        black: '#3a3a3a',
+        red: '#ff5f5f',
+        green: '#5fd787',
+        yellow: '#ffd75f',
+        blue: '#5fafff',
+        magenta: '#d787ff',
+        cyan: '#5fd7d7',
+        white: '#e4e4e4',
+    },
 };
 
 /**
@@ -525,6 +542,7 @@ export const TERMINAL_THEME_PRESETS = [
     // Stored as `default` since before it was one, and still the id in anyone's
     // settings who picked it. The name is what it has always been made of.
     { id: 'default', label: 'VS Code Dark' },
+    { id: 'black', label: 'Black' },
     { id: 'monokai', label: 'Monokai' },
     { id: 'monokai-pro', label: 'Monokai Pro' },
     { id: 'dracula', label: 'Dracula' },

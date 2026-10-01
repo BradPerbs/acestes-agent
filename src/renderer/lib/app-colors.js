@@ -69,6 +69,13 @@ export const APP_COLOR_PRESETS = [
         label: 'Graphite',
         colors: { base: '#0d0d0f', raised: '#16161a', control: '#212127', hover: '#2b2b33', active: '#383840', muted: '#6b6b78' },
     },
+    // True black with no tint at all, for OLED screens and dark rooms. Steps are
+    // closer than the default ramp's because the eye splits greys this dark finely.
+    {
+        id: 'black',
+        label: 'Black',
+        colors: { base: '#000000', raised: '#0a0a0a', control: '#141414', hover: '#1f1f1f', active: '#2a2a2a', muted: '#6e6e6e' },
+    },
     {
         id: 'nord',
         label: 'Nord',
