@@ -116,6 +116,25 @@ jobs:
 
       - run: npm run build:renderer
 
+      # The mac icon is an Icon Composer file, build/icon.icon, and only the
+      # actool in Xcode 26 or later can compile it. Without it macOS 26 sets
+      # the icon small inside a grey tile. The desktop helper above is built
+      # with whatever Xcode the image defaults to; this switches only for
+      # packaging, and only when that default is older.
+      - name: Use Xcode 26 for the app icon
+        if: runner.os == 'macOS'
+        run: |
+          major=$(xcodebuild -version | awk 'NR == 1 { split($2, v, "."); print v[1] }')
+          if [ "$major" -lt 26 ]; then
+            xcode=$(ls -d /Applications/Xcode_2[6-9]*.app 2>/dev/null | grep -vi beta | sort -V | tail -n 1)
+            if [ -z "$xcode" ]; then
+              echo "::error::This runner has no Xcode 26, which the mac icon needs."
+              exit 1
+            fi
+            sudo xcode-select -s "$xcode"
+          fi
+          actool --version
+
       # ssh2 lists cpu-features as an optional dependency and uses it only to
       # prefer a hardware-accelerated cipher, behind a bare try/catch. It is
       # built with nan, and nan does not compile against Electron 43's V8

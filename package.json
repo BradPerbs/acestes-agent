@@ -13,6 +13,7 @@
         "build:css": "npx tailwindcss -i ./src/renderer/input.css -o ./src/renderer/styles.css",
         "build:hello": "node scripts/build-hello-helper.js",
         "build:desktop": "node scripts/build-desktop-helper.js",
+        "build:mac-icon": "node scripts/build-mac-icon.js",
         "build:renderer": "vite build",
         "build:electron": "electron-builder --win --x64",
         "build:electron:mac": "electron-builder --mac",
@@ -146,7 +147,7 @@
             ],
             "category": "public.app-category.developer-tools",
             "darkModeSupport": true,
-            "icon": "build/icon.png",
+            "icon": "build/icon.icon",
             "artifactName": "AcestesAgent-${arch}.${ext}",
             "extraResources": [
                 {

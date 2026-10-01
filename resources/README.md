@@ -21,10 +21,20 @@ they are absent from a fresh checkout until you build them:
 
 ## Icons
 
-The app icon is not here. It lives at `build/icon.png` in the repo root, and
-all three platform targets point at that one file: electron-builder generates
-the Windows `.ico` and the macOS `.icns` from it, and Linux takes the PNG as
-it is.
+The app icon is not here. It lives at `build/icon.png` in the repo root.
+Windows and Linux point at that file: electron-builder generates the Windows
+`.ico` from it, and Linux takes the PNG as it is.
+
+macOS points at `build/icon.icon` instead, an Icon Composer file made from the
+same PNG by `npm run build:mac-icon`. macOS 26 cuts every icon to its own
+rounded square, and one that only ships an `.icns` it shrinks and sets inside
+a grey tile, which is how the Dock showed this one: a small black square in a
+larger grey one. The `.icon` gives the system the background colour and the
+artwork as separate parts, so the artwork fills the tile like any other app's.
+electron-builder compiles it into `Assets.car` with Xcode 26's `actool`, and
+makes the `.icns` that older macOS reads from it too, so a mac build now needs
+Xcode 26 or later (the release workflow selects it). Rerun the script whenever
+`build/icon.png` changes, and commit what it writes.
 
 `win.icon` used to name `resources/icon.ico`, which was never committed, so
 every Windows build up to now quietly shipped the default Electron logo.
