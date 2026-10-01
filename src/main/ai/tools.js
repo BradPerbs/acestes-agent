@@ -1460,6 +1460,9 @@ const NATIVE_READS = new Set([
     'notebookread', 'bashoutput', 'get_command_or_subagent_output',
     'webfetch', 'web_fetch', 'websearch', 'web_search', 'search_tool',
     'todowrite', 'todoread', 'todo_write', 'task', 'exitplanmode',
+    // Handing work to a subagent, or checking on one, touches nothing by
+    // itself: each call the subagent makes is asked about on its own.
+    'agent', 'taskoutput', 'taskstop',
 ]);
 
 /** The runtimes' own shells, which are judged by the allow list like any command. */

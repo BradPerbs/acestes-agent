@@ -179,6 +179,156 @@ async function run() {
     assert.strictEqual(provider.nativeAutoApproved('mcp__github__list_issues', {}, writes), true);
     assert.strictEqual(provider.nativeAutoApproved('mcp__github__create_issue', {}, writes), false);
 
+    // Subagents are not local tools: with the switch off a subagent can still
+    // be started, and what it does is gated call by call.
+    for (const name of provider.AGENT_TOOLS) {
+        assert(!provider.LOCAL_TOOLS.includes(name), `${name} is not behind the local-tools switch`);
+        assert.strictEqual(provider.nativeAutoApproved(name, {}, writes), true, `${name} is not asked about`);
+    }
+
+    // A turn that sends a subagent to the background, recorded from the CLI.
+    // The first result lands while the subagent is out: the turn is held open,
+    // and closes on the result after it, once the CLI says it is idle.
+    {
+        const events = [];
+        const turns = provider.createTurnTracker(event => events.push(event));
+        const system = (subtype, extra = {}) => ({ type: 'system', subtype, session_id: 's', ...extra });
+        const result = cost => ({ type: 'result', subtype: 'success', result: '', total_cost_usd: cost, session_id: 's' });
+
+        turns.began();
+        turns.handle(system('session_state_changed', { state: 'running' }));
+        turns.handle(system('init', { model: 'opus' }));
+        turns.handle({
+            type: 'assistant',
+            parent_tool_use_id: null,
+            message: { content: [{ type: 'tool_use', id: 'agent-1', name: 'Agent', input: { description: 'Disk check', run_in_background: true } }] },
+        });
+        turns.handle(system('background_tasks_changed', { tasks: [{ task_id: 't1', task_type: 'local_agent', description: 'Disk check' }] }));
+        turns.handle(system('task_started', { task_id: 't1', tool_use_id: 'agent-1', description: 'Disk check', task_type: 'local_agent', is_backgrounded: true }));
+        // The subagent's own work: its call is passed on under the parent,
+        // its words are not.
+        turns.handle({
+            type: 'assistant',
+            parent_tool_use_id: 'agent-1',
+            message: { content: [{ type: 'text', text: 'Looking now' }, { type: 'tool_use', id: 'bash-1', name: 'Bash', input: { command: 'df -h' } }] },
+        });
+        turns.handle({ type: 'stream_event', parent_tool_use_id: 'agent-1', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'sub' } } });
+        // A shell the CLI runs for the subagent is not a subagent.
+        turns.handle(system('task_started', { task_id: 'b1', tool_use_id: 'bash-1', task_type: 'local_bash', is_backgrounded: false }));
+        turns.handle({ type: 'assistant', parent_tool_use_id: null, message: { content: [{ type: 'text', text: 'I will report back.' }] } });
+        turns.handle(result(0.05));
+
+        assert.deepStrictEqual(turns.agents(), ['t1']);
+        assert(!events.some(event => event.type === 'result'), 'the first result is held');
+        // The subagent's words go on, marked as its own, for its transcript.
+        const said = events.filter(event => event.type === 'assistant-text' && event.text === 'Looking now');
+        assert.deepStrictEqual(said.map(event => event.parentId), ['agent-1']);
+        assert(!events.some(event => event.type === 'text-delta'), 'subagent deltas stay out of the draft');
+        assert.strictEqual(events.find(event => event.id === 'bash-1').parentId, 'agent-1');
+        assert.strictEqual(events.filter(event => event.type === 'task-started').length, 1);
+
+        turns.handle(system('background_tasks_changed', { tasks: [] }));
+        turns.handle(system('task_notification', { task_id: 't1', tool_use_id: 'agent-1', status: 'completed', summary: 'Disks are fine' }));
+        turns.handle(system('init', { model: 'opus' }));
+        turns.handle({ type: 'assistant', parent_tool_use_id: null, message: { content: [{ type: 'text', text: 'Disks are fine.' }] } });
+        turns.handle(result(0.06));
+        turns.handle(system('session_state_changed', { state: 'idle' }));
+
+        const results = events.filter(event => event.type === 'result');
+        assert.strictEqual(results.length, 1, 'one result for the whole turn');
+        assert.strictEqual(results[0].costUsd, 0.06);
+        assert(!events.some(event => event.type === 'turn-resumed'), 'the turn never looked over');
+        assert.strictEqual(events.find(event => event.type === 'task-ended').status, 'completed');
+    }
+
+    // Every subagent finished before the parent's reply did, so none is out
+    // when the result lands, and the CLI starts its report a moment later.
+    // Still one turn: the held result gives way to the report's.
+    {
+        const events = [];
+        const turns = provider.createTurnTracker(event => events.push(event));
+        turns.began();
+        turns.handle({ type: 'system', subtype: 'session_state_changed', state: 'running' });
+        turns.handle({ type: 'result', subtype: 'success', total_cost_usd: 0.01 });
+        turns.handle({ type: 'system', subtype: 'init', session_id: 's' });
+        turns.handle({ type: 'assistant', parent_tool_use_id: null, message: { content: [{ type: 'text', text: 'Done.' }] } });
+        turns.handle({ type: 'result', subtype: 'success', total_cost_usd: 0.02 });
+        turns.handle({ type: 'system', subtype: 'session_state_changed', state: 'idle' });
+        assert.deepStrictEqual(events.map(event => event.type), ['session', 'assistant-text', 'result']);
+        assert.strictEqual(events[2].costUsd, 0.02);
+    }
+
+    // Without a CLI, the same turn ends the old way: a result, then the
+    // report announced as a turn of its own.
+    {
+        const events = [];
+        const turns = provider.createTurnTracker(event => events.push(event));
+        turns.began();
+        turns.handle({ type: 'result', subtype: 'success', total_cost_usd: 0.01 });
+        turns.handle({ type: 'system', subtype: 'init', session_id: 's' });
+        turns.handle({ type: 'result', subtype: 'success', total_cost_usd: 0.02 });
+        assert.deepStrictEqual(events.map(event => event.type), ['result', 'turn-resumed', 'session', 'result']);
+    }
+
+    // Nothing out, no idle and no report: the held result stands after a while.
+    {
+        const events = [];
+        const turns = provider.createTurnTracker(event => events.push(event), { settle: 5 });
+        turns.began();
+        turns.handle({ type: 'system', subtype: 'session_state_changed', state: 'running' });
+        turns.handle({ type: 'result', subtype: 'success', total_cost_usd: 0.01 });
+        assert.strictEqual(events.length, 0);
+        await new Promise(resolve => setTimeout(resolve, 30));
+        assert.deepStrictEqual(events.map(event => event.type), ['result']);
+    }
+
+    // A held result is let go when the CLI goes idle without another one.
+    {
+        const events = [];
+        const turns = provider.createTurnTracker(event => events.push(event));
+        turns.began();
+        turns.handle({ type: 'system', subtype: 'session_state_changed', state: 'running' });
+        turns.handle({ type: 'system', subtype: 'background_tasks_changed', tasks: [{ task_id: 't1', task_type: 'local_agent' }] });
+        turns.handle({ type: 'result', subtype: 'success', total_cost_usd: 0.01 });
+        assert.strictEqual(events.length, 0);
+        turns.handle({ type: 'system', subtype: 'session_state_changed', state: 'idle' });
+        assert.deepStrictEqual(events.map(event => event.type), ['result']);
+    }
+
+    // Stopped with a subagent out: the turn the CLI starts to report the
+    // stopped subagent is cut short and not shown, until the user speaks.
+    {
+        const events = [];
+        let cut = 0;
+        const turns = provider.createTurnTracker(event => events.push(event), { onUnwanted: () => { cut += 1; } });
+        turns.began();
+        turns.handle({ type: 'system', subtype: 'session_state_changed', state: 'running' });
+        turns.handle({ type: 'system', subtype: 'background_tasks_changed', tasks: [{ task_id: 't1', task_type: 'local_agent' }] });
+        turns.handle({ type: 'result', subtype: 'success', total_cost_usd: 0.01 });
+        turns.stopped();
+        turns.handle({ type: 'system', subtype: 'init', session_id: 's' });
+        turns.handle({ type: 'assistant', parent_tool_use_id: null, message: { content: [{ type: 'text', text: 'The agent was stopped.' }] } });
+        turns.handle({ type: 'result', subtype: 'success', total_cost_usd: 0.02 });
+        assert.strictEqual(cut, 1);
+        assert.deepStrictEqual(events, []);
+
+        turns.began();
+        turns.handle({ type: 'system', subtype: 'init', session_id: 's' });
+        turns.handle({ type: 'result', subtype: 'success', total_cost_usd: 0.03 });
+        turns.handle({ type: 'system', subtype: 'session_state_changed', state: 'idle' });
+        assert.deepStrictEqual(events.map(event => event.type), ['session', 'result']);
+    }
+
+    // A CLI that never reports idle is never held for: nothing would let go.
+    {
+        const events = [];
+        const turns = provider.createTurnTracker(event => events.push(event));
+        turns.began();
+        turns.handle({ type: 'system', subtype: 'background_tasks_changed', tasks: [{ task_id: 't1', task_type: 'local_agent' }] });
+        turns.handle({ type: 'result', subtype: 'success', total_cost_usd: 0.01 });
+        assert.deepStrictEqual(events.map(event => event.type), ['result']);
+    }
+
     console.log('claude-provider tests passed');
 }
 

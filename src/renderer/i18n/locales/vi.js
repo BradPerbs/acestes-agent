@@ -113,6 +113,8 @@ export default {
     'newTab.hintClose': 'đóng thẻ',
 
     /* ---- Title bar ---- */
+    'titleBar.hideSidebar': 'Ẩn thanh bên',
+    'titleBar.showSidebar': 'Hiện thanh bên',
     'titleBar.reload': 'Tải lại',
     'titleBar.devTools': 'Công cụ nhà phát triển',
     'titleBar.minimize': 'Thu nhỏ',
@@ -273,6 +275,8 @@ export default {
     'settings.nav.security': 'Bảo mật',
     'settings.nav.backup': 'Sao lưu',
     'settings.nav.about': 'Giới thiệu',
+    'settings.search': 'Tìm trong cài đặt',
+    'settings.search.empty': 'Không có mục nào trên trang này khớp với “{query}”.',
 
     /* ---- Settings: General ---- */
     'settings.general.title': 'Chung',
@@ -1052,6 +1056,7 @@ export default {
     'assistant.working.read': 'Đang đọc|Đang lục tệp|Đang sàng lọc|Đang quét|Đang tìm hiểu tình hình|Đang lần theo dấu vết',
     'assistant.working.write': 'Đang viết mã|Đang mày mò|Đang ghép nối|Đang gõ búa|Đang chau chuốt|Đang đi dây',
     'assistant.working.connect': 'Đang kết nối|Đang mở đường truyền|Đang bắt tay|Đang xuyên đường hầm|Đang gõ cửa',
+    'assistant.working.agent': 'Đang chờ tác tử phụ|Đang giao việc|Tác tử phụ đang tìm hiểu|Đang chờ báo cáo',
     'assistant.send': 'Gửi',
     'assistant.attachImage': 'Thêm ảnh',
     'assistant.removeImage': 'Bỏ ảnh',
@@ -1110,6 +1115,19 @@ export default {
     'assistant.didConnect': 'Đã kết nối tới',
     'assistant.didDisconnect': 'Đã đóng phiên',
     'assistant.lastLines': '{count} dòng cuối',
+    'assistant.didSubagent': 'Tác tử phụ',
+    'assistant.subagentBackground': 'chạy nền',
+    'assistant.subagentStopped': 'đã dừng',
+    'assistant.subagentFailed': 'thất bại',
+    'assistant.subagentSteps_other': '{count} bước',
+    'assistant.subagents_other': '{count} tác tử phụ',
+    'assistant.subagentsRunning': '{count} đang chạy',
+    'assistant.subagentsDone': '{count} xong',
+    'assistant.subagentsFailed': '{count} đã dừng',
+    'assistant.openSubagentHint': 'Mở công việc của tác tử phụ này trong một thẻ',
+    'assistant.subagentReadOnly': 'Công việc của tác tử phụ, chỉ đọc. Trao đổi với nó qua cuộc trò chuyện đã khởi động nó.',
+    'assistant.subagentParent': 'Mở “{title}”',
+    'assistant.subagentParentUntitled': 'Mở cuộc trò chuyện',
     'assistant.recentOutput': 'kết quả gần đây',
     'assistant.matching': 'khớp với "{query}"',
 

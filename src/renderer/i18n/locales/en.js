@@ -652,6 +652,8 @@ export default {
     'titleBar.closeGroupTabs_other': 'Close all {count} tabs',
     'titleBar.newConversation': 'New conversation',
     'titleBar.newSession': 'New session',
+    'titleBar.hideSidebar': 'Hide sidebar',
+    'titleBar.showSidebar': 'Show sidebar',
     'titleBar.deleteConversation': 'Delete conversation',
 
     /* ---------------------------------------------------------------- *
@@ -804,6 +806,8 @@ export default {
     'settings.nav.security': 'Security',
     'settings.nav.backup': 'Backup',
     'settings.nav.about': 'About',
+    'settings.search': 'Search settings',
+    'settings.search.empty': 'Nothing on this page matches “{query}”.',
 
     /* ---------------------------------------------------------------- *
      * Settings: General
@@ -1846,6 +1850,7 @@ export default {
     'assistant.working.read': 'Reading|Digging through files|Sifting|Scanning|Rummaging around|Getting the lay of the land|Following the trail|Reading the manual, for once|Grepping furiously|Checking under the couch cushions|Rifling through the drawers|Speed-reading|Following the breadcrumbs|Consulting the ancient scrolls|Poking around the attic|Deciphering old comments|Reading between the lines|Dusting off the logs|Finding where that was hiding|Reading the docs nobody reads|Reading the fine print|Tracing the call stack|Running git blame, it was me|Reading legacy code, send help|Hunting for the one bug|Counting the nested ifs|Wondering who wrote this|Skimming like a pro|Pretending to read the whole thing|Reading it twice to be sure|Going down the rabbit hole|Finding Nemo in the logs|Checking the Jedi archives|Unrolling the treasure map|Reading the Marauder\'s Map|Searching for the Holy Grail|Following the yellow brick road|Looking for the droids|Investigating, Sherlock style|Scanning the Matrix code',
     'assistant.working.write': 'Writing code|Tinkering|Stitching it together|Hammering away|Polishing|Wiring things up|Shaping it|Duct-taping it together|Adding just one more semicolon|Making it pretty|Laying bricks|Sprinkling some magic|Measuring twice, cutting once|Typing with all ten fingers|Writing it neatly this time|Tightening the screws|Leaving a helpful comment|Fixing the typo from before|Turning coffee into code|Writing tests, eventually|Removing the console.log|Adding a TODO for later|Closing all the brackets|Making the linter happy|Resolving merge conflicts|Writing self-documenting code, allegedly|Deleting more than adding|Renaming x to something better|Fixing one bug, adding two|Refactoring, but only a little|Copy, paste, adjust|Writing a commit message worth reading|Crafting a masterpiece, obviously|MacGyvering a fix|Suiting up, Iron Man style|Forging it in Mount Doom|Painting happy little trees|Adding some lens flare|Building it, they will come|Assembling the Avengers|Writing the sequel',
     'assistant.working.connect': 'Dialing in|Opening a line|Shaking hands|Tunneling through|Knocking on the door|Ringing the doorbell|Asking the server nicely|Doing the secret handshake|Waving at the server|Crossing the internet|Following the cables|Hoping someone picks up|Swapping keys|Flipping the plug, twice|Finding the right port|Pinging, is this thing on|Establishing a secure line, very spy|Phoning home|Beaming up, Scotty|Opening the stargate|Jumping to hyperspace|Engaging warp drive|Speaking friend and entering|Sending a raven|Lighting the Bat-Signal|Stepping through the wardrobe|Crossing the Bifrost|Boarding the Hogwarts Express',
+    'assistant.working.agent': 'Waiting on the subagent|Delegating|Letting the subagent dig|Hearing back from the team|Minding the helpers|Checking in on the subagent|Holding the fort|Waiting for the report',
     'assistant.send': 'Send',
     'assistant.attachImage': 'Add an image',
     'assistant.removeImage': 'Remove image',
@@ -2029,6 +2034,21 @@ export default {
     'assistant.typeAnswer': 'Type an answer…',
     'assistant.answerPlaceholder': 'Your answer',
     'assistant.lastLines': 'last {count} lines',
+    'assistant.didSubagent': 'Subagent',
+    'assistant.subagentBackground': 'background',
+    'assistant.subagentStopped': 'stopped',
+    'assistant.subagentFailed': 'failed',
+    'assistant.subagentSteps_one': '{count} step',
+    'assistant.subagentSteps_other': '{count} steps',
+    'assistant.subagents_one': '{count} subagent',
+    'assistant.subagents_other': '{count} subagents',
+    'assistant.subagentsRunning': '{count} running',
+    'assistant.subagentsDone': '{count} done',
+    'assistant.subagentsFailed': '{count} stopped',
+    'assistant.openSubagentHint': 'Open what this subagent did in a tab',
+    'assistant.subagentReadOnly': 'A subagent\'s work, read only. Talk to it through the conversation that started it.',
+    'assistant.subagentParent': 'Open “{title}”',
+    'assistant.subagentParentUntitled': 'Open the conversation',
     'assistant.recentOutput': 'recent output',
     'assistant.matching': 'matching "{query}"',
 

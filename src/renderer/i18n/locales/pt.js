@@ -119,6 +119,8 @@ export default {
     'newTab.hintClose': 'fechar separador',
 
     /* ---- Title bar ---- */
+    'titleBar.hideSidebar': 'Ocultar barra lateral',
+    'titleBar.showSidebar': 'Mostrar barra lateral',
     'titleBar.reload': 'Recarregar',
     'titleBar.devTools': 'Ferramentas de programador',
     'titleBar.minimize': 'Minimizar',
@@ -283,6 +285,8 @@ export default {
     'settings.nav.security': 'Segurança',
     'settings.nav.backup': 'Cópia de segurança',
     'settings.nav.about': 'Acerca',
+    'settings.search': 'Pesquisar definições',
+    'settings.search.empty': 'Nada nesta página corresponde a “{query}”.',
 
     /* ---- Settings: General ---- */
     'settings.general.title': 'Geral',
@@ -1104,6 +1108,7 @@ export default {
     'assistant.working.read': 'A ler|A vasculhar ficheiros|A peneirar|A analisar|A reconhecer o terreno|A seguir o rasto',
     'assistant.working.write': 'A escrever código|A afinar|A coser as peças|A martelar|A polir|A ligar os fios',
     'assistant.working.connect': 'A ligar|A abrir a linha|A apertar a mão|A atravessar o túnel|A bater à porta',
+    'assistant.working.agent': 'À espera do subagente|A delegar|O subagente está a investigar|À espera do relatório',
     'assistant.send': 'Enviar',
     'assistant.attachImage': 'Adicionar uma imagem',
     'assistant.removeImage': 'Remover imagem',
@@ -1176,6 +1181,21 @@ export default {
     'assistant.didConnect': 'Ligou a',
     'assistant.didDisconnect': 'Fechou a sessão',
     'assistant.lastLines': 'últimas {count} linhas',
+    'assistant.didSubagent': 'Subagente',
+    'assistant.subagentBackground': 'em segundo plano',
+    'assistant.subagentStopped': 'parado',
+    'assistant.subagentFailed': 'falhou',
+    'assistant.subagentSteps_one': '{count} passo',
+    'assistant.subagentSteps_other': '{count} passos',
+    'assistant.subagents_one': '{count} subagente',
+    'assistant.subagents_other': '{count} subagentes',
+    'assistant.subagentsRunning': '{count} a trabalhar',
+    'assistant.subagentsDone': '{count} concluídos',
+    'assistant.subagentsFailed': '{count} parados',
+    'assistant.openSubagentHint': 'Abrir o trabalho deste subagente num separador',
+    'assistant.subagentReadOnly': 'Trabalho de um subagente, só de leitura. Fale com ele pela conversa que o iniciou.',
+    'assistant.subagentParent': 'Abrir “{title}”',
+    'assistant.subagentParentUntitled': 'Abrir a conversa',
     'assistant.recentOutput': 'resultado recente',
     'assistant.matching': 'que corresponde a "{query}"',
 

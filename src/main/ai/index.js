@@ -701,10 +701,128 @@ function emit(conversation, event) {
         conversation.events.splice(0, conversation.events.length - MAX_EVENTS);
     }
     notify('ai-event', { conversationId: conversation.id, event: stamped });
+    tellSubagents(conversation, stamped);
 
     // A stream preview is not worth a write of its own: the finished block that
     // replaces it is an event in its own right, and that one schedules one.
     if (!archive.isTransient(stamped.type)) archive.save();
+}
+
+/* ------------------------------------------------------------------ *
+ * Subagents
+ *
+ * A runtime's own subagents (Claude Code's Agent tool) work inside the
+ * conversation's turn, and their events are in its log, each marked with the
+ * call that started its subagent. Each is also a conversation of its own to
+ * read: a tab on `<conversation>/<call>` is that subagent's transcript, read
+ * back from the parent's log and told of new events as they land.
+ *
+ * Nothing is stored for one beyond the parent's log. Ten subagents are not
+ * ten conversations in the history, pushing real ones off the end of it, and
+ * there is nothing to keep in step. It is read only: the subagent's session
+ * lives inside the parent's, and the parent is where to talk to it.
+ * ------------------------------------------------------------------ */
+
+const SUBAGENT_MARK = '/';
+
+function subagentConversationId(conversationId, callId) {
+    return `${conversationId}${SUBAGENT_MARK}${callId}`;
+}
+
+/** `<conversation>/<call>` as its two halves, or null for an ordinary id. */
+function parseSubagentId(id) {
+    const text = String(id || '');
+    const at = text.indexOf(SUBAGENT_MARK);
+    return at > 0 ? { parentId: text.slice(0, at), callId: text.slice(at + 1) } : null;
+}
+
+/** How a subagent's end reads in its own transcript. */
+function subagentEnd(status, at) {
+    if (status === 'failed') return { type: 'error', message: 'The subagent stopped on an error.', at };
+    if (status === 'stopped' || status === 'killed') return { type: 'interrupted', at };
+    return { type: 'result', subtype: 'success', isError: false, costUsd: 0, at };
+}
+
+/** A parent's event as one of its subagents has it, with that subagent's call, or null. */
+function subagentEvent(event) {
+    if (event.parentId && !event.via) {
+        const { parentId, ...own } = event;
+        return { callId: parentId, event: own };
+    }
+    if (event.type === 'task-ended' && event.toolUseId) {
+        return { callId: event.toolUseId, event: subagentEnd(event.status, event.at) };
+    }
+    return null;
+}
+
+/** Every subagent of the turn now running that has not said it is done. */
+function openSubagents(conversation) {
+    const ended = new Set();
+    const open = [];
+    for (let index = conversation.events.length - 1; index >= 0; index -= 1) {
+        const event = conversation.events[index];
+        if (event.type === 'user-message') break;
+        if (event.type === 'task-ended') ended.add(event.toolUseId);
+        else if (event.type === 'task-started' && event.toolUseId && !ended.has(event.toolUseId)) open.push(event.toolUseId);
+    }
+    return open;
+}
+
+/** Pass a parent's event on to the tab of the subagent it belongs to, if any is open. */
+function tellSubagents(conversation, stamped) {
+    const own = subagentEvent(stamped);
+    if (own) {
+        notify('ai-event', { conversationId: subagentConversationId(conversation.id, own.callId), event: own.event });
+        return;
+    }
+    // The parent's turn ended under them: stopped, or its process gone.
+    // Whatever they were doing is over too.
+    if (stamped.type === 'interrupted' || stamped.type === 'closed' || stamped.type === 'error') {
+        for (const callId of openSubagents(conversation)) {
+            notify('ai-event', {
+                conversationId: subagentConversationId(conversation.id, callId),
+                event: subagentEnd('stopped', stamped.at),
+            });
+        }
+    }
+}
+
+/** A subagent's transcript, read back from its parent's log, in the shape `history` answers with. */
+function subagentHistory(ref) {
+    const parent = conversations.get(ref.parentId);
+    const call = parent?.events.find(event => event.type === 'tool-call' && event.id === ref.callId && !event.parentId);
+    if (!call) return { found: false, events: [] };
+
+    const started = parent.events.find(event => event.type === 'task-started' && event.toolUseId === ref.callId);
+    // The parent's brief, as the message the subagent was given.
+    const events = [{ type: 'user-message', text: String(call.input?.prompt || started?.prompt || ''), at: call.at }];
+    let ended = false;
+    for (const event of parent.events) {
+        const own = subagentEvent(event);
+        if (!own || own.callId !== ref.callId) continue;
+        events.push(own.event);
+        if (own.event.type === 'result' || own.event.type === 'interrupted' || own.event.type === 'error') ended = true;
+    }
+    // The parent's turn is over and nothing said this one finished: an older
+    // runtime that never reports it, or a turn cut off. Either way it is not
+    // running, and the tab should not say it is.
+    if (!ended && !parent.busy) events.push({ type: 'closed', at: parent.updatedAt });
+
+    return {
+        found: true,
+        events,
+        scope: parent.scope,
+        sessionId: parent.boundSessionId,
+        sessionIds: parent.sessionIds,
+        hostIds: parent.hostIds,
+        busy: !ended && parent.busy,
+        costUsd: 0,
+        title: String(call.input?.description || started?.description || 'Subagent'),
+        agentId: parent.agentId,
+        pinned: null,
+        runPolicy: null,
+        subagent: { parentId: parent.id, parentTitle: parent.title || '' },
+    };
 }
 
 /* ------------------------------------------------------------------ *
@@ -1533,6 +1651,20 @@ function handleProviderEvent(conversation, event) {
     if (event.type === 'error' || event.type === 'closed') {
         conversation.busy = false;
     }
+    // A turn the runtime started by itself, to pass on what a subagent
+    // brought back after the turn that sent it had ended. It is work like
+    // any other, so it is shown as work and logged as a run.
+    if (event.type === 'turn-resumed') {
+        conversation.busy = true;
+        if (!conversation.runId) {
+            beginRun(conversation, {
+                kind: conversation.runKind || 'interactive',
+                trigger: { source: 'subagent' },
+                policy: conversation.runPolicy,
+                title: conversation.title,
+            });
+        }
+    }
     if (event.type === 'tool-call' && !event.local) {
         recordToolActivity(conversation, event);
     }
@@ -1596,7 +1728,8 @@ function lastReply(conversation) {
     for (let index = conversation.events.length - 1; index >= 0; index -= 1) {
         const event = conversation.events[index];
         if (event.type === 'user-message') break;
-        if (event.type === 'assistant-text' && event.text) return String(event.text).slice(0, 4000);
+        // A subagent's words are its report to the agent, not the reply.
+        if (event.type === 'assistant-text' && event.text && !event.parentId) return String(event.text).slice(0, 4000);
     }
     return '';
 }
@@ -2186,12 +2319,15 @@ function exportMarkdown(conversationId, { full = false, messagesOnly = false } =
     const spoken = new Set(['user-message', 'assistant-text', 'question-request', 'question-settled', 'notice']);
     for (const event of conversation.events) {
         if (messagesOnly && !spoken.has(event.type)) continue;
+        // A subagent's work is its own transcript; the messages are the
+        // conversation's.
+        if (messagesOnly && event.parentId) continue;
         switch (event.type) {
             case 'user-message':
                 lines.push(`## You${stamp(event)}`, '', event.text || '', '');
                 break;
             case 'assistant-text':
-                lines.push(`## Agent${stamp(event)}`, '', event.text || '', '');
+                lines.push(`## ${event.parentId ? 'Subagent' : 'Agent'}${stamp(event)}`, '', event.text || '', '');
                 break;
             case 'tool-call': {
                 if (full) {
@@ -2629,6 +2765,9 @@ function summarise(input) {
 async function send(conversationId, text, attachments = [], tagged = []) {
     hydrate();
 
+    if (parseSubagentId(conversationId)) {
+        return { success: false, message: 'This is a subagent\'s work, read only. Reply in the conversation that started it.' };
+    }
     const conversation = conversations.get(conversationId);
     if (!conversation) return { success: false, message: 'That conversation is gone' };
 
@@ -2889,6 +3028,9 @@ async function close(conversationId) {
 /** Everything a panel needs to rebuild itself after a window reload. */
 function history(conversationId) {
     hydrate();
+
+    const subagent = parseSubagentId(conversationId);
+    if (subagent) return subagentHistory(subagent);
 
     const conversation = conversations.get(conversationId);
     if (!conversation) return { found: false, events: [] };

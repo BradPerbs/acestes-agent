@@ -158,6 +158,53 @@ async function main() {
         assert.strictEqual(after.items, before.items, 'no row for it');
     });
 
+    check('a subagent sent to the background keeps its row running until it reports', () => {
+        const state = replay([
+            { type: 'user-message', text: 'check the disks', at: 1 },
+            { type: 'tool-call', id: 'agent-1', name: 'Agent', local: true, input: { description: 'Disk check' }, at: 2 },
+            { type: 'task-started', taskId: 't1', toolUseId: 'agent-1', description: 'Disk check', background: true, at: 3 },
+            // The call is answered straight away; the work is not done.
+            { type: 'tool-result', id: 'agent-1', text: 'Async agent launched', at: 4 },
+            { type: 'tool-call', id: 'bash-1', name: 'Bash', local: true, input: { command: 'df -h' }, parentId: 'agent-1', at: 5 },
+            { type: 'task-progress', taskId: 't1', toolUseId: 'agent-1', description: 'Running df -h', toolUses: 1, at: 6 },
+        ]);
+        const agent = state.items.find(item => item.id === 'agent-1');
+        assert.strictEqual(agent.status, 'done');
+        assert.strictEqual(agent.task.status, 'running');
+        assert.strictEqual(agent.task.background, true);
+        assert.strictEqual(agent.task.activity, 'Running df -h');
+        assert.strictEqual(agent.task.toolUses, 1);
+        // The subagent's own call is its transcript's, not the parent's.
+        assert.strictEqual(state.items.find(item => item.id === 'bash-1'), undefined);
+
+        const ended = applyEvent(state, { type: 'task-ended', taskId: 't1', toolUseId: 'agent-1', status: 'completed', toolUses: 3, at: 7 });
+        const done = ended.items.find(item => item.id === 'agent-1');
+        assert.strictEqual(done.task.status, 'completed');
+        assert.strictEqual(done.task.toolUses, 3);
+    });
+
+    check('a stopped turn stops the subagents still marked running', () => {
+        const state = replay([
+            { type: 'user-message', text: 'go', at: 1 },
+            { type: 'tool-call', id: 'agent-1', name: 'Agent', local: true, input: {}, at: 2 },
+            { type: 'task-started', taskId: 't1', toolUseId: 'agent-1', background: true, at: 3 },
+            { type: 'interrupted', at: 4 },
+        ]);
+        assert.strictEqual(state.items.find(item => item.id === 'agent-1').task.status, 'stopped');
+    });
+
+    check('a turn the runtime starts by itself is shown as work', () => {
+        const state = replay([
+            { type: 'user-message', text: 'go', at: 1 },
+            { type: 'assistant-text', text: 'Waiting on the subagent.', at: 2 },
+            { type: 'result', subtype: 'success', at: 3 },
+        ]);
+        assert.strictEqual(state.busy, false);
+        const resumed = applyEvent(state, { type: 'turn-resumed', at: 4 });
+        assert.strictEqual(resumed.busy, true);
+        assert.strictEqual(resumed.items, state.items, 'no row for it');
+    });
+
     console.log(`\n${passed} passed, ${failed} failed`);
     if (failed > 0) process.exit(1);
 }

@@ -1,7 +1,8 @@
-import { memo, startTransition, useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import { memo, startTransition, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Image01Icon } from 'hugeicons-react';
 import Markdown from '../../lib/markdown';
-import ToolCall from './ToolCall';
+import ToolCall, { SUBAGENT_TOOLS } from './ToolCall';
+import SubagentGroup from './SubagentGroup';
 import ApprovalRequest from './ApprovalRequest';
 import QuestionRequest from './QuestionRequest';
 import { TurnActions, TurnChanges } from './TurnFooter';
@@ -134,7 +135,10 @@ function RowContent({ item, conversationId, onRespond, onAnswer, onRevert, onOpe
         // screen twice. It takes its place in the transcript
         // the moment it is answered.
         if (item.approval?.status === 'pending') return null;
-        return <ToolCall key={item.id} item={item} onOpenConversation={onOpenConversation} />;
+        return <ToolCall key={item.id} item={item} conversationId={conversationId} onOpenConversation={onOpenConversation} />;
+    }
+    if (item.kind === 'subagents') {
+        return <SubagentGroup group={item} conversationId={conversationId} onOpenConversation={onOpenConversation} />;
     }
     if (item.kind === 'approval') {
         if (item.status === 'pending') return null;
@@ -232,6 +236,50 @@ function findTurnEnds(items, busy) {
     return ends;
 }
 
+/** A subagent's call, unless it is waiting on a question, which is drawn on its own. */
+const isSubagentCall = item => item.kind === 'tool' && SUBAGENT_TOOLS.has(item.name) && item.approval?.status !== 'pending';
+
+/**
+ * The rows as drawn: every run of two or more subagent calls folded into one.
+ *
+ * Done here rather than in the reducer, so every answer, result and update
+ * still finds its call where it always did. A group is the same object for as
+ * long as its members are, which is what lets the segment it sits in tell
+ * nothing has changed.
+ */
+function useGrouped(items) {
+    const cache = useRef(new Map());
+    return useMemo(() => {
+        const before = cache.current;
+        const kept = new Map();
+        const rows = [];
+        let run = [];
+        const close = () => {
+            if (run.length === 1) rows.push(run[0]);
+            if (run.length > 1) {
+                const id = `subagents-${run[0].id}`;
+                const old = before.get(id);
+                const same = old && old.items.length === run.length && old.items.every((item, index) => item === run[index]);
+                const group = same ? old : { kind: 'subagents', id, items: run };
+                kept.set(id, group);
+                rows.push(group);
+            }
+            run = [];
+        };
+        for (const item of items) {
+            if (isSubagentCall(item)) {
+                run.push(item);
+                continue;
+            }
+            close();
+            rows.push(item);
+        }
+        close();
+        cache.current = kept;
+        return rows;
+    }, [items]);
+}
+
 /**
  * A row's key: the item's own id, made unique if two items share one. Two
  * events stamped in the same millisecond can, and React would then hand
@@ -281,7 +329,7 @@ const Segment = memo(function Segment({ items, keys, ends, from, to, rowProps })
 });
 
 function Transcript({
-    items,
+    items: allItems,
     busy,
     conversationId,
     onRespond,
@@ -294,6 +342,7 @@ function Transcript({
     onLayout,
 }) {
     const t = useT();
+    const items = useGrouped(allItems);
     const ends = useMemo(() => findTurnEnds(items, busy), [items, busy]);
 
     // Newest first: the first row drawn. The rest come in above it while

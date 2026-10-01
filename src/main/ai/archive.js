@@ -61,7 +61,10 @@ const filePath = () => path.join(app.getPath('userData'), 'assistant-history.jso
 
 let source = null;
 let flushTimer = null;
-let suspended = false;
+// Off until `index.js` has read the file into the map this writes from. A
+// process that quits before then, a second copy of the app opened and closed
+// again, has an empty map, and writing it would record that there is nothing.
+let suspended = true;
 
 /** Where the conversations to write are read from, set once by `index.js`. */
 function setSource(fn) {

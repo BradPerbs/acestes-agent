@@ -111,6 +111,8 @@ export default {
     'newTab.hintClose': '关闭标签页',
 
     /* ---- Title bar ---- */
+    'titleBar.hideSidebar': '隐藏侧边栏',
+    'titleBar.showSidebar': '显示侧边栏',
     'titleBar.reload': '重新加载',
     'titleBar.devTools': '开发者工具',
     'titleBar.minimize': '最小化',
@@ -267,6 +269,8 @@ export default {
     'settings.nav.security': '安全',
     'settings.nav.backup': '备份',
     'settings.nav.about': '关于',
+    'settings.search': '搜索设置',
+    'settings.search.empty': '此页面上没有与“{query}”匹配的设置。',
 
     /* ---- Settings: General ---- */
     'settings.general.title': '通用',
@@ -961,6 +965,7 @@ export default {
     'assistant.working.read': '阅读中|翻找文件|筛选中|扫描中|摸清情况|顺藤摸瓜',
     'assistant.working.write': '编写代码|打磨中|拼接中|敲敲打打|精雕细琢|接线中',
     'assistant.working.connect': '连线中|建立通道|握手中|穿越隧道|敲门中',
+    'assistant.working.agent': '等待子代理|分派任务中|子代理正在处理|等待汇报',
     'assistant.send': '发送',
     'assistant.attachImage': '添加图片',
     'assistant.removeImage': '移除图片',
@@ -1019,6 +1024,19 @@ export default {
     'assistant.didConnect': '已连接到',
     'assistant.didDisconnect': '已关闭会话',
     'assistant.lastLines': '最后 {count} 行',
+    'assistant.didSubagent': '子代理',
+    'assistant.subagentBackground': '后台',
+    'assistant.subagentStopped': '已停止',
+    'assistant.subagentFailed': '失败',
+    'assistant.subagentSteps_other': '{count} 步',
+    'assistant.subagents_other': '{count} 个子代理',
+    'assistant.subagentsRunning': '{count} 个运行中',
+    'assistant.subagentsDone': '{count} 个已完成',
+    'assistant.subagentsFailed': '{count} 个已停止',
+    'assistant.openSubagentHint': '在标签页中打开这个子代理的工作',
+    'assistant.subagentReadOnly': '子代理的工作，只读。请通过启动它的对话与它交流。',
+    'assistant.subagentParent': '打开“{title}”',
+    'assistant.subagentParentUntitled': '打开对话',
     'assistant.recentOutput': '最近的输出',
     'assistant.matching': '匹配 "{query}"',
 

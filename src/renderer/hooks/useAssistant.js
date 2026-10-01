@@ -53,6 +53,11 @@ export default function useAssistant({
     conversationId: given = '',
     /** Told the id whenever this hook starts or switches to a conversation. */
     onConversationChange,
+    /**
+     * The runtime, model and effort a new conversation starts pinned to, or
+     * null for the agent's default. One picked up from the history keeps its own.
+     */
+    startPin = null,
 }) {
     const [state, setState] = useState(INITIAL);
 
@@ -99,12 +104,19 @@ export default function useAssistant({
         clearTimeout(scheduled.current.timeout);
     }, []);
     const [pinned, setPinned] = useState(null);
+    const startPinRef = useRef(null);
+    startPinRef.current = startPin;
+    // A tab with no conversation yet shows the pick it will start on.
+    const [conversationId, setConversationId] = useState('');
+    const shownPin = pinned || (conversationId ? null : startPin);
     const pinnedRef = useRef(null);
-    pinnedRef.current = pinned;
+    pinnedRef.current = shownPin;
     // The run policy overriding the approval menu ('read-only', 'park',
     // 'full'), or null for the agent's own mode. Mirrors `pinned` above.
     const [runPolicy, setRunPolicy] = useState(null);
-    const [conversationId, setConversationId] = useState('');
+    // `{ parentId, parentTitle }` when this is a subagent's transcript, read
+    // only, opened from the conversation that started it. Null otherwise.
+    const [subagent, setSubagent] = useState(null);
     const [starting, setStarting] = useState(true);
     const [failure, setFailure] = useState('');
     const [conversations, setConversations] = useState([]);
@@ -169,6 +181,7 @@ export default function useAssistant({
                         replaceState(restore(past));
                         setPinned(past.pinned || null);
                         setRunPolicy(past.runPolicy || null);
+                        setSubagent(past.subagent || null);
                         setStarting(false);
                         return;
                     }
@@ -312,8 +325,13 @@ export default function useAssistant({
                 id = created.conversationId;
                 conversationRef.current = id;
                 adopt(id);
-                // A model picked before there was a conversation to pin it to.
-                if (pinnedRef.current) await window.api.ai.setModel?.(id, pinnedRef.current);
+                // A model picked, or remembered, before there was a
+                // conversation to pin it to.
+                const pin = pinnedRef.current;
+                if (pin) {
+                    setPinned(pin);
+                    await window.api.ai.setModel?.(id, pin);
+                }
             } catch (error) {
                 setFailure(error.message || 'The assistant could not be started');
                 return;
@@ -367,6 +385,14 @@ export default function useAssistant({
         if (enabled && conversationId) refreshConversations();
     }, [enabled, conversationId, refreshConversations]);
 
+    /** Pin a conversation just made to the pick new ones start on, if any. */
+    const startOn = useCallback(async (id) => {
+        const pin = startPinRef.current;
+        if (!pin) return null;
+        const result = await window.api.ai.setModel?.(id, pin);
+        return result && !result.error ? result.pinned || null : null;
+    }, []);
+
     /**
      * Start a new conversation, parking the one on screen.
      *
@@ -381,9 +407,10 @@ export default function useAssistant({
         const created = await window.api.ai.start(targetRef.current);
         adopt(created.conversationId);
         replaceState(INITIAL);
-        setPinned(null);
+        setPinned(await startOn(created.conversationId));
         setRunPolicy(null);
-    }, [conversationId, adopt]);
+        setSubagent(null);
+    }, [conversationId, adopt, startOn]);
 
     /** Go back to an earlier conversation, replaying it through the reducer. */
     const open = useCallback(async (id) => {
@@ -399,6 +426,7 @@ export default function useAssistant({
         replaceState(restore(past));
         setPinned(past.pinned || null);
         setRunPolicy(past.runPolicy || null);
+        setSubagent(past.subagent || null);
     }, [conversationId, refreshConversations, adopt]);
 
     /**
@@ -409,7 +437,7 @@ export default function useAssistant({
     const pinModel = useCallback(async (patch) => {
         if (!conversationId) {
             const picked = Object.fromEntries(Object.entries(patch || {}).filter(([, value]) => value));
-            setPinned(previous => ({ ...(previous || {}), ...picked }));
+            setPinned(previous => ({ ...(previous || startPinRef.current || {}), ...picked }));
             return;
         }
         const result = await window.api.ai.setModel?.(conversationId, patch);
@@ -428,11 +456,12 @@ export default function useAssistant({
             const created = await window.api.ai.start(targetRef.current);
             adopt(created.conversationId);
             replaceState(INITIAL);
-            setPinned(null);
+            setPinned(await startOn(created.conversationId));
             setRunPolicy(null);
+            setSubagent(null);
         }
         await refreshConversations();
-    }, [conversationId, refreshConversations, adopt]);
+    }, [conversationId, refreshConversations, adopt, startOn]);
 
     /**
      * Put back the files a turn changed. The card follows the event main
@@ -466,11 +495,12 @@ export default function useAssistant({
         conversations,
         // The runtime, model and effort this conversation is pinned to, or
         // null for the agent's own settings.
-        pinned,
+        pinned: shownPin,
         pinModel,
         // The run policy overriding the approval menu, or null. The
         // composer shows this while it is set (see ApprovalMenu).
         runPolicy,
+        subagent,
         starting,
         failure,
         send,

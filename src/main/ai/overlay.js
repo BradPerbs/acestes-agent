@@ -202,6 +202,8 @@ function event(conversationId, stamped, title = '') {
             row.tool = null;
             break;
         case 'assistant-text': {
+            // What the agent said, not what one of its subagents told it.
+            if (stamped.parentId) break;
             const text = String(stamped.text || '').trim();
             if (text) row.said = text.split(/\n\s*\n/)[0].replace(/\s+/g, ' ').slice(0, SAID);
             break;

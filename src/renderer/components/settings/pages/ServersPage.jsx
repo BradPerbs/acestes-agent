@@ -51,6 +51,7 @@ const readTab = () => {
 export default function ServersPage(props) {
     const t = useT();
     const [tab, setTab] = useState(readTab);
+    const [query, setQuery] = useState('');
 
     const changeTab = useCallback((next) => {
         setTab(next);
@@ -59,30 +60,57 @@ export default function ServersPage(props) {
 
     const description = LABELS[tab].desc ? t(LABELS[tab].desc) : '';
 
-    return (
-        <SettingsPage title={t('settings.servers.title')} description={t('settings.servers.desc')}>
-            <div className="px-1 flex flex-col gap-3">
-                <SegmentedControl
-                    ariaLabel={t('settings.servers.title')}
-                    segments={TABS.map(value => ({ value, label: t(LABELS[value].title) }))}
-                    value={tab}
-                    onChange={changeTab}
-                />
-                {description && (
-                    <p className="text-sm text-gray-500 dark:text-gray-400">{description}</p>
-                )}
-            </div>
+    const section = (id) => {
+        if (id === 'terminal') return <TerminalSection {...props} />;
+        if (id === 'monitoring') return <MonitoringSection />;
+        if (id === 'logging') return <SessionLogSection />;
+        if (id === 'knownHosts') return <KnownHostsSection />;
+        return (
+            <>
+                <ImportSection onImported={props.onDataImported} />
+                <AppImportSection onImported={props.onDataImported} />
+            </>
+        );
+    };
 
-            {tab === 'terminal' && <TerminalSection {...props} />}
-            {tab === 'monitoring' && <MonitoringSection />}
-            {tab === 'logging' && <SessionLogSection />}
-            {tab === 'knownHosts' && <KnownHostsSection />}
-            {tab === 'import' && (
-                <>
-                    <ImportSection onImported={props.onDataImported} />
-                    <AppImportSection onImported={props.onDataImported} />
-                </>
+    // A search covers every tab, not only the one that happened to be open:
+    // the tabs are this page's way of staying short, and someone searching
+    // does not know (or care) which of them the setting sits under. Each tab's
+    // cards come under its name, and a tab with nothing matching drops out
+    // whole; see lib/settings-search for how a group is judged.
+    const searching = query.trim() !== '';
+
+    return (
+        <SettingsPage
+            title={t('settings.servers.title')}
+            description={t('settings.servers.desc')}
+            query={query}
+            onQueryChange={setQuery}
+        >
+            {!searching && (
+                <div className="px-1 flex flex-col gap-3">
+                    <SegmentedControl
+                        ariaLabel={t('settings.servers.title')}
+                        segments={TABS.map(value => ({ value, label: t(LABELS[value].title) }))}
+                        value={tab}
+                        onChange={changeTab}
+                    />
+                    {description && (
+                        <p className="text-sm text-gray-500 dark:text-gray-400">{description}</p>
+                    )}
+                </div>
             )}
+
+            {searching
+                ? TABS.map(id => (
+                    <section key={id} data-setting-group="" className="flex flex-col gap-3">
+                        <h3 className="px-1 text-sm font-semibold text-gray-500 dark:text-gray-400">
+                            {t(LABELS[id].title)}
+                        </h3>
+                        <div className="flex flex-col gap-6">{section(id)}</div>
+                    </section>
+                ))
+                : section(tab)}
         </SettingsPage>
     );
 }

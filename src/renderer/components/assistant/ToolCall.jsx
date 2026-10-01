@@ -71,7 +71,47 @@ const TITLES = {
     screenshot: 'assistant.didScreenshot',
     zoom: 'assistant.didZoom',
     solve_captcha: 'assistant.didSolveCaptcha',
+    // Claude Code's subagents, under the name each version gives the tool.
+    Agent: 'assistant.didSubagent',
+    Task: 'assistant.didSubagent',
 };
+
+/** Claude Code's subagent tool, under either of its names. */
+export const SUBAGENT_TOOLS = new Set(['Agent', 'Task']);
+
+/** The id a subagent's own transcript opens under: see the main process. */
+export const subagentConversationId = (conversationId, callId) => `${conversationId}/${callId}`;
+
+/**
+ * What a subagent's row says about it: what it is doing while it runs, how
+ * many calls it made once it is done, and that it was stopped if it was.
+ */
+export function taskStatus(task, t, { background = true } = {}) {
+    if (!task) return '';
+    const parts = [];
+    if (background && task.background) parts.push(t('assistant.subagentBackground'));
+    if (task.status === 'running' && task.activity) parts.push(task.activity);
+    else if (task.status === 'stopped' || task.status === 'killed') parts.push(t('assistant.subagentStopped'));
+    else if (task.status === 'failed') parts.push(t('assistant.subagentFailed'));
+    if (task.toolUses > 0) parts.push(t('assistant.subagentSteps', { count: task.toolUses }));
+    return parts.join(' · ');
+}
+
+/** A subagent's state, as the row's dot. */
+const TASK_DOTS = {
+    running: 'running',
+    completed: 'done',
+    failed: 'error',
+};
+
+/**
+ * Where a call stands, as its dot. A subagent's own state wins over its
+ * call's: a background one's call is answered the moment it is sent, long
+ * before the work is done.
+ */
+export function callStatus(item) {
+    return (item.task && !item.isError && TASK_DOTS[item.task.status]) || item.status;
+}
 
 /** Where a computer action was aimed: an element from the last read, or a point. */
 function aimedAt(element, x, y) {
@@ -97,7 +137,7 @@ function startedConversations(item) {
 }
 
 /** The dot carries the status, so the row height never changes with it. */
-const DOTS = {
+export const DOTS = {
     running: 'bg-blue-500 animate-pulse',
     waiting: 'bg-amber-500',
     error: 'bg-red-500',
@@ -145,6 +185,9 @@ export function describeCall(name, input = {}) {
             return { mono: true, text: input.conversationId || '' };
         case 'ask_user':
             return { mono: false, text: input.question || '' };
+        case 'Agent':
+        case 'Task':
+            return { mono: false, text: input.description || input.prompt || '' };
         case 'delegate':
             return { mono: false, text: [input.agent, input.title || input.brief].filter(Boolean).join(': ') };
         case 'fan_out':
@@ -251,7 +294,7 @@ export function describeCall(name, input = {}) {
     }
 }
 
-export default function ToolCall({ item, onOpenConversation }) {
+export default function ToolCall({ item, conversationId = '', onOpenConversation }) {
     const t = useT();
     // An edit opens on its own: the change is the point of the row, and
     // having to click to see what was done to a file is one click too many.
@@ -262,8 +305,17 @@ export default function ToolCall({ item, onOpenConversation }) {
     const title = known
         ? t(known)
         : (item.local ? item.name : item.name.replace(/_/g, ' '));
-    const expandable = Boolean(item.result) || Boolean(item.diff);
-    const started = useMemo(() => (onOpenConversation ? startedConversations(item) : []), [item, onOpenConversation]);
+    // A subagent's work opens as a transcript of its own, which is where its
+    // report is too. The call's result is the runtime's note to the model
+    // ("launched", "here is the hand-back"), and not worth a fold here.
+    const subagent = SUBAGENT_TOOLS.has(item.name) && Boolean(conversationId);
+    const expandable = !subagent && (Boolean(item.result) || Boolean(item.diff));
+    const started = useMemo(() => {
+        if (!onOpenConversation) return [];
+        return subagent ? [subagentConversationId(conversationId, item.id)] : startedConversations(item);
+    }, [item, subagent, conversationId, onOpenConversation]);
+    const status = callStatus(item);
+    const meta = taskStatus(item.task, t);
 
     return (
         <div className="rounded-lg bg-gray-50 dark:bg-white/[0.035] overflow-hidden">
@@ -284,7 +336,7 @@ export default function ToolCall({ item, onOpenConversation }) {
                         aria-hidden="true"
                         className={`w-1.5 h-1.5 rounded-full shrink-0 ${refused
                             ? 'bg-gray-400 dark:bg-gray-600'
-                            : DOTS[item.status] || DOTS.done}`}
+                            : DOTS[status] || DOTS.done}`}
                     />
 
                     <span className="text-[11px] font-medium text-gray-600 dark:text-gray-400 shrink-0">
@@ -299,6 +351,16 @@ export default function ToolCall({ item, onOpenConversation }) {
                             title={summary.text}
                         >
                             {summary.text}
+                        </span>
+                    )}
+
+                    {meta && (
+                        <span
+                            className={`shrink-0 max-w-[45%] truncate text-[11px] text-gray-400 dark:text-gray-600
+                                ${summary.text ? '' : 'flex-1'}`}
+                            title={meta}
+                        >
+                            {meta}
                         </span>
                     )}
 
@@ -318,7 +380,7 @@ export default function ToolCall({ item, onOpenConversation }) {
                     <button
                         type="button"
                         onClick={() => started.forEach(id => onOpenConversation(id))}
-                        title={t('assistant.openConversationHint')}
+                        title={t(subagent ? 'assistant.openSubagentHint' : 'assistant.openConversationHint')}
                         className="shrink-0 h-8 px-2.5 flex items-center gap-1 select-none
                             text-[11px] font-medium transition-colors
                             text-gray-500 dark:text-gray-400

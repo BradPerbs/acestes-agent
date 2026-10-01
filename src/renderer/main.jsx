@@ -8,6 +8,7 @@ import ScreenshotView from './components/ScreenshotView';
 import AssistantWindow from './components/assistant/AssistantWindow';
 import ActivityOverlay from './components/assistant/ActivityOverlay';
 import { applyAppColors } from './lib/app-colors';
+import { dismissBootSplash } from './lib/boot-splash';
 import { playChime } from './lib/chime';
 import { DEFAULT_TOAST_MS, MAX_TOAST_MS, TOAST_EXIT_MS } from './lib/toast';
 
@@ -89,6 +90,13 @@ function Root() {
     useEffect(() => window.api.appLock.onLocked?.(() => setLocked(true)), []);
 
     const unlock = useCallback(() => setLocked(false), []);
+
+    // The boot splash goes once there is something under it: the app, or the
+    // lock screen. A child's effects run before this one, so either has
+    // rendered by now.
+    useEffect(() => {
+        if (locked !== null) dismissBootSplash();
+    }, [locked]);
 
     // Nothing until the answer is in, so the lock screen never flashes for
     // someone who has not set a password.

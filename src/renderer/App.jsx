@@ -68,6 +68,13 @@ const SESSION_TABS_KEY = 'session.tabs';
 // a new session into it later is ordinary, so the group survives on its own.
 const TAB_GROUPS_KEY = 'session.tabGroups';
 
+// Whether the sidebar has been put away beside pages. Kept across launches,
+// since hiding it is a way of working rather than a moment's tidying.
+const SIDEBAR_HIDDEN_KEY = 'sidebar.hidden';
+
+// A terminal takes the width, so the sidebar shuts beside one by itself.
+const takesTheWidth = (tab) => tab?.type === 'terminal' || tab?.type === 'launcher';
+
 const readSavedSession = () => {
     if (localStorage.getItem('restoreSessions') === 'false') return null;
     try {
@@ -203,6 +210,25 @@ function App() {
     const [broadcast, setBroadcast] = useState('off');
 
     /**
+     * The sidebar, open or put away.
+     *
+     * Beside a page it is open unless it has been hidden, and that choice is
+     * kept. Beside a terminal it is shut unless it has been asked open for
+     * that tab, which lasts only while the tab is in front: the terminal still
+     * wants the width back the next time it comes forward.
+     */
+    const [sidebarHidden, setSidebarHidden] = useState(() => localStorage.getItem(SIDEBAR_HIDDEN_KEY) === 'true');
+    const [sidebarPeekTabId, setSidebarPeekTabId] = useState(null);
+
+    useEffect(() => {
+        localStorage.setItem(SIDEBAR_HIDDEN_KEY, String(sidebarHidden));
+    }, [sidebarHidden]);
+
+    useEffect(() => {
+        setSidebarPeekTabId(null);
+    }, [activeTabId]);
+
+    /**
      * Whether the agent is here at all.
      *
      * Switched off, there are no conversation tabs and no Conversations page:
@@ -253,6 +279,12 @@ function App() {
     // it would mean re-registering xterm's data handler in every open pane.
     const broadcastRef = useRef(broadcast);
     broadcastRef.current = broadcast;
+
+    const toggleSidebar = useCallback(() => {
+        const tab = tabsRef.current.find(entry => entry.id === activeTabIdRef.current);
+        if (takesTheWidth(tab)) setSidebarPeekTabId(current => (current === tab.id ? null : tab.id));
+        else setSidebarHidden(current => !current);
+    }, []);
 
     // Data management
     const {
@@ -1835,12 +1867,20 @@ function App() {
                 claim();
                 if (assistantShown) handleNewConversation();
                 else handleNewTab();
+                return;
+            }
+
+            // Ctrl+B is tmux's prefix, so a terminal in front keeps it; the
+            // button in the title bar does the same thing there.
+            if (!event.shiftKey && event.code === 'KeyB' && active?.type !== 'terminal') {
+                claim();
+                toggleSidebar();
             }
         };
 
         document.addEventListener('keydown', handler, true);
         return () => document.removeEventListener('keydown', handler, true);
-    }, [assistantShown, handleNewTab, handleNewConversation]);
+    }, [assistantShown, handleNewTab, handleNewConversation, toggleSidebar]);
 
     /**
      * The agent switched off in Settings takes its tabs with it, and the
@@ -1980,6 +2020,8 @@ function App() {
 
     const activeTab = tabs.find(tab => tab.id === activeTabId);
 
+    const sidebarCollapsed = takesTheWidth(activeTab) ? sidebarPeekTabId !== activeTabId : sidebarHidden;
+
     /* Split-view inputs, memoized so the split subtree keeps its memo hits:
      * fresh collections here would re-render every pane on each App render,
      * which is exactly the tab-switch jank a split must not add. */
@@ -2095,6 +2137,8 @@ function App() {
                     onNewTab={assistantShown ? handleNewConversation : handleNewTab}
                     newTabLabel={assistantShown ? t('titleBar.newConversation') : t('newTab.title')}
                     onNewSession={handleNewTab}
+                    sidebarOpen={!sidebarCollapsed}
+                    onToggleSidebar={toggleSidebar}
                 />
             )}
 
@@ -2122,7 +2166,7 @@ function App() {
                     // A terminal takes the width. A conversation leaves the
                     // column where it is: the chat has no use for the room,
                     // and the pages the column leads to are then a click away.
-                    collapsed={activeTab?.type === 'terminal' || activeTab?.type === 'launcher'}
+                    collapsed={sidebarCollapsed}
                 />
 
                 <main className="flex-1 relative overflow-hidden flex flex-col" id="main-content">

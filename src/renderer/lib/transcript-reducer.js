@@ -20,6 +20,25 @@ function lastIndexWhere(items, test) {
     return -1;
 }
 
+/** The row of the call that started a subagent, by the call or by the task. */
+function taskRow(items, event) {
+    return lastIndexWhere(items, item => item.kind === 'tool'
+        && ((event.toolUseId && item.id === event.toolUseId) || (item.task && item.task.id === event.taskId)));
+}
+
+/**
+ * Every subagent still marked running, marked stopped: the turn it belonged
+ * to is over, so nothing is going to say it finished. Leaves the list as it
+ * was when there is none, which is nearly always.
+ */
+function settleTasks(items, edit) {
+    if (!items.some(item => item.task?.status === 'running')) return;
+    const list = edit();
+    list.forEach((item, index) => {
+        if (item.task?.status === 'running') list[index] = { ...item, task: { ...item.task, status: 'stopped' } };
+    });
+}
+
 /**
  * Fold one event into the transcript.
  *
@@ -100,6 +119,7 @@ function step(state, event, owned) {
             break;
 
         case 'assistant-text':
+            if (event.parentId) break;
             // The finished block replaces whatever streamed into the draft.
             // Deltas are a preview; this is the authoritative text.
             edit().push({
@@ -112,6 +132,9 @@ function step(state, event, owned) {
             break;
 
         case 'tool-call':
+            // A subagent's own work is its transcript, which opens from the
+            // row of the call that started it; the parent shows that row.
+            if (event.parentId) break;
             edit().push({
                 kind: 'tool',
                 id: event.id,
@@ -138,6 +161,7 @@ function step(state, event, owned) {
             break;
 
         case 'tool-result': {
+            if (event.parentId) break;
             const index = lastIndexWhere(items, item => item.kind === 'tool' && item.id === event.id);
             if (index >= 0) {
                 edit()[index] = {
@@ -149,6 +173,50 @@ function step(state, event, owned) {
             }
             break;
         }
+
+        // A subagent, on the row of the call that started it. A background
+        // one's call returns at once, so the row says it is done while the
+        // subagent is still at work; the task is what says otherwise.
+        case 'task-started': {
+            const index = taskRow(items, event);
+            if (index >= 0) {
+                edit()[index] = {
+                    ...items[index],
+                    task: {
+                        id: event.taskId,
+                        status: 'running',
+                        background: Boolean(event.background),
+                        description: event.description || '',
+                        agent: event.agent || '',
+                        activity: '',
+                        toolUses: 0,
+                    },
+                };
+            }
+            break;
+        }
+
+        case 'task-progress':
+        case 'task-ended': {
+            const index = taskRow(items, event);
+            const task = index >= 0 ? items[index].task : null;
+            if (task) {
+                edit()[index] = {
+                    ...items[index],
+                    task: event.type === 'task-ended'
+                        ? { ...task, status: event.status || 'completed', toolUses: event.toolUses || task.toolUses }
+                        : { ...task, activity: event.description || task.activity, toolUses: event.toolUses || task.toolUses },
+                };
+            }
+            break;
+        }
+
+        // The runtime picked the conversation up again by itself, to pass on
+        // what a subagent brought back after the turn that sent it was over.
+        case 'turn-resumed':
+            busy = true;
+            draft = emptyDraft();
+            break;
 
         case 'approval-request': {
             const approval = {
@@ -296,6 +364,7 @@ function step(state, event, owned) {
 
         case 'error':
             busy = false;
+            settleTasks(items, edit);
             edit().push({ kind: 'notice', id: `e-${event.at}`, tone: 'error', text: event.message });
             draft = emptyDraft();
             break;
@@ -306,6 +375,7 @@ function step(state, event, owned) {
         // process running it went away.
         case 'notice':
             busy = false;
+            settleTasks(items, edit);
             edit().push({
                 kind: 'notice',
                 id: `nx-${event.at}-${items.length}`,
@@ -332,12 +402,14 @@ function step(state, event, owned) {
 
         case 'interrupted':
             busy = false;
+            settleTasks(items, edit);
             edit().push({ kind: 'notice', id: `i-${event.at}`, tone: 'info', text: 'Stopped.' });
             draft = emptyDraft();
             break;
 
         case 'closed':
             busy = false;
+            settleTasks(items, edit);
             break;
 
         default:

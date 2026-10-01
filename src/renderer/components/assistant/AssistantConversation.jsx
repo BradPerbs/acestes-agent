@@ -5,6 +5,7 @@ import {
     ArrowUp01Icon,
     StopCircleIcon,
     ImageAdd01Icon,
+    ArrowUpRight01Icon,
 } from 'hugeicons-react';
 import Tooltip from '../ui/Tooltip';
 import AgentMark from './AgentMark';
@@ -25,6 +26,7 @@ import { groupApprovals } from '../../lib/approvals';
 import { IMAGE_TYPES, imageFiles, readImage } from '../../lib/images';
 import { describe, toWire } from '../../lib/assistant-scope';
 import { pickLine } from '../../lib/aeneid';
+import { lastModel, rememberModel } from '../../lib/last-model';
 
 /** The rule inside a card, which is lighter than the one between two cards. */
 export const HAIRLINE = 'border-black/[0.06] dark:border-white/[0.06]';
@@ -299,7 +301,11 @@ export default function AssistantConversation({
     // moves around the app, which is the whole point of pinning it.
     const target = useMemo(() => toWire(scope, activeSessionId), [scope, activeSessionId]);
 
-    const assistant = useAssistant({ ...target, agentId, conversationId, onConversationChange });
+    // A new conversation starts on the model the chip was last left on.
+    const modelAgent = agentId || settings?.agentId || '';
+    const startPin = useMemo(() => lastModel(modelAgent, settings), [modelAgent, settings]);
+
+    const assistant = useAssistant({ ...target, agentId, conversationId, onConversationChange, startPin });
 
     /**
      * What the tab strip says about this tab: what it is about, and whether it
@@ -383,17 +389,22 @@ export default function AssistantConversation({
         setSettings(next);
     }, []);
 
-    // The model belongs to the conversation. A new one follows the agent's
-    // default until the chip is touched; from then on it is pinned to what
-    // was picked, and coming back to it finds that model still there. A task
-    // or a job that starts one on a named model pins it the same way. The
-    // chip shows what is answering here, and never moves the agent's settings.
+    // The model belongs to the conversation. A new one starts on the model
+    // the chip was last left on, or the agent's default before it ever was;
+    // from then on it is pinned to what was picked, and coming back to it
+    // finds that model still there. A task or a job that starts one on a
+    // named model pins it the same way. The chip shows what is answering
+    // here, and never moves the agent's settings.
     const pinned = assistant.pinned;
     const shownSettings = useMemo(
         () => (settings && pinned ? { ...settings, ...pinned } : settings),
         [settings, pinned],
     );
-    const changeModel = assistant.pinModel;
+    const pinModel = assistant.pinModel;
+    const changeModel = useCallback((patch) => {
+        rememberModel(modelAgent, settings, { ...shownSettings, ...patch });
+        return pinModel(patch);
+    }, [modelAgent, settings, shownSettings, pinModel]);
 
     // `preventScroll` because the card is mounted at its full width inside a
     // column that is still only a rail wide, and clipped to it. Focusing the
@@ -737,7 +748,7 @@ export default function AssistantConversation({
                     onRespond={assistant.respond}
                     onAnswer={assistant.answer}
                     onRevert={assistant.revertTurn}
-                    onBranch={onOpenConversation ? branchFrom : null}
+                    onBranch={onOpenConversation && !assistant.subagent ? branchFrom : null}
                     onOpenConversation={onOpenConversation}
                     onLayout={keepAtBottom}
                 />
@@ -810,7 +821,40 @@ export default function AssistantConversation({
                 Focus lifts the border's colour and nothing else, as every
                 other input in the app does. A ring would add two pixels
                 outside the box and nudge the whole composer as you click
-                into it. */}
+                into it.
+
+                A subagent's transcript has none: it is the parent's
+                conversation that talks to it. The bar says so in the
+                composer's place and goes back to the parent. */}
+            {assistant.subagent ? (
+                <div className="shrink-0 p-3">
+                    <div className="min-h-[3rem] rounded-2xl px-4 py-2 flex items-center gap-3
+                        bg-gray-50 dark:bg-white/[0.035]">
+                        <span className="min-w-0 flex-1 text-[12px] leading-relaxed text-gray-500 dark:text-gray-400">
+                            {t('assistant.subagentReadOnly')}
+                        </span>
+                        {onOpenConversation && (
+                            <button
+                                type="button"
+                                onClick={() => onOpenConversation(assistant.subagent.parentId)}
+                                title={assistant.subagent.parentTitle || undefined}
+                                className="shrink-0 max-w-[50%] h-7 px-2.5 flex items-center gap-1 rounded-lg select-none
+                                    text-[11px] font-medium transition-colors
+                                    text-gray-600 dark:text-gray-300
+                                    hover:bg-gray-100 dark:hover:bg-white/[0.06]
+                                    hover:text-gray-900 dark:hover:text-gray-100"
+                            >
+                                <span className="truncate">
+                                    {assistant.subagent.parentTitle
+                                        ? t('assistant.subagentParent', { title: assistant.subagent.parentTitle })
+                                        : t('assistant.subagentParentUntitled')}
+                                </span>
+                                <ArrowUpRight01Icon size={12} strokeWidth={2} className="shrink-0" />
+                            </button>
+                        )}
+                    </div>
+                </div>
+            ) : (
             <div className="shrink-0 p-3">
                 <div
                     className="relative rounded-2xl transition-colors
@@ -1046,6 +1090,7 @@ export default function AssistantConversation({
                     </div>
                 </div>
             </div>
+            )}
         </>
     );
 }

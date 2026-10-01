@@ -13,6 +13,7 @@ import {
     Megaphone02Icon,
     PencilEdit02Icon,
     Refresh01Icon,
+    SidebarLeftIcon,
     Tag01Icon,
     Unlink01Icon,
 } from 'hugeicons-react';
@@ -71,7 +72,37 @@ function useRippleEffect() {
     }, []);
 }
 
-function AppMenu({ onNewSession, newTabLabel }) {
+/**
+ * The sidebar's switch, beside the burger, so the column can be put away and
+ * fetched back from the same corner it hangs under.
+ */
+function SidebarToggle({ open, onToggle }) {
+    const t = useT();
+    const label = open ? t('titleBar.hideSidebar') : t('titleBar.showSidebar');
+
+    return (
+        // Pulled in against the burger, so the two read as a pair rather than
+        // as the first of the tabs.
+        <div className="shrink-0 -ml-2 app-no-drag">
+            <Tooltip label={label} hint="Ctrl+B">
+                <button
+                    type="button"
+                    aria-label={label}
+                    aria-pressed={open}
+                    aria-controls="sidebar"
+                    onClick={onToggle}
+                    className="w-8 h-8 flex items-center justify-center rounded-xl transition-colors
+                        text-gray-500 dark:text-gray-400
+                        hover:bg-gray-200 dark:hover:bg-neutral-800 hover:text-gray-900 dark:hover:text-white"
+                >
+                    <SidebarLeftIcon size={16} strokeWidth={1.75} />
+                </button>
+            </Tooltip>
+        </div>
+    );
+}
+
+function AppMenu({ onNewSession, newTabLabel, sidebarOpen, onToggleSidebar }) {
     const t = useT();
     const [open, setOpen] = useState(false);
     const menuRef = useRef(null);
@@ -105,6 +136,12 @@ function AppMenu({ onNewSession, newTabLabel }) {
         // nothing the moment the app is set to anything but English.
         { label: newTabLabel || t('newTab.title'), shortcut: 'Ctrl+N', action: () => { close(); document.querySelector('.tab-add')?.click(); } },
         { label: t('titleBar.newSession'), shortcut: 'Ctrl+Shift+N', action: () => { close(); onNewSession?.(); } },
+        { type: 'separator' },
+        {
+            label: sidebarOpen ? t('titleBar.hideSidebar') : t('titleBar.showSidebar'),
+            shortcut: 'Ctrl+B',
+            action: () => { close(); onToggleSidebar?.(); },
+        },
         { type: 'separator' },
         { label: t('titleBar.reload'), shortcut: 'Ctrl+R', action: () => { close(); window.api.window.reload(); } },
         { label: t('titleBar.devTools'), shortcut: 'Ctrl+Shift+I', action: () => { close(); window.api.window.toggleDevTools(); } },
@@ -606,6 +643,9 @@ function TitleBar({
     newTabLabel,
     /** The launcher, from the menu, whichever the plus does. */
     onNewSession,
+    /** Whether the sidebar is on screen, and the way to change that. */
+    sidebarOpen = true,
+    onToggleSidebar,
 }) {
     useRippleEffect();
 
@@ -987,7 +1027,14 @@ function TitleBar({
                 }}
             >
                 {/* Burger Menu */}
-                <AppMenu onNewSession={onNewSession} newTabLabel={newTabLabel} />
+                <AppMenu
+                    onNewSession={onNewSession}
+                    newTabLabel={newTabLabel}
+                    sidebarOpen={sidebarOpen}
+                    onToggleSidebar={onToggleSidebar}
+                />
+
+                {onToggleSidebar && <SidebarToggle open={sidebarOpen} onToggle={onToggleSidebar} />}
 
                 {/* Home Tab - Fixed width */}
                 {homeTab && (

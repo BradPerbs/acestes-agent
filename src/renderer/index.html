@@ -10,12 +10,25 @@
   <meta http-equiv="Content-Security-Policy"
     content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:; connect-src 'self' ws://localhost:5173">
   <title>Acestes Agent</title>
+  <script src="./boot.js"></script>
   <link rel="stylesheet" href="./xterm.css">
   <link rel="stylesheet" href="./input.css">
 </head>
 
 <body class="h-full">
   <div id="root" class="h-full"></div>
+  <!-- What the window shows while the bundle loads. Plain markup, so it paints
+       with the stylesheet, before any script has run; boot.js says whether
+       this window shows it, and lib/boot-splash.js sends it off once the app
+       has drawn. -->
+  <div id="boot-splash" class="boot-splash" aria-hidden="true">
+    <div class="boot-splash-mark">
+      <div class="boot-splash-float">
+        <div class="boot-splash-helmet"><span class="boot-splash-glint"></span></div>
+      </div>
+    </div>
+    <div class="boot-splash-track"><span class="boot-splash-sweep"></span></div>
+  </div>
   <script type="module" src="./main.jsx"></script>
 </body>
 

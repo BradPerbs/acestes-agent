@@ -41,6 +41,8 @@ const ACTIVITY = {
     remember: 'write',
     connect_host: 'connect',
     disconnect_session: 'connect',
+    Agent: 'agent',
+    Task: 'agent',
 };
 
 /** A runtime's own tools (Bash, Edit, Grep…), guessed from the name. */
@@ -59,6 +61,9 @@ function runningTool(items) {
         const item = items[index];
         if (item.kind === 'user') return null;
         if (item.kind === 'tool' && item.status === 'running') return item;
+        // A subagent sent off in the background: its call came back at
+        // once, and the turn is open because of what it is still doing.
+        if (item.kind === 'tool' && item.task?.status === 'running') return item;
     }
     return null;
 }

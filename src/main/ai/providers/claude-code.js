@@ -282,8 +282,20 @@ const LOCAL_TOOLS = [
     'Bash', 'BashOutput', 'KillShell',
     'Read', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit',
     'Glob', 'Grep',
-    'Task', 'TodoWrite', 'SlashCommand', 'ExitPlanMode',
+    'TodoWrite', 'SlashCommand', 'ExitPlanMode',
 ];
+
+/**
+ * Claude Code's tools for handing work to a subagent and checking on one.
+ * `Task` is the older name for `Agent`, still listed alongside it.
+ *
+ * Not local tools, though they ship with the CLI: starting a subagent touches
+ * nothing, and every call the subagent makes comes back through `canUseTool`
+ * exactly as the parent's would, under the same switch and the same approval
+ * mode. With local tools off a subagent can reach the servers and nothing
+ * else, which is the same deal the conversation itself has.
+ */
+const AGENT_TOOLS = ['Agent', 'Task', 'TaskOutput', 'TaskStop'];
 
 /**
  * The approval mode, applied to the CLI's own tools and to the agent's MCP
@@ -302,7 +314,7 @@ const nativeAutoApproved = catalog.nativeAutoApproved;
 const WEB_TOOLS = ['WebFetch', 'WebSearch'];
 
 /** Claude Code's own tools that may be used with the local-tools switch off. */
-const OPEN_TOOLS = new Set(WEB_TOOLS);
+const OPEN_TOOLS = new Set([...WEB_TOOLS, ...AGENT_TOOLS]);
 
 let sdkPromise = null;
 
@@ -615,6 +627,9 @@ async function start({
     // already on this machine.
     const key = settings.apiKey;
     if (key) env.ANTHROPIC_API_KEY = key;
+    // The CLI's own word for when a turn is over, background subagents and
+    // all. Off unless asked for; see `createTurnTracker`.
+    env.CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS = '1';
 
     /** Tool arguments with every stored secret reference resolved, and the names of any that are not stored. */
     const fillSecrets = (toolInput) => {
@@ -702,6 +717,8 @@ async function start({
                 : { behavior: 'deny', message: verdict.message || 'The user declined that.' };
         },
         includePartialMessages: true,
+        // A subagent's words as well as its calls, for its own transcript.
+        forwardSubagentText: true,
         maxTurns: settings.maxTurns,
         abortController,
         env,
@@ -720,6 +737,9 @@ async function start({
     if (resumeSessionId) options.resume = resumeSessionId;
 
     const stream = sdk.query({ prompt: input, options });
+    const turns = createTurnTracker(onEvent, {
+        onUnwanted: () => stream.interrupt().catch(() => {}),
+    });
 
     // The two things only the running CLI can answer, asked once each.
     let askedForInit = false;
@@ -729,7 +749,7 @@ async function start({
     const pump = (async () => {
         try {
             for await (const message of stream) {
-                translate(message, onEvent);
+                turns.handle(message);
 
                 // Asked once the session is up rather than at start, because
                 // it is a control request and there is nothing to answer it
@@ -772,6 +792,7 @@ async function start({
 
     return {
         send(text, images = []) {
+            turns.began();
             input.push(text, images);
         },
         /**
@@ -798,6 +819,14 @@ async function start({
             }
         },
         async interrupt() {
+            // Stop means the subagents too. An interrupt alone leaves a
+            // background one running, and when it finished the CLI would
+            // start a turn of its own to report back on work the user had
+            // just called off.
+            if (typeof stream.stopTask === 'function') {
+                await Promise.all(turns.agents().map(taskId => stream.stopTask(taskId).catch(() => {})));
+            }
+            turns.stopped();
             try {
                 await stream.interrupt();
             } catch {
@@ -817,16 +846,250 @@ async function start({
     };
 }
 
-/** One SDK message, as one or more transcript events. */
+/**
+ * A task the CLI runs beside the conversation that reports back into it: a
+ * subagent, as opposed to a shell left running in the background, which
+ * reports to nobody and can run for as long as the machine is up.
+ */
+function isAgentTask(task) {
+    const type = String(task?.task_type || '');
+    return /agent|workflow|teammate/.test(type) || (!type && Boolean(task?.subagent_type));
+}
+
+/** The first message of a turn the CLI is starting. */
+function startsTurn(message) {
+    return (message.type === 'system' && message.subtype === 'init')
+        || message.type === 'stream_event'
+        || message.type === 'assistant';
+}
+
+/**
+ * Where a turn ends, now that one can outlive its first result.
+ *
+ * Claude Code can send a subagent off in the background. The model says it
+ * is waiting, its turn ends with a result like any other, and when the
+ * subagent reports back the CLI starts the next turn itself, with no message
+ * from anyone, to pass on what it found. Taken at face value that first result
+ * ends the conversation's turn: the panel stops working, the agent's answer
+ * arrives minutes later into a chat that looks finished, and a job or a
+ * delegation waiting on the turn takes "I'll let you know" as the reply.
+ *
+ * So a result is held, and the turn stays open until the CLI says it is idle,
+ * which it does only once its own wait for background agents is over. Not
+ * only while a subagent is out: ten that all finish before the parent's reply
+ * do still have to be reported, and the CLI starts that turn a moment after
+ * the result. A turn starting while a result is held is that report, and the
+ * held result is dropped for the one that will follow it. With nothing out
+ * and no word from the CLI after `settle` ms, the result stands.
+ *
+ * A CLI too old to say when it is idle is never held for, since nothing would
+ * release the turn; the turn it then starts by itself is announced instead,
+ * so the panel at least goes back to working.
+ *
+ * Stopping is the exception. A stopped subagent reports too, and the CLI
+ * starts a turn to say so, which would have the agent talking again a moment
+ * after the user told it to stop. Until the next message such a turn is not
+ * shown, and `onUnwanted` is called to cut it short; what it would have said
+ * is in the session's history for the next turn to read.
+ */
+function createTurnTracker(onEvent, { onUnwanted = () => {}, settle = 3000 } = {}) {
+    // Whether a turn is running that the app knows about.
+    let open = false;
+    // Whether a turn has ever ended. Nothing before the first one is a
+    // turn the CLI started by itself.
+    let ended = false;
+    // Stopped, and not spoken to since.
+    let quiet = false;
+    // Inside a turn the CLI started while quiet.
+    let muted = false;
+    let reportsIdle = false;
+    let held = null;
+    // Subagents running in the background: task id -> description.
+    let background = new Map();
+    // Every subagent this session has started, so the CLI's other tasks
+    // (shells, mostly) stay out of the transcript.
+    const agents = new Set();
+    let timer = null;
+
+    const disarm = () => {
+        clearTimeout(timer);
+        timer = null;
+    };
+    const finish = (event) => {
+        disarm();
+        held = null;
+        open = false;
+        ended = true;
+        onEvent(event);
+    };
+    // Only with nothing out: a subagent at work can take as long as it
+    // takes, and the CLI's idle is the one word that ends that wait.
+    const arm = () => {
+        if (!held || timer || background.size > 0) return;
+        const waiting = held;
+        timer = setTimeout(() => {
+            timer = null;
+            if (held === waiting) finish(waiting);
+        }, settle);
+        timer.unref?.();
+    };
+
+    return {
+        /** The app has sent a message, so the turn is its own. */
+        began() {
+            open = true;
+            quiet = false;
+            muted = false;
+        },
+        /** The subagents still running, to stop along with the turn. */
+        agents: () => [...background.keys()],
+        /** The turn was stopped; whatever was held for it is moot. */
+        stopped() {
+            disarm();
+            held = null;
+            open = false;
+            ended = true;
+            quiet = true;
+            // Stopped along with it. The CLI's own count follows when it
+            // has caught up, and replaces this either way.
+            background = new Map();
+        },
+        handle(message) {
+            if (message.type === 'system') {
+                switch (message.subtype) {
+                    case 'session_state_changed':
+                        reportsIdle = true;
+                        if (message.state === 'idle' && held) finish(held);
+                        return;
+                    // The whole set, every time it changes: replaced rather
+                    // than patched, so a missed start or end cannot leave a
+                    // turn held open for good.
+                    case 'background_tasks_changed':
+                        background = new Map((message.tasks || [])
+                            .filter(isAgentTask)
+                            .map(task => [task.task_id, task.description || '']));
+                        arm();
+                        return;
+                    case 'task_started':
+                        if (message.skip_transcript || !isAgentTask(message)) return;
+                        agents.add(message.task_id);
+                        if (message.is_backgrounded) background.set(message.task_id, message.description || '');
+                        break;
+                    case 'task_progress':
+                    case 'task_notification':
+                        if (!agents.has(message.task_id)) return;
+                        if (message.subtype === 'task_notification') background.delete(message.task_id);
+                        break;
+                    default:
+                        break;
+                }
+            }
+
+            if (muted) {
+                if (message.type === 'result') muted = false;
+                return;
+            }
+
+            const parentTurn = !message.parent_tool_use_id && startsTurn(message);
+
+            // The report the held result was waiting for: the same turn,
+            // carried on.
+            if (held && parentTurn) {
+                disarm();
+                held = null;
+            }
+
+            if (!open && ended && parentTurn) {
+                if (quiet) {
+                    muted = true;
+                    onUnwanted();
+                    return;
+                }
+                open = true;
+                onEvent({ type: 'turn-resumed' });
+            }
+
+            if (message.type === 'result') {
+                const event = resultEvent(message);
+                if (reportsIdle) {
+                    held = event;
+                    arm();
+                } else {
+                    finish(event);
+                }
+                return;
+            }
+
+            translate(message, onEvent);
+        },
+    };
+}
+
+/** The end of a turn, as the app records it. */
+function resultEvent(message) {
+    return {
+        type: 'result',
+        subtype: message.subtype,
+        isError: message.subtype !== 'success',
+        text: message.result || '',
+        costUsd: message.total_cost_usd || 0,
+        usage: message.usage || null,
+        turns: message.num_turns || 0,
+        sessionId: message.session_id,
+    };
+}
+
+/**
+ * One SDK message, as one or more transcript events.
+ *
+ * A subagent's messages arrive on the same stream, marked with the call that
+ * started it, and are passed on with that mark: its calls, its results and
+ * its words. They make up the subagent's own transcript, which opens from
+ * the parent's row for it, and are kept out of the parent's, where its words
+ * would read as though the parent had said them. Its streaming is not passed
+ * on at all; the finished blocks are enough for a transcript nobody is
+ * reading word by word.
+ */
 function translate(message, onEvent) {
+    const parentId = message.parent_tool_use_id || '';
+
     switch (message.type) {
         case 'system':
             if (message.subtype === 'init') {
                 onEvent({ type: 'session', sessionId: message.session_id, model: message.model });
+            } else if (message.subtype === 'task_started') {
+                onEvent({
+                    type: 'task-started',
+                    taskId: message.task_id,
+                    toolUseId: message.tool_use_id || '',
+                    description: message.description || '',
+                    agent: message.subagent_type || '',
+                    background: Boolean(message.is_backgrounded),
+                    prompt: String(message.prompt || '').slice(0, 20000),
+                });
+            } else if (message.subtype === 'task_progress') {
+                onEvent({
+                    type: 'task-progress',
+                    taskId: message.task_id,
+                    toolUseId: message.tool_use_id || '',
+                    description: message.description || '',
+                    lastTool: localName(message.last_tool_name || '') || message.last_tool_name || '',
+                    toolUses: message.usage?.tool_uses || 0,
+                });
+            } else if (message.subtype === 'task_notification') {
+                onEvent({
+                    type: 'task-ended',
+                    taskId: message.task_id,
+                    toolUseId: message.tool_use_id || '',
+                    status: message.status || 'completed',
+                    summary: String(message.summary || '').slice(0, 500),
+                    toolUses: message.usage?.tool_uses || 0,
+                });
             }
             break;
 
         case 'stream_event': {
+            if (parentId) break;
             const event = message.event;
             if (event?.type === 'content_block_delta') {
                 if (event.delta?.type === 'text_delta') {
@@ -843,7 +1106,7 @@ function translate(message, onEvent) {
         case 'assistant': {
             const blocks = message.message?.content || [];
             const text = blocks.filter(block => block.type === 'text').map(block => block.text).join('');
-            if (text.trim()) onEvent({ type: 'assistant-text', text });
+            if (text.trim()) onEvent({ type: 'assistant-text', text, ...(parentId ? { parentId } : {}) });
             for (const block of blocks) {
                 if (block.type !== 'tool_use') continue;
                 onEvent({
@@ -853,6 +1116,7 @@ function translate(message, onEvent) {
                     rawName: block.name,
                     local: !localName(block.name),
                     input: block.input,
+                    ...(parentId ? { parentId } : {}),
                 });
             }
             break;
@@ -868,6 +1132,7 @@ function translate(message, onEvent) {
                     id: block.tool_use_id,
                     isError: Boolean(block.is_error),
                     text: flattenResult(block.content),
+                    ...(parentId ? { parentId } : {}),
                 });
             }
             break;
@@ -892,16 +1157,7 @@ function translate(message, onEvent) {
         }
 
         case 'result':
-            onEvent({
-                type: 'result',
-                subtype: message.subtype,
-                isError: message.subtype !== 'success',
-                text: message.result || '',
-                costUsd: message.total_cost_usd || 0,
-                usage: message.usage || null,
-                turns: message.num_turns || 0,
-                sessionId: message.session_id,
-            });
+            onEvent(resultEvent(message));
             break;
 
         default:
@@ -1180,8 +1436,10 @@ module.exports = {
     nativeAutoApproved,
     claudeCandidates,
     userContent,
+    createTurnTracker,
     LOCAL_TOOLS,
     WEB_TOOLS,
+    AGENT_TOOLS,
     SERVER_NAME,
     // The SDK takes image blocks in a user turn, which is the whole of what
     // "attach a screenshot" needs. Codex takes them as files instead (see its
