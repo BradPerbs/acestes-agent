@@ -5,10 +5,19 @@ Application resources bundled into the packaged app (icons and similar assets).
 Everything in this folder is copied verbatim into the installer via
 `extraResources`, so do not leave build artifacts here.
 
-The one exception is `hello-helper.exe`, which `npm run build:hello` compiles
-and which only the Windows package carries. It is filtered out of the macOS and
-Linux builds, and it is gitignored, so it is absent from a fresh checkout until
-you build it.
+The exceptions are the helpers, each compiled from source and gitignored, so
+they are absent from a fresh checkout until you build them:
+
+- `hello-helper.exe`, which `npm run build:hello` compiles and only the
+  Windows package carries.
+- `desktop-helper.exe`, the agent's hands for computer use on Windows, which
+  `npm run build:desktop` compiles from `tools/DesktopHelper.cs`. Only the
+  Windows package carries it.
+- `desktop-helper`, the same on macOS, which `npm run build:desktop` compiles
+  from `tools/mac/*.swift` when run on a Mac. It needs the Xcode command line
+  tools (`xcode-select --install`), comes out as one binary for both Apple
+  silicon and Intel, and only the macOS package carries it. `npm run build:mac`
+  builds it first.
 
 ## Icons
 

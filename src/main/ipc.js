@@ -329,6 +329,9 @@ function register(getWindow) {
             // that merely asks; a moment on top is the dependable way to be seen.
             window.setAlwaysOnTop(true);
             window.show();
+            // A Mac activates the app, not just the window, or the question
+            // shows without the keyboard.
+            if (process.platform === 'darwin') app.focus({ steal: true });
             window.focus();
             window.setAlwaysOnTop(false);
         },

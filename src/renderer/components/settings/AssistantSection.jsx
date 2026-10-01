@@ -492,15 +492,17 @@ export default function AssistantSection() {
                     }
                 />
 
-                {/* The desktop itself: Windows only for now, since the helper
-                    that drives it is a Windows program. */}
-                {window.api.platform === 'win32' && (
+                {/* The desktop itself: Windows and macOS, the systems there is a
+                    helper for (tools/DesktopHelper.cs, tools/mac/). */}
+                {['win32', 'darwin'].includes(window.api.platform) && (
                     <>
                         <SettingRow
                             className={DIVIDED}
                             align="center"
                             title={t('settings.assistant.computerUse')}
-                            description={t('settings.assistant.computerUseDesc')}
+                            description={window.api.platform === 'darwin'
+                                ? `${t('settings.assistant.computerUseDesc')} ${t('settings.assistant.computerUseMac')}`
+                                : t('settings.assistant.computerUseDesc')}
                             control={
                                 <Toggle
                                     ariaLabel={t('settings.assistant.computerUse')}

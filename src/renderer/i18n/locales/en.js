@@ -1154,6 +1154,8 @@ export default {
     'settings.assistant.computerUseDesc': 'Lets the agent work desktop apps with the real mouse and keyboard, where you '
         + 'can watch the cursor move. It asks before it touches each app, and a badge says when it is driving. Click or '
         + 'type anywhere outside Acestes to take over; Esc stops it.',
+    'settings.assistant.computerUseMac': 'macOS asks once to allow Acestes Agent under Accessibility, and under Screen '
+        + 'Recording for screenshots, in System Settings > Privacy & Security.',
     'settings.assistant.computerPace': 'Pace',
     'settings.assistant.computerPaceDesc': 'How fast the cursor travels and the typing goes. Slow is easiest to follow.',
     'settings.assistant.computerPace.slow': 'Slow',

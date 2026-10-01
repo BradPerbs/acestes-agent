@@ -1,6 +1,8 @@
 node_modules/
 dist/
 resources/*.exe
+resources/desktop-helper
+resources/desktop-helper.new
 *.log
 
 # Built installers, kept out of git on purpose. They are 140MB and up, and

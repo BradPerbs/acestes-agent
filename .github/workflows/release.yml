@@ -106,10 +106,12 @@ jobs:
         if: runner.os == 'Windows'
         run: npm run build:hello
 
-      # The agent's hands on the desktop, built the same way. The Windows
-      # package lists it as an extra resource, so it has to exist by then.
+      # The agent's hands on the desktop: built the same way on Windows, and
+      # with the runner's Xcode on macOS, as one binary for Apple silicon and
+      # Intel, so both mac packages take the same file. Each package lists it
+      # as an extra resource, so it has to exist by then.
       - name: Build the desktop helper
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' || runner.os == 'macOS'
         run: npm run build:desktop
 
       - run: npm run build:renderer

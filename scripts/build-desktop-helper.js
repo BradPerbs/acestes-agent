@@ -1,22 +1,32 @@
 /**
  * Compile the desktop helper: the agent's hands on this computer.
  *
- * The same recipe as the Windows Hello helper (build-hello-helper.js): the C#
- * compiler that ships inside Windows, against the .NET Framework assemblies
- * that also ship inside Windows. UI Automation is one of them, which is what
- * lets this be a small exe rather than a Python install or a native addon.
+ * On Windows, the same recipe as the Windows Hello helper
+ * (build-hello-helper.js): the C# compiler that ships inside Windows, against
+ * the .NET Framework assemblies that also ship inside Windows. UI Automation is
+ * one of them, which is what lets this be a small exe rather than a Python
+ * install or a native addon.
  *
- * Run by `npm run build:desktop`, and folded into `npm run build`. On anything
- * other than Windows it does nothing and says so.
+ * On macOS, tools/mac/*.swift with the swiftc of the Xcode command line tools,
+ * against the frameworks inside macOS: one binary holding both an Apple
+ * silicon and an Intel build, so one package runs on either.
+ *
+ * Run by `npm run build:desktop`, and folded into `npm run build` and
+ * `npm run build:mac`. On Linux it does nothing and says so.
  */
 const { execFileSync } = require('child_process');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
 const SOURCE = path.join(ROOT, 'tools', 'DesktopHelper.cs');
 const OUTPUT_DIR = path.join(ROOT, 'resources');
 const OUTPUT = path.join(OUTPUT_DIR, 'desktop-helper.exe');
+const MAC_SOURCES = path.join(ROOT, 'tools', 'mac');
+const MAC_OUTPUT = path.join(OUTPUT_DIR, 'desktop-helper');
+// ScreenCaptureKit's first release. Electron itself needs macOS 12.
+const MAC_TARGET = '12.3';
 
 const FRAMEWORK = path.join(
     process.env.WINDIR || 'C:\\Windows',
@@ -53,9 +63,52 @@ function setAside() {
     }
 }
 
+function buildMac() {
+    try {
+        execFileSync('xcrun', ['--find', 'swiftc'], { stdio: 'ignore' });
+    } catch {
+        throw new Error('build-desktop-helper: swiftc not found. Install the Xcode command line tools: xcode-select --install');
+    }
+    const sources = fs.readdirSync(MAC_SOURCES)
+        .filter(name => name.endsWith('.swift'))
+        .map(name => path.join(MAC_SOURCES, name));
+    fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+
+    const slices = [];
+    for (const arch of ['arm64', 'x86_64']) {
+        const slice = path.join(os.tmpdir(), `desktop-helper-${arch}-${process.pid}`);
+        execFileSync('xcrun', [
+            'swiftc',
+            '-O',
+            '-swift-version', '5',
+            '-target', `${arch}-apple-macos${MAC_TARGET}`,
+            '-o', slice,
+            ...sources,
+        ], { stdio: 'inherit' });
+        slices.push(slice);
+    }
+    // Built beside the old one and renamed over it: a running app keeps the
+    // file it started, where writing into it would break its signature and
+    // have macOS kill it.
+    const fresh = `${MAC_OUTPUT}.new`;
+    execFileSync('xcrun', ['lipo', '-create', '-output', fresh, ...slices], { stdio: 'inherit' });
+    for (const slice of slices) fs.rmSync(slice, { force: true });
+    // Apple silicon runs nothing unsigned. An ad hoc signature is enough for
+    // a checkout; a package is signed again with the app.
+    execFileSync('codesign', ['--force', '--sign', '-', fresh], { stdio: 'inherit' });
+    fs.renameSync(fresh, MAC_OUTPUT);
+
+    const { size } = fs.statSync(MAC_OUTPUT);
+    console.log(`build-desktop-helper: wrote ${path.relative(ROOT, MAC_OUTPUT)} (${(size / 1024).toFixed(1)} KB)`);
+}
+
 function main() {
+    if (process.platform === 'darwin') {
+        buildMac();
+        return;
+    }
     if (process.platform !== 'win32') {
-        console.log('build-desktop-helper: not Windows, nothing to build.');
+        console.log('build-desktop-helper: not Windows or macOS, nothing to build.');
         return;
     }
 

@@ -101,12 +101,21 @@ function conversation(id, overrides = {}) {
         assert.ok(/background run/.test((await api.click({ element: 3 })).error));
     });
 
-    await check('Windows only, for now', async () => {
+    await check('Windows and macOS only, for now', async () => {
+        computer._test.setPlatform('linux');
+        const { api } = conversation('c-linux');
+        const result = await api.windows();
+        computer._test.setPlatform('win32');
+        assert.ok(/Windows and macOS only/.test(result.error), result.error);
+    });
+
+    await check('a Mac has a helper too', async () => {
         computer._test.setPlatform('darwin');
         const { api } = conversation('c-mac');
         const result = await api.windows();
         computer._test.setPlatform('win32');
-        assert.ok(/Windows only/.test(result.error), result.error);
+        assert.ok(!result.error, result.error);
+        assert.ok(result.windows.length > 0);
     });
 
     console.log('\nreading, with the user\'s say-so');
@@ -362,6 +371,29 @@ function conversation(id, overrides = {}) {
         assert.strictEqual(sent().find(request => request.cmd === 'keys').keys, 'ctrl+a');
         busy.delete('c-replace');
         computer.release('c-replace');
+    });
+
+    await check('on a Mac, replace selects with Command, not Control', async () => {
+        clearLog();
+        computer._test.setPlatform('darwin');
+        const { api } = conversation('c-replace-mac');
+        busy.add('c-replace-mac');
+        try {
+            await api.type({ text: 'new', replace: true });
+        } finally {
+            computer._test.setPlatform('win32');
+        }
+        assert.strictEqual(sent().find(request => request.cmd === 'keys').keys, 'cmd+a');
+        busy.delete('c-replace-mac');
+        computer.release('c-replace-mac');
+    });
+
+    await check('Mac apps that reach further than they look are named', async () => {
+        assert.ok(/terminal/.test(computer.warningFor('Terminal')));
+        assert.ok(/files/.test(computer.warningFor('Finder')));
+        assert.ok(/macOS/.test(computer.warningFor('System Settings')));
+        assert.ok(/passwords/.test(computer.warningFor('Keychain Access')));
+        assert.ok(/browser/.test(computer.warningFor('Google Chrome')));
     });
 
     await check('read: false skips the read after an action', async () => {

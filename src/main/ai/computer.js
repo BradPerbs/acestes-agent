@@ -3,8 +3,9 @@
  * supervising can see them.
  *
  * desktop-helper.exe (tools/DesktopHelper.cs) does the seeing, moving and
- * clicking. This is the policy in front of it, since a helper that does what
- * it is told is only as careful as whatever is telling it:
+ * clicking on Windows, and desktop-helper (tools/mac/) on macOS, speaking the
+ * same protocol. This is the policy in front of either, since a helper that
+ * does what it is told is only as careful as whatever is telling it:
  *
  *   switched on   per agent, and off until someone switches it on
  *   in person     conversations with the user only. A job's run is refused:
@@ -20,8 +21,9 @@
  *                 helper refuses them itself, so the agent cannot approve its
  *                 own card
  *
- * The agent sees a window as its UI Automation tree, numbered, and acts on
- * elements by number: the helper aims at the element, checks nothing covers
+ * The agent sees a window as its accessibility tree (UI Automation on
+ * Windows, the accessibility API on macOS), numbered, and acts on elements by
+ * number: the helper aims at the element, checks nothing covers
  * it, and glides the real cursor there before clicking, so the person
  * watching sees where it is going before it gets there.
  */
@@ -77,6 +79,36 @@ const WARNINGS = [
             'librewolf.exe', 'waterfox.exe'],
         warning: 'A browser reaches every site you are signed in to. For web work the Playwright browser is safer.',
     },
+    // The same on a Mac, where an app goes by its own name.
+    {
+        processes: ['terminal', 'iterm2', 'warp', 'ghostty', 'alacritty', 'kitty', 'wezterm', 'wezterm-gui', 'hyper',
+            'tabby', 'script editor', 'automator', 'shortcuts'],
+        warning: 'This is a terminal: controlling it is the same as running any command.',
+    },
+    {
+        processes: ['code', 'visual studio code', 'code - insiders', 'cursor', 'windsurf', 'xcode', 'intellij idea',
+            'pycharm', 'webstorm', 'rider', 'goland', 'clion', 'zed', 'nova', 'bbedit'],
+        warning: 'This is an IDE: it can run code and has a terminal inside, so controlling it is the same as running any command.',
+    },
+    {
+        processes: ['finder'],
+        warning: 'Finder can open, move or delete any of your files.',
+    },
+    {
+        processes: ['system settings', 'system preferences', 'activity monitor', 'disk utility', 'console',
+            'directory utility', 'migration assistant'],
+        warning: 'This can change how macOS is set up.',
+    },
+    {
+        processes: ['keychain access', 'passwords', '1password', '1password 7', 'bitwarden', 'keepassxc', 'dashlane',
+            'enpass', 'proton pass'],
+        warning: 'This holds your passwords.',
+    },
+    {
+        processes: ['safari', 'google chrome', 'firefox', 'microsoft edge', 'brave browser', 'arc', 'opera', 'vivaldi',
+            'chromium', 'orion', 'librewolf'],
+        warning: 'A browser reaches every site you are signed in to. For web work the Playwright browser is safer.',
+    },
 ];
 
 function warningFor(processName) {
@@ -92,7 +124,10 @@ let helperCommand = null;
 let helper = null;
 let platform = process.platform;
 
-/** Where the exe is, in a build and in a checkout. See hello.js, which this follows. */
+/** The systems there is a helper for. */
+const SUPPORTED = ['win32', 'darwin'];
+
+/** Where the helper is, in a build and in a checkout. See hello.js, which this follows. */
 function findHelper() {
     let appPath = '';
     try {
@@ -100,11 +135,12 @@ function findHelper() {
     } catch {
         // Not under Electron: a test, which names its own helper.
     }
+    const name = platform === 'darwin' ? 'desktop-helper' : 'desktop-helper.exe';
     const candidates = [
-        process.resourcesPath && path.join(process.resourcesPath, 'resources', 'desktop-helper.exe'),
-        process.resourcesPath && path.join(process.resourcesPath, 'desktop-helper.exe'),
-        appPath && path.join(appPath, 'resources', 'desktop-helper.exe'),
-        path.join(__dirname, '..', '..', '..', 'resources', 'desktop-helper.exe'),
+        process.resourcesPath && path.join(process.resourcesPath, 'resources', name),
+        process.resourcesPath && path.join(process.resourcesPath, name),
+        appPath && path.join(appPath, 'resources', name),
+        path.join(__dirname, '..', '..', '..', 'resources', name),
     ].filter(Boolean);
     const found = candidates.find(candidate => fs.existsSync(candidate));
     return found ? { file: found, args: [] } : null;
@@ -384,7 +420,7 @@ function apiFor(state) {
 
     /** May this conversation use the computer at all. */
     const allowed = () => {
-        if (platform !== 'win32') return 'Computer use works on Windows only for now.';
+        if (!SUPPORTED.includes(platform)) return 'Computer use works on Windows and macOS only for now.';
         if (!settings().computerUse) {
             return 'Computer use is switched off for this agent. The user can switch it on in Settings, under the agent, '
                 + '"Use this computer". Say so rather than working around it.';
@@ -599,7 +635,7 @@ function apiFor(state) {
             ...(answer.truncated ? { truncated: 'Stopped before the end. Read part of it with under: <id>.' } : {}),
             ...(answer.nodes.length <= 6 ? {
                 sparse: 'Very little is exposed here: some apps (Electron, games, canvas) do not describe their '
-                    + 'insides to UI Automation. Take a screenshot to see it; keyboard shortcuts may still work.',
+                    + 'insides to the accessibility API. Take a screenshot to see it; keyboard shortcuts may still work.',
             } : {}),
             ...(spotted ? { captcha: `There is ${spotted} here. solve_captcha gets through it; do not click it yourself.` } : {}),
         };
@@ -692,7 +728,8 @@ function apiFor(state) {
             if (shown.error) return shown;
         }
         if (replace) {
-            const cleared = await callFor('keys', { keys: 'ctrl+a' });
+            // Select all: Command on a Mac, where Control+A goes to the start of the line.
+            const cleared = await callFor('keys', { keys: platform === 'darwin' ? 'cmd+a' : 'ctrl+a' });
             if (!cleared.ok) return { error: explain(cleared) };
         }
         // A secret is filled in here, at the last moment. The model wrote
