@@ -1331,10 +1331,17 @@ function App() {
     // Home of its own, so the request comes here and the window comes forward.
     // From a detached conversation window. `settings:quickPrompts` names the
     // card to land on, the same way a click in this window does.
+    // Also from main, for a notification clicked that has no chat to open:
+    // a job's run lands on Runs, a job that could not start on Jobs.
     useEffect(() => window.api.ai.onNavigate?.(({ nav }) => {
         const [page, focus = ''] = String(nav || '').split(':');
         if (page === 'settings') handleOpenAssistantSettings(focus);
         else if (page === 'snippets') handleOpenSnippets();
+        else if (page === 'runs' || page === 'jobs') {
+            setActiveTabId('home');
+            setActiveNav(page);
+            setReachedForPage(count => count + 1);
+        }
     }), [handleOpenAssistantSettings, handleOpenSnippets]);
 
 

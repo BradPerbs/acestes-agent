@@ -13,25 +13,19 @@ import ToolCall, { DOTS, callStatus } from './ToolCall';
 import { useT } from '../../i18n';
 
 /**
- * A burst of work — consecutive tool calls plus the narration between them —
- * as one row.
+ * Back-to-back tool calls as one row: "8 reads · 3 commands", opening into
+ * the calls themselves.
  *
- * A working answer used to take one row per call with its narration strung
- * between, so the reply was buried under a screen of nearly identical lines.
- * Grouped, the burst reads as one summary that opens into the calls and the
- * thoughts on the way there: "8 reads · 3 commands · 2 thoughts".
+ * Only calls are in here. A thought (the narration or the thinking between
+ * calls) stands in the transcript on its own and ends the group above it,
+ * so the calls after it start a new one: thought, calls, thought, calls,
+ * reply.
  *
- * The turn's final reply is not in here: the transcript strips trailing
- * assistant messages from the run and leaves them outside, so the answer
- * stays visible while the narration that led to it folds into the group.
- *
- * Folded in the transcript (see `useGrouped` there), not in the reducer, so
+ * Folded in the transcript (see lib/group-rows), not in the reducer, so
  * every result still finds its call where it always did. A group is the same
  * object for as long as its members are, which lets the segment it sits in
  * tell nothing has changed.
  */
-
-const isThoughtItem = item => item.kind === 'assistant';
 
 /** How many of the group's tool calls are still running, and how many went wrong. */
 function tally(items) {
@@ -62,8 +56,8 @@ function previewOf(item) {
 }
 
 /**
- * One thought, inside the group or standing on its own: the narration
- * between calls, with the model's extended thinking where it has any.
+ * One thought, standing in the transcript between groups: the model's
+ * extended thinking, or a message with only thinking in it.
  *
  * Collapsed to one line with a brain, like a tool call. Opens into the full
  * text, with the extended thinking above it where there is any.
@@ -167,7 +161,6 @@ export default function ToolGroup({ group, conversationId, onOpenConversation })
     const { running, failed } = tally(items);
 
     const tools = items.filter(item => item.kind === 'tool');
-    const thoughts = items.filter(isThoughtItem);
     const counts = { views: 0, commands: 0, edits: 0, searches: 0, other: 0 };
     for (const item of tools) counts[toolBucket(item.name)] += 1;
 
@@ -176,7 +169,6 @@ export default function ToolGroup({ group, conversationId, onOpenConversation })
         counts.commands > 0 && { icon: <CommandLineIcon size={12} strokeWidth={2} />, text: t('assistant.toolGroupCommands', { count: counts.commands }) },
         counts.edits > 0 && { icon: <Edit02Icon size={12} strokeWidth={2} />, text: t('assistant.toolGroupEdits', { count: counts.edits }) },
         counts.searches > 0 && { icon: <Search01Icon size={12} strokeWidth={2} />, text: t('assistant.toolGroupSearches', { count: counts.searches }) },
-        thoughts.length > 0 && { icon: <BrainIcon size={12} strokeWidth={2} />, text: t('assistant.toolGroupThoughts', { count: thoughts.length }) },
         counts.other > 0 && { icon: null, text: t('assistant.toolGroupOther', { count: counts.other }) },
     ].filter(Boolean);
     if (running > 0) buckets.unshift({ icon: null, text: t('assistant.toolGroupRunning', { count: running }) });
@@ -225,23 +217,19 @@ export default function ToolGroup({ group, conversationId, onOpenConversation })
                         the burst reads as a timeline rather than a stack of
                         boxes. The tick sits at the row's middle (h-8). */}
                     <div className="ml-3 border-l border-black/10 dark:border-white/10 pl-1 space-y-0.5">
-                        {items.map(item => (
+                        {tools.map(item => (
                             <div
                                 key={item.id}
                                 className="relative before:absolute before:-left-[5px] before:top-4
                                     before:w-[5px] before:border-t
                                     before:border-black/10 dark:before:border-white/10"
                             >
-                                {item.kind === 'assistant'
-                                    ? <Thought item={item} bare />
-                                    : (
-                                        <ToolCall
-                                            item={item}
-                                            conversationId={conversationId}
-                                            onOpenConversation={onOpenConversation}
-                                            bare
-                                        />
-                                    )}
+                                <ToolCall
+                                    item={item}
+                                    conversationId={conversationId}
+                                    onOpenConversation={onOpenConversation}
+                                    bare
+                                />
                             </div>
                         ))}
                     </div>

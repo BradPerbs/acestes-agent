@@ -278,17 +278,49 @@ function register(getWindow) {
     jobs.setNotifier(broadcast);
 
     /**
+     * Notifications still on screen or in the notification centre. Held
+     * because a Notification the garbage collector takes loses its click
+     * handler: Windows still shows the toast, and clicking it does nothing.
+     * The newest few are kept; one older than that has long since gone.
+     */
+    const liveToasts = new Set();
+    const KEEP_TOASTS = 30;
+    const keepToast = (notification) => {
+        liveToasts.add(notification);
+        while (liveToasts.size > KEEP_TOASTS) liveToasts.delete(liveToasts.values().next().value);
+    };
+
+    const bringForward = (window) => {
+        if (!window || window.isDestroyed()) return;
+        if (window.isMinimized()) window.restore();
+        window.show();
+        window.focus();
+    };
+
+    /**
      * An OS notification from the assistant: a run finished out of sight,
      * or stopped on a question. It comes with the app's own chime rather
      * than the system's, so it sounds the same wherever notification sounds
-     * are set, and once. Clicking it brings forward the chat it is about,
-     * in whichever window holds its tab, or the Runs page for one in none.
+     * are set, and once.
+     *
+     * Clicking it opens the chat it is about as the tab in front: in
+     * whichever window already holds its tab, or as a new tab in the main
+     * window when it has none (closed since, or a job's run that was never
+     * in one). A job's notification with no run behind it opens the Jobs
+     * page; anything else, the Runs page.
      */
-    const toastFromAssistant = ({ title, body, conversationId = '' }) => {
+    const toastFromAssistant = ({ title, body, conversationId = '', runId = '', jobId = '' }) => {
         const anyWindow = () => {
             const window = getWindow();
             if (window && !window.isDestroyed()) return window;
             return BrowserWindow.getAllWindows().find(entry => !entry.isDestroyed()) || null;
+        };
+        // The chat to land on. A job's toast names only its run, so the
+        // conversation is looked up from that.
+        const chatFor = () => {
+            if (conversationId) return conversationId;
+            if (!runId) return '';
+            try { return runs.get(runId)?.conversationId || ''; } catch { return ''; }
         };
         try {
             if (!Notification.isSupported()) return;
@@ -298,14 +330,22 @@ function register(getWindow) {
                 silent: true,
             });
             notification.on('click', () => {
+                liveToasts.delete(notification);
+                const chat = chatFor();
+                if (chat) {
+                    // The window that will hold the tab comes forward, not
+                    // the main window on its way to a detached one.
+                    bringForward(aiWindows.windowOf(chat) || anyWindow());
+                    aiWindows.show([chat], { focus: true });
+                    return;
+                }
                 const window = anyWindow();
                 if (!window) return;
-                if (window.isMinimized()) window.restore();
-                window.show();
-                window.focus();
-                if (conversationId && aiWindows.showing(conversationId)) aiWindows.show([conversationId], { focus: true });
-                else window.webContents.send('ai-navigate', { nav: 'runs' });
+                bringForward(window);
+                window.webContents.send('ai-navigate', { nav: jobId && !runId ? 'jobs' : 'runs' });
             });
+            notification.on('failed', () => liveToasts.delete(notification));
+            keepToast(notification);
             notification.show();
             anyWindow()?.webContents.send('ai-chime');
         } catch (error) {

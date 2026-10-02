@@ -2212,8 +2212,6 @@ export default {
     'assistant.toolGroupSearches_other': '{count} searches',
     'assistant.toolGroupOther_one': '{count} other',
     'assistant.toolGroupOther_other': '{count} others',
-    'assistant.toolGroupThoughts_one': '{count} thought',
-    'assistant.toolGroupThoughts_other': '{count} thoughts',
     'assistant.thought': 'Thought process',
     'assistant.thoughtThinking': 'Extended thinking',
     'assistant.toolGroupRunning': '{count} running',

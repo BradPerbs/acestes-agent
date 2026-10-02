@@ -684,6 +684,35 @@ input[type="color"]::-webkit-color-swatch {
     transition: width 240ms cubic-bezier(0.2, 0, 0, 1);
 }
 
+/* The corner card's (ActivityOverlay.jsx): the rest of its row, with nothing
+   beside it to glide, and a phrase too long for it cut by an ellipsis rather
+   than at a letter, since the actions it names can run long. */
+.working-cell.working-fit {
+    flex: 1 1 0%;
+    min-width: 0;
+    grid-template-columns: minmax(0, 1fr);
+    transition: none;
+}
+
+.working-fit .working-phrase {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* A step darker (lighter, in the dark): the card is read at a glance from the
+   corner of the screen, over whatever app is behind it, where the line under
+   a turn sits quiet in a panel of its own. */
+.working-loud .working-phrase {
+    --working-base: rgb(107 114 128);
+    --working-glint: rgb(17 24 39);
+}
+
+.dark .working-loud .working-phrase {
+    --working-base: rgb(156 163 175);
+    --working-glint: rgb(243 244 246);
+}
+
 .working-phrase {
     --working-base: rgb(156 163 175);
     --working-glint: rgb(75 85 99);

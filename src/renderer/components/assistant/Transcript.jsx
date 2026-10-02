@@ -4,6 +4,7 @@ import Markdown from '../../lib/markdown';
 import ToolCall, { SUBAGENT_TOOLS } from './ToolCall';
 import SubagentGroup from './SubagentGroup';
 import ToolGroup, { Thought } from './ToolGroup';
+import { groupRows } from '../../lib/group-rows';
 import ApprovalRequest from './ApprovalRequest';
 import QuestionRequest from './QuestionRequest';
 import { TurnActions, TurnChanges } from './TurnFooter';
@@ -141,12 +142,19 @@ function RowContent({ item, conversationId, onRespond, onAnswer, onRevert, onOpe
         );
     }
     if (item.kind === 'assistant') {
-        // Thinking with no reply to carry it: a collapsed thought row rather
-        // than a blank reply. Replies with text draw as they always did.
-        if (!String(item.text || '').trim() && String(item.thinking || '').trim()) {
-            return <Thought key={item.id} item={item} />;
+        // The thinking as a collapsed thought row, the words under it as they
+        // always drew. Thinking with no words is the thought row alone.
+        const thinking = String(item.thinking || '').trim();
+        if (!String(item.text || '').trim()) {
+            return thinking ? <Thought key={item.id} item={item} /> : <Markdown key={item.id} text={item.text} />;
         }
-        return <Markdown key={item.id} text={item.text} />;
+        if (!thinking) return <Markdown key={item.id} text={item.text} />;
+        return (
+            <div key={item.id} className="space-y-1.5">
+                <Thought item={{ id: item.id, thinking: item.thinking }} />
+                <Markdown text={item.text} />
+            </div>
+        );
     }
     if (item.kind === 'tool') {
         // A call waiting on an answer is not here at all: it
@@ -263,103 +271,18 @@ function findTurnEnds(items, busy, turnRates) {
     return ends;
 }
 
-/** A subagent's call, unless it is waiting on a question, which is drawn on its own. */
-const isSubagentCall = item => item.kind === 'tool' && SUBAGENT_TOOLS.has(item.name) && item.approval?.status !== 'pending';
-
-/** A tool call that can fold into a group: answered, and not a subagent (those have their own group). */
-const isGroupableTool = item => item.kind === 'tool' && !SUBAGENT_TOOLS.has(item.name) && item.approval?.status !== 'pending';
-
 /**
- * An assistant message with something to read: the narration between calls.
- * Inside a work group these draw as collapsed Thought rows; the turn's final
- * reply stays outside the group (see the trailing strip in closeWork).
- */
-const isThought = item => item.kind === 'assistant'
-    && (String(item.text || '').trim() || String(item.thinking || '').trim());
-
-/**
- * The rows as drawn: every run of two or more subagent calls folded into one,
- * and — when `enabled` — every run of work (two or more tool calls plus the
- * narration between them) folded into one group with its thoughts inside.
- *
- * Done here rather than in the reducer, so every answer, result and update
- * still finds its call where it always did. A group is the same object for as
- * long as its members are, which is what lets the segment it sits in tell
- * nothing has changed.
- *
- * The turn's final reply is not a thought: a trailing assistant message with
- * text is stripped from the run and left outside, so the answer stays
- * visible while the narration on the way there folds into the group.
- * Thinking-only trailing messages stay inside: with no text they are not a
- * reply, and left outside they would draw as a blank row.
+ * The rows as drawn: back-to-back tool calls folded into one group, with the
+ * thoughts between them left standing outside (see lib/group-rows).
  */
 function useGrouped(items, enabled = true) {
     const cache = useRef(new Map());
     return useMemo(() => {
-        const before = cache.current;
-        const kept = new Map();
-        const rows = [];
-        let subRun = [];
-        let workRun = [];
-        const makeGroup = (kind, run) => {
-            const id = `${kind}-${run[0].id}`;
-            const old = before.get(id);
-            const same = old && old.items.length === run.length && old.items.every((item, index) => item === run[index]);
-            const group = same ? old : { kind, id, items: run };
-            kept.set(id, group);
-            return group;
-        };
-        const closeSub = () => {
-            if (subRun.length === 1) rows.push(subRun[0]);
-            else if (subRun.length > 1) rows.push(makeGroup('subagents', subRun));
-            subRun = [];
-        };
-        // Fold a run of tools + narration. `stripTrailing` leaves the final
-        // reply outside so it stays readable; a subagent boundary keeps its
-        // narration where it fell.
-        const closeWork = (stripTrailing = true) => {
-            if (workRun.length === 0) return;
-            if (!enabled) {
-                rows.push(...workRun);
-                workRun = [];
-                return;
-            }
-            const tools = workRun.filter(isGroupableTool).length;
-            if (tools < 2) {
-                rows.push(...workRun);
-                workRun = [];
-                return;
-            }
-            let trailing = [];
-            if (stripTrailing) {
-                let end = workRun.length;
-                while (end > 0 && isThought(workRun[end - 1])
-                    && String(workRun[end - 1].text || '').trim()) end -= 1;
-                trailing = workRun.slice(end);
-                workRun = workRun.slice(0, end);
-            }
-            if (workRun.length === 1) rows.push(workRun[0]);
-            else if (workRun.length > 1) rows.push(makeGroup('tools', workRun));
-            rows.push(...trailing);
-            workRun = [];
-        };
-        const closeAll = () => { closeSub(); closeWork(true); };
-        for (const item of items) {
-            if (isSubagentCall(item)) {
-                closeWork(false);
-                closeSub();
-                subRun.push(item);
-                continue;
-            }
-            closeSub();
-            if (isGroupableTool(item) || isThought(item)) {
-                workRun.push(item);
-                continue;
-            }
-            closeWork(true);
-            rows.push(item);
-        }
-        closeAll();
+        const { rows, kept } = groupRows(items, {
+            enabled,
+            subagentTools: SUBAGENT_TOOLS,
+            previous: cache.current,
+        });
         cache.current = kept;
         return rows;
     }, [items, enabled]);

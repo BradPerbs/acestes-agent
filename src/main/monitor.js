@@ -186,6 +186,13 @@ function onAlert(fn) {
  * not worth a second attempt at telling someone something, and the crossing is
  * in the activity log either way.
  */
+/**
+ * Toasts still showing or in the notification centre. A Notification the
+ * garbage collector takes loses its click handler, so the newest few are held.
+ */
+const liveToasts = new Set();
+const KEEP_TOASTS = 20;
+
 function toast(title, body) {
     const current = load();
     // `enabled` as well as `notify`, for the sweep that was already in flight
@@ -201,13 +208,17 @@ function toast(title, body) {
         // Clicking it should bring the app forward. Anyone who clicks a toast
         // about a server being down wants to look at the app, not dismiss it.
         notification.on('click', () => {
+            liveToasts.delete(notification);
             const window = getWindow();
             if (!window || window.isDestroyed()) return;
             if (window.isMinimized()) window.restore();
             window.show();
             window.focus();
         });
+        notification.on('failed', () => liveToasts.delete(notification));
 
+        liveToasts.add(notification);
+        while (liveToasts.size > KEEP_TOASTS) liveToasts.delete(liveToasts.values().next().value);
         notification.show();
     } catch (error) {
         console.error('Could not show a notification:', error.message);

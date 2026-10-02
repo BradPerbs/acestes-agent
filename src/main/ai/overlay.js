@@ -20,7 +20,7 @@ const { BrowserWindow, screen } = require('electron');
 const path = require('path');
 
 const WIDTH = 360;
-const HEIGHT = 330;
+const HEIGHT = 350;
 const MARGIN = 12;
 /** How long a finished row stays, so the last thing it did can be read. */
 const LINGER = 5000;
@@ -28,8 +28,12 @@ const LINGER = 5000;
 const THROTTLE = 120;
 const SAID = 220;
 
-// conversationId -> { id, title, agent, look, phase, tool, said, done }
+// conversationId -> { id, title, agent, look, phase, tool, said, done, since, ended }
+// `since` and `ended` are the clock on the card: when this stint on the
+// desktop began, and when it let go (0 until then).
 const rows = new Map();
+/** Numbers each action, so the card can tell a new one from the same one better named. */
+let calls = 0;
 let window = null;
 let baseUrl = () => '';
 let pushTimer = null;
@@ -137,8 +141,17 @@ function drivers(list = []) {
             removals.delete(entry.id);
         }
         const row = rows.get(entry.id);
-        if (row) {
-            Object.assign(row, { title: entry.title || row.title, done: false });
+        if (row?.done) {
+            // Back at it before its finished card had gone: a new stint, on a fresh clock.
+            Object.assign(row, {
+                title: entry.title || row.title,
+                done: false,
+                phase: 'thinking',
+                since: Date.now(),
+                ended: 0,
+            });
+        } else if (row) {
+            row.title = entry.title || row.title;
         } else {
             rows.set(entry.id, {
                 id: entry.id,
@@ -149,6 +162,8 @@ function drivers(list = []) {
                 tool: null,
                 said: '',
                 done: false,
+                since: Date.now(),
+                ended: 0,
             });
         }
     }
@@ -157,6 +172,7 @@ function drivers(list = []) {
         row.done = true;
         row.phase = 'done';
         row.tool = null;
+        row.ended = Date.now();
         removals.set(id, setTimeout(() => {
             removals.delete(id);
             rows.delete(id);
@@ -195,7 +211,8 @@ function event(conversationId, stamped, title = '') {
     switch (stamped.type) {
         case 'tool-call':
             row.phase = 'acting';
-            row.tool = { name: stamped.name, input: slim(stamped.input), aim: '' };
+            calls += 1;
+            row.tool = { name: stamped.name, input: slim(stamped.input), aim: '', seq: calls };
             break;
         case 'tool-result':
             row.phase = 'thinking';
