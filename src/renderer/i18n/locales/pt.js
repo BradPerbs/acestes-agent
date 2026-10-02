@@ -461,13 +461,13 @@ export default {
         + 'resultado sem ruído, mas fica a acreditar no que ele diz que aconteceu.',
     'settings.assistant.approval': 'Perguntar antes de correr',
     'settings.assistant.approval.always': 'Todas as ações',
-    'settings.assistant.approval.writes': 'Só alterações',
+    'settings.assistant.approval.writes': 'Só o projeto',
     'settings.assistant.approval.never': 'Nunca',
     'settings.assistant.approval.always.note': 'Todas as chamadas a ferramentas esperam por si, '
         + 'incluindo ler um ficheiro ou o terminal. É minucioso, mas uma investigação longa '
         + 'transforma-se em muitos cliques.',
-    'settings.assistant.approval.writes.note': 'A leitura corre à vontade. Tudo o que altere um '
-        + 'sistema para e mostra-lhe o comando exato e o anfitrião onde correria.',
+    'settings.assistant.approval.writes.note': 'Dentro das pastas autorizadas, tudo corre por si, '
+        + 'leituras e escritas. Fora delas, e na web, cada chamada para primeiro à espera da sua aprovação.',
     'settings.assistant.approval.never.note': 'Nada para à espera de aprovação, incluindo comandos '
         + 'que apagam dados ou reiniciam serviços. Só faz sentido para anfitriões que pode dar-se '
         + 'ao luxo de estragar.',
@@ -1192,8 +1192,8 @@ export default {
     'assistant.approvalsLabel': 'Aprovações: {mode}',
     'assistant.approvalAlways': 'Perguntar sempre',
     'assistant.approvalAlwaysHint': 'Todas as chamadas a ferramentas esperam por si',
-    'assistant.approvalWrites': 'Perguntar antes de alterar',
-    'assistant.approvalWritesHint': 'A leitura corre à vontade',
+    'assistant.approvalWrites': 'Só o projeto',
+    'assistant.approvalWritesHint': 'No projeto corre à vontade; fora dele e na web, pergunta',
     'assistant.approvalNever': 'Modo Yolo',
     'assistant.approvalNeverHint': 'Nada para, incluindo o que apaga',
 

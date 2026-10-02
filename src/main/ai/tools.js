@@ -13,6 +13,9 @@ const fileTools = require('./file-tools');
 const jobTools = require('./job-tools');
 const delegationTools = require('./delegation-tools');
 const computerTools = require('./computer-tools');
+const path = require('path');
+const sandbox = require('./sandbox');
+const { DEFAULTS } = require('./settings');
 
 // zod 4 exports both a namespace and a `z` binding depending on how it is
 // reached. Taking either keeps this working whichever the installed build is.
@@ -1470,12 +1473,29 @@ const blockedMessage = (rule) =>
 const NATIVE_READS = new Set([
     'read', 'read_file', 'glob', 'grep', 'ls', 'list', 'list_dir', 'list_directory',
     'notebookread', 'bashoutput', 'get_command_or_subagent_output',
-    'webfetch', 'web_fetch', 'websearch', 'web_search', 'search_tool',
+    // `search_tool` stays a read: the name does not say web, and guessing
+    // wrong here would put a card in front of every local file search.
+    // Anything that does say web is in NATIVE_WEB below and always asks.
+    'search_tool',
     'todowrite', 'todoread', 'todo_write', 'task', 'exitplanmode',
     // Handing work to a subagent, or checking on one, touches nothing by
     // itself: each call the subagent makes is asked about on its own.
     'agent', 'taskoutput', 'taskstop',
 ]);
+
+/**
+ * The runtimes' own tools that reach the web. Kept apart from the reads on
+ * purpose: under "Workspace only" a web call is an outside action, so it
+ * stops for a card even though looking something up changes nothing local.
+ */
+const NATIVE_WEB = new Set(['webfetch', 'web_fetch', 'websearch', 'web_search']);
+
+/**
+ * An MCP tool that reaches the web, by its bare name: the Fetch server's
+ * `fetch`, a `web_search`, a `webfetch`. Anything else keeps the verdict
+ * the read-name pattern gives it.
+ */
+const WEB_TOOL_NAME = /(^|_)web(_|$)|(^|_)fetch(_|$)|webfetch|websearch/;
 
 /** The runtimes' own shells, which are judged by the allow list like any command. */
 const NATIVE_SHELLS = new Set(['bash', 'run_terminal_command', 'shell']);
@@ -1491,15 +1511,101 @@ function bareMcpName(toolName) {
 }
 
 /**
+ * Whether the settings carry a workspace to judge against: the agent's
+ * granted folders, which ride along on the settings every provider runs
+ * with. Plain objects in tests have none, and with none there is nothing
+ * to be inside of, so the workspace rules below stay quiet and the older
+ * read/write answer stands.
+ */
+function hasWorkspace(settings) {
+    return Boolean(settings?.sandbox) && Array.isArray(settings.sandbox.folders);
+}
+
+/**
+ * Whether the fence would let this local target through for the mode.
+ *
+ * Asked the same question the handler will ask, so the card and the run
+ * cannot disagree: inside the granted folders (or the agent's scratch
+ * space in a container) a call runs free, outside them it stops for a
+ * person. An approval can never widen the fence: the handler checks again,
+ * and outside stays refused with directions to the sandbox settings.
+ */
+function workspaceAllows(settings, target, mode) {
+    const sb = settings?.sandbox;
+    if (!sb || !Array.isArray(sb.folders)) return false;
+    const text = String(target ?? '').trim();
+    if (sb.execution === 'container') {
+        // Unnamed is the scratch root itself, which is the agent's own.
+        return !sandbox.containerPath(sb, text || sandbox.WORKSPACE, mode).error;
+    }
+    if (!text) {
+        // Unnamed is the first granted folder: that is where local.run
+        // starts a command with no cwd of its own.
+        if (!sb.folders.length) return false;
+        return !sandbox.grantFor(sb, sb.folders[0].path, mode).error;
+    }
+    return !sandbox.grantFor(sb, text, mode).error;
+}
+
+/**
+ * Whether the command allow list is still the shipped one or wider.
+ *
+ * The workspace extension to `run_local_command` below is an extension of
+ * the shipped list, not an override of the user's: someone who narrowed
+ * the list, or a job running on its own list, keeps exactly the containment
+ * they asked for, and a simple command outside that list still stops.
+ */
+function allowlistIntact(settings) {
+    const list = Array.isArray(settings?.autoApproveCommands) ? settings.autoApproveCommands : [];
+    return DEFAULTS.autoApproveCommands.every(entry => list.includes(entry));
+}
+
+/**
+ * Input fields that carry a filesystem path, however a runtime spells the
+ * key. `command` is deliberately absent: shell text is judged as a command,
+ * never as a path, and `old`/`new`/`pattern` are absent because matched
+ * text that merely looks like a path must not pass a file gate.
+ */
+const NATIVE_PATH_KEYS = new Set([
+    'file_path', 'filepath', 'filePath', 'path', 'filename',
+    'fileName', 'file', 'directory', 'dir', 'folder', 'cwd',
+    'working_directory', 'workingDirectory',
+]);
+
+/**
+ * The absolute paths a native tool call names, or []. Only absolute: a
+ * relative path is relative to a working directory this gate cannot see,
+ * so it proves nothing and the call is asked about like any other unknown.
+ */
+function nativeAbsolutePaths(input) {
+    if (!input || typeof input !== 'object') return [];
+    const out = [];
+    for (const [key, value] of Object.entries(input)) {
+        if (!NATIVE_PATH_KEYS.has(key) && !NATIVE_PATH_KEYS.has(key.toLowerCase())) continue;
+        const values = Array.isArray(value) ? value : [value];
+        for (const candidate of values) {
+            if (typeof candidate === 'string' && candidate.trim() && path.isAbsolute(candidate.trim())) {
+                out.push(candidate.trim());
+            }
+        }
+    }
+    return out;
+}
+
+/**
  * Whether one of the runtime's own tools can go ahead without asking.
  *
  * The approval mode is the user's answer for the whole agent, and it has to
  * mean the same thing whoever is holding the keyboard: their tools or ours,
  * this runtime or the next. Nothing waits under "never", everything waits
- * under "always", and under the default a read runs and a change stops, with
- * the runtime's shell judged by the same allow list as a command on a server.
+ * under "always", and under "Workspace only" the project runs free while
+ * the outside asks: a file write whose every named path sits in a granted
+ * folder for writing goes ahead, a web call always stops, and the runtime's
+ * shell is judged by the same allow list as a command on a server.
  *
- * A name this does not recognise is a change, and a change asks. That is the
+ * Reads stay free wherever they run: a runtime's own reads touch its own
+ * area, and the project is reached through the app's fenced tools. A name
+ * this does not recognise is a change, and a change asks. That is the
  * case that matters: a runtime grows a tool, nobody revisits this, and the
  * safe answer is the one that puts a card in front of a person.
  */
@@ -1508,12 +1614,23 @@ function nativeAutoApproved(toolName, input, settings) {
     if (settings.approval === 'always') return false;
 
     const name = String(toolName || '').toLowerCase();
+    if (NATIVE_WEB.has(name)) return false;
     if (NATIVE_READS.has(name)) return true;
     if (NATIVE_SHELLS.has(name)) {
         return isAutoApproved('run_command', { command: input?.command ?? input?.cmd ?? '' }, settings);
     }
     const bare = bareMcpName(String(toolName || ''));
-    if (bare) return READ_NAME.test(bare.toLowerCase());
+    if (bare) {
+        const flat = bare.toLowerCase();
+        if (WEB_TOOL_NAME.test(flat)) return false;
+        return READ_NAME.test(flat);
+    }
+    // Never in a read-only run: the card would refuse it outright, so
+    // waving it through here would run what the run promised not to touch.
+    if (!settings.readOnlyRun) {
+        const paths = nativeAbsolutePaths(input);
+        if (paths.length > 0 && paths.every(candidate => workspaceAllows(settings, candidate, 'write'))) return true;
+    }
     return false;
 }
 
@@ -1571,6 +1688,37 @@ function isAutoApproved(toolName, input, settings) {
         return settings.autoApproveCommands.some(prefix => (
             command === prefix || command.startsWith(`${prefix} `)
         ));
+    }
+
+    // A command on this computer, under "Workspace only": a simple one
+    // whose working directory is inside the granted folders runs free, which
+    // is what makes `npm test` in the project need no card. Anything the
+    // shell could carry elsewhere (a pipe, a redirect, a second command)
+    // still stops, an allow-listed command outside the folders still stops,
+    // and a narrowed allow list is respected as written: the workspace rule
+    // extends the shipped list, it never overrides someone's narrowing.
+    if (toolName === 'run_local_command') {
+        const command = String(input?.command || '').trim().toLowerCase();
+        if (/[;&|><`$(\n\r]/.test(command)) return false;
+        const list = Array.isArray(settings?.autoApproveCommands) ? settings.autoApproveCommands : [];
+        const allowlisted = list.some(prefix => (
+            command === prefix || command.startsWith(`${prefix} `)
+        ));
+        if (allowlisted && (!hasWorkspace(settings) || workspaceAllows(settings, input?.cwd, 'read'))) return true;
+        if (allowlisted) return false;
+        // Never in a read-only run, for the same reason as native writes
+        // above: this branch can free a command that changes things.
+        if (!settings.readOnlyRun && allowlistIntact(settings) && workspaceAllows(settings, input?.cwd, 'read')) return true;
+        return false;
+    }
+
+    // A local write, under "Workspace only": inside a folder granted for
+    // writing it runs free, outside it stops for a card. The card cannot
+    // widen the fence, which the handler checks again; an approval out
+    // there ends in the grant message, pointing at the sandbox settings.
+    if (toolName === 'write_local_file' || toolName === 'edit_local_file') {
+        if (settings.readOnlyRun) return false;
+        return workspaceAllows(settings, input?.path, 'write');
     }
 
     return false;

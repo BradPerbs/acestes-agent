@@ -93,7 +93,7 @@ export default {
     'jobs.effortDropped': 'That model does not offer "{effort}" effort (it offers {offered}); the default is used.',
     'jobs.approvals': 'On a change',
     'jobs.approvals.park': 'Wait for me',
-    'jobs.approvals.park.note': 'Anything that changes a system stops and waits for you, however long. Reads run freely.',
+    'jobs.approvals.park.note': 'Outside the granted folders, anything that changes a system stops and waits for you, however long. Inside them it runs on its own.',
     'jobs.approvals.read-only': 'Read only',
     'jobs.approvals.read-only.note': 'The run may look but not change anything. It reports what it would have done.',
     'jobs.approvals.allowlist': 'Allow a list',
@@ -1161,12 +1161,12 @@ export default {
         + 'are taking its word for what happened.',
     'settings.assistant.approval': 'Ask before running',
     'settings.assistant.approval.always': 'Every action',
-    'settings.assistant.approval.writes': 'Changes only',
+    'settings.assistant.approval.writes': 'Workspace only',
     'settings.assistant.approval.never': 'Never',
     'settings.assistant.approval.always.note': 'Every tool call waits for you, including reading a '
         + 'file or the terminal. Thorough, but a long investigation becomes a lot of clicking.',
-    'settings.assistant.approval.writes.note': 'Reading runs freely. Anything that changes a system '
-        + 'stops and shows you the exact command and the host it would run on.',
+    'settings.assistant.approval.writes.note': 'Inside the granted folders everything runs on its own, '
+        + 'reads and writes. Outside them, and on the web, a call stops for your approval first.',
     'settings.assistant.approval.never.note': 'Nothing stops for approval, including commands that '
         + 'delete data or restart services. Only sensible for hosts you can afford to break.',
     'settings.assistant.autoRemember': 'Write down what it learned',
@@ -2060,8 +2060,8 @@ export default {
     'assistant.approvalsLabel': 'Approvals: {mode}',
     'assistant.approvalAlways': 'Ask every time',
     'assistant.approvalAlwaysHint': 'Every tool call waits for you',
-    'assistant.approvalWrites': 'Ask before changes',
-    'assistant.approvalWritesHint': 'Reading runs freely',
+    'assistant.approvalWrites': 'Workspace only',
+    'assistant.approvalWritesHint': 'The project runs freely, the rest asks',
     'assistant.approvalNever': 'Yolo Mode',
     'assistant.approvalNeverHint': 'Nothing stops, deletes included',
     'assistant.approvalReadOnlyRun': 'Read-only run',

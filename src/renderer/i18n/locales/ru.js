@@ -477,13 +477,12 @@ export default {
         + 'чистый вывод, но о случившемся приходится верить ему на слово.',
     'settings.assistant.approval': 'Спрашивать перед запуском',
     'settings.assistant.approval.always': 'Любое действие',
-    'settings.assistant.approval.writes': 'Только изменения',
+    'settings.assistant.approval.writes': 'Только проект',
     'settings.assistant.approval.never': 'Никогда',
     'settings.assistant.approval.always.note': 'Каждый вызов инструмента ждёт вас, включая чтение '
         + 'файла или терминала. Надёжно, но долгий разбор превращается в множество нажатий.',
-    'settings.assistant.approval.writes.note': 'Чтение выполняется свободно. Всё, что меняет '
-        + 'систему, останавливается и показывает вам точную команду и хост, на котором она '
-        + 'выполнилась бы.',
+    'settings.assistant.approval.writes.note': 'В разрешённых папках всё выполняется само — и чтение, '
+        + 'и запись. Снаружи них и в сети каждый вызов сначала ждёт вашего подтверждения.',
     'settings.assistant.approval.never.note': 'Ничто не останавливается ради подтверждения, включая '
         + 'команды, которые удаляют данные или перезапускают службы. Разумно только для хостов, '
         + 'которые вы можете позволить себе сломать.',
@@ -1238,8 +1237,8 @@ export default {
     'assistant.approvalsLabel': 'Подтверждения: {mode}',
     'assistant.approvalAlways': 'Спрашивать каждый раз',
     'assistant.approvalAlwaysHint': 'Каждый вызов инструмента ждёт вас',
-    'assistant.approvalWrites': 'Спрашивать перед изменениями',
-    'assistant.approvalWritesHint': 'Чтение выполняется свободно',
+    'assistant.approvalWrites': 'Только проект',
+    'assistant.approvalWritesHint': 'В проекте всё идёт само; снаружи и в сети — спрашивает',
     'assistant.approvalNever': 'Режим Yolo',
     'assistant.approvalNeverHint': 'Ничто не останавливается, включая удаление',
 

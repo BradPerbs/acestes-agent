@@ -139,9 +139,15 @@ check('a secret in a tool input is masked before it becomes an event', () => {
 
 check('the approval mode reaches the runtimes\' own tools, whatever they call them', () => {
     // The three spellings in play: Claude Code's, OpenCode's, Grok's.
-    for (const read of ['Read', 'read', 'read_file', 'Grep', 'grep', 'list_dir', 'WebFetch', 'webfetch']) {
+    for (const read of ['Read', 'read', 'read_file', 'Grep', 'grep', 'list_dir']) {
         assert.strictEqual(tools.nativeAutoApproved(read, {}, balanced), true, `${read} only looks`);
         assert.strictEqual(tools.nativeAutoApproved(read, {}, asking), false, `${read} still waits under "always"`);
+    }
+    // Web calls are outside actions under "Workspace only", so they stop
+    // even though looking something up changes nothing local.
+    for (const web of ['WebFetch', 'webfetch', 'WebSearch', 'web_search']) {
+        assert.strictEqual(tools.nativeAutoApproved(web, {}, balanced), false, `${web} reaches the web and asks`);
+        assert.strictEqual(tools.nativeAutoApproved(web, {}, open), true, `${web} does not wait under "never"`);
     }
     for (const write of ['Edit', 'edit', 'Write', 'write', 'patch', 'MultiEdit', 'search_replace']) {
         assert.strictEqual(tools.nativeAutoApproved(write, {}, balanced), false, `${write} changes something`);
@@ -157,8 +163,78 @@ check('the approval mode reaches the runtimes\' own tools, whatever they call th
     assert.strictEqual(tools.nativeAutoApproved('mcp__Playwright__browser_snapshot', {}, balanced), true);
     assert.strictEqual(tools.nativeAutoApproved('mcp__Playwright__browser_click', {}, balanced), false);
     assert.strictEqual(tools.nativeAutoApproved('mcp__github__list_issues', {}, balanced), true);
+    // An MCP tool that reaches the web asks, however read-like its name.
+    assert.strictEqual(tools.nativeAutoApproved('mcp__fetch__fetch', {}, balanced), false);
+    assert.strictEqual(tools.nativeAutoApproved('mcp__tavily__web_search', {}, balanced), false);
     // A name nobody has taught it is a change, and a change asks.
     assert.strictEqual(tools.nativeAutoApproved('DeployToProduction', {}, balanced), false);
+});
+
+check('under "Workspace only" the project runs free and the outside asks', () => {
+    const project = '/home/mario/site';
+    const workspace = {
+        ...balanced,
+        sandbox: { execution: 'host', folders: [{ path: project, mode: 'write' }] },
+    };
+    const readonlyGrant = {
+        ...balanced,
+        sandbox: { execution: 'host', folders: [{ path: project, mode: 'read' }] },
+    };
+
+    // Local writes inside a granted folder run free, outside they stop.
+    assert.strictEqual(tools.isAutoApproved('write_local_file', { path: `${project}/a.ts` }, workspace), true);
+    assert.strictEqual(tools.isAutoApproved('edit_local_file', { path: `${project}/a.ts` }, workspace), true);
+    assert.strictEqual(tools.isAutoApproved('write_local_file', { path: '/etc/hosts' }, workspace), false);
+    assert.strictEqual(tools.isAutoApproved('edit_local_file', { path: '/home/mario/other/b.ts' }, workspace), false);
+    assert.strictEqual(tools.isAutoApproved('write_local_file', { path: `${project}/a.ts` }, readonlyGrant), false,
+        'a read-only grant is not a workspace to write in');
+    // A sibling of the folder is not the folder.
+    assert.strictEqual(tools.isAutoApproved('write_local_file', { path: `${project}2/a.ts` }, workspace), false);
+    // Without a workspace there is nothing to be inside of.
+    assert.strictEqual(tools.isAutoApproved('write_local_file', { path: `${project}/a.ts` }, balanced), false);
+
+    // A plain command in the project runs free; chained and outside stop.
+    assert.strictEqual(tools.isAutoApproved('run_local_command', { command: 'npm test', cwd: project }, workspace), true);
+    assert.strictEqual(tools.isAutoApproved('run_local_command', { command: 'npm test' }, workspace), true,
+        'no cwd is the first granted folder');
+    assert.strictEqual(tools.isAutoApproved('run_local_command', { command: 'npm test', cwd: '/etc' }, workspace), false);
+    assert.strictEqual(tools.isAutoApproved('run_local_command', { command: 'npm test && npm run build', cwd: project }, workspace), false);
+    assert.strictEqual(tools.isAutoApproved('run_local_command', { command: 'ls /etc', cwd: '/etc' }, workspace), false,
+        'allow-listed but outside still stops');
+    assert.strictEqual(tools.isAutoApproved('run_local_command', { command: 'ls -la', cwd: project }, workspace), true);
+
+    // A narrowed allow list is respected as written: the workspace rule
+    // extends the shipped list, it never overrides someone's narrowing.
+    const narrowed = { ...workspace, autoApproveCommands: ['npm test'] };
+    assert.strictEqual(tools.isAutoApproved('run_local_command', { command: 'npm test', cwd: project }, narrowed), true);
+    assert.strictEqual(tools.isAutoApproved('run_local_command', { command: 'git status', cwd: project }, narrowed), false);
+
+    // The runtime's own writes follow the same fence when they name it.
+    assert.strictEqual(tools.nativeAutoApproved('Edit', { file_path: `${project}/a.ts` }, workspace), true);
+    assert.strictEqual(tools.nativeAutoApproved('Write', { filePath: `${project}/a.ts` }, workspace), true);
+    assert.strictEqual(tools.nativeAutoApproved('Edit', { file_path: '/etc/hosts' }, workspace), false);
+    assert.strictEqual(tools.nativeAutoApproved('Edit', { file_path: 'relative/a.ts' }, workspace), false,
+        'relative to a directory this gate cannot see proves nothing');
+    assert.strictEqual(tools.nativeAutoApproved('Edit', {}, workspace), false);
+    // Matched text that merely looks like a path opens no gate.
+    assert.strictEqual(tools.nativeAutoApproved('Edit', { old: 'see /etc/hosts', new: `see ${project}/a.ts` }, workspace), false);
+
+    // Reads stay free wherever they run; the fence still refuses outside.
+    assert.strictEqual(tools.isAutoApproved('read_local_file', { path: '/etc/hosts' }, workspace), true);
+    assert.strictEqual(tools.nativeAutoApproved('Read', { file_path: '/etc/hosts' }, workspace), true);
+});
+
+check('a read-only run still turns down every workspace write', () => {
+    const project = '/home/mario/site';
+    const looking = {
+        ...balanced,
+        readOnlyRun: true,
+        sandbox: { execution: 'host', folders: [{ path: project, mode: 'write' }] },
+    };
+    assert.strictEqual(tools.isAutoApproved('read_local_file', { path: `${project}/a.ts` }, looking), true);
+    assert.strictEqual(tools.isAutoApproved('write_local_file', { path: `${project}/a.ts` }, looking), false);
+    assert.strictEqual(tools.isAutoApproved('run_local_command', { command: 'npm test', cwd: project }, looking), false);
+    assert.strictEqual(tools.nativeAutoApproved('Edit', { file_path: `${project}/a.ts` }, looking), false);
 });
 
 check('under "ask every time" nothing runs unattended', () => {

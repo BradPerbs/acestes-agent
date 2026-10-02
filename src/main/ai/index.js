@@ -532,7 +532,9 @@ async function runHooks(conversation, event, payload = {}) {
  *               without a card: there is no answer that would let one
  *               through, so asking would only spam a background run with
  *               questions that have a single button
- *   allowlist   writes ask, except commands on the job's own list
+ *   allowlist   writes ask, except commands on the job's own list (a job's
+ *               own list narrows the shipped one, so the workspace rule
+ *               stays off there and the containment reads as written)
  *   park        writes ask, and the question waits for a person with no
  *               timeout (see requestApproval)
  *   full        nothing asks; the blocked list still applies

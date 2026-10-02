@@ -445,13 +445,13 @@ export default {
         + 'đã xảy ra thì bạn phải tin lời nó.',
     'settings.assistant.approval': 'Hỏi trước khi chạy',
     'settings.assistant.approval.always': 'Mọi thao tác',
-    'settings.assistant.approval.writes': 'Chỉ khi thay đổi',
+    'settings.assistant.approval.writes': 'Chỉ trong dự án',
     'settings.assistant.approval.never': 'Không bao giờ',
     'settings.assistant.approval.always.note': 'Mọi lần gọi công cụ đều chờ bạn, kể cả khi chỉ đọc '
         + 'một tệp hay đọc terminal. Rất chắc chắn, nhưng một cuộc điều tra dài sẽ thành rất nhiều '
         + 'lần bấm.',
-    'settings.assistant.approval.writes.note': 'Thao tác đọc chạy tự do. Bất cứ thứ gì thay đổi hệ '
-        + 'thống đều dừng lại và cho bạn xem đúng lệnh đó cùng máy chủ nó sẽ chạy trên.',
+    'settings.assistant.approval.writes.note': 'Bên trong các thư mục đã cấp quyền, mọi thứ tự chạy, '
+        + 'cả đọc lẫn ghi. Bên ngoài các thư mục đó và trên web, mỗi lệnh gọi đều dừng lại chờ bạn phê duyệt.',
     'settings.assistant.approval.never.note': 'Không có gì dừng lại chờ phê duyệt, kể cả các lệnh '
         + 'xoá dữ liệu hay khởi động lại dịch vụ. Chỉ nên dùng với máy chủ mà bạn chấp nhận được '
         + 'việc nó hỏng.',
@@ -1126,8 +1126,8 @@ export default {
     'assistant.approvalsLabel': 'Phê duyệt: {mode}',
     'assistant.approvalAlways': 'Hỏi mọi lúc',
     'assistant.approvalAlwaysHint': 'Mọi lần gọi công cụ đều chờ bạn',
-    'assistant.approvalWrites': 'Hỏi trước khi thay đổi',
-    'assistant.approvalWritesHint': 'Thao tác đọc chạy tự do',
+    'assistant.approvalWrites': 'Chỉ trong dự án',
+    'assistant.approvalWritesHint': 'Trong dự án chạy tự do; bên ngoài và trên web thì hỏi trước',
     'assistant.approvalNever': 'Chế độ thả cửa',
     'assistant.approvalNeverHint': 'Không gì dừng lại, kể cả lệnh xoá',
 

@@ -51,13 +51,17 @@ const EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
  * When to stop and ask.
  *
  *   always   every tool call waits for a person, including reads
- *   writes   reads run on their own; anything that changes a system asks
+ *   writes   "Workspace only": inside the granted folders everything runs
+ *            on its own; outside them, and on the web, a call stops for a card
  *   never    nothing asks
  *
  * `writes` is the default because it is the only one of the three that is
  * useful and safe at the same time. `always` turns reading a log file into a
  * dialog and trains people to click through; `never` hands a shell on every
  * saved host to a model with no one watching.
+ *
+ * The stored value stays `writes` whatever the menu calls it, so nobody's
+ * saved choice needs migrating when the label changes.
  */
 const APPROVALS = new Set(['always', 'writes', 'never']);
 
