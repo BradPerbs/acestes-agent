@@ -1,6 +1,6 @@
 {
     "name": "acestes-agent",
-    "version": "1.2.0",
+    "version": "1.2.1",
     "description": "Acestes Agent - an agentic desktop workspace with persistent memory, local file access and SSH sessions. Forked from CloudTerm.",
     "main": "src/main/main.js",
     "scripts": {
