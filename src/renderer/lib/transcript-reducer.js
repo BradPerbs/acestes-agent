@@ -141,6 +141,7 @@ function step(state, event, owned) {
                 id: event.at,
                 text: event.text,
                 images: event.images || [],
+                files: event.files || [],
                 mentions: event.mentions
                     || (event.specs || []).map(spec => ({ ...spec, kind: 'snippet' })),
             });

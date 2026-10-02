@@ -5,6 +5,7 @@ import {
     ArrowUp01Icon,
     StopCircleIcon,
     ImageAdd01Icon,
+    Attachment01Icon,
     ArrowUpRight01Icon,
     Delete02Icon,
     Edit02Icon,
@@ -28,6 +29,7 @@ import DictationButton from './DictationButton';
 import { useT } from '../../i18n';
 import { groupApprovals } from '../../lib/approvals';
 import { IMAGE_TYPES, imageFiles, readImage } from '../../lib/images';
+import { isTextFile, readTextFile } from '../../lib/files';
 import { describe, toWire } from '../../lib/assistant-scope';
 import { pickLine } from '../../lib/aeneid';
 import { lastModel, rememberModel } from '../../lib/last-model';
@@ -176,7 +178,7 @@ function MessageQueue({ queue, onSteer, onEdit, onRemove }) {
                         ))}
                     </span>
                     <span className="min-w-0 flex-1 truncate text-[12px] text-gray-700 dark:text-gray-300">
-                        {entry.text || t('assistant.queuedAttachments', { count: entry.images.length + entry.mentions.length })}
+                        {entry.text || t('assistant.queuedAttachments', { count: entry.images.length + (entry.files || []).length + entry.mentions.length })}
                     </span>
                     <button
                         type="button"
@@ -294,8 +296,19 @@ export default function AssistantConversation({
     const [images, setImages] = useState([]);
     /** Which agents can be sent one, from main. The button shows only for those. */
     const [imageProviders, setImageProviders] = useState([]);
+    /** Whose runtime each agent answers on, from main: the gate is per tab. */
+    const [agentProviders, setAgentProviders] = useState({});
     /** Why the last file did not make it in, shown under the thumbnails. */
     const [imageNotice, setImageNotice] = useState('');
+    /**
+     * Plain files waiting in the composer, `{ id, name, mediaType, text }`.
+     * Unlike pictures these travel as words, so every agent takes them.
+     */
+    const [files, setFiles] = useState([]);
+    /** Why the last file did not make it in, shown under the file chips. */
+    const [fileNotice, setFileNotice] = useState('');
+    /** A file drag hovering the composer, which then draws as a drop zone. */
+    const [dragging, setDragging] = useState(false);
     // What the microphone has to say for itself: nothing heard, no access.
     const [voiceNotice, setVoiceNotice] = useState('');
 
@@ -314,8 +327,9 @@ export default function AssistantConversation({
 
     /**
      * Follow-ups typed while a turn is running, per conversation: each is
-     * `{ id, text, images, mentions }` with images already in wire form
-     * (`{ name, mediaType, data }`) and mentions as `{ kind, id, name }`.
+     * `{ id, text, images, files, mentions }` with images already in wire form
+     * (`{ name, mediaType, data }`), files as `{ name, mediaType, text }`
+     * and mentions as `{ kind, id, name }`.
      * Shown above the composer, sent in order once the turn ends.
      */
     const [queues, setQueues] = useState({});
@@ -369,6 +383,10 @@ export default function AssistantConversation({
         });
     }, []);
     const fileRef = useRef(null);
+    const docRef = useRef(null);
+    // Drags enter and leave every child on the way in, so the overlay follows
+    // a depth rather than a single event: the last leave ends the hover.
+    const dragDepth = useRef(0);
     const stickToBottom = useRef(true);
 
     /** What the empty page says, chosen once for the life of the tab. */
@@ -396,7 +414,8 @@ export default function AssistantConversation({
         assistant.title
         || first?.text
         || first?.mentions?.[0]?.name
-        || (first?.images?.length ? t('assistant.image') : ''),
+        || (first?.images?.length ? t('assistant.image') : '')
+        || (first?.files?.length ? first.files[0].name : ''),
     ).replace(/\s+/g, ' ').trim().slice(0, 60);
 
     useEffect(() => {
@@ -412,6 +431,7 @@ export default function AssistantConversation({
                 setSettings(status?.settings || null);
                 setCatalogs(status?.catalogs || {});
                 setImageProviders(status?.imageProviders || []);
+                setAgentProviders(status?.agentProviders || {});
             })
             .catch(() => {});
     }, []);
@@ -469,7 +489,18 @@ export default function AssistantConversation({
 
     // Quick prompts are written on the settings page, which is open beside this
     // panel rather than instead of it, so the panel is told when they change.
-    useEffect(() => window.api.ai.onSettings(setSettings), []);
+    // The provider map rides separately from the settings object, so it is
+    // re-read with it: switching an agent's runtime on the settings page
+    // moves its tabs' attach gate at once rather than on the next reload.
+    useEffect(() => window.api.ai.onSettings((next) => {
+        setSettings(next);
+        window.api.ai.status()
+            .then((status) => {
+                setImageProviders(status?.imageProviders || []);
+                setAgentProviders(status?.agentProviders || {});
+            })
+            .catch(() => {});
+    }), []);
 
     const changeSettings = useCallback(async (patch) => {
         const next = await window.api.ai.setSettings(patch);
@@ -529,13 +560,24 @@ export default function AssistantConversation({
         keepAtBottom();
     }, [assistant.items, assistant.draft.text, assistant.busy, draftQuiet, keepAtBottom]);
 
-    /** Whether the agent answering can be sent a picture. */
-    const canAttach = Boolean(settings && imageProviders.includes(settings.provider));
+    /**
+     * Whether the agent answering can be sent a picture. Per tab, not per
+     * window: the pin on an open conversation wins, then a remembered pick
+     * for a new one, then the tab's own agent. The selected agent's runtime
+     * is only the fallback, for before any of those is known.
+     */
+    const tabProvider = pinned?.provider
+        || (!assistant.conversationId && startPin?.provider)
+        || (agentId && agentProviders[agentId])
+        || settings?.provider;
+    const canAttach = Boolean(tabProvider && imageProviders.includes(tabProvider));
 
     const clearComposer = useCallback(() => {
         setText('');
         setImages([]);
         setImageNotice('');
+        setFiles([]);
+        setFileNotice('');
         setMentions([]);
         setMention(null);
         stickToBottom.current = true;
@@ -544,10 +586,11 @@ export default function AssistantConversation({
 
     const submit = useCallback(() => {
         const body = text.trim();
-        if ((!body && images.length === 0 && mentions.length === 0) || dictating) return;
+        if ((!body && images.length === 0 && files.length === 0 && mentions.length === 0) || dictating) return;
         const payload = {
             text: body,
             images: images.map(({ name, mediaType, data }) => ({ name, mediaType, data })),
+            files: files.map(({ name, mediaType, text: content }) => ({ name, mediaType, text: content })),
             mentions: mentions.map(({ kind, id, name }) => ({ kind, id, name })),
         };
         // Into a running turn the message waits its turn rather than
@@ -568,8 +611,9 @@ export default function AssistantConversation({
             payload.text,
             payload.images,
             payload.mentions.map(({ kind, id }) => ({ kind, id })),
+            payload.files,
         );
-    }, [text, images, mentions, assistant, dictating, clearComposer]);
+    }, [text, images, files, mentions, assistant, dictating, clearComposer]);
 
     const queue = (assistant.conversationId && queues[assistant.conversationId]) || [];
 
@@ -591,6 +635,7 @@ export default function AssistantConversation({
             next.text,
             next.images,
             (next.mentions || []).map(({ kind, id }) => ({ kind, id })),
+            next.files || [],
         ).then(
             () => { sendingRef.current = false; },
             () => {
@@ -616,6 +661,10 @@ export default function AssistantConversation({
             ...image,
             id: `q-${Date.now()}-${index}`,
             dataUrl: `data:${image.mediaType};base64,${image.data}`,
+        })));
+        setFiles((entry.files || []).map((file, index) => ({
+            ...file,
+            id: `q-${Date.now()}-f-${index}`,
         })));
         setMentions(entry.mentions || []);
         requestAnimationFrame(() => inputRef.current?.focus());
@@ -704,9 +753,12 @@ export default function AssistantConversation({
      * of screenshots land in the order they were given; a file that cannot be
      * used says so under the thumbnails rather than vanishing.
      */
-    const addFiles = useCallback(async (files) => {
-        if (!canAttach) return;
-        for (const file of files) {
+    const addImageFiles = useCallback(async (picked) => {
+        if (!canAttach) {
+            setImageNotice(t('assistant.imageUnsupported'));
+            return;
+        }
+        for (const file of picked) {
             try {
                 const image = await readImage(file);
                 setImages(current => [...current, { id: `${Date.now()}-${current.length}`, ...image }]);
@@ -717,28 +769,79 @@ export default function AssistantConversation({
         inputRef.current?.focus({ preventScroll: true });
     }, [canAttach, t]);
 
+    /**
+     * Take in plain files: code, Markdown, logs, config. These travel as
+     * words, so every agent takes them, whichever runtime is answering.
+     */
+    const addAttachedFiles = useCallback(async (picked) => {
+        for (const file of picked) {
+            try {
+                const attached = await readTextFile(file);
+                setFiles(current => [...current, { id: `${Date.now()}-f-${current.length}`, ...attached }]);
+            } catch {
+                setFileNotice(t('assistant.fileDropped', { name: file.name || 'file' }));
+            }
+        }
+        inputRef.current?.focus({ preventScroll: true });
+    }, [t]);
+
+    /**
+     * Whatever was dropped or picked, each file down its own road: pictures
+     * as pictures, text as text, anything else named under the composer.
+     */
+    const addDropped = useCallback(async (picked) => {
+        const list = Array.from(picked || []);
+        if (list.length === 0) return;
+        const pictures = list.filter(file => IMAGE_TYPES.includes(file.type));
+        const rest = list.filter(file => !IMAGE_TYPES.includes(file.type));
+        if (pictures.length > 0) await addImageFiles(pictures);
+        const words = rest.filter(isTextFile);
+        if (words.length > 0) await addAttachedFiles(words);
+        const refused = rest.filter(file => !isTextFile(file));
+        if (refused.length > 0 && words.length === 0 && pictures.length === 0) {
+            setFileNotice(t('assistant.fileDropped', { name: refused[0].name || 'file' }));
+        }
+    }, [addImageFiles, addAttachedFiles, t]);
+
     const removeImage = useCallback((id) => {
         setImages(current => current.filter(image => image.id !== id));
+    }, []);
+
+    const removeFile = useCallback((id) => {
+        setFiles(current => current.filter(file => file.id !== id));
     }, []);
 
     // Ctrl+V with a picture on the clipboard, which is how a screenshot
     // arrives nine times out of ten. A text paste is left to the textarea.
     const onPaste = (event) => {
-        const files = imageFiles(event.clipboardData);
-        if (!files.length || !canAttach) return;
+        const pasted = imageFiles(event.clipboardData);
+        if (!pasted.length || !canAttach) return;
         event.preventDefault();
-        addFiles(files);
+        addImageFiles(pasted);
     };
 
     const onDrop = (event) => {
-        const files = imageFiles(event.dataTransfer);
-        if (!files.length || !canAttach) return;
+        dragDepth.current = 0;
+        setDragging(false);
+        const dropped = Array.from(event.dataTransfer?.files || []);
+        if (!dropped.length) return;
         event.preventDefault();
-        addFiles(files);
+        addDropped(dropped);
     };
 
     const onDragOver = (event) => {
-        if (canAttach && event.dataTransfer?.types?.includes('Files')) event.preventDefault();
+        if (event.dataTransfer?.types?.includes('Files')) event.preventDefault();
+    };
+
+    const onDragEnter = (event) => {
+        if (!event.dataTransfer?.types?.includes('Files')) return;
+        dragDepth.current += 1;
+        setDragging(true);
+    };
+
+    const onDragLeave = () => {
+        dragDepth.current = Math.max(0, dragDepth.current - 1);
+        if (dragDepth.current === 0) setDragging(false);
     };
 
     const onKeyDown = (event) => {
@@ -1042,7 +1145,28 @@ export default function AssistantConversation({
                         focus-within:border-gray-400 dark:focus-within:border-neutral-600"
                     onDrop={onDrop}
                     onDragOver={onDragOver}
+                    onDragEnter={onDragEnter}
+                    onDragLeave={onDragLeave}
                 >
+                    {/* The drop zone: while a file hovers, the composer
+                        empties behind an opaque cover with the attach mark
+                        in the middle. Transparent to the pointer, so the
+                        drop and the leave still land on this box. */}
+                    {dragging && (
+                        <div
+                            aria-hidden="true"
+                            className="absolute inset-0 z-10 pointer-events-none
+                                flex items-center justify-center rounded-2xl
+                                border-2 border-dashed border-gray-400 dark:border-white/40
+                                bg-white dark:bg-surface-raised"
+                        >
+                            <span className="w-11 h-11 flex items-center justify-center rounded-full
+                                bg-gray-100 dark:bg-surface-control
+                                text-gray-600 dark:text-gray-200">
+                                <Attachment01Icon size={20} strokeWidth={2} className="animate-bounce" />
+                            </span>
+                        </div>
+                    )}
                     {/* What `@` opened, over the composer rather than in it. */}
                     {mention && (
                         <MentionPicker
@@ -1117,6 +1241,39 @@ export default function AssistantConversation({
                             {imageNotice}
                         </div>
                     )}
+                    {/* What is going with the message as words: code, logs,
+                        docs. Each chip can be taken back until it is sent. */}
+                    {files.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 px-3 pt-2.5">
+                            {files.map(file => (
+                                <span
+                                    key={file.id}
+                                    className="inline-flex items-center gap-1 pl-2 pr-1 h-6 rounded-md
+                                        text-xs font-medium select-none
+                                        bg-gray-100 dark:bg-surface-control
+                                        text-gray-700 dark:text-gray-200"
+                                >
+                                    <span className="max-w-[12rem] truncate">{file.name}</span>
+                                    <button
+                                        type="button"
+                                        aria-label={t('assistant.removeFile', { name: file.name })}
+                                        onClick={() => removeFile(file.id)}
+                                        className="w-4 h-4 flex items-center justify-center rounded
+                                            text-gray-500 dark:text-gray-400
+                                            hover:text-gray-900 dark:hover:text-white
+                                            hover:bg-black/[0.06] dark:hover:bg-white/10 transition-colors"
+                                    >
+                                        <Cancel01Icon size={10} strokeWidth={2.5} />
+                                    </button>
+                                </span>
+                            ))}
+                        </div>
+                    )}
+                    {fileNotice && (
+                        <div className="px-3 pt-2 text-xs text-amber-600 dark:text-amber-400">
+                            {fileNotice}
+                        </div>
+                    )}
                     {voiceNotice && (
                         <div className="px-3 pt-2 text-xs text-amber-600 dark:text-amber-400">
                             {voiceNotice}
@@ -1168,6 +1325,34 @@ export default function AssistantConversation({
                             </button>
                         </Tooltip>
 
+                        {/* A file off the disk: code, logs, docs. Every agent
+                            reads these, since they travel as words. */}
+                        <input
+                            ref={docRef}
+                            type="file"
+                            multiple
+                            className="hidden"
+                            onChange={(event) => {
+                                addDropped(Array.from(event.target.files || []));
+                                event.target.value = '';
+                            }}
+                        />
+                        <Tooltip label={t('assistant.attachFile')} placement="top">
+                            <button
+                                type="button"
+                                aria-label={t('assistant.attachFile')}
+                                onClick={() => docRef.current?.click()}
+                                className={`w-7 h-7 shrink-0 flex items-center justify-center
+                                    rounded-full transition-colors
+                                    ${files.length > 0
+                                        ? 'bg-gray-100 dark:bg-surface-control text-gray-700 dark:text-gray-200'
+                                        : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-surface-control '
+                                            + 'hover:text-gray-700 dark:hover:text-gray-200'}`}
+                            >
+                                <Attachment01Icon size={15} strokeWidth={2} />
+                            </button>
+                        </Tooltip>
+
                         {/* The picker, for the agents that can read a picture.
                             Paste and drop work without it; this is for the
                             file that is not already on the clipboard. */}
@@ -1180,7 +1365,7 @@ export default function AssistantConversation({
                                     multiple
                                     className="hidden"
                                     onChange={(event) => {
-                                        addFiles(Array.from(event.target.files || []));
+                                        addImageFiles(Array.from(event.target.files || []));
                                         event.target.value = '';
                                     }}
                                 />
@@ -1241,7 +1426,7 @@ export default function AssistantConversation({
                                 send, so the button is absent rather than
                                 disabled: a permanently greyed control is
                                 just clutter with a hover state. */}
-                            {(text.trim() || images.length > 0 || mentions.length > 0) && assistant.busy ? (
+                            {(text.trim() || images.length > 0 || files.length > 0 || mentions.length > 0) && assistant.busy ? (
                                 <Tooltip label={t('assistant.queue')} hint="Enter" placement="top">
                                     <button
                                         type="button"
@@ -1271,7 +1456,7 @@ export default function AssistantConversation({
                                         <StopCircleIcon size={15} strokeWidth={2} />
                                     </button>
                                 </Tooltip>
-                            ) : (text.trim() || images.length > 0 || mentions.length > 0) ? (
+                            ) : (text.trim() || images.length > 0 || files.length > 0 || mentions.length > 0) ? (
                                 <Tooltip label={t('assistant.send')} hint="Enter" placement="top">
                                     <button
                                         type="button"

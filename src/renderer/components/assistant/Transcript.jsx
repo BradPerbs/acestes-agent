@@ -86,6 +86,20 @@ function RowContent({ item, conversationId, onRespond, onAnswer, onRevert, onOpe
                         records are in the inventory, and a
                         bubble holding a runbook would be the
                         whole panel. */}
+                    {item.files?.length > 0 && (
+                        <div className={`flex flex-wrap gap-1.5 ${item.text || item.images?.length || item.mentions?.length ? 'mb-1.5' : ''}`}>
+                            {item.files.map((file, index) => (
+                                <span
+                                    key={file.name || index}
+                                    title={file.name}
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md
+                                        text-xs bg-white/15 dark:bg-black/10"
+                                >
+                                    {file.name}
+                                </span>
+                            ))}
+                        </div>
+                    )}
                     {item.mentions?.length > 0 && (
                         <div className={`flex flex-wrap gap-1.5 ${item.text || item.images?.length ? 'mb-1.5' : ''}`}>
                             {item.mentions.map((entry, index) => (

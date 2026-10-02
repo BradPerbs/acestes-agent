@@ -624,8 +624,10 @@ contextBridge.exposeInMainWorld('api', {
         // use cannot read pictures. `mentions` is optional too: `{ kind, id }`
         // for anything in the agent's inventory the message tagged with `@`.
         // Main reads each record itself rather than taking it from here.
-        send: (conversationId, text, images, mentions) =>
-            ipcRenderer.invoke('ai-send', { conversationId, text, images, mentions }),
+        // `files` is optional: `[{ name, mediaType, text }]` with plain files
+        // as words, which travel in the prompt and work on every agent.
+        send: (conversationId, text, images, mentions, files) =>
+            ipcRenderer.invoke('ai-send', { conversationId, text, images, mentions, files }),
         interrupt: (conversationId) => ipcRenderer.invoke('ai-interrupt', conversationId),
 
         // Every message, tool call and result for a conversation.

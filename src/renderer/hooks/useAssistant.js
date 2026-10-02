@@ -313,8 +313,8 @@ export default function useAssistant({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [conversationId, targetKey]);
 
-    /** `mentions` are `{ kind, id }`; main reads each record itself. */
-    const send = useCallback(async (text, images = [], mentions = []) => {
+    /** `mentions` are `{ kind, id }`; main reads each record itself. Files are `{ name, mediaType, text }`. */
+    const send = useCallback(async (text, images = [], mentions = [], files = []) => {
         // Made on the first message rather than when the tab opened. The ref is
         // set here as well as through state, so an event arriving on the heels
         // of the send is not filtered out by a render that has not happened.
@@ -337,7 +337,7 @@ export default function useAssistant({
                 return;
             }
         }
-        const result = await window.api.ai.send(id, text, images, mentions);
+        const result = await window.api.ai.send(id, text, images, mentions, files);
         if (!result?.success && result?.message) {
             dispatch({
                 type: 'error', message: result.message, at: Date.now(),

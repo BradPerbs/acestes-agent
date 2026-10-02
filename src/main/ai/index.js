@@ -15,6 +15,7 @@ const titles = require('./titles');
 const computer = require('./computer');
 const overlay = require('./overlay');
 const { readImages } = require('./images');
+const { readFiles, fileBlock } = require('./attachments');
 const { readMentions, mentionBlock, stripMentions } = require('./mentions');
 const store = require('../store');
 const transcript = require('../transcript');
@@ -2445,7 +2446,11 @@ function exportMarkdown(conversationId, { full = false, messagesOnly = false } =
         if (messagesOnly && event.parentId) continue;
         switch (event.type) {
             case 'user-message':
-                lines.push(`## You${stamp(event)}`, '', event.text || '', '');
+                lines.push(`## You${stamp(event)}`, '', [
+                    ...(Array.isArray(event.files) && event.files.length
+                        ? event.files.map(entry => `[attached file: ${entry.name}]`) : []),
+                    event.text || '',
+                ].filter(Boolean).join('\n'), '');
                 break;
             case 'assistant-text':
                 lines.push(`## ${event.parentId ? 'Subagent' : 'Agent'}${stamp(event)}`, '', event.text || '', '');
@@ -2892,7 +2897,7 @@ function summarise(input) {
  * user is exactly the thing that moves while they work. Sending it only on
  * change keeps the cached prefix intact for the turns where nothing moved.
  */
-async function send(conversationId, text, attachments = [], tagged = []) {
+async function send(conversationId, text, attachments = [], tagged = [], attachedFiles = []) {
     hydrate();
 
     if (parseSubagentId(conversationId)) {
@@ -2904,6 +2909,8 @@ async function send(conversationId, text, attachments = [], tagged = []) {
     const body = String(text || '').trim();
     const { images, error } = readImages(attachments);
     if (error) return { success: false, message: error };
+    const { files, error: filesError } = readFiles(attachedFiles);
+    if (filesError) return { success: false, message: filesError };
 
     // What the message tagged is looked up here, against the inventory as it
     // stands, rather than trusted as text from the renderer. See `mentions.js`.
@@ -2918,14 +2925,16 @@ async function send(conversationId, text, attachments = [], tagged = []) {
     if (attached.error) return { success: false, message: attached.error };
     const { mentions } = attached;
 
-    if (!body && images.length === 0 && mentions.length === 0) {
+    if (!body && images.length === 0 && files.length === 0 && mentions.length === 0) {
         return { success: false, message: 'Nothing to send' };
     }
 
     // Refused here rather than quietly dropped: a question about a screenshot
-    // the model never saw would get an answer that reads as if it had.
-    if (images.length > 0 && PROVIDERS[resolved(conversation.agentId).provider]?.supportsImages !== true) {
-        return { success: false, message: 'This agent cannot read images. Claude Code and Codex can.' };
+    // the model never saw would get an answer that reads as if it had. Pinned
+    // like the run itself, so a conversation put on another runtime is judged
+    // by the one answering it rather than by the agent's default.
+    if (images.length > 0 && PROVIDERS[effectiveSettings(conversation).provider]?.supportsImages !== true) {
+        return { success: false, message: 'This agent cannot read images.' };
     }
 
     // The first message, tidied, names the chat until the runtime has named
@@ -2935,7 +2944,7 @@ async function send(conversationId, text, attachments = [], tagged = []) {
     const drafted = !conversation.title
         || (conversation.titleSource === 'draft' && titles.tooThin(conversation.title) && body && !titles.tooThin(body));
     if (drafted) {
-        conversation.title = secrets.scrub(titles.fromMessage(body || mentions[0]?.name || images[0].name));
+        conversation.title = secrets.scrub(titles.fromMessage(body || mentions[0]?.name || images[0]?.name || files[0]?.name));
         conversation.titleSource = 'draft';
     }
 
@@ -2945,6 +2954,7 @@ async function send(conversationId, text, attachments = [], tagged = []) {
         type: 'user-message',
         text: body,
         ...(images.length ? { images } : {}),
+        ...(files.length ? { files } : {}),
         ...(mentions.length ? { mentions: stripMentions(mentions) } : {}),
     });
     // Told to the panel like the runtime's name will be, so the tab and the
@@ -3028,6 +3038,7 @@ async function send(conversationId, text, attachments = [], tagged = []) {
             );
         }
 
+        if (files.length > 0) parts.push(fileBlock(files));
         if (mentions.length > 0) parts.push(mentionBlock(mentions));
         if (body) parts.push(body);
 
@@ -3412,6 +3423,11 @@ function status() {
         // Which of them can be sent a picture, so the composer offers the
         // attach button only where it would work.
         imageProviders: Object.keys(PROVIDERS).filter(name => PROVIDERS[name].supportsImages === true),
+        // Whose runtime each agent answers on, so a tab for one agent does
+        // not take the attach gate of whichever agent happens to be selected.
+        agentProviders: Object.fromEntries(
+            (agents.snapshot()?.agents || []).map(entry => [entry.id, settings.get(entry.id).provider])
+        ),
         settings: current,
         // Null until a conversation has run once. The settings page says so
         // rather than guessing, because "no plan found" and "not asked yet"

@@ -97,13 +97,30 @@ async function run() {
         fs.rmSync(root, { recursive: true, force: true });
     }
 
-    // Claude Code and Codex take pictures, and say so. The rest do not.
+    // Claude Code and Codex take pictures, and say so. Grok Build takes them
+    // as files named on the turn's prompt. The rest do not.
     assert.strictEqual(claude.supportsImages, true);
     assert.strictEqual(codex.supportsImages, true);
-    for (const name of ['opencode', 'grok', 'kimi', 'local']) {
+    const grokBuild = require('../src/main/ai/providers/grok');
+    assert.strictEqual(grokBuild.supportsImages, true);
+    for (const name of ['opencode', 'kimi', 'local']) {
         const provider = require(`../src/main/ai/providers/${name}`);
         assert.notStrictEqual(provider.supportsImages, true, `${name} does not claim to read images`);
     }
+
+    // The turn as Grok Build receives it: pictures staged to disk and named
+    // on the prompt, since a headless run takes text rather than image blocks.
+    assert.strictEqual(grokBuild.promptWithImages('hello', []), 'hello', 'text alone stays a string');
+    assert.strictEqual(
+        grokBuild.promptWithImages('what is this?', ['/tmp/image-1.png']),
+        'what is this?\n\nAttached images (open each file to view it):\n- /tmp/image-1.png',
+        'pictures named under the words about them'
+    );
+    assert.strictEqual(
+        grokBuild.promptWithImages('', ['/tmp/image-1.png']).split('\n')[0],
+        'See the attached images.',
+        'a picture sent on its own still carries words'
+    );
 
     // The web is not a local tool. This is what "the assistant has no
     // internet" turned out to be.

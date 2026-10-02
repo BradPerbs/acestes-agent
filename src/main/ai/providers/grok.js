@@ -8,6 +8,9 @@ const { app } = require('electron');
 const mcpHost = require('../mcp-host');
 const mcpConfig = require('../mcp-config');
 const engine = require('./openai-compatible');
+// Pictures staged for the turn, as files the CLI is pointed at. Shared with
+// the Codex provider, whose headless run takes them the same way.
+const { stageImages } = require('./codex');
 
 /**
  * The Grok provider.
@@ -608,6 +611,26 @@ function runArguments({ current, sessionId, resume, directory, prompt }) {
 }
 
 /**
+ * The prompt with staged pictures named in it.
+ *
+ * A headless run takes text, not image blocks, so pictures ride as files the
+ * run is pointed at: written out for the turn by `stageImages` (see codex),
+ * named here, removed when the turn ends. The agent opens them with its own
+ * file tools, the same way it opens anything else the prompt points at.
+ */
+function promptWithImages(text, paths = []) {
+    const body = String(text || '').trim();
+    if (!paths.length) return body;
+    const lines = paths.map(file => `- ${file}`);
+    return [
+        body || 'See the attached images.',
+        '',
+        'Attached images (open each file to view it):',
+        ...lines,
+    ].join('\n');
+}
+
+/**
  * One turn: a process, its stdout read as it arrives, and an exit code.
  *
  * A run per turn rather than a long-lived process is the Codex arrangement,
@@ -819,15 +842,22 @@ async function start(options) {
         if (stopped) stopProcess(child);
     };
 
-    async function turn(text) {
+    async function turn(text, images = []) {
         const current = getSettings();
         const env = environment(current);
         const translator = createTranslator(onEvent);
-        const prompt = preamble ? `${preamble}\n\n---\n\n${text}` : text;
+        // Pictures ride as files the run is pointed at: staged for the turn,
+        // named in the prompt, removed afterwards. The retry below reuses the
+        // same staging, so nothing is cleaned up until the turn is over.
+        const staged = await stageImages(images);
+        const prompt = preamble
+            ? `${preamble}\n\n---\n\n${promptWithImages(text, staged.paths)}`
+            : promptWithImages(text, staged.paths);
         preamble = '';
         stopped = false;
 
         const waiting = () => mcpHost.pending(token) > 0;
+        try {
         let outcome = await runTurn({
             binary,
             args: runArguments({ current, sessionId, resume, directory, prompt }),
@@ -875,11 +905,14 @@ async function start(options) {
         if (closed) return;
         if (!translator.failed) onEvent({ type: 'error', message: outcome.message });
         translator.finish('error');
+        } finally {
+            await staged.cleanup();
+        }
     }
 
     return {
-        send(text) {
-            running = running.then(() => turn(text)).catch((error) => {
+        send(text, images = []) {
+            running = running.then(() => turn(text, images)).catch((error) => {
                 if (!closed) onEvent({ type: 'error', message: describeFailure(error.message) });
             });
         },
@@ -990,8 +1023,11 @@ module.exports = {
     stripServer,
     effortFor,
     describeFailure,
+    promptWithImages,
     LOCAL_TOOLS,
     SERVER_NAME,
     API_URL,
+    // Pictures go in as files on the turn's prompt: see `promptWithImages`.
+    supportsImages: true,
     _test: { runTurn, stopProcess, workspace },
 };
