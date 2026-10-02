@@ -203,12 +203,17 @@ export default function useConversationTabs({
             window.api.ai.history(tab.conversationId).then((past) => {
                 if (!past?.found) return;
                 const scope = fromWire(past);
-                if (scope.mode === FOLLOW) return;
-                setTabs(current => current.map(entry => (
-                    entry.id === tab.id && entry.type === 'conversation' && entry.scope.mode === FOLLOW
-                        ? { ...entry, scope }
-                        : entry
-                )));
+                // The conversation's own agent, which is not always the one
+                // selected: a chat delegated to another agent, opened by the
+                // agent, or from the Conversations page. The tab wears its mark.
+                const agentId = past.agentId || '';
+                setTabs(current => current.map((entry) => {
+                    if (entry.id !== tab.id || entry.type !== 'conversation') return entry;
+                    let next = entry;
+                    if (scope.mode !== FOLLOW && entry.scope.mode === FOLLOW) next = { ...next, scope };
+                    if (agentId && entry.agentId !== agentId) next = { ...next, agentId, keepAgent: true };
+                    return next;
+                }));
             }).catch(() => {});
         }
     }, [conversationTabs, setTabs]);
