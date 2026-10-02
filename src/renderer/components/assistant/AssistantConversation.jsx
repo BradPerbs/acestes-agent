@@ -6,6 +6,8 @@ import {
     StopCircleIcon,
     ImageAdd01Icon,
     ArrowUpRight01Icon,
+    Delete02Icon,
+    Edit02Icon,
 } from 'hugeicons-react';
 import Tooltip from '../ui/Tooltip';
 import AgentMark from './AgentMark';
@@ -18,6 +20,7 @@ import ApprovalRequest from './ApprovalRequest';
 import QuestionRequest from './QuestionRequest';
 import WorkingIndicator from './WorkingIndicator';
 import Transcript, { Notice } from './Transcript';
+import { Thought } from './ToolGroup';
 import ModelMenu from './ModelMenu';
 import ContextRing from './ContextRing';
 import ApprovalMenu from './ApprovalMenu';
@@ -149,6 +152,68 @@ function StreamingText({ text, onReveal, active = true }) {
 }
 
 /**
+ * Messages waiting for the running turn to end, in send order.
+ *
+ * Held in the panel rather than sent to main: a queued message is not in
+ * the transcript yet, it goes there when it is actually sent. `Steer`
+ * stops the running turn and sends that row next instead of in order.
+ */
+function MessageQueue({ queue, onSteer, onEdit, onRemove }) {
+    const t = useT();
+    if (!queue.length) return null;
+    return (
+        <div className="px-3 pb-2 space-y-1.5" role="list" aria-label={t('assistant.queue')}>
+            {queue.map(entry => (
+                <div
+                    key={entry.id}
+                    role="listitem"
+                    className="flex items-center gap-1.5 rounded-xl pl-2.5 pr-1.5 py-1.5
+                        bg-gray-100 dark:bg-white/[0.06]"
+                >
+                    <span aria-hidden="true" className="shrink-0 grid grid-cols-2 gap-[2px] opacity-40">
+                        {[0, 1, 2, 3, 4, 5].map(dot => (
+                            <span key={dot} className="w-[3px] h-[3px] rounded-full bg-current text-gray-500" />
+                        ))}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-[12px] text-gray-700 dark:text-gray-300">
+                        {entry.text || t('assistant.queuedAttachments', { count: entry.images.length + entry.mentions.length })}
+                    </span>
+                    <button
+                        type="button"
+                        aria-label={t('assistant.queuedRemove')}
+                        onClick={() => onRemove(entry.id)}
+                        className="w-6 h-6 shrink-0 flex items-center justify-center rounded-full
+                            text-gray-500 dark:text-gray-400
+                            hover:bg-black/[0.06] dark:hover:bg-white/10 hover:text-gray-900 dark:hover:text-white"
+                    >
+                        <Delete02Icon size={13} strokeWidth={2} />
+                    </button>
+                    <button
+                        type="button"
+                        aria-label={t('assistant.queuedEdit')}
+                        onClick={() => onEdit(entry.id)}
+                        className="w-6 h-6 shrink-0 flex items-center justify-center rounded-full
+                            text-gray-500 dark:text-gray-400
+                            hover:bg-black/[0.06] dark:hover:bg-white/10 hover:text-gray-900 dark:hover:text-white"
+                    >
+                        <Edit02Icon size={13} strokeWidth={2} />
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => onSteer(entry.id)}
+                        className="shrink-0 h-6 px-2.5 rounded-full text-[11px] font-medium
+                            text-gray-600 dark:text-gray-300
+                            hover:bg-black/[0.06] dark:hover:bg-white/10 hover:text-gray-900 dark:hover:text-white"
+                    >
+                        {t('assistant.steer')}
+                    </button>
+                </div>
+            ))}
+        </div>
+    );
+}
+
+/**
  * How long streamed text can sit still, in ms, before the working line comes
  * back under it. The model often writes a sentence and then spends a long
  * while composing the call that follows, a big edit most of all, and in that
@@ -246,6 +311,18 @@ export default function AssistantConversation({
     /** `{ query, start }` while the picker is open, and the row highlighted. */
     const [mention, setMention] = useState(null);
     const [activeRow, setActiveRow] = useState(0);
+
+    /**
+     * Follow-ups typed while a turn is running, per conversation: each is
+     * `{ id, text, images, mentions }` with images already in wire form
+     * (`{ name, mediaType, data }`) and mentions as `{ kind, id, name }`.
+     * Shown above the composer, sent in order once the turn ends.
+     */
+    const [queues, setQueues] = useState({});
+    /** A steered row: jumps the queue the moment the turn stops. */
+    const steerRef = useRef(null);
+    /** A send already in flight from the queue, against double effects. */
+    const sendingRef = useRef(false);
 
     const matches = useMemo(
         () => (mention ? matchMentions(mentionables, mention.query) : []),
@@ -455,11 +532,7 @@ export default function AssistantConversation({
     /** Whether the agent answering can be sent a picture. */
     const canAttach = Boolean(settings && imageProviders.includes(settings.provider));
 
-    const submit = useCallback(() => {
-        const body = text.trim();
-        if ((!body && images.length === 0 && mentions.length === 0) || assistant.busy) return;
-        // Not halfway through a sentence: stop the microphone first.
-        if (dictating) return;
+    const clearComposer = useCallback(() => {
         setText('');
         setImages([]);
         setImageNotice('');
@@ -467,12 +540,98 @@ export default function AssistantConversation({
         setMention(null);
         stickToBottom.current = true;
         if (inputRef.current) inputRef.current.style.height = 'auto';
+    }, []);
+
+    const submit = useCallback(() => {
+        const body = text.trim();
+        if ((!body && images.length === 0 && mentions.length === 0) || dictating) return;
+        const payload = {
+            text: body,
+            images: images.map(({ name, mediaType, data }) => ({ name, mediaType, data })),
+            mentions: mentions.map(({ kind, id, name }) => ({ kind, id, name })),
+        };
+        // Into a running turn the message waits its turn rather than
+        // joining it: it sits above the composer until the turn ends.
+        if (assistant.busy) {
+            const id = assistant.conversationId;
+            if (!id) return;
+            clearComposer();
+            setQueues(current => ({
+                ...current,
+                [id]: [...(current[id] || []), { ...payload, id: `${Date.now()}-${(current[id] || []).length}` }],
+            }));
+            return;
+        }
+        // Not halfway through a sentence: stop the microphone first.
+        clearComposer();
         assistant.send(
-            body,
-            images.map(({ name, mediaType, data }) => ({ name, mediaType, data })),
-            mentions.map(({ kind, id }) => ({ kind, id })),
+            payload.text,
+            payload.images,
+            payload.mentions.map(({ kind, id }) => ({ kind, id })),
         );
-    }, [text, images, mentions, assistant, dictating]);
+    }, [text, images, mentions, assistant, dictating, clearComposer]);
+
+    const queue = (assistant.conversationId && queues[assistant.conversationId]) || [];
+
+    // The queue drains itself: a steered row first, then in order, each
+    // sent once the conversation goes quiet. A send that fails goes back
+    // to the head rather than vanishing; main already says why.
+    useEffect(() => {
+        const cid = assistant.conversationId;
+        if (!cid || assistant.busy || assistant.starting || sendingRef.current) return;
+        const steered = steerRef.current;
+        const next = steered || queue[0];
+        if (!next) return;
+        if (steered) steerRef.current = null;
+        else {
+            setQueues(current => ({ ...current, [cid]: (current[cid] || []).slice(1) }));
+        }
+        sendingRef.current = true;
+        assistant.send(
+            next.text,
+            next.images,
+            (next.mentions || []).map(({ kind, id }) => ({ kind, id })),
+        ).then(
+            () => { sendingRef.current = false; },
+            () => {
+                setQueues(current => ({ ...current, [cid]: [next, ...(current[cid] || [])] }));
+                sendingRef.current = false;
+            },
+        );
+    }, [assistant, queue]);
+
+    const removeQueued = useCallback((id) => {
+        const cid = assistant.conversationId;
+        if (!cid) return;
+        setQueues(current => ({ ...current, [cid]: (current[cid] || []).filter(entry => entry.id !== id) }));
+    }, [assistant.conversationId]);
+
+    const editQueued = useCallback((id) => {
+        const cid = assistant.conversationId;
+        const entry = ((cid && queues[cid]) || []).find(row => row.id === id);
+        if (!entry) return;
+        removeQueued(id);
+        setText(entry.text || '');
+        setImages((entry.images || []).map((image, index) => ({
+            ...image,
+            id: `q-${Date.now()}-${index}`,
+            dataUrl: `data:${image.mediaType};base64,${image.data}`,
+        })));
+        setMentions(entry.mentions || []);
+        requestAnimationFrame(() => inputRef.current?.focus());
+    }, [assistant.conversationId, queues, removeQueued]);
+
+    // Steer: the row jumps the queue and the running turn stops for it.
+    // The drain above sends it the moment the stop lands; already quiet
+    // and it just goes.
+    const steerQueued = useCallback((id) => {
+        const cid = assistant.conversationId;
+        const entry = ((cid && queues[cid]) || []).find(row => row.id === id);
+        if (!entry) return;
+        removeQueued(id);
+        steerRef.current = entry;
+        if (assistant.busy) assistant.interrupt();
+    }, [assistant, queues, removeQueued]);
 
     /**
      * What is being tagged, if anything: an `@` at the caret, at the start of
@@ -754,6 +913,7 @@ export default function AssistantConversation({
                     key={assistant.conversationId || 'new'}
                     items={assistant.items}
                     busy={assistant.busy}
+                    turnRates={assistant.turnRates}
                     conversationId={assistant.conversationId}
                     onRespond={assistant.respond}
                     onAnswer={assistant.answer}
@@ -766,6 +926,9 @@ export default function AssistantConversation({
 
                 {/* The turn in progress. Replaced by a finished block the
                     moment the model closes it, so both are never shown. */}
+                {assistant.busy && assistant.draft.thinking && !assistant.draft.text && (
+                    <Thought item={{ text: '', thinking: assistant.draft.thinking }} live />
+                )}
                 {assistant.draft.text && (
                     <StreamingText text={assistant.draft.text} onReveal={keepAtBottom} active={active} />
                 )}
@@ -867,6 +1030,12 @@ export default function AssistantConversation({
                 </div>
             ) : (
             <div className="shrink-0 p-3">
+                <MessageQueue
+                    queue={queue}
+                    onSteer={steerQueued}
+                    onEdit={editQueued}
+                    onRemove={removeQueued}
+                />
                 <div
                     className="relative rounded-2xl transition-colors
                         border border-gray-300 dark:border-surface-control
@@ -963,7 +1132,7 @@ export default function AssistantConversation({
                         onClick={(event) => setMention(readMention(event.target.value, event.target.selectionStart))}
                         onBlur={() => setMention(null)}
                         onPaste={onPaste}
-                        placeholder={t('assistant.askAbout', { about: described.sentence })}
+                        placeholder={assistant.busy ? t('assistant.queuePlaceholder') : t('assistant.askAbout', { about: described.sentence })}
                         className="block w-full max-h-40 px-3 pt-2.5 pb-1 bg-transparent
                             resize-none outline-none
                             text-[13px] leading-relaxed text-gray-900 dark:text-white
@@ -1072,6 +1241,21 @@ export default function AssistantConversation({
                                 send, so the button is absent rather than
                                 disabled: a permanently greyed control is
                                 just clutter with a hover state. */}
+                            {(text.trim() || images.length > 0 || mentions.length > 0) && assistant.busy ? (
+                                <Tooltip label={t('assistant.queue')} hint="Enter" placement="top">
+                                    <button
+                                        type="button"
+                                        aria-label={t('assistant.queue')}
+                                        onClick={submit}
+                                        className="w-7 h-7 shrink-0 flex items-center justify-center
+                                            rounded-full transition-all active:scale-95
+                                            bg-gray-900 dark:bg-white
+                                            text-white dark:text-black hover:opacity-90"
+                                    >
+                                        <ArrowUp01Icon size={15} strokeWidth={2.5} />
+                                    </button>
+                                </Tooltip>
+                            ) : null}
                             {assistant.busy ? (
                                 <Tooltip label={t('assistant.stop')} placement="top">
                                     <button

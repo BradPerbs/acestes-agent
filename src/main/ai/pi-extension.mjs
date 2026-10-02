@@ -17,7 +17,16 @@
  * here is installed into the user's Pi or written anywhere.
  */
 
-import { Type } from 'typebox';
+// NOTE: no static `typebox` import: the packaged build unpacks only this
+// file (asarUnpack), with no node_modules beside it, so a static import
+// kills the extension and Pi exits with `Pi stopped (Hint: -ne)`. The
+// schema is passed through untouched when typebox is unreachable.
+let Type = { Unsafe: (schema) => schema };
+try {
+    ({ Type } = await import('typebox'));
+} catch {
+    // Pass-through above stands in.
+}
 
 const URL_ = process.env.ACESTES_MCP_URL || '';
 const APPROVAL = 'acestes:approve';
@@ -68,9 +77,8 @@ export default async function acestes(pi) {
             await notify('notifications/initialized');
             const { tools = [] } = await rpc('tools/list', {});
             for (const tool of tools) {
-                ours.add(tool.name);
-                pi.registerTool({
-                    name: tool.name,
+                const spec = (name) => ({
+                    name,
                     label: tool.title || tool.annotations?.title || tool.name,
                     description: tool.description || tool.name,
                     parameters: Type.Unsafe(tool.inputSchema || { type: 'object', properties: {} }),
@@ -81,6 +89,20 @@ export default async function acestes(pi) {
                         return { content: [{ type: 'text', text }], details: undefined };
                     },
                 });
+                // Another extension (e.g. pi-blackhole's `recall`) may own
+                // the name: a conflict fails the whole extension load and
+                // Pi exits (`Pi stopped`). Keep ours under an `acestes_`
+                // alias instead of dying.
+                try {
+                    pi.registerTool(spec(tool.name));
+                    ours.add(tool.name);
+                } catch (error) {
+                    if (!/conflict/i.test(error?.message || '')) throw error;
+                    const aliased = `acestes_${tool.name}`;
+                    pi.registerTool(spec(aliased));
+                    ours.add(aliased);
+                    process.stderr.write(`acestes: tool "${tool.name}" conflicts; registered as "${aliased}"\n`);
+                }
             }
         } catch (error) {
             // Pi still runs; it just cannot reach the servers, and says so.
@@ -89,9 +111,17 @@ export default async function acestes(pi) {
     }
 
     pi.on('tool_call', async (event, ctx) => {
-        if (ours.has(event.toolName)) return undefined;
-        if (!ctx.hasUI) return { block: true, reason: 'This run cannot ask for approval.' };
-        const approved = await ctx.ui.confirm(APPROVAL, JSON.stringify({ tool: event.toolName, input: event.input ?? {} }));
-        return approved ? undefined : { block: true, reason: 'The user declined that.' };
+        try {
+            if (ours.has(event.toolName)) return undefined;
+            if (!ctx.hasUI) return { block: true, reason: 'This run cannot ask for approval.' };
+            const approved = await ctx.ui.confirm(APPROVAL, JSON.stringify({ tool: event.toolName, input: event.input ?? {} }));
+            return approved ? undefined : { block: true, reason: 'The user declined that.' };
+        } catch (error) {
+            // Never let an approval-path failure kill the extension (and
+            // with it the Pi process: `Pi stopped (Hint: -ne)`). Block the
+            // tool and say why instead.
+            process.stderr.write(`acestes: approval failed for ${event?.toolName || 'tool'}: ${error?.message || error}\n`);
+            return { block: true, reason: `Approval failed: ${error?.message || error}` };
+        }
     });
 }

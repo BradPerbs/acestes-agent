@@ -184,7 +184,7 @@ function RowContent({ item, conversationId, onRespond, onAnswer, onRevert, onOpe
  * or the turn ending on it, changes.
  */
 const Row = memo(function Row({
-    item, endTurnId, endText, conversationId, onRespond, onAnswer, onRevert, onBranch, onOpenConversation,
+    item, endTurnId, endText, endRate, conversationId, onRespond, onAnswer, onRevert, onBranch, onOpenConversation,
 }) {
     // A question standing is drawn in the dock above the composer instead,
     // and a row with nothing in it would still take a gap in the column.
@@ -211,6 +211,7 @@ const Row = memo(function Row({
                 <div className="mt-3">
                     <TurnActions
                         text={endText}
+                        rate={endRate}
                         onBranch={onBranch ? () => onBranch(endTurnId) : null}
                     />
                 </div>
@@ -221,14 +222,17 @@ const Row = memo(function Row({
 
 /**
  * Where each finished turn ends, by the index of its last item, with the
- * turn's id (its message's) and its reply. The row under a turn goes there.
- * The turn still running has none until it is over.
+ * turn's id (its message's), its reply and its answer rate. The row under
+ * a turn goes there. The turn still running has none until it is over.
  */
-function findTurnEnds(items, busy) {
+function findTurnEnds(items, busy, turnRates) {
     const ends = new Map();
     let turn = null;
     const close = () => {
-        if (turn && turn.last >= 0 && turn.worked) ends.set(turn.last, turn);
+        if (turn && turn.last >= 0 && turn.worked) {
+            turn.rate = turnRates?.[turn.turnId] || null;
+            ends.set(turn.last, turn);
+        }
     };
     items.forEach((item, index) => {
         if (item.kind === 'user') {
@@ -379,6 +383,7 @@ const Segment = memo(function Segment({ items, keys, ends, from, to, rowProps })
                 item={items[index]}
                 endTurnId={end ? end.turnId : undefined}
                 endText={end ? end.text : ''}
+                endRate={end ? end.rate : null}
                 {...rowProps}
             />,
         );
@@ -391,6 +396,7 @@ const Segment = memo(function Segment({ items, keys, ends, from, to, rowProps })
         const before = previous.ends.get(index);
         const after = next.ends.get(index);
         if (before?.turnId !== after?.turnId || before?.text !== after?.text) return false;
+        if (before?.rate?.tps !== after?.rate?.tps || before?.rate?.tokens !== after?.rate?.tokens) return false;
     }
     return true;
 });
@@ -399,6 +405,8 @@ function Transcript({
     items: allItems,
     busy,
     conversationId,
+    /** Each finished turn's answer rate by its message's id. */
+    turnRates,
     onRespond,
     onAnswer,
     onRevert,
@@ -412,7 +420,7 @@ function Transcript({
 }) {
     const t = useT();
     const items = useGrouped(allItems, groupTools);
-    const ends = useMemo(() => findTurnEnds(items, busy), [items, busy]);
+    const ends = useMemo(() => findTurnEnds(items, busy, turnRates), [items, busy, turnRates]);
 
     // Newest first: the first row drawn. The rest come in above it while
     // the browser is idle, as a transition, so a key pressed meanwhile is

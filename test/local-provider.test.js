@@ -270,6 +270,40 @@ async function run() {
         'the turn carries on after the refusal rather than ending'
     );
 
+    /* ---------------- Usage is added up across the turn ---------------- */
+
+    const metered = await conversation({
+        handler: (url, options, call) => (call === 1
+            ? sseResponse([
+                {
+                    usage: { prompt_tokens: 100, completion_tokens: 10, total_tokens: 110 },
+                    choices: [{
+                        delta: {
+                            tool_calls: [{
+                                index: 0,
+                                id: 'call-1',
+                                function: { name: 'run_command', arguments: '{"command":"reboot"}' },
+                            }],
+                        },
+                        finish_reason: 'tool_calls',
+                    }],
+                },
+            ])
+            : sseResponse([
+                { choices: [{ delta: { content: 'Understood.' } }] },
+                {
+                    usage: { prompt_tokens: 120, completion_tokens: 8, total_tokens: 128 },
+                    choices: [{ delta: {}, finish_reason: 'stop' }],
+                },
+            ])),
+    });
+
+    assert.deepStrictEqual(
+        metered.events.find(event => event.type === 'result').usage,
+        { prompt_tokens: 220, completion_tokens: 18, total_tokens: 238 },
+        'the result carries every request\'s tokens, so the turn has a rate'
+    );
+
     /* ---------------- A blocked command never becomes a question ---------------- */
 
     const blocked = await conversation({

@@ -193,6 +193,60 @@ async function main() {
         assert.strictEqual(state.items.find(item => item.id === 'agent-1').task.status, 'stopped');
     });
 
+    check('a late aborted block does not duplicate the flushed draft', () => {
+        const state = replay([
+            { type: 'user-message', text: 'go', at: 1 },
+            { type: 'text-delta', text: 'Partial…', at: 2 },
+            { type: 'interrupted', at: 3 },
+            { type: 'assistant-text', text: 'Partial…', at: 4 },
+        ]);
+        const replies = state.items.filter(item => item.kind === 'assistant');
+        assert.strictEqual(replies.length, 1);
+        assert.strictEqual(replies[0].text, 'Partial…');
+        assert.ok(state.items.some(item => item.kind === 'notice' && item.text === 'Stopped.'));
+    });
+
+    check('a finished turn keeps its answer rate', () => {
+        const state = replay([
+            { type: 'user-message', text: 'go', at: 1000 },
+            { type: 'assistant-text', text: 'Done.', at: 2000 },
+            { type: 'result', subtype: 'success', usage: { output_tokens: 80 }, at: 5000 },
+        ]);
+        assert.deepStrictEqual(state.turnRates[1000], { tps: 20, tokens: 80, seconds: 4 });
+    });
+
+    check('figures the main process stamped win over the fallback', () => {
+        const state = replay([
+            { type: 'user-message', text: 'go', at: 1000 },
+            {
+                type: 'result', subtype: 'success', at: 9000,
+                usage: { output_tokens: 80 }, outputTokens: 80, durationMs: 2000, tokensPerSec: 40,
+            },
+        ]);
+        assert.deepStrictEqual(state.turnRates[1000], { tps: 40, tokens: 80, seconds: 2 });
+    });
+
+    check('the wall time comes along when the turn took longer', () => {
+        const state = replay([
+            { type: 'user-message', text: 'go', at: 1000 },
+            {
+                type: 'result', subtype: 'success', at: 11000,
+                usage: { output_tokens: 80 }, outputTokens: 80, durationMs: 2000,
+                tokensPerSec: 40, wallMs: 10000,
+            },
+        ]);
+        assert.deepStrictEqual(state.turnRates[1000], { tps: 40, tokens: 80, seconds: 2, wall: 10 });
+    });
+
+    check('a turn with nothing to divide by keeps no rate', () => {
+        const state = replay([
+            { type: 'user-message', text: 'go', at: 1000 },
+            { type: 'result', subtype: 'success', usage: null, at: 5000 },
+        ]);
+        assert.deepStrictEqual(state.turnRates, {});
+        assert.strictEqual(state.turnStartAt, 1000);
+    });
+
     check('a turn the runtime starts by itself is shown as work', () => {
         const state = replay([
             { type: 'user-message', text: 'go', at: 1 },

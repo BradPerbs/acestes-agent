@@ -141,7 +141,7 @@ function connect(child, { onEvent = () => {}, onActivity = () => {} } = {}) {
 /** `get_available_models`, as the composer's rows. */
 function describeModels(data) {
     const list = Array.isArray(data?.models) ? data.models : Array.isArray(data) ? data : [];
-    return list.filter(model => model?.id && model?.provider).slice(0, 80).map(model => ({
+    return list.filter(model => model?.id && model?.provider).slice(0, 500).map(model => ({
         value: `${model.provider}/${model.id}`,
         resolved: model.id,
         label: model.name || model.id,
@@ -167,8 +167,19 @@ function describeFailure(error, stderr = '') {
     if (/ENOENT|not found|spawn/i.test(text)) {
         return `Pi could not be started. Check that "pi" runs in a terminal. (${text})`;
     }
-    const last = stderr.trim().split(/\r?\n/).filter(Boolean).pop();
-    return last && !text.includes(last) ? `${text} (${last.slice(0, 300)})` : text;
+    const lines = stderr.trim().split(/\r?\n/).filter(Boolean);
+    // The Hint (`-ne`) is always the last line, never the cause. Prefer the
+    // first error-ish line (extension/acestes crash) so the message names
+    // the culprit instead of sending everyone to retry without extensions.
+    const culprit = lines.find(line => /acestes:|extension.*(fail|error|crash)|typebox|ERR_MODULE|Cannot find/i.test(line))
+        || lines.find(line => /error|fail|crash|exception/i.test(line) && !/Hint:/i.test(line))
+        || lines.pop();
+    if (culprit && !text.includes(culprit)) {
+        const hint = lines.find(line => /Hint:/i.test(line));
+        const suffix = hint && !culprit.includes(hint) ? ` [${hint.trim().slice(0, 120)}]` : '';
+        return `${text} (${culprit.slice(0, 300)}${suffix})`;
+    }
+    return text;
 }
 
 function launch(settings, { sessionId = '', host = null, rpcArgs = [] } = {}) {
@@ -177,7 +188,10 @@ function launch(settings, { sessionId = '', host = null, rpcArgs = [] } = {}) {
     const args = [
         '--mode', 'rpc',
         '--no-themes',
-        ...(host ? ['-e', extensionPath()] : []),
+        // Hermetic runs: the user's Pi packages (e.g. pi-blackhole's
+        // `recall`) would otherwise load beside our extension and kill Pi
+        // on a name clash. Explicit `-e` still loads under --no-extensions.
+        ...(host ? ['--no-extensions', '-e', extensionPath()] : []),
         ...(sessionId ? ['--session-id', sessionId] : ['--no-session']),
         ...(model ? ['--model', model] : []),
         ...(THINKING[current.effort] ? ['--thinking', THINKING[current.effort]] : []),
@@ -294,20 +308,60 @@ async function start({
     }
 
     onEvent({ type: 'session', sessionId, model: currentModel });
+    // The rows behind the composer's menu, kept so a saved bare id (from
+    // another agent, or an older pin) can be resolved to its provider/id.
+    let knownModels = [];
     rpc.send('get_available_models', {}, { timeout: START_TIMEOUT })
         .then((data) => {
             const rows = describeModels(data);
-            if (rows.length) onEvent({ type: 'models', models: rows });
+            if (rows.length) {
+                knownModels = rows;
+                onEvent({ type: 'models', models: rows });
+            }
         })
         .catch(() => {});
 
-    async function applyModel(model) {
-        if (!model || model === currentModel) return;
+    async function ensureKnownModels() {
+        if (knownModels.length) return;
+        try {
+            const data = await rpc.send('get_available_models', {}, { timeout: START_TIMEOUT });
+            const rows = describeModels(data);
+            if (rows.length) {
+                knownModels = rows;
+                onEvent({ type: 'models', models: rows });
+            }
+        } catch {
+            // Kept on what it had.
+        }
+    }
+
+    /** A composer value to the provider/id Pi's set_model needs. */
+    async function resolveModel(model) {
+        if (!model || model === currentModel) return null;
         const cut = model.indexOf('/');
+        if (cut > 0) return model;
+        // Bare id: what the Muse menu saves, or an older pin. Pi's launch
+        // flag resolves it, but set_model needs the provider, so look it up.
+        await ensureKnownModels();
+        const bare = String(model).replace(/\[[^\]]*\]/g, '');
+        const matches = knownModels.filter(row => row.resolved === bare || row.value === bare || row.value.endsWith(`/${bare}`));
+        if (matches.length === 1) return matches[0].value;
+        if (matches.length > 1) {
+            const currentProvider = currentModel.split('/')[0];
+            const sameProvider = matches.find(row => row.value.startsWith(`${currentProvider}/`));
+            return (sameProvider || matches[0]).value;
+        }
+        return null;
+    }
+
+    async function applyModel(model) {
+        const resolved = await resolveModel(model);
+        if (!resolved || resolved === currentModel) return;
+        const cut = resolved.indexOf('/');
         if (cut <= 0) return;
         try {
-            await rpc.send('set_model', { provider: model.slice(0, cut), modelId: model.slice(cut + 1) });
-            currentModel = model;
+            await rpc.send('set_model', { provider: resolved.slice(0, cut), modelId: resolved.slice(cut + 1) });
+            currentModel = resolved;
         } catch {
             // Kept on what it had.
         }
@@ -365,8 +419,13 @@ async function start({
                         return;
                     }
                     case 'tool_execution_start': {
-                        const ours = OUR_TOOLS.has(message.toolName);
-                        onEvent({ type: 'tool-call', id: message.toolCallId, name: message.toolName, rawName: message.toolName, local: !ours, input: message.args || {} });
+                        // The extension aliases our tools to `acestes_<name>`
+                        // on conflicts (e.g. pi-blackhole's `recall`); those
+                        // are still ours, not Pi natives.
+                        const raw = String(message.toolName || '');
+                        const bare = raw.startsWith('acestes_') ? raw.slice(8) : raw;
+                        const ours = OUR_TOOLS.has(raw) || OUR_TOOLS.has(bare);
+                        onEvent({ type: 'tool-call', id: message.toolCallId, name: bare, rawName: raw, local: !ours, input: message.args || {} });
                         return;
                     }
                     case 'tool_execution_end': {

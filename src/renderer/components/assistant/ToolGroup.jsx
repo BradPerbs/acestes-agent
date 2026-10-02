@@ -68,12 +68,42 @@ function previewOf(item) {
  * Collapsed to one line with a brain, like a tool call. Opens into the full
  * text, with the extended thinking above it where there is any.
  */
-export function Thought({ item, bare = false }) {
+export function Thought({ item, bare = false, live = false }) {
     const t = useT();
     const [open, setOpen] = useState(false);
     const preview = previewOf(item);
     const thinking = String(item.thinking || '').trim();
     const text = String(item.text || '').trim();
+
+    // A thought still streaming in: always expanded, collapsing on its own
+    // the moment it is flushed into the transcript as a Thought row.
+    if (live) {
+        return (
+            <div className="overflow-hidden" role="status" aria-label={t('assistant.thought')}>
+                <div className={`w-full min-w-0 pr-2.5 flex items-center gap-2 text-left select-none
+                    ${bare ? 'pl-[10px]' : 'pl-6'}`}>
+                    <BrainIcon size={14} strokeWidth={2} className="shrink-0 text-gray-400 dark:text-gray-500 animate-pulse" />
+                    <span className="text-[11px] font-medium text-gray-600 dark:text-gray-400 shrink-0">
+                        {t('assistant.thought')}
+                    </span>
+                </div>
+                <div className={`${bare ? 'pl-[10px]' : 'pl-6'} pr-2.5 pb-2.5 space-y-2`}>
+                    {thinking && (
+                        <div className="rounded-lg px-2.5 py-2 bg-gray-100/70 dark:bg-white/[0.04]">
+                            <div className="text-[12px] leading-relaxed text-gray-600 dark:text-gray-400">
+                                <Markdown text={item.thinking || ''} />
+                            </div>
+                        </div>
+                    )}
+                    {text && (
+                        <div className="px-2.5 text-[12px] leading-relaxed text-gray-700 dark:text-gray-300">
+                            <Markdown text={item.text || ''} />
+                        </div>
+                    )}
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="overflow-hidden">

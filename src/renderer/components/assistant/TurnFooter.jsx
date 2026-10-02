@@ -270,12 +270,26 @@ function ActionButton({ label, hint, onClick, disabled = false, children }) {
 }
 
 /**
+ * How fast the turn generated its answer, as the number beside the branch
+ * icon. Output tokens over generation seconds only: tool runs and waits
+ * are timed out of it. Whole numbers past twenty, one decimal below, so a
+ * slow turn still says something.
+ */
+function formatRate(tps) {
+    if (!(tps > 0)) return '';
+    const rounded = tps >= 20 ? Math.round(tps) : Math.round(tps * 10) / 10;
+    return `${rounded} tok/sec`;
+}
+
+/**
  * Copy the reply, or branch a new chat from here.
  *
  * The reply is the last thing the agent wrote in the turn, which is the
  * answer; what it said on the way there, between tool calls, is narration.
+ * `rate` is the turn's answer rate ({ tps, tokens, seconds }), shown beside
+ * the branch icon when the runtime reported usage to work it out from.
  */
-export function TurnActions({ text, onBranch }) {
+export function TurnActions({ text, onBranch, rate }) {
     const t = useT();
     const [copied, setCopied] = useState(false);
     const [branching, setBranching] = useState(false);
@@ -308,6 +322,11 @@ export function TurnActions({ text, onBranch }) {
         }
     }, [branching, onBranch]);
 
+    const speed = rate ? formatRate(rate.tps) : '';
+    // The wall time alongside when the turn spent meaningfully longer than
+    // generating: the model wrote at this pace, the turn took that long.
+    const showWall = Boolean(rate?.wall && rate.wall > rate.seconds + 1);
+
     return (
         <div className="flex items-center gap-0.5 select-none">
             {text && (
@@ -326,6 +345,19 @@ export function TurnActions({ text, onBranch }) {
                 >
                     <GitBranchIcon size={15} strokeWidth={1.75} />
                 </ActionButton>
+            )}
+            {speed && (
+                <Tooltip
+                    label={showWall
+                        ? t('assistant.turnRateHintWall', { tokens: rate.tokens, seconds: rate.seconds, wall: rate.wall })
+                        : t('assistant.turnRateHint', { tokens: rate.tokens, seconds: rate.seconds })}
+                    placement="bottom"
+                >
+                    <span className="px-1.5 text-[11px] tabular-nums
+                        text-gray-400 dark:text-gray-500">
+                        {speed}
+                    </span>
+                </Tooltip>
             )}
         </div>
     );

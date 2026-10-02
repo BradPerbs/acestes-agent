@@ -586,6 +586,20 @@ async function start({
         // 0 is no ceiling: the loop ends when the model stops calling tools.
         const limit = current.maxTurns === 0 ? Infinity : Math.max(1, current.maxTurns || 40);
 
+        // Every request's tokens, added up for the turn. The usage rides on
+        // each reply, so a turn that only ever answered straight away could
+        // report the last reply's; one that called tools would otherwise end
+        // with nothing, and the limits page and the answer rate with it.
+        let sawUsage = false;
+        const turnUsage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+        const collectUsage = (usage) => {
+            if (!usage || typeof usage !== 'object') return;
+            sawUsage = true;
+            turnUsage.prompt_tokens += Number(usage.prompt_tokens) || 0;
+            turnUsage.completion_tokens += Number(usage.completion_tokens) || 0;
+            turnUsage.total_tokens += Number(usage.total_tokens) || 0;
+        };
+
         for (let step = 0; step < limit; step += 1) {
             if (stopped) return;
 
@@ -632,13 +646,15 @@ async function start({
             // underneath it.
             if (reply.content.trim()) onEvent({ type: 'assistant-text', text: reply.content });
 
+            collectUsage(reply.usage);
+
             if (reply.toolCalls.length === 0) {
                 onEvent({
                     type: 'result',
                     subtype: 'success',
                     isError: false,
                     costUsd: 0,
-                    usage: reply.usage,
+                    usage: sawUsage ? { ...turnUsage } : null,
                 });
                 return;
             }
@@ -655,7 +671,13 @@ async function start({
             }
         }
 
-        onEvent({ type: 'result', subtype: 'error_max_turns', isError: true, costUsd: 0 });
+        onEvent({
+            type: 'result',
+            subtype: 'error_max_turns',
+            isError: true,
+            costUsd: 0,
+            usage: sawUsage ? { ...turnUsage } : null,
+        });
     }
 
     return {

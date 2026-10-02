@@ -494,6 +494,7 @@ export default function useAssistant({
         draft: state.draft,
         busy: state.busy,
         costUsd: state.costUsd,
+        turnRates: state.turnRates,
         account: state.account,
         rateLimit: state.rateLimit,
         context: state.context,

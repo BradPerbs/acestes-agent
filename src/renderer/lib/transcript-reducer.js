@@ -12,6 +12,46 @@ function emptyDraft() {
     return { text: '', thinking: '' };
 }
 
+/** Output tokens, however the runtime spelled its usage. */
+function outputTokensOf(usage) {
+    if (!usage || typeof usage !== 'object') return 0;
+    for (const key of ['output_tokens', 'completion_tokens', 'outputTokens', 'output']) {
+        const n = Number(usage[key]);
+        if (Number.isFinite(n) && n > 0) return n;
+    }
+    return 0;
+}
+
+/**
+ * A turn's answer rate, for the number beside its branch icon.
+ *
+ * The main process stamps exact figures on the result (generation time,
+ * timed off the streaming deltas, with the wall time alongside); a result
+ * read back from before that carry them is worked out here from the turn's
+ * first message instead. Nothing when there is no usage to divide or no
+ * time to divide by, and the row then shows no number rather than a wrong
+ * one.
+ */
+function turnRate(event, startAt) {
+    const tokens = Number(event.outputTokens) || outputTokensOf(event.usage);
+    const ms = Number(event.durationMs)
+        || (Number.isFinite(event.at) && Number.isFinite(startAt) && event.at > startAt
+            ? event.at - startAt
+            : 0);
+    if (!(tokens > 0) || !(ms > 0)) return null;
+    const rate = {
+        tps: Number(event.tokensPerSec) || Math.round((tokens / (ms / 1000)) * 10) / 10,
+        tokens,
+        seconds: Math.round((ms / 1000) * 10) / 10,
+    };
+    // The wall time alongside, when the turn spent longer than generating:
+    // tools running, approvals waiting. Old turns measured the wall itself
+    // and carry no second figure.
+    const wallMs = Number(event.wallMs);
+    if (wallMs > ms) rate.wall = Math.round((wallMs / 1000) * 10) / 10;
+    return rate;
+}
+
 /** The last index whose item passes, searching from the newest. */
 function lastIndexWhere(items, test) {
     for (let index = items.length - 1; index >= 0; index -= 1) {
@@ -65,6 +105,8 @@ function step(state, event, owned) {
     let draft = state.draft;
     let busy = state.busy;
     let costUsd = state.costUsd;
+    let turnStartAt = state.turnStartAt;
+    let turnRates = state.turnRates;
 
     /**
      * The row a question belongs to.
@@ -104,6 +146,7 @@ function step(state, event, owned) {
             });
             busy = true;
             draft = emptyDraft();
+            turnStartAt = event.at;
             break;
 
         case 'thinking-start':
@@ -122,6 +165,24 @@ function step(state, event, owned) {
             if (event.parentId) break;
             // The finished block replaces whatever streamed into the draft.
             // Deltas are a preview; this is the authoritative text.
+            // …except when it arrives twice: stopping mid-stream flushes the
+            // draft as an item plus a `Stopped.` notice, and Pi's aborted
+            // message_end lands a moment later with the same partial text.
+            // The same double-arrival happens when narration flushed ahead
+            // of a tool call repeats in the step's closing block. A finished
+            // block identical to the nearest assistant item above (past only
+            // notices) adds nothing, so it is dropped instead of drawn twice.
+            {
+                let cursor = items.length - 1;
+                while (cursor >= 0 && items[cursor].kind === 'notice') cursor -= 1;
+                const prev = cursor >= 0 ? items[cursor] : null;
+                if (prev?.kind === 'assistant'
+                    && String(prev.text || '') === String(event.text || '')
+                    && String(prev.thinking || '') === String(draft.thinking || '')) {
+                    draft = emptyDraft();
+                    break;
+                }
+            }
             edit().push({
                 kind: 'assistant',
                 id: `a-${event.at}-${items.length}`,
@@ -369,6 +430,10 @@ function step(state, event, owned) {
             }
             busy = false;
             costUsd += event.costUsd || 0;
+            // The turn's answer rate, keyed by the message that started it,
+            // which is the id `findTurnEnds` knows the turn by.
+            const rate = turnRate(event, turnStartAt);
+            if (rate && turnStartAt) turnRates = { ...turnRates, [turnStartAt]: rate };
             if (event.isError && event.subtype !== 'success') {
                 edit().push({
                     kind: 'notice',
@@ -451,7 +516,7 @@ function step(state, event, owned) {
             break;
     }
 
-    return { ...state, items, draft, busy, costUsd };
+    return { ...state, items, draft, busy, costUsd, turnStartAt, turnRates };
 }
 
 /** One event, on a list that is not the caller's to change. */
@@ -481,6 +546,11 @@ export const INITIAL = {
     draft: emptyDraft(),
     busy: false,
     costUsd: 0,
+    // When the running turn's first message arrived, and each finished
+    // turn's answer rate by that message's id, for the number beside the
+    // turn's branch icon. Rebuilt by replay, so old turns get theirs too.
+    turnStartAt: 0,
+    turnRates: {},
     // How this conversation is paid for, and where the plan's window stands.
     // Both arrive from the runtime rather than being configured here.
     account: null,
