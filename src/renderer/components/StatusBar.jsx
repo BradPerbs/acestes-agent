@@ -1,12 +1,14 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Loading03Icon } from 'hugeicons-react';
 import Tooltip from './ui/Tooltip';
 import UsagePanel from './usage/UsagePanel';
 import AppResources from './usage/AppResources';
 import ProviderMark from '../lib/provider-marks';
 import { PROVIDER_ORDER } from '../lib/ai-catalog';
+import { foldOut, growIn } from '../lib/barMotion';
 import {
-    PLAN_RUNTIMES, STALE_AFTER, chosenAccount, compact, headlineWindows, keyOf, lastRead, toneOf, windowShort, worstTone,
+    PLAN_RUNTIMES, STALE_AFTER, accountName, barWindows, chosenAccount, keyOf, lastRead, tickedAccounts, toneOf,
+    windowShort, worstTone,
 } from '../lib/usage-limits';
 import useUsageLimits, { useAgentSettings } from '../hooks/useUsageLimits';
 import { useT } from '../i18n';
@@ -14,16 +16,24 @@ import { useT } from '../i18n';
 /**
  * The strip along the bottom of the window.
  *
- * Its left end is the plan limits of the agents that are switched on, for the
- * account each one runs under: the five-hour and weekly windows as a hairline
- * meter and a figure, one runtime after another, close enough to glance at
- * without going anywhere. Clicking it opens the whole picture above it: every
- * window with its reset, what this computer sent, the other accounts and how
- * much each has left, and a way to switch to one.
+ * Its left end is the plan limits of the agents that are switched on, for
+ * every account ticked for each one: the five-hour window as a hairline meter
+ * and a figure, one runtime after another, close enough to glance at without
+ * going anywhere. With two accounts ticked for a runtime, both are there,
+ * each named. The week joins a meter only once it is close to its limit.
+ * Clicking it opens the whole picture above it: every window with its reset,
+ * what this computer sent today, the other accounts and how much each has
+ * left, and the boxes that choose which accounts are used.
  *
  * Its right end is the app itself: what it holds in memory, how many tabs are
  * open, and a coffee cup that keeps the computer from sleeping. That end stays
  * when the agent is switched off; the plan figures go with it.
+ *
+ * Nothing in it appears or goes at a stroke. A meter ticked on grows in and
+ * one cleared folds away, with its neighbours sliding over, and the names
+ * arrive and leave the same way as a second account comes and goes; an
+ * account not read yet takes its place at once as an empty meter and fills
+ * in when the read lands (`lib/barMotion`).
  *
  * It keeps the figures fresh on its own. The accounts in use are read when
  * the app opens and again whenever what is held is older than a quarter of an
@@ -77,7 +87,159 @@ function Meter({ window }) {
     );
 }
 
-/** The runtimes the bar speaks for, each with the account it runs under and its figures. */
+/** The five-hour window of an account that has not been read yet. */
+function PendingMeter() {
+    return (
+        <span className="flex items-center gap-1.5 text-gray-400 dark:text-neutral-500">
+            <span>5h</span>
+            <span className="w-7 h-[3px] rounded-full bg-gray-300/80 dark:bg-white/[0.09] animate-pulse" />
+            <span className="min-w-[1.9em]">–</span>
+        </span>
+    );
+}
+
+/**
+ * Something in the bar that grows in when it arrives and folds away when it
+ * goes. `show` false folds it and then takes it out; true again before it
+ * has gone grows it back from wherever it had got to. `appear` false is for
+ * a piece drawn as part of something bigger that is already growing in, so
+ * the two do not race each other for the width.
+ */
+function Unfold({ show = true, appear = true, onGone, className = '', children }) {
+    const ref = useRef(null);
+    const [present, setPresent] = useState(show);
+    if (show && !present) setPresent(true);
+
+    const goneRef = useRef(onGone);
+    useLayoutEffect(() => { goneRef.current = onGone; });
+
+    // The `show` last acted on, null before the first draw. Guarding on it
+    // rather than on mounting is what keeps StrictMode's second run of the
+    // effect from starting the movement over.
+    const acted = useRef(null);
+    useLayoutEffect(() => {
+        if (acted.current === show) return;
+        const first = acted.current === null;
+        acted.current = show;
+        if (show) {
+            if (!first || appear) growIn(ref.current);
+        } else if (!first) {
+            foldOut(ref.current, () => {
+                setPresent(false);
+                goneRef.current?.();
+            });
+        }
+    }, [show, appear]);
+
+    if (!present) return null;
+    return <span ref={ref} className={`flex items-center shrink-0 ${className}`}>{children}</span>;
+}
+
+/**
+ * Where something that has just left a list goes back in, so it folds where
+ * it stood: after the nearest member it followed that is still there.
+ */
+function merge(drawn, items, latest) {
+    const now = new Set(items.map(item => item.key));
+    const was = new Map(drawn.map(entry => [entry.key, entry]));
+    const out = items.map(item => ({ key: item.key, item, leaving: false, initial: Boolean(was.get(item.key)?.initial) }));
+    drawn.forEach((entry, index) => {
+        if (now.has(entry.key)) return;
+        let at = 0;
+        for (let before = index - 1; before >= 0; before -= 1) {
+            const found = out.findIndex(other => other.key === drawn[before].key);
+            if (found >= 0) {
+                at = found + 1;
+                break;
+            }
+        }
+        const item = entry.leaving ? entry.item : (latest.get(entry.key) ?? entry.item);
+        out.splice(at, 0, { ...entry, item, leaving: true });
+    });
+    return out;
+}
+
+/**
+ * A list as the bar draws it while its members come and go: everything in
+ * `items` (each with a `key`), and with them whatever has just left, kept
+ * where it stood and marked `leaving` until `gone(key)` says its fold has
+ * played. What was there when the list was first drawn is marked `initial`,
+ * so it is simply there rather than growing in.
+ */
+function usePresence(items) {
+    const signature = items.map(item => item.key).join('\n');
+    const [state, setState] = useState(() => ({
+        signature,
+        drawn: items.map(item => ({ key: item.key, item, leaving: false, initial: true })),
+    }));
+    // Each member as it was last drawn, so one that leaves folds away with
+    // its figures as they stood rather than as they were when it arrived.
+    const latest = useRef(new Map());
+
+    let { drawn } = state;
+    if (state.signature !== signature) {
+        drawn = merge(state.drawn, items, latest.current);
+        setState({ signature, drawn });
+    }
+
+    const current = new Map(items.map(item => [item.key, item]));
+    useEffect(() => { latest.current = current; });
+
+    const gone = useCallback((key) => setState(previous => ({
+        ...previous,
+        drawn: previous.drawn.filter(entry => !(entry.key === key && entry.leaving)),
+    })), []);
+
+    return [drawn.map(entry => (entry.leaving ? entry : { ...entry, item: current.get(entry.key) })), gone];
+}
+
+/** One account's meters, under its name once there are two to tell apart. */
+function AccountMeter({ meter, named, lead, now }) {
+    const t = useT();
+    const { account, entry, windows, pending } = meter;
+    // Faded per account: one can be fresh while the other has not been read.
+    const faded = !pending && now - lastRead(entry) > FADED_AFTER;
+    return (
+        <span className={`flex items-center shrink-0 ${lead} transition-[padding,opacity] duration-200 ${faded ? 'opacity-50' : ''}`}>
+            <Unfold show={named} appear={false}>
+                {/* An account named after its address goes by the part
+                    before the @. */}
+                <span className="shrink-0 max-w-[7rem] pr-1.5 truncate text-gray-500 dark:text-neutral-400">
+                    {accountName(account, entry, t).short.split('@')[0]}
+                </span>
+            </Unfold>
+            <span className="flex items-center gap-1.5 shrink-0">
+                {pending ? <PendingMeter /> : windows.map(window => <Meter key={window.id} window={window} />)}
+            </span>
+        </span>
+    );
+}
+
+/** One runtime: its mark and a meter for each ticked account. */
+function ProviderGroup({ row, first, now }) {
+    const [meters, gone] = usePresence(row.meters);
+    return (
+        <span className="flex items-center shrink-0">
+            <Unfold show={!first} appear={false}>
+                <span aria-hidden="true" className="shrink-0 w-px h-2.5 mx-2.5 bg-gray-300 dark:bg-white/10" />
+            </Unfold>
+            <span className="shrink-0 text-gray-500 dark:text-neutral-400 leading-none">
+                <ProviderMark provider={row.provider} size={11} />
+            </span>
+            {meters.map(({ key, item, leaving, initial }, index) => (
+                <Unfold key={key} show={!leaving} appear={!initial} onGone={() => gone(key)}>
+                    <AccountMeter meter={item} named={row.named} lead={index === 0 ? 'pl-2' : 'pl-3'} now={now} />
+                </Unfold>
+            ))}
+        </span>
+    );
+}
+
+/**
+ * The runtimes the bar speaks for, each with the account it runs under, its
+ * figures, and every account ticked for it (`ticked`, the one in use among
+ * them), each with its own figures.
+ */
 function useRows(overview, settings) {
     return useMemo(() => {
         const on = new Set(settings?.providers || []);
@@ -85,7 +247,9 @@ function useRows(overview, settings) {
             const account = chosenAccount(overview, settings, provider);
             const entry = overview.limits?.[keyOf(provider, account?.id)];
             const others = (overview.accounts?.[provider] || []).filter(other => other.id !== account?.id);
-            return { provider, account, entry, others, multi: Boolean(account) };
+            const ticked = tickedAccounts(overview, settings, provider)
+                .map(each => ({ account: each, entry: overview.limits?.[keyOf(provider, each.id)] }));
+            return { provider, account, entry, others, ticked, multi: Boolean(account) };
         });
     }, [overview, settings]);
 }
@@ -108,10 +272,13 @@ export default function StatusBar({ agentId, agentName = '', tabs, onOpenSetting
                 // Only the plans that have windows to keep fresh; the others
                 // are read when their settings card is opened.
                 if (!row.multi || !PLAN_RUNTIMES.has(row.provider)) continue;
-                const at = row.entry?.checkedAt || 0;
-                const after = row.entry?.error || unread(row.entry) ? RETRY_AFTER : STALE_AFTER;
-                if (Date.now() - at > after && !checking.has(keyOf(row.provider, row.account.id))) {
-                    check(row.provider, row.account.id);
+                // Every ticked account, since the bar shows each of them.
+                for (const { account, entry } of row.ticked) {
+                    const at = entry?.checkedAt || 0;
+                    const after = entry?.error || unread(entry) ? RETRY_AFTER : STALE_AFTER;
+                    if (Date.now() - at > after && !checking.has(keyOf(row.provider, account.id))) {
+                        check(row.provider, account.id);
+                    }
                 }
             }
         };
@@ -125,21 +292,32 @@ export default function StatusBar({ agentId, agentName = '', tabs, onOpenSetting
 
     const planned = Boolean(settings) && settings.enabled !== false;
 
+    // Each runtime with the ticked accounts that have a figure to draw, or
+    // are about to. Named only when there are two or more, where the meters
+    // need telling apart.
     const shown = rows
-        .map(row => ({ ...row, headline: headlineWindows(row.entry?.windows) }))
-        .filter(row => row.headline.length > 0);
-    const busy = rows.some(row => row.multi && checking.has(keyOf(row.provider, row.account.id)));
+        .map(row => ({
+            ...row,
+            key: row.provider,
+            named: row.ticked.length > 1,
+            meters: row.ticked
+                .map(({ account, entry }) => {
+                    const windows = barWindows(entry?.windows);
+                    // An account just ticked has nothing read yet. It takes
+                    // its place at once and fills in when the read lands,
+                    // rather than turning up seconds after the click.
+                    const pending = windows.length === 0 && PLAN_RUNTIMES.has(row.provider) && !entry?.error
+                        && (!entry || checking.has(keyOf(row.provider, account.id)));
+                    return { key: account.id, account, entry, windows, pending };
+                })
+                .filter(meter => meter.windows.length > 0 || meter.pending),
+        }))
+        .filter(row => row.meters.length > 0);
+    const [groups, groupGone] = usePresence(shown);
+    const busy = rows.some(row => row.multi
+        && row.ticked.some(({ account }) => checking.has(keyOf(row.provider, account.id))));
 
-    // What every runtime sent from here today, for the end of the strip.
-    const today = Object.values(overview.limits || {}).reduce((sum, entry) => {
-        const bucket = entry?.usage?.today;
-        return {
-            turns: sum.turns + (bucket?.turns || 0),
-            tokens: sum.tokens + (bucket?.input || 0) + (bucket?.output || 0),
-        };
-    }, { turns: 0, tokens: 0 });
-
-    const tone = worstTone(shown.flatMap(row => row.headline));
+    const tone = worstTone(shown.flatMap(row => row.meters.flatMap(meter => meter.windows)));
 
     return (
         <footer
@@ -158,12 +336,12 @@ export default function StatusBar({ agentId, agentName = '', tabs, onOpenSetting
                         aria-expanded={open}
                         aria-label={t('statusBar.usageLabel')}
                         onClick={() => setOpen(value => !value)}
-                        className={`h-5 -ml-1.5 px-1.5 flex items-center gap-2.5 rounded-md text-[10.5px] leading-none
+                        className={`h-5 -ml-1.5 px-1.5 flex items-center rounded-md text-[10.5px] leading-none
                             tabular-nums font-medium transition-colors outline-none
                             focus-visible:ring-2 focus-visible:ring-gray-900/20 dark:focus-visible:ring-white/25
                             ${open ? 'bg-gray-200 dark:bg-white/[0.08]' : 'hover:bg-gray-200/80 dark:hover:bg-white/[0.06]'}`}
                     >
-                        {shown.length === 0 && (
+                        {groups.length === 0 && (
                             <span className="flex items-center gap-1.5 text-gray-400 dark:text-neutral-500">
                                 {busy
                                     ? <Loading03Icon size={11} className="animate-spin" />
@@ -171,29 +349,14 @@ export default function StatusBar({ agentId, agentName = '', tabs, onOpenSetting
                                 {t('statusBar.usage')}
                             </span>
                         )}
-                        {shown.map((row, index) => {
-                            const faded = now - lastRead(row.entry) > FADED_AFTER;
-                            return (
-                                <Fragment key={row.provider}>
-                                    {index > 0 && <span aria-hidden="true" className="w-px h-2.5 bg-gray-300 dark:bg-white/10" />}
-                                    <span className={`flex items-center gap-2 transition-opacity ${faded ? 'opacity-50' : ''}`}>
-                                        <span className="text-gray-500 dark:text-neutral-400 leading-none">
-                                            <ProviderMark provider={row.provider} size={11} />
-                                        </span>
-                                        {row.headline.map(window => <Meter key={window.id} window={window} />)}
-                                    </span>
-                                </Fragment>
-                            );
-                        })}
-                        {today.turns > 0 && (
-                            <>
-                                <span aria-hidden="true" className="w-px h-2.5 bg-gray-300 dark:bg-white/10" />
-                                <span className="text-gray-400 dark:text-neutral-500">
-                                    {t('statusBar.today', { tokens: compact(today.tokens), count: today.turns })}
-                                </span>
-                            </>
-                        )}
-                        {busy && shown.length > 0 && <Loading03Icon size={10} className="animate-spin text-gray-400 dark:text-neutral-500" />}
+                        {groups.map(({ key, item, leaving, initial }, index) => (
+                            <Unfold key={key} show={!leaving} appear={!initial} onGone={() => groupGone(key)}>
+                                <ProviderGroup row={item} first={index === 0} now={now} />
+                            </Unfold>
+                        ))}
+                        <Unfold show={busy && groups.length > 0} appear={false}>
+                            <Loading03Icon size={10} className="ml-2.5 shrink-0 animate-spin text-gray-400 dark:text-neutral-500" />
+                        </Unfold>
                     </button>
                 </Tooltip>
             )}
@@ -205,6 +368,7 @@ export default function StatusBar({ agentId, agentName = '', tabs, onOpenSetting
                     anchor={buttonRef}
                     rows={rows}
                     overview={overview}
+                    settings={settings}
                     checking={checking}
                     now={now}
                     agentName={agentName}

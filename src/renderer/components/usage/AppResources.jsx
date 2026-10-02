@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Coffee02Icon, CpuIcon } from 'hugeicons-react';
 import Tooltip from '../ui/Tooltip';
 import { useEnterOn } from '../../hooks/useEnter';
+import { HEADING } from '../../lib/text-styles';
 import { localeTag, useT } from '../../i18n';
 
 /**
@@ -162,7 +163,7 @@ function MemoryPanel({ anchor, reading, tabs, onClose }) {
             }}
         >
             <header className="px-4 pt-3.5 pb-3 border-b border-gray-100 dark:border-white/[0.06]">
-                <p className={`text-[10px] font-semibold uppercase tracking-[0.08em] ${MUTED}`}>{t('statusBar.memoryTitle')}</p>
+                <p className={HEADING}>{t('statusBar.memoryTitle')}</p>
                 <p className="mt-1 flex items-baseline gap-2">
                     <span className="text-[20px] font-semibold tracking-tight tabular-nums text-gray-900 dark:text-white">{bytes(total)}</span>
                     {reading?.system?.total > 0 && (

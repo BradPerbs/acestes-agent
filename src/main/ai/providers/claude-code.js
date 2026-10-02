@@ -719,7 +719,8 @@ async function start({
         includePartialMessages: true,
         // A subagent's words as well as its calls, for its own transcript.
         forwardSubagentText: true,
-        maxTurns: settings.maxTurns,
+        // 0 is "no ceiling", which the SDK spells as leaving it out.
+        maxTurns: settings.maxTurns > 0 ? settings.maxTurns : undefined,
         abortController,
         env,
         // Our own directory, and none of the user's Claude Code project files.
@@ -740,6 +741,7 @@ async function start({
     const turns = createTurnTracker(onEvent, {
         onUnwanted: () => stream.interrupt().catch(() => {}),
     });
+    const contextMeter = createContextMeter(onEvent);
 
     // The two things only the running CLI can answer, asked once each.
     let askedForInit = false;
@@ -749,6 +751,7 @@ async function start({
     const pump = (async () => {
         try {
             for await (const message of stream) {
+                contextMeter.see(message);
                 turns.handle(message);
 
                 // Asked once the session is up rather than at start, because
@@ -854,6 +857,72 @@ async function start({
 function isAgentTask(task) {
     const type = String(task?.task_type || '');
     return /agent|workflow|teammate/.test(type) || (!type && Boolean(task?.subagent_type));
+}
+
+/** Every token one request carried: what went in, cached or not, and what came back. */
+function usageTokens(usage) {
+    if (!usage) return 0;
+    const number = value => Number(value) || 0;
+    return number(usage.input_tokens) + number(usage.cache_read_input_tokens)
+        + number(usage.cache_creation_input_tokens) + number(usage.output_tokens);
+}
+
+/**
+ * The context window a turn's result gives for one model: its `modelUsage`
+ * entry, matched with the `[1m]` style suffix ignored, or the entry that
+ * did the most work when none matches.
+ */
+function contextWindowOf(modelUsage, model = '') {
+    const entries = Object.entries(modelUsage || {});
+    if (entries.length === 0) return 0;
+    const bare = id => String(id || '').replace(/\[[^\]]*\]/g, '');
+    const match = model && entries.find(([key, value]) => key === model
+        || bare(key) === bare(model) || bare(value?.canonicalModel) === bare(model));
+    const busiest = entries.reduce((best, entry) => (
+        (Number(entry[1]?.inputTokens) || 0) > (Number(best[1]?.inputTokens) || 0) ? entry : best));
+    return Number((match || busiest)[1]?.contextWindow) || 0;
+}
+
+/**
+ * How full the context is, for the composer's ring: the latest main-thread
+ * reply's tokens over the model's window. Claude Code says the window only in
+ * a turn's result, so the first reading of a conversation comes then; after
+ * that each reply moves it, against the window last reported for the model.
+ * A subagent's replies are its own context, not this one's.
+ */
+function createContextMeter(onEvent) {
+    let used = 0;
+    let model = '';
+    const windows = new Map();
+    let last = '';
+
+    const report = () => {
+        const limit = windows.get(model) || 0;
+        if (!used || !limit) return;
+        const key = `${used}/${limit}`;
+        if (key === last) return;
+        last = key;
+        onEvent({ type: 'context', used, limit, percent: Math.round((used / limit) * 100), model });
+    };
+
+    return {
+        see(message) {
+            if (message?.type === 'assistant' && !message.parent_tool_use_id && message.message?.usage) {
+                const tokens = usageTokens(message.message.usage);
+                if (tokens > 0) {
+                    used = tokens;
+                    model = message.message.model || model;
+                    report();
+                }
+                return;
+            }
+            if (message?.type === 'result' && message.modelUsage) {
+                const window = contextWindowOf(message.modelUsage, model);
+                if (window > 0) windows.set(model, window);
+                report();
+            }
+        },
+    };
 }
 
 /** The first message of a turn the CLI is starting. */
@@ -1437,6 +1506,8 @@ module.exports = {
     claudeCandidates,
     userContent,
     createTurnTracker,
+    createContextMeter,
+    contextWindowOf,
     LOCAL_TOOLS,
     WEB_TOOLS,
     AGENT_TOOLS,

@@ -11,6 +11,7 @@ import SegmentedControl from '../ui/SegmentedControl';
 import Tooltip from '../ui/Tooltip';
 import { MONO_FIELD_CLASS } from '../ui/Field';
 import { composeSnippet, emptyStep, isCommand, MAX_STEPS } from '../../lib/snippets';
+import { HEADING } from '../../lib/text-styles';
 
 /**
  * The step list for a package.
@@ -307,7 +308,7 @@ export default function PackageSteps({ form, library = [], onChange }) {
             {text && (
                 <div className="rounded-lg border border-gray-200 dark:border-surface-control overflow-hidden">
                     <div className="px-2.5 h-7 flex items-center gap-2 border-b border-gray-200 dark:border-surface-control bg-gray-50 dark:bg-surface-base/60">
-                        <span className="text-[10px] uppercase tracking-wide font-semibold text-gray-400 dark:text-neutral-500">
+                        <span className={HEADING}>
                             What gets sent
                         </span>
                     </div>

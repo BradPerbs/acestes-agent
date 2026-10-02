@@ -14,6 +14,7 @@ import Select from './ui/Select';
 import { HOST_KINDS, DEFAULT_PORTS, DEFAULT_SERIAL, hostKind, kindLabel } from '../lib/protocols';
 import { monitorSupport, defaultCheckPort } from '../lib/monitor';
 import { nameProxy, proxyRoute } from '../lib/proxies';
+import { HEADING } from '../lib/text-styles';
 import { useProxies } from '../hooks/useProxies';
 import useMonitor from '../hooks/useMonitor';
 import { useT } from '../i18n';
@@ -534,10 +535,9 @@ function HostModal({ host, dismiss, onClose, onSave, keys = [], hosts = [], allT
                     hosts never touch any of it. Saying so once, here, is what
                     lets the four fields above read as the whole job. */}
                 <div className="flex items-center gap-3 pt-2">
-                    {/* The same muted-label tone the rest of the app uses for a
-                        section heading, see NewTabView and PanePicker. A step
-                        darker than this and it sinks into the surface behind it. */}
-                    <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-neutral-400">
+                    {/* The heading every section in the app wears, see
+                        lib/text-styles. */}
+                    <span className={`shrink-0 ${HEADING}`}>
                         Optional
                     </span>
                     <span className="h-px flex-1 bg-gray-200 dark:bg-surface-control" />

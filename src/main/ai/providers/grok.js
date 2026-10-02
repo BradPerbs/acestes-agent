@@ -43,6 +43,13 @@ const engine = require('./openai-compatible');
 /** The name our tools are served under. As elsewhere: what they do, not whose. */
 const SERVER_NAME = 'remote';
 
+/**
+ * What "no ceiling" (a step limit of 0 in Settings) is passed as: the CLI
+ * wants a number, so one no turn reaches, and small enough for whatever
+ * integer type it parses into.
+ */
+const UNLIMITED_TURNS = 10000;
+
 const API_URL = 'https://api.x.ai/v1';
 
 const LABEL = 'xAI';
@@ -581,7 +588,9 @@ function runArguments({ current, sessionId, resume, directory, prompt }) {
         // call dead, which is exactly what happened to Codex before its
         // approval mode was set.
         '--always-approve',
-        '--max-turns', String(current.maxTurns || 40),
+        // 0 is "no ceiling"; the flag wants a number, so a ceiling no turn
+        // reaches stands in for it.
+        '--max-turns', String(current.maxTurns === 0 ? UNLIMITED_TURNS : (current.maxTurns || 40)),
         // A background update check in the middle of somebody's turn is a
         // download this app did not ask for and cannot report.
         '--no-auto-update',

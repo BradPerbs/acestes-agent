@@ -10,6 +10,7 @@ import SearchField from '../ui/SearchField';
 import Disclosure from '../ui/Disclosure';
 import IconTile from '../hosts/IconTile';
 import { CARD_GRID } from '../../lib/layout';
+import { HEADING } from '../../lib/text-styles';
 import { useT } from '../../i18n';
 import { CHIP, CHIP_OFF, CHIP_ON, moment } from './schedule';
 
@@ -128,7 +129,7 @@ function TemplateField({ field, value, onChange, hosts, autoFocus, t }) {
 function Shelf({ title, children }) {
     return (
         <section className="flex flex-col gap-2.5">
-            <h3 className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-neutral-500">{title}</h3>
+            <h3 className={HEADING}>{title}</h3>
             <div className={CARD_GRID}>{children}</div>
         </section>
     );

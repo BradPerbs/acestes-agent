@@ -9,6 +9,7 @@ const memory = require('./memory');
 const local = require('./local');
 const checkpoints = require('./checkpoints');
 const inventoryTools = require('./inventory-tools');
+const fileTools = require('./file-tools');
 const jobTools = require('./job-tools');
 const delegationTools = require('./delegation-tools');
 const computerTools = require('./computer-tools');
@@ -823,13 +824,18 @@ const TOOLS = [
             timeout: z.number().int().min(1).max(600000).optional().describe('How long to wait before stopping it. Milliseconds, or seconds if under 1000. Default 60 seconds.'),
             env: z.record(z.string(), z.string()).optional()
                 .describe('Environment variables for this command. This is where a secret goes: a value may be a reference '
-                    + 'such as {{secret:webshare}}, which the app fills in at launch, so the command line itself stays clean.'),
+                    + 'such as {{secret:webshare}}, which the app fills in at launch, so the command line itself stays clean. '
+                    + 'A file from your inventory is {{file:name}}, in the command or the env: it becomes the file\'s path.'),
         },
         handler: async (input, ctx) => {
-            const env = input.env && ctx.secrets ? ctx.secrets.resolveObject(input.env) : (input.env || null);
+            // {{file:name}} first: a path on this disk, from the agent's own
+            // files. Then the secrets, which only ever go in the env.
+            const withFiles = fileTools.resolveLocal(ctx, input.command, input.env);
+            if (withFiles.error) return fail(withFiles.error);
+            const env = withFiles.env && ctx.secrets ? ctx.secrets.resolveObject(withFiles.env) : (withFiles.env || null);
             const missing = ctx.secrets ? Object.values(input.env || {}).flatMap(value => ctx.secrets.unresolved(value)) : [];
             if (missing.length) return fail(`No stored secret is named ${missing.map(name => `"${name}"`).join(', ')}. Ask the user for it with ask_user and a secret name.`);
-            const result = await local.run(ctx, input.command, {
+            const result = await local.run(ctx, withFiles.command, {
                 cwd: input.cwd || '',
                 timeout: millis(input.timeout),
                 env: env && Object.keys(env).length ? env : null,
@@ -1157,6 +1163,12 @@ const TOOLS = [
      * fence hosts the same way list_hosts does.
      * -------------------------------------------------------------- */
     ...inventoryTools.build({ z, ok, fail, hostInScope, publicHost, agentHosts }),
+
+    /* -------------------------------------------------------------- *
+     * The agent's files: bytes it keeps in its inventory, and sends to
+     * servers, folders and other agents. See file-tools.js.
+     * -------------------------------------------------------------- */
+    ...fileTools.build({ z, ok, fail, resolveSession }),
 
     /* -------------------------------------------------------------- *
      * Jobs: work on a schedule. See job-tools.js.

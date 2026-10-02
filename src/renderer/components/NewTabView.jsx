@@ -3,6 +3,7 @@ import { Search01Icon, PlusSignIcon, CloudServerIcon, SearchRemoveIcon, Plug01Ic
 import EmptyFrame from './ui/EmptyFrame';
 import { OsIcon, hostOs } from '../lib/os-icons';
 import { parseAddress, formatAddress } from '../lib/address';
+import { HEADING } from '../lib/text-styles';
 import { useT } from '../i18n';
 
 const RECENT_LIMIT = 5;
@@ -118,7 +119,7 @@ function AddressRow({ address, selected, onSelect, onConnect }) {
 
 function SectionLabel({ children }) {
     return (
-        <div className="px-3 pt-4 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-neutral-500">
+        <div className={`px-3 pt-4 pb-1.5 ${HEADING}`}>
             {children}
         </div>
     );

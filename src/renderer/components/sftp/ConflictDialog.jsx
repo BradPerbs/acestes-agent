@@ -3,6 +3,7 @@ import { FileSyncIcon } from 'hugeicons-react';
 import Dialog, { DialogButton } from '../ui/Dialog';
 import Checkbox from '../ui/Checkbox';
 import { formatSize, formatDateTime } from '../../lib/format';
+import { HEADING } from '../../lib/text-styles';
 
 function Comparison({ label, size, modifiedAt, highlight }) {
     return (
@@ -11,7 +12,7 @@ function Comparison({ label, size, modifiedAt, highlight }) {
                 ? 'border-gray-900/20 dark:border-white/20 bg-gray-50 dark:bg-surface-control/60'
                 : 'border-gray-200 dark:border-surface-control'
         }`}>
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-neutral-500">
+            <p className={HEADING}>
                 {label}
             </p>
             <p className="text-sm font-semibold text-gray-900 dark:text-white mt-1 tabular-nums">

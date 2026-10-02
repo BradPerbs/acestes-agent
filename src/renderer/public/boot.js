@@ -16,7 +16,9 @@
 (function () {
     var root = document.documentElement;
     try {
-        var stored = localStorage.getItem('theme') || 'system';
+        // Nothing stored is the Custom theme in Black, as INITIAL_THEME and
+        // INITIAL_APP_COLORS in lib/app-colors.js say; keep in step.
+        var stored = localStorage.getItem('theme') || 'custom';
         var custom = stored === 'custom';
         // Following the system is left to the stylesheet's media query: this
         // early, Electron has not yet told the page the system's scheme and
@@ -27,7 +29,8 @@
         if (stored === 'light') root.classList.add('boot-light');
         // Only the background of a custom palette: it is all the splash shows.
         if (custom) {
-            var base = (JSON.parse(localStorage.getItem('appColors') || 'null') || {}).base;
+            var saved = localStorage.getItem('appColors');
+            var base = saved ? (JSON.parse(saved) || {}).base : '#000000';
             if (/^#[0-9a-f]{6}$/i.test(base || '')) {
                 var v = parseInt(base.slice(1), 16);
                 root.style.setProperty('--app-base', (v >> 16) + ' ' + ((v >> 8) & 255) + ' ' + (v & 255));

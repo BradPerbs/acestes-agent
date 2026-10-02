@@ -1,9 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useEnterOn } from '../../hooks/useEnter';
+import { HEADING } from '../../lib/text-styles';
 
 /**
- * Right-click menu. Items are `{ label, icon, onClick, danger, disabled }`,
+ * Right-click menu. Items are `{ label, icon, onClick, danger, disabled, key }`,
  * `{ type: 'separator' }`, `{ type: 'heading', label }`, or
  * `{ type: 'custom', key, render(close) }` for a control that is not a row of
  * text: a swatch strip, say, where eight choices in a line are the whole point
@@ -77,8 +78,7 @@ export default function ContextMenu({ x, y, items, onClose }) {
             ) : item.type === 'heading' ? (
                 <div
                     key={`head-${index}`}
-                    className="px-2.5 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider
-                        text-gray-400 dark:text-neutral-500"
+                    className={`px-2.5 pt-2 pb-1 ${HEADING}`}
                 >
                     {item.label}
                 </div>
@@ -90,7 +90,8 @@ export default function ContextMenu({ x, y, items, onClose }) {
                 </div>
             ) : (
                 <button
-                    key={item.label}
+                    // `key` where labels can repeat, as two agents' names can.
+                    key={item.key || item.label}
                     role="menuitem"
                     disabled={item.disabled}
                     onClick={() => {

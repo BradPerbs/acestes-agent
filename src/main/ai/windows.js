@@ -105,7 +105,7 @@ function open(parent, conversationIds = []) {
         ...(process.platform === 'darwin'
             ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 20, y: 14 } }
             : { frame: false }),
-        backgroundColor: '#16161e',
+        backgroundColor: '#000000',
         show: false,
         title: 'CloudTerm - AI Agent',
         webPreferences: {

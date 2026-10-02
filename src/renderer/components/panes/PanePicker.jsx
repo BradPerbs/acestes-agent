@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Cancel01Icon, Search01Icon, Plug01Icon } from 'hugeicons-react';
 import { OsIcon, hostOs } from '../../lib/os-icons';
 import { parseAddress, formatAddress } from '../../lib/address';
+import { HEADING } from '../../lib/text-styles';
 
 const RECENT_LIMIT = 4;
 
@@ -147,7 +148,7 @@ function PanePicker({ hosts, isActive, onPick, onQuickConnect, onCancel }) {
                         {matches.map((host, index) => (
                             <div key={host.id}>
                                 {showRecentLabel && index === 0 && (
-                                    <div className="px-2 pt-1 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-neutral-500">
+                                    <div className={`px-2 pt-1 pb-1.5 ${HEADING}`}>
                                         Recent
                                     </div>
                                 )}

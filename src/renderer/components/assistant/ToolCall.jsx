@@ -286,6 +286,23 @@ export function describeCall(name, input = {}) {
             return { mono: false, text: input.name || input.id || '' };
         case 'delete_inventory_item':
             return { mono: false, text: [input.kind, input.id].filter(Boolean).join(' ') };
+        case 'list_files':
+            return { mono: false, text: input.query ? translate('assistant.matching', { query: input.query }) : '' };
+        case 'read_inventory_file':
+        case 'delete_inventory_file':
+            return { mono: false, text: input.file || '' };
+        case 'save_inventory_file':
+        case 'update_inventory_file': {
+            // Never the contents: a whole file, or its base64, on one row.
+            const from = input.localPath || input.remotePath || input.url || '';
+            const name = input.name || input.file || '';
+            return { mono: false, text: [name, from && from !== name ? `← ${from}` : ''].filter(Boolean).join(' ') };
+        }
+        case 'send_inventory_file':
+            return {
+                mono: false,
+                text: `${input.file || ''} → ${input.to === 'agent' ? (input.agent || '') : (input.path || input.to || '')}`,
+            };
         default: {
             const entries = Object.entries(input).filter(([key]) => key !== 'session');
             if (entries.length === 0) return { mono: false, text: '' };

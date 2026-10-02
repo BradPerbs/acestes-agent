@@ -133,14 +133,36 @@ function modelRows(catalog, selected = '') {
  *
  * An agent that has reported nothing contributes nothing. The list can come
  * back empty, and the menu says so rather than being padded out.
+ *
+ * `offered` is the agents listed under more than one of their sign-ins, by
+ * agent: `{ accounts: [{ id, name, short }], current }`, `current` being the
+ * account the conversation answers on. Each of those agents' models is
+ * listed once per account, the rows carrying the account, so two Claude Code
+ * logins give two "Opus" rows and picking one picks the login too. The
+ * runtime's list is the same whoever is signed in to it, so it is read once
+ * and repeated, and the saved model is passed to the answering account alone.
  */
-export function mergedModelRows(catalogs, providers, settings) {
+export function mergedModelRows(catalogs, providers, settings, offered = {}) {
     const on = new Set(providers?.length ? providers : [settings.provider]);
 
     return PROVIDER_ORDER.filter(provider => on.has(provider)).flatMap((provider) => {
         const answering = provider === settings.provider;
-        return modelRows(catalogs?.[provider], answering ? settings.model : '')
-            .map(row => ({ ...row, provider, key: `${provider}:${row.value}` }));
+        const several = offered?.[provider]?.accounts?.length > 1 ? offered[provider] : null;
+        if (!several) {
+            return modelRows(catalogs?.[provider], answering ? settings.model : '')
+                .map(row => ({ ...row, provider, key: `${provider}:${row.value}` }));
+        }
+        return several.accounts.flatMap(account => modelRows(
+            catalogs?.[provider],
+            answering && account.id === several.current ? settings.model : '',
+        ).map(row => ({
+            ...row,
+            provider,
+            account: account.id,
+            accountName: account.name,
+            accountShort: account.short,
+            key: `${provider}@${account.id}:${row.value}`,
+        })));
     });
 }
 
@@ -157,8 +179,10 @@ export function mergedModelRows(catalogs, providers, settings) {
  * names the agent in that case rather than picking a row to look confident
  * with.
  */
-export function currentModelRow(rows, settings) {
-    const mine = rows.filter(row => row.provider === settings.provider);
+export function currentModelRow(rows, settings, offered = {}) {
+    // Under the account answering, where the agent is listed under several.
+    const current = offered?.[settings.provider]?.accounts?.length > 1 ? offered[settings.provider].current : null;
+    const mine = rows.filter(row => row.provider === settings.provider && (!current || row.account === current));
     return modelRow(mine, settings.model);
 }
 

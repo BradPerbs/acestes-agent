@@ -10,6 +10,7 @@ import {
     ServerStack03Icon,
 } from 'hugeicons-react';
 import { OsIcon } from '../../lib/os-icons';
+import { HEADING } from '../../lib/text-styles';
 import { useT } from '../../i18n';
 
 /**
@@ -117,8 +118,7 @@ function MentionPicker({ items, query, active, onPick, onHover }) {
                     </p>
                 ) : groups.map(group => (
                     <div key={group.kind}>
-                        <div className="px-2.5 pt-1.5 pb-1 text-[10px] font-semibold uppercase tracking-wider
-                            text-gray-400 dark:text-neutral-500">
+                        <div className={`px-2.5 pt-1.5 pb-1 ${HEADING}`}>
                             {t(KIND_META[group.kind]?.label || 'nav.inventory')}
                         </div>
                         {group.rows.map(({ item, index }) => (

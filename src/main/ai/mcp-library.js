@@ -119,8 +119,9 @@ const CURATED = [
         homepage: 'https://github.com/microsoft/playwright-mcp',
         transport: 'stdio',
         command: 'npx',
-        args: ['-y', '@playwright/mcp@latest', '{{headless}}', '{{profile}}', '{{proxy}}'],
+        args: ['-y', '@playwright/mcp@latest', '{{browser}}', '{{headless}}', '{{profile}}', '{{proxy}}'],
         fields: [
+            { key: 'browser', label: 'Browser', kind: 'option', option: '--browser', required: false, placeholder: 'chrome', help: 'chrome or msedge to use the one installed here; chromium, firefox or webkit download their own. Leave empty for Chrome.' },
             { key: 'headless', label: 'Hide the browser window', kind: 'flag', flag: '--headless', required: false, placeholder: 'no', help: 'Leave empty, or say no, to watch it work. Say yes for an unattended run.' },
             { key: 'profile', label: 'Profile folder', kind: 'option', option: '--user-data-dir', required: false, placeholder: 'C:\\Users\\me\\acestes-browser', help: 'Keep cookies and logins between runs, in this folder. Leave empty for a fresh browser every time; a site that wants a session cookie before it will register you needs this.' },
             { key: 'proxy', label: 'Proxy', kind: 'option', option: '--proxy-server', required: false, placeholder: 'http://host:port or socks5://host:port', help: 'Send the browser through a proxy. The browser ignores a username and password in the URL, so use a proxy that authorises this machine\'s address.' },

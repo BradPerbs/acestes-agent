@@ -60,7 +60,7 @@ function openViewer(id, parent) {
         minHeight: MIN_HEIGHT,
         ...windowIcon(),
         frame: false,
-        backgroundColor: '#16161e',
+        backgroundColor: '#000000',
         show: false,
         title: 'Screenshot',
         webPreferences: {

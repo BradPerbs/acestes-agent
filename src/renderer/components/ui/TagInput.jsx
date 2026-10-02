@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from 'react';
 import { PlusSignIcon } from 'hugeicons-react';
 import Tag from './Tag';
 import { MAX_TAGS, normalizeTag, normalizeTags } from '../../lib/tags';
+import { HEADING } from '../../lib/text-styles';
 
 /**
  * How many of the collection's tags the panel will show at once.
@@ -157,7 +158,7 @@ export default function TagInput({
                     bg-gray-50 dark:bg-surface-base/60
                     border border-gray-200/70 dark:border-surface-control">
                     <div className="flex items-baseline justify-between gap-2">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-neutral-500">
+                        <span className={HEADING}>
                             {typed ? `Matching “${typed}”` : 'Tags already in use'}
                         </span>
 

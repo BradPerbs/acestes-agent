@@ -275,6 +275,15 @@ function build(context) {
         + 'inventory, with the password or key they gave you; do not delete or rewrite records '
         + 'unless the user asked for that. A secret you store is encrypted and never shown back '
         + 'to you, so do not put one in a note or a reply.',
+        '',
+        'You also carry files: documents, scripts, archives, images, anything worth keeping. '
+        + 'list_files shows them and read_inventory_file reads one (an image you can see). '
+        + 'save_inventory_file keeps a new one from text, base64, a granted local folder, a server '
+        + 'over SFTP or a URL; update_inventory_file renames or replaces one; send_inventory_file '
+        + 'uploads one to a server, copies it into a granted local folder, or gives a copy to another '
+        + 'agent; delete_inventory_file removes one. In run_local_command, {{file:name}} is the '
+        + 'file\'s path on this computer, so a tool can work on it in place. When the user hands you a '
+        + 'file to keep, or you make one they will want again, save it there.',
     );
 
     // Said up front, like the blocked list below: a refusal from a local tool

@@ -10,7 +10,7 @@ import { useT } from '../i18n';
  * and the log of what was done. One row rather than six sidebar entries, so
  * the column stays about the agent and this stays about its things.
  */
-export const INVENTORY_PAGES = ['overview', 'hosts', 'keychain', 'proxies', 'snippets', 'memory', 'mcp', 'jobs', 'runs', 'logs'];
+export const INVENTORY_PAGES = ['overview', 'hosts', 'keychain', 'proxies', 'snippets', 'files', 'memory', 'mcp', 'jobs', 'runs', 'logs'];
 
 function InventoryTabs({ active, onChange }) {
     const t = useT();

@@ -437,7 +437,13 @@ export default function useAssistant({
     const pinModel = useCallback(async (patch) => {
         if (!conversationId) {
             const picked = Object.fromEntries(Object.entries(patch || {}).filter(([, value]) => value));
-            setPinned(previous => ({ ...(previous || startPinRef.current || {}), ...picked }));
+            setPinned((previous) => {
+                const next = { ...(previous || startPinRef.current || {}), ...picked };
+                // An empty account is a choice too: back to the agent's own,
+                // rather than keeping the one picked before.
+                if (patch && 'account' in patch && !patch.account) delete next.account;
+                return next;
+            });
             return;
         }
         const result = await window.api.ai.setModel?.(conversationId, patch);
@@ -490,6 +496,7 @@ export default function useAssistant({
         costUsd: state.costUsd,
         account: state.account,
         rateLimit: state.rateLimit,
+        context: state.context,
         title: state.title,
         conversationId,
         conversations,

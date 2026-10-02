@@ -8,6 +8,7 @@ import {
     PencilEdit01Icon,
 } from 'hugeicons-react';
 import { formatSize, formatDate, formatMode } from '../../lib/format';
+import { HEADING } from '../../lib/text-styles';
 
 const ROW_HEIGHT = 32;
 // Rows kept above and below the viewport so fast scrolling doesn't flash blank.
@@ -235,7 +236,7 @@ function FileTable({
     return (
         <div className="flex-1 min-h-0 flex flex-col">
             {/* Header */}
-            <div className="shrink-0 flex items-center gap-3 px-3 h-8 border-b border-gray-200 dark:border-surface-control bg-gray-50 dark:bg-surface-raised text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+            <div className={`shrink-0 flex items-center gap-3 px-3 h-8 border-b border-gray-200 dark:border-surface-control bg-gray-50 dark:bg-surface-raised ${HEADING}`}>
                 {COLUMNS.map(column => (
                     <button
                         key={column.key}

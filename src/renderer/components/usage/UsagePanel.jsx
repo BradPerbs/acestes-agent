@@ -2,11 +2,15 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { createPortal } from 'react-dom';
 import { Cancel01Icon, Loading03Icon, Refresh01Icon, Settings02Icon } from 'hugeicons-react';
 import Tooltip from '../ui/Tooltip';
+import AccountCheckbox from './AccountCheckbox';
 import { IconButton } from '../ui/Button';
 import ProviderMark from '../../lib/provider-marks';
 import { PROVIDER_NAMES } from '../../lib/ai-catalog';
-import { PLAN_RUNTIMES, compact, keyOf, lastRead, sortWindows, span, toneOf, windowLabel, windowShort } from '../../lib/usage-limits';
+import {
+    PLAN_RUNTIMES, compact, keyOf, lastRead, sortWindows, span, tickedAccounts, toggleAccountPatch, toneOf, windowLabel, windowShort,
+} from '../../lib/usage-limits';
 import { useEnterOn } from '../../hooks/useEnter';
+import { HEADING } from '../../lib/text-styles';
 import { localeTag, useT } from '../../i18n';
 
 /**
@@ -19,8 +23,10 @@ import { localeTag, useT } from '../../i18n';
  * bigger. A per-model window (Fable's weekly, Opus's) is a quieter row under
  * its account, in the column it belongs to.
  *
- * Switching is on the row: "Use" moves the selected agent to that account,
- * which is the thing to do when the one in use is near its limit.
+ * Which accounts the agent uses is a box on each row: tick one and it is
+ * that account; tick both and the composer's model menu lists each one's
+ * models, so every conversation picks the account it runs on, which is the
+ * thing to do when one is near its limit. The last one ticked stays ticked.
  */
 
 const PANEL_WIDTH = 520;
@@ -113,7 +119,7 @@ function extraLabel(window, t) {
     return windowLabel(window, t);
 }
 
-function AccountRow({ provider, account, entry, inUse, login, agentName, now, onUse, onSignIn, onCancelSignIn }) {
+function AccountRow({ account, entry, ticked, last, login, now, onToggle, onSignIn, onCancelSignIn }) {
     const t = useT();
     const identity = entry?.identity;
     const email = identity?.email || '';
@@ -162,28 +168,22 @@ function AccountRow({ provider, account, entry, inUse, login, agentName, now, on
     }
 
     return (
-        <div className={`group -mx-2.5 px-2.5 py-2.5 rounded-xl transition-colors ${inUse
+        <div className={`group -mx-2.5 px-2.5 py-2.5 rounded-xl transition-colors ${ticked
             ? 'bg-gray-50 dark:bg-white/[0.035]'
             : 'hover:bg-gray-50/70 dark:hover:bg-white/[0.02]'}`}
         >
             <div className={`${COLUMNS} items-center`}>
                 <div className="flex items-start gap-2.5 min-w-0">
-                    <Tooltip label={inUse ? t('statusBar.inUseBy', { name: agentName }) : t('statusBar.useHint', { name: agentName })} placement="top">
-                        <button
-                            type="button"
-                            role="radio"
-                            aria-checked={inUse}
-                            disabled={inUse || signedOut}
-                            onClick={onUse}
-                            className="mt-[5px] w-2.5 h-2.5 shrink-0 rounded-full flex items-center justify-center outline-none
-                                focus-visible:ring-2 focus-visible:ring-gray-900/25 dark:focus-visible:ring-white/30"
-                        >
-                            <span className={`block rounded-full transition-all ${inUse
-                                ? 'w-2 h-2 bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.18)]'
-                                : 'w-2 h-2 border border-gray-300 dark:border-neutral-600 group-hover:border-gray-500 dark:group-hover:border-gray-400'}`}
-                            />
-                        </button>
-                    </Tooltip>
+                    {/* Tick the accounts to use. Both ticked and the model
+                        menu lists each one's models; one, and it is that one. */}
+                    <AccountCheckbox
+                        name={primary}
+                        checked={ticked}
+                        last={last}
+                        disabled={signedOut}
+                        onToggle={onToggle}
+                        className="mt-[2px]"
+                    />
                     <div className="min-w-0">
                         <div className="text-[13px] font-medium text-gray-900 dark:text-white truncate" title={primary}>{primary}</div>
                         <div className="mt-0.5 flex items-center gap-1.5 min-w-0 text-[11px] text-gray-500 dark:text-gray-400">
@@ -196,18 +196,6 @@ function AccountRow({ provider, account, entry, inUse, login, agentName, now, on
                             )}
                             {secondary && <span className="truncate">{secondary}</span>}
                             {!identity && !login && <span className={`truncate ${MUTED}`}>{t('settings.accounts.notChecked')}</span>}
-                            {inUse ? (
-                                <span className="shrink-0 font-medium text-emerald-600 dark:text-emerald-400">{t('statusBar.inUse')}</span>
-                            ) : !signedOut && !login && (
-                                <button
-                                    type="button"
-                                    onClick={onUse}
-                                    className="shrink-0 font-semibold text-gray-500 dark:text-gray-400 opacity-0 group-hover:opacity-100
-                                        focus-visible:opacity-100 hover:text-gray-900 dark:hover:text-white transition-opacity"
-                                >
-                                    {t('statusBar.use')}
-                                </button>
-                            )}
                         </div>
                     </div>
                 </div>
@@ -235,19 +223,23 @@ function AccountRow({ provider, account, entry, inUse, login, agentName, now, on
 }
 
 /** One agent that reports plan limits: its accounts as rows under two column heads. */
-function AgentBlock({ row, overview, agentName, now, first }) {
+function AgentBlock({ row, overview, settings, now, first }) {
     const t = useT();
-    const { provider, account: current } = row;
+    const { provider } = row;
     const accounts = overview.accounts?.[provider] || [];
     const logins = overview.logins || [];
+    // The accounts this agent uses: one or several, ticked.
+    const ticked = new Set(tickedAccounts(overview, settings, provider).map(account => account.id));
+    const toggle = (id) => {
+        const patch = toggleAccountPatch(overview, settings, provider, id);
+        if (patch) window.api.ai.setSettings(patch).catch(() => {});
+    };
 
     // What this computer sent through the agent today, over all its accounts.
     const today = accounts.reduce((sum, account) => {
         const bucket = overview.limits?.[keyOf(provider, account.id)]?.usage?.today;
         return { turns: sum.turns + (bucket?.turns || 0), tokens: sum.tokens + (bucket?.input || 0) + (bucket?.output || 0) };
     }, { turns: 0, tokens: 0 });
-
-    const use = (id) => window.api.ai.setSettings({ accounts: { [provider]: id } }).catch(() => {});
 
     return (
         <section className={`px-5 py-4 ${first ? '' : 'border-t border-gray-100 dark:border-white/[0.06]'}`}>
@@ -259,22 +251,21 @@ function AgentBlock({ row, overview, agentName, now, first }) {
                         <span className={`text-[11px] ${MUTED}`}>{t('statusBar.accounts', { count: accounts.length })}</span>
                     )}
                 </div>
-                <span className={`text-[10px] font-semibold uppercase tracking-[0.08em] ${MUTED}`}>{t('settings.accounts.window.fiveHour')}</span>
-                <span className={`text-[10px] font-semibold uppercase tracking-[0.08em] ${MUTED}`}>{t('settings.accounts.window.week')}</span>
+                <span className={HEADING}>{t('settings.accounts.window.fiveHour')}</span>
+                <span className={HEADING}>{t('settings.accounts.window.week')}</span>
             </div>
 
             <div className="space-y-0.5">
                 {accounts.map(account => (
                     <AccountRow
                         key={account.id}
-                        provider={provider}
                         account={account}
                         entry={overview.limits?.[keyOf(provider, account.id)]}
-                        inUse={account.id === current?.id}
+                        ticked={ticked.has(account.id)}
+                        last={ticked.size === 1}
                         login={logins.find(entry => entry.provider === provider && entry.accountId === account.id)}
-                        agentName={agentName}
                         now={now}
-                        onUse={() => use(account.id)}
+                        onToggle={() => toggle(account.id)}
                         onSignIn={() => window.api.ai.accounts.login(provider, account.id).catch(() => {})}
                         onCancelSignIn={() => window.api.ai.accounts.cancelLogin(provider, account.id).catch(() => {})}
                     />
@@ -297,7 +288,7 @@ function OtherAgents({ rows, overview, first }) {
     return (
         <section className={`px-5 py-3.5 ${first ? '' : 'border-t border-gray-100 dark:border-white/[0.06]'}`}>
             <div className="flex items-baseline justify-between mb-1.5">
-                <span className={`text-[10px] font-semibold uppercase tracking-[0.08em] ${MUTED}`}>{t('statusBar.otherAgents')}</span>
+                <span className={HEADING}>{t('statusBar.otherAgents')}</span>
                 <span className={`text-[10px] ${MUTED}`}>{t('statusBar.noPlan')}</span>
             </div>
             <ul>
@@ -321,7 +312,7 @@ function OtherAgents({ rows, overview, first }) {
     );
 }
 
-export default function UsagePanel({ anchor, rows, overview, checking, now, agentName, onCheck, onClose, onManage }) {
+export default function UsagePanel({ anchor, rows, overview, settings, checking, now, agentName, onCheck, onClose, onManage }) {
     const t = useT();
     const panelRef = useRef(null);
     const [pos, setPos] = useState(null);
@@ -410,7 +401,7 @@ export default function UsagePanel({ anchor, rows, overview, checking, now, agen
 
             <div className="overflow-y-auto">
                 {planned.map((row, index) => (
-                    <AgentBlock key={row.provider} row={row} overview={overview} agentName={agentName} now={now} first={index === 0} />
+                    <AgentBlock key={row.provider} row={row} overview={overview} settings={settings} now={now} first={index === 0} />
                 ))}
                 <OtherAgents rows={quiet} overview={overview} first={planned.length === 0} />
             </div>

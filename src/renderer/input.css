@@ -1515,6 +1515,76 @@ body.tab-dragging .session-tab {
     }
 }
 
+/* The window's ground: what the title bar, the sidebar and the gutters stand on,
+   and so, in practice, the sidebar's background.
+
+   The flat grey (or `--app-base`) stays underneath, from the root's own classes.
+   Over it, three layers, faintest last:
+   - a wash of the selected agent's colour from the top-left corner, where the
+     column starts, so the sidebar reads as that agent's;
+   - a fainter one of the lighter shade of the same family from the bottom-left;
+   - a sheen down from the top edge, so the column is lit from above rather than
+     printed flat.
+   Sized in pixels rather than percentages, so the light stays over the sidebar
+   however wide the window is and does not spread under the content.
+
+   The two tints are registered colours so a change of agent cross-fades the
+   wash instead of snapping it. Not inherited: they are set on the root and only
+   the root draws them, and an inherited property animating there would restyle
+   every element in the app on every frame. App.jsx writes them from the agent;
+   these initial values are the neutral wash for white and black agents. */
+@property --ground-tint {
+    syntax: '<color>';
+    inherits: false;
+    initial-value: rgb(139 147 167);
+}
+
+@property --ground-tint-2 {
+    syntax: '<color>';
+    inherits: false;
+    initial-value: rgb(139 147 167);
+}
+
+.app-ground {
+    background-image:
+        radial-gradient(560px 420px at 0 0, color-mix(in srgb, var(--ground-tint) 8%, transparent), transparent 72%),
+        radial-gradient(420px 560px at 0 100%, color-mix(in srgb, var(--ground-tint-2) 5%, transparent), transparent 72%),
+        linear-gradient(to bottom, rgb(255 255 255 / 0.5), rgb(255 255 255 / 0) 420px);
+    transition: --ground-tint 600ms ease, --ground-tint-2 600ms ease;
+}
+
+.dark .app-ground {
+    background-image:
+        radial-gradient(560px 420px at 0 0, color-mix(in srgb, var(--ground-tint) 9%, transparent), transparent 72%),
+        radial-gradient(420px 560px at 0 100%, color-mix(in srgb, var(--ground-tint-2) 4%, transparent), transparent 72%),
+        linear-gradient(to bottom, rgb(255 255 255 / 0.025), rgb(255 255 255 / 0) 420px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .app-ground {
+        transition: none;
+    }
+}
+
+/* The agent's colour as the sidebar's accent, on the lit page's icon.
+   Sidebar.jsx sets the variables from the agent; without them (white and black
+   agents, which have no hue) it is the text's own colour. */
+.agent-accent {
+    color: var(--agent-accent, currentColor);
+}
+
+.dark .agent-accent {
+    color: var(--agent-accent-dark, var(--agent-accent, currentColor));
+}
+
+/* The sidebar's list fading out at its foot rather than being cut off there.
+   A mask rather than a gradient painted over it, so it works on any ground,
+   the agent's wash included. */
+.sidebar-list-fade {
+    -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 20px), transparent);
+    mask-image: linear-gradient(to bottom, #000 calc(100% - 20px), transparent);
+}
+
 /* Inset content card. Spacing comes from the app shell's gutter, so the panel
    itself carries no margin, see src/renderer/lib/layout.js */
 #main-content {

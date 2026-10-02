@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import AgentMark from './AgentMark';
 import { describeCall } from './ToolCall';
+import { INITIAL_THEME } from '../../lib/app-colors';
 import { useT } from '../../i18n';
 
 /**
@@ -59,7 +60,7 @@ function status(t, row) {
 function useFollowTheme() {
     useEffect(() => {
         const apply = () => {
-            const stored = localStorage.getItem('theme') || 'system';
+            const stored = localStorage.getItem('theme') || INITIAL_THEME;
             const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
             document.documentElement.classList.toggle(
                 'dark',

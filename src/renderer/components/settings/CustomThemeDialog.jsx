@@ -10,6 +10,7 @@ import {
     themeToCustomColors,
 } from '../../hooks/useTerminalTheme';
 import { TERMINAL_FONT_FAMILY } from '../../hooks/useTerminalSettings';
+import { HEADING } from '../../lib/text-styles';
 import { useT, translate } from '../../i18n';
 
 const BASE_FIELDS = TERMINAL_COLOR_FIELDS.filter(field => field.group === 'base');
@@ -136,7 +137,7 @@ export default function CustomThemeDialog({ colors, onSave, onClose }) {
                 </label>
 
                 <div>
-                    <h4 className="text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-3">
+                    <h4 className={`${HEADING} mb-3`}>
                         {t('termColors.groupBase')}
                     </h4>
                     <div className="grid grid-cols-2 gap-x-4 gap-y-3">
@@ -152,7 +153,7 @@ export default function CustomThemeDialog({ colors, onSave, onClose }) {
                 </div>
 
                 <div className="pb-2">
-                    <h4 className="text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-3">
+                    <h4 className={`${HEADING} mb-3`}>
                         {t('termColors.groupAnsi')}
                     </h4>
                     <div className="grid grid-cols-2 gap-x-4 gap-y-3">

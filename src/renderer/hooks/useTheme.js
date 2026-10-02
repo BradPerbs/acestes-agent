@@ -1,8 +1,10 @@
 import { useState, useLayoutEffect, useCallback } from 'react';
 import {
-    DEFAULT_APP_COLORS,
+    INITIAL_APP_COLORS,
+    INITIAL_THEME,
     applyAppColors,
     clearAppColors,
+    readAppColors,
     sanitizeAppColors,
 } from '../lib/app-colors';
 
@@ -16,15 +18,14 @@ const COLORS_KEY = 'appColors';
 
 const readTheme = () => {
     const saved = localStorage.getItem(THEME_KEY);
-    return THEMES.has(saved) ? saved : 'system';
+    return THEMES.has(saved) ? saved : INITIAL_THEME;
 };
 
 const readColors = () => {
     try {
-        const saved = localStorage.getItem(COLORS_KEY);
-        return sanitizeAppColors(saved ? JSON.parse(saved) : null);
+        return readAppColors(localStorage.getItem(COLORS_KEY));
     } catch {
-        return { ...DEFAULT_APP_COLORS };
+        return { ...INITIAL_APP_COLORS };
     }
 };
 

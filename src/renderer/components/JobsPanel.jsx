@@ -13,6 +13,7 @@ import Toggle from './settings/ui/Toggle';
 import JobDialog from './jobs/JobDialog';
 import JobLibrary, { TemplateCard } from './jobs/JobLibrary';
 import { CARD_GRID } from '../lib/layout';
+import { HEADING } from '../lib/text-styles';
 import { CHIP, CHIP_OFF, CHIP_ON, KIND_ICON, LIVE_STATUSES, STATUS_DOT, duration, moment, when } from './jobs/schedule';
 import { useT } from '../i18n';
 
@@ -60,7 +61,7 @@ function sortJobs(list, sort) {
 function Stat({ label, value, note, tone = '' }) {
     return (
         <div className="min-w-0 rounded-xl border border-gray-200 dark:border-neutral-800 bg-white dark:bg-surface-raised px-3 py-2.5">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-neutral-500">{label}</p>
+            <p className={HEADING}>{label}</p>
             <p className={`mt-0.5 text-lg leading-tight font-semibold tabular-nums truncate ${tone || 'text-gray-900 dark:text-white'}`}>{value}</p>
             {note && <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate">{note}</p>}
         </div>
@@ -87,7 +88,7 @@ function History({ runs, t }) {
 function Detail({ label, children }) {
     return (
         <div className="min-w-0">
-            <dt className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-neutral-500">{label}</dt>
+            <dt className={HEADING}>{label}</dt>
             <dd className="mt-0.5 text-xs text-gray-700 dark:text-gray-300 break-words">{children}</dd>
         </div>
     );
@@ -244,7 +245,7 @@ function JobRow({ job, runs, expanded, onExpand, onEdit, onToggle, onRun, onDupl
                         </button>
                     )}
                     <div className="flex flex-col gap-1.5">
-                        <h4 className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-neutral-500">
+                        <h4 className={HEADING}>
                             {t('jobs.recentRuns')}
                         </h4>
                         {runs.length === 0 ? (
@@ -455,7 +456,7 @@ function JobsPanel({ agentId = '', hosts = [], reachedForPage = 0, onOpenConvers
                     {featured.length > 0 && (
                         <section className="flex flex-col gap-2.5">
                             <div className="flex items-center gap-2">
-                                <h3 className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-neutral-500">{t('jobs.startWith')}</h3>
+                                <h3 className={HEADING}>{t('jobs.startWith')}</h3>
                                 <button
                                     type="button"
                                     onClick={() => setLibrary({ initial: null })}

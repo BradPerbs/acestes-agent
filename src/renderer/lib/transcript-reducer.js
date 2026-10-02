@@ -350,6 +350,10 @@ function step(state, event, owned) {
         case 'rate-limit':
             return { ...state, rateLimit: event };
 
+        // How full the model's context is after the latest reply.
+        case 'context':
+            return { ...state, context: event };
+
         case 'result':
             // Thinking left over when the turn ends with no reply to carry
             // it (no assistant-text follows) is kept as a thought of its own
@@ -481,6 +485,9 @@ export const INITIAL = {
     // Both arrive from the runtime rather than being configured here.
     account: null,
     rateLimit: null,
+    // `{ used, limit, percent, model, provider }`: the latest reply's tokens
+    // against the model's context window, for the composer's ring.
+    context: null,
     // What the runtime named the conversation. Empty until it has, and for
     // one it never named, where the first message stands in.
     title: '',

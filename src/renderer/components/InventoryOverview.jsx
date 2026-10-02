@@ -2,6 +2,7 @@ import { memo, useEffect, useMemo, useState } from 'react';
 import {
     ArrowRight01Icon,
     BrainIcon,
+    File01Icon,
     FlashIcon,
     Key01Icon,
     Note01Icon,
@@ -13,6 +14,7 @@ import {
     SquareLock02Icon,
 } from 'hugeicons-react';
 import AgentMark from './assistant/AgentMark';
+import { FileGlyph, sizeLabel } from './FilesPanel';
 import { OsIcon, hostOs } from '../lib/os-icons';
 import { isPackage, isSpec } from '../lib/snippets';
 import { useProxies } from '../hooks/useProxies';
@@ -232,6 +234,25 @@ function InventoryOverview({ hosts = [], keys = [], agentId = '', activeAgent = 
         return () => { cancelled = true; };
     }, [agentId]);
 
+    // The agent's files and the shared ones, records only, read again when
+    // the agent saves or drops one from a conversation.
+    const [files, setFiles] = useState([]);
+    useEffect(() => {
+        let cancelled = false;
+        const read = () => window.api.files?.list?.(agentId)
+            .then(list => { if (!cancelled) setFiles(Array.isArray(list) ? list : []); })
+            .catch(() => {});
+        setFiles([]);
+        read();
+        const off = window.api.inventory?.onChange?.((change) => {
+            if (change?.kind === 'files' && (!change.agentId || change.agentId === agentId)) read();
+        });
+        return () => {
+            cancelled = true;
+            off?.();
+        };
+    }, [agentId]);
+
     useEffect(() => {
         let cancelled = false;
         const read = () => window.api.memory.list(agentId)
@@ -322,6 +343,20 @@ function InventoryOverview({ hosts = [], keys = [], agentId = '', activeAgent = 
                     : isPackage(snippet)
                         ? <PackageIcon size={20} strokeWidth={1.5} />
                         : <FlashIcon size={20} strokeWidth={1.5} />,
+            })),
+        },
+        {
+            page: 'files',
+            title: t('nav.files'),
+            icon: <File01Icon size={15} strokeWidth={1.75} />,
+            tint: 'bg-cyan-500/10 text-cyan-600 group-hover/slot:bg-cyan-500/[0.18] '
+                + 'dark:bg-cyan-400/10 dark:text-cyan-300 dark:group-hover/slot:bg-cyan-400/[0.18]',
+            mark: 'text-cyan-600 dark:text-cyan-300',
+            items: files.map(file => ({
+                key: file.id,
+                label: file.name,
+                title: `${file.name} · ${sizeLabel(file.size)}`,
+                icon: <FileGlyph mime={file.mime} />,
             })),
         },
         {

@@ -540,7 +540,13 @@ export function drawHelmet(out, { helmet = FIRST, crest = 'plume', yaw = REST.ya
     ]);
     const rot = new Float32Array([R[0], R[3], R[6], R[1], R[4], R[7], R[2], R[5], R[8]]);
 
-    const glyph = size < 26;
+    // Whether the lines will hold up is a question of the pixels on the
+    // screen, not of CSS ones: a 20px mark is 20 dots on a plain display and
+    // 25 at 125%, and the same lines that are a grey smudge in the first
+    // still read in the second. Under about 24 dots they close up, so the
+    // mark is drawn as a glyph there instead.
+    const dots = size * (out.width / canvasSize);
+    const glyph = dots < 24;
     // line weights in CSS pixels
     const outlineW = Math.max(1.15, Math.min(3.2, size * 0.021));
     const lineW = Math.max(0.75, outlineW * 0.5);

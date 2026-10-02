@@ -8,9 +8,12 @@ import SettingRow, { DIVIDED } from './ui/SettingRow';
 import Button, { IconButton } from '../ui/Button';
 import ConfirmDialog from '../ui/ConfirmDialog';
 import LimitBar, { UsageLine } from '../usage/LimitBar';
+import AccountCheckbox from '../usage/AccountCheckbox';
 import ProviderMark from '../../lib/provider-marks';
 import { PROVIDER_NAMES } from '../../lib/ai-catalog';
-import { STALE_AFTER, identityLine, keyOf, lastRead, sortWindows, span } from '../../lib/usage-limits';
+import {
+    STALE_AFTER, identityLine, keyOf, lastRead, sortWindows, span, tickedAccounts, toggleAccountPatch,
+} from '../../lib/usage-limits';
 import useUsageLimits from '../../hooks/useUsageLimits';
 import { useT } from '../../i18n';
 
@@ -38,7 +41,9 @@ const FIELD_CLASS = `w-full px-3 py-2 rounded-xl text-sm bg-white dark:bg-neutra
     text-gray-900 dark:text-gray-100 outline-none
     focus-visible:ring-2 focus-visible:ring-gray-900/20 dark:focus-visible:ring-white/25`;
 
-function AccountRow({ provider, account, entry, login, chosen, checking, now, canSignIn, onChoose, onCheck, onLogin, onCancelLogin, onRename, onRemove }) {
+function AccountRow({
+    provider, account, entry, login, ticked, last, checking, now, canSignIn, onToggle, onCheck, onLogin, onCancelLogin, onRename, onRemove,
+}) {
     const t = useT();
     const [editing, setEditing] = useState(false);
     const [label, setLabel] = useState(account.label);
@@ -54,23 +59,21 @@ function AccountRow({ provider, account, entry, login, chosen, checking, now, ca
     };
 
     return (
-        <li className={`rounded-xl border p-3 transition-colors ${chosen
+        <li className={`rounded-xl border p-3 transition-colors ${ticked
             ? 'border-gray-900/40 dark:border-white/40 bg-gray-50/60 dark:bg-white/[0.03]'
             : 'border-gray-200 dark:border-neutral-800'}`}
         >
             <div className="flex items-start gap-3">
-                <button
-                    type="button"
-                    role="radio"
-                    aria-checked={chosen}
-                    aria-label={t('settings.accounts.use', { name })}
-                    onClick={() => !chosen && onChoose(account.id)}
-                    className={`mt-0.5 w-4 h-4 rounded-full border shrink-0 flex items-center justify-center
-                        outline-none focus-visible:ring-2 focus-visible:ring-gray-900/25 dark:focus-visible:ring-white/30
-                        ${chosen ? 'border-gray-900 dark:border-white' : 'border-gray-300 dark:border-neutral-600 hover:border-gray-500'}`}
-                >
-                    {chosen && <span className="w-2 h-2 rounded-full bg-gray-900 dark:bg-white" />}
-                </button>
+                {/* Tick the accounts this agent uses: one, or several, and
+                    then the model menu lists each one's models. */}
+                <AccountCheckbox
+                    name={name}
+                    checked={ticked}
+                    last={last}
+                    onToggle={() => onToggle(account.id)}
+                    size="md"
+                    className="mt-0.5"
+                />
 
                 <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 min-w-0">
@@ -91,16 +94,11 @@ function AccountRow({ provider, account, entry, login, chosen, checking, now, ca
                         ) : (
                             <button
                                 type="button"
-                                onClick={() => !chosen && onChoose(account.id)}
+                                onClick={() => { if (!(ticked && last)) onToggle(account.id); }}
                                 className="text-sm font-semibold text-gray-900 dark:text-white truncate text-left"
                             >
                                 {name}
                             </button>
-                        )}
-                        {chosen && !editing && (
-                            <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 shrink-0">
-                                {t('settings.accounts.inUse')}
-                            </span>
                         )}
                     </div>
                     <p className={`text-xs truncate ${entry?.identity && !signedIn ? 'text-amber-600 dark:text-amber-400' : 'text-gray-500 dark:text-gray-400'}`}>
@@ -322,7 +320,9 @@ function AddAccount({ provider, canSignIn, onAdded, onClose }) {
     );
 }
 
-function ProviderSection({ provider, overview, chosenId, checking, now, first, onChoose, onCheck, onLogin, onCancelLogin, onRename, onRemove, onAdded }) {
+function ProviderSection({
+    provider, overview, tickedIds = [], checking, now, first, onToggle, onCheck, onLogin, onCancelLogin, onRename, onRemove, onAdded,
+}) {
     const t = useT();
     const [adding, setAdding] = useState(false);
     const list = overview.accounts?.[provider];
@@ -346,7 +346,7 @@ function ProviderSection({ provider, overview, chosenId, checking, now, first, o
             </div>
 
             {multi ? (
-                <ul className="space-y-2" role="radiogroup" aria-label={t('settings.accounts.which', { name: PROVIDER_NAMES[provider] })}>
+                <ul className="space-y-2" role="group" aria-label={t('settings.accounts.which', { name: PROVIDER_NAMES[provider] })}>
                     {accounts.map(account => (
                         <AccountRow
                             key={account.id}
@@ -354,11 +354,12 @@ function ProviderSection({ provider, overview, chosenId, checking, now, first, o
                             account={account}
                             entry={overview.limits?.[keyOf(provider, account.id)]}
                             login={logins.find(entry => entry.provider === provider && entry.accountId === account.id)}
-                            chosen={chosenId === account.id}
+                            ticked={tickedIds.includes(account.id)}
+                            last={tickedIds.length === 1}
                             checking={checking.has(keyOf(provider, account.id))}
                             now={now}
                             canSignIn={Boolean(can.signIn)}
-                            onChoose={(id) => onChoose(provider, id)}
+                            onToggle={(id) => onToggle(provider, id)}
                             onCheck={(id) => onCheck(provider, id)}
                             onLogin={(id) => onLogin(provider, id)}
                             onCancelLogin={(id) => onCancelLogin(provider, id)}
@@ -443,6 +444,12 @@ export default function AccountsCard({ providers = [], settings, onSettings }) {
 
     const choose = (provider, accountId) => onSettings({ accounts: { [provider]: accountId } });
 
+    // Tick or clear one account. The last one ticked stays.
+    const toggle = (provider, accountId) => {
+        const patch = toggleAccountPatch(overview, settings, provider, accountId);
+        if (patch) onSettings(patch);
+    };
+
     const login = async (provider, accountId) => {
         setNotice('');
         const result = await window.api.ai.accounts.login(provider, accountId).catch(error => ({ error: error.message }));
@@ -507,13 +514,11 @@ export default function AccountsCard({ providers = [], settings, onSettings }) {
                         key={provider}
                         provider={provider}
                         overview={overview}
-                        chosenId={overview.accounts?.[provider]?.some(account => account.id === settings?.accounts?.[provider])
-                            ? settings.accounts[provider]
-                            : 'default'}
+                        tickedIds={tickedAccounts(overview, settings, provider).map(account => account.id)}
                         checking={checking}
                         now={now}
                         first={index === 0}
-                        onChoose={choose}
+                        onToggle={toggle}
                         onCheck={check}
                         onLogin={login}
                         onCancelLogin={cancelLogin}

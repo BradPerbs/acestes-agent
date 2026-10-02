@@ -29,14 +29,27 @@ export function lastModel(agentId, settings) {
     // A runtime switched off since is not one to start on.
     const on = settings.providers?.length ? settings.providers : [settings.provider];
     if (entry.pin.provider && !on.includes(entry.pin.provider)) return null;
+    // Nor an account taken out of the menu since: the new conversation goes
+    // on the agent's own choice instead.
+    if (entry.pin.account) {
+        const provider = entry.pin.provider || settings.provider;
+        // Nothing chosen is the machine's own login, which is `default`.
+        const offered = entry.pin.account === (settings.accounts?.[provider] || 'default')
+            || (settings.menuAccounts?.[provider] || []).includes(entry.pin.account);
+        if (!offered) {
+            const rest = { ...entry.pin };
+            delete rest.account;
+            return rest;
+        }
+    }
     return entry.pin;
 }
 
-/** `pin` is `{ provider, model, effort }`, as the chip pins a conversation. */
+/** `pin` is `{ provider, model, effort, account }`, as the chip pins a conversation. */
 export function rememberModel(agentId, settings, pin) {
     if (!agentId || !settings || !pin?.model) return;
     const clean = Object.fromEntries(
-        ['provider', 'model', 'effort'].filter(field => pin[field]).map(field => [field, pin[field]]),
+        ['provider', 'model', 'effort', 'account'].filter(field => pin[field]).map(field => [field, pin[field]]),
     );
     try {
         localStorage.setItem(KEY, JSON.stringify({ ...readAll(), [agentId]: { pin: clean, base: base(settings) } }));

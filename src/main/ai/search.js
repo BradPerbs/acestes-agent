@@ -266,15 +266,26 @@ function excerpt(text, ranges) {
  * One conversation against one parsed query: null when it is out, else its
  * score and the passages that put it in.
  */
-function scan(conversation, parsed, { openIds, hostName, live }) {
-    // The filters first, since they are cheap and most of the list fails one.
-    if (parsed.pinned !== null && Boolean(conversation.pinned) !== parsed.pinned) return null;
-    if (parsed.open !== null && openIds.has(conversation.id) !== parsed.open) return null;
-    if (parsed.working !== null && Boolean(conversation.busy) !== parsed.working) return null;
-    if (parsed.after !== null && conversation.updatedAt < parsed.after) return null;
-    if (parsed.before !== null && conversation.createdAt > parsed.before) return null;
+/** The filters that need nothing but the conversation's own fields. */
+function passesCheapFilters(conversation, parsed, openIds) {
+    if (parsed.pinned !== null && Boolean(conversation.pinned) !== parsed.pinned) return false;
+    if (parsed.open !== null && openIds.has(conversation.id) !== parsed.open) return false;
+    if (parsed.working !== null && Boolean(conversation.busy) !== parsed.working) return false;
+    if (parsed.after !== null && conversation.updatedAt < parsed.after) return false;
+    if (parsed.before !== null && conversation.createdAt > parsed.before) return false;
+    return true;
+}
 
-    const events = Array.isArray(conversation.events) ? conversation.events : [];
+/**
+ * `events` is the conversation's, handed in when the caller read them from
+ * somewhere other than the conversation object (a stub's file, see archive.js).
+ */
+function scan(conversation, parsed, { openIds, hostName, live }, given = undefined) {
+    // The filters first, since they are cheap and most of the list fails one.
+    if (!passesCheapFilters(conversation, parsed, openIds)) return null;
+
+    const source = given !== undefined ? given : conversation.events;
+    const events = Array.isArray(source) ? source : [];
     const passages = [];
     let hasError = false;
     let hasTool = false;
@@ -398,11 +409,15 @@ function warm() {
     embeddings.load().then(() => { modelReady = true; }).catch(() => { modelFailed = true; });
 }
 
-/** The sentence or two that stands for a conversation. */
+/** The sentence or two that stands for a conversation: its title, first and last message. */
+function sketchFrom(title, first, last) {
+    const parts = [title || '', first || '', last || ''];
+    return parts.map(part => String(part).replace(/\s+/g, ' ').trim()).filter(Boolean).join('. ').slice(0, 600);
+}
+
 function sketchText(conversation) {
     const users = (conversation.events || []).filter(event => event.type === 'user-message' && event.text);
-    const parts = [conversation.title || '', users[0]?.text || '', users.length > 1 ? users[users.length - 1].text : ''];
-    return parts.map(part => String(part).replace(/\s+/g, ' ').trim()).filter(Boolean).join('. ').slice(0, 600);
+    return sketchFrom(conversation.title, users[0]?.text, users.length > 1 ? users[users.length - 1].text : '');
 }
 
 function cosine(a, b) {
@@ -416,7 +431,7 @@ function cosine(a, b) {
  * when the model is not there yet, which is the ordinary case for the first
  * few seconds of a session.
  */
-async function meanings(conversations, queryText) {
+async function meanings(conversations, queryText, sketchOf = sketchText) {
     if (!modelReady || !queryText.trim()) return new Map();
 
     const stale = conversations.filter((conversation) => {
@@ -424,7 +439,7 @@ async function meanings(conversations, queryText) {
         return !held || held.updatedAt !== conversation.updatedAt;
     });
     if (stale.length > 0) {
-        const vectors = await embeddings.embed(stale.map(sketchText));
+        const vectors = await embeddings.embed(stale.map(conversation => sketchOf(conversation)));
         stale.forEach((conversation, index) => {
             sketches.set(conversation.id, { updatedAt: conversation.updatedAt, vector: vectors[index] });
         });
@@ -448,12 +463,28 @@ async function meanings(conversations, queryText) {
  * ------------------------------------------------------------------ */
 
 /**
+ * The words that can be looked for in a conversation's file as it is, before
+ * it is parsed: the ones JSON writes the same way it reads (no quote, no
+ * backslash, no whitespace a passage might have had as a newline). A file
+ * without one of them cannot match, and is not parsed at all.
+ */
+function plainNeedles(parsed) {
+    return [...parsed.terms, ...parsed.phrases].filter(needle => needle && !/[\s"\\\u0000-\u001f]/.test(needle));
+}
+
+/**
  * Search a list of conversations.
  *
  * `describe(conversation)` is the row the list would show for it, so the
  * page draws a result the same way it draws any other conversation and adds
  * the passages underneath. The rest are the lookups the scan needs that this
  * module does not own.
+ *
+ * `eventsOf(conversation, mustContain)` is where a conversation's events come
+ * from when they are not on the object: a stub's file (see archive.js), read
+ * for the scan and let go after it. It may answer null for a file that does
+ * not hold every one of `mustContain`, which cannot match. `sketchOf` is the
+ * same for the meaning sketch, which the index keeps without the events.
  */
 async function search(conversations, {
     query = '',
@@ -464,17 +495,41 @@ async function search(conversations, {
     describe = (conversation) => ({ conversationId: conversation.id }),
     now = Date.now(),
     withMeaning = true,
+    eventsOf = null,
+    sketchOf = sketchText,
 } = {}) {
     const parsed = parse(query, now);
     if (withMeaning) warm();
 
+    const freeText = [...parsed.terms, ...parsed.phrases].join(' ');
+    const lookups = { openIds, hostName, live };
+    const filtersOnly = { ...parsed, terms: [], phrases: [] };
+    // Whether a conversation the words miss may still be offered by meaning,
+    // known before the scan so each one is read once: what that second pass
+    // needs of it is kept here as it goes by.
+    const meaningToo = withMeaning && Boolean(freeText) && modelReady && !modelFailed;
+    const mustContain = meaningToo ? [] : plainNeedles(parsed);
+    const filtered = new Map();
+
     const byWords = [];
     for (const conversation of conversations) {
-        const hit = scan(conversation, parsed, { openIds, hostName, live });
-        if (hit) byWords.push({ conversation, hit });
+        if (!passesCheapFilters(conversation, parsed, openIds)) continue;
+        let events;
+        if (eventsOf) {
+            events = await eventsOf(conversation, mustContain);
+            if (events === null) continue;
+        }
+        const hit = scan(conversation, parsed, lookups, events);
+        if (hit) {
+            byWords.push({ conversation, hit });
+            continue;
+        }
+        if (meaningToo) {
+            const passes = scan(conversation, filtersOnly, lookups, events);
+            if (passes) filtered.set(conversation.id, passes);
+        }
     }
 
-    const freeText = [...parsed.terms, ...parsed.phrases].join(' ');
     let similarity = new Map();
     let meaning = 'off';
     if (withMeaning && freeText) {
@@ -482,7 +537,7 @@ async function search(conversations, {
         else if (!modelReady) meaning = 'loading';
         else {
             try {
-                similarity = await meanings(conversations, freeText);
+                similarity = await meanings(conversations, freeText, sketchOf);
                 meaning = 'on';
             } catch {
                 meaning = 'unavailable';
@@ -504,12 +559,15 @@ async function search(conversations, {
     // does not offer an unpinned chat about disks.
     if (similarity.size > 0) {
         const found = new Set(results.map(result => result.conversationId));
-        const filtersOnly = { ...parsed, terms: [], phrases: [] };
         for (const conversation of conversations) {
             if (found.has(conversation.id)) continue;
             const closeness = similarity.get(conversation.id) || 0;
             if (closeness < MEANING_FLOOR) continue;
-            const passes = scan(conversation, filtersOnly, { openIds, hostName, live });
+            // Kept from the scan above; in memory, a scan costs nothing to
+            // repeat for one the model came round in time for.
+            const passes = filtered.has(conversation.id)
+                ? filtered.get(conversation.id)
+                : (eventsOf ? null : scan(conversation, filtersOnly, lookups));
             if (!passes) continue;
             results.push({
                 ...describe(conversation),
@@ -553,4 +611,4 @@ async function search(conversations, {
     };
 }
 
-module.exports = { search, parse, parseDate, scan, excerpt, passageOf, _test: { sketchText } };
+module.exports = { search, parse, parseDate, scan, excerpt, passageOf, sketchFrom, _test: { sketchText, plainNeedles } };

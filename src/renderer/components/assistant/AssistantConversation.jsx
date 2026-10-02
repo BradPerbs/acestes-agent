@@ -19,6 +19,7 @@ import QuestionRequest from './QuestionRequest';
 import WorkingIndicator from './WorkingIndicator';
 import Transcript, { Notice } from './Transcript';
 import ModelMenu from './ModelMenu';
+import ContextRing from './ContextRing';
 import ApprovalMenu from './ApprovalMenu';
 import DictationButton from './DictationButton';
 import { useT } from '../../i18n';
@@ -692,7 +693,7 @@ export default function AssistantConversation({
                             {/* No tile behind it. The mark brings its own
                                 colour, and a grey square around a logo is
                                 a frame around a frame. */}
-                            <AgentMark size={64} animated look={agentLook} className="mb-3" />
+                            <AgentMark size={80} animated look={agentLook} className="mb-3" />
                             <h2 className="text-sm font-semibold text-gray-900 dark:text-white">
                                 {line.text}
                             </h2>
@@ -1032,6 +1033,11 @@ export default function AssistantConversation({
                         )}
 
                         <div className="ml-auto flex items-center gap-1">
+                            <ContextRing
+                                context={assistant.context}
+                                provider={shownSettings?.provider}
+                                costUsd={assistant.costUsd}
+                            />
                             <Usage
                                 account={assistant.account}
                                 rateLimit={assistant.rateLimit}

@@ -2,6 +2,7 @@ const { app, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const agents = require('../agents');
+const { isBrowserServer } = require('./browser-use');
 
 /**
  * How the assistant is configured.
@@ -125,7 +126,9 @@ const DEFAULTS = {
     approval: 'writes',
     commandMode: 'terminal',
     // A ceiling on tool calls per turn, so a loop that is not converging stops
-    // on its own rather than when someone notices.
+    // on its own rather than when someone notices. 0 is no ceiling at all, for
+    // the long unattended runs where stopping halfway is the worse outcome;
+    // each runtime turns it into its own spelling of "unlimited".
     maxTurns: 100,
     // How much terminal output a single read hands back.
     transcriptLines: 240,
@@ -169,6 +172,11 @@ const DEFAULTS = {
     computerUse: false,
     // How fast the cursor travels and the typing goes, so it can be followed.
     computerPace: 'normal',
+    // Whether the agent is handed its browser: the Playwright MCP servers on
+    // its inventory (browser-use.js). On by default, so an agent that was
+    // given one keeps it; off keeps the server record and simply leaves it
+    // out, so a server set up by hand is still there when it comes back on.
+    browserUse: true,
     // Speaking a message instead of typing it: the composer's microphone,
     // transcribed on this machine. On from the start with Parakeet, which
     // writes as the user talks and needs nothing installed; the two Whispers
@@ -180,13 +188,33 @@ const DEFAULTS = {
     voiceModel: 'base',
     voiceLanguage: '',
     /**
+     * How many days a conversation nobody has touched is kept before it is
+     * deleted. 0, the default, is forever: the history keeps everything
+     * unless the user chose otherwise here. The machine's, not one agent's,
+     * since the history on this computer is one. Pinned conversations are
+     * kept whatever this says. See `sweepHistory` in index.js.
+     */
+    historyDays: 0,
+    /**
      * Which sign-in each runtime uses for this agent, by runtime: an id from
      * accounts.js, or nothing for the login the machine already has. Only
      * the runtimes that can hold more than one appear, and an id whose account
      * has since been removed reads as the machine's own when it is resolved.
      */
     accounts: {},
+    /**
+     * The other sign-ins ticked beside the one in use, by runtime:
+     * `{ 'claude-code': ['acct-…'] }`. The ticked accounts are the ones the
+     * agent uses: with two or more, the composer's menu lists each model once
+     * per account, and picking one runs that conversation on that account.
+     * The one in `accounts` is always ticked and is not repeated here; it is
+     * what a conversation that has not picked runs on.
+     */
+    menuAccounts: {},
 };
+
+/** Ten years: the longest period the history setting takes, short of forever. */
+const HISTORY_MAX_DAYS = 3650;
 
 const stateFile = () => path.join(app.getPath('userData'), 'assistant.json');
 
@@ -258,6 +286,7 @@ function sanitize(raw) {
         blockedCommands: [...DEFAULTS.blockedCommands],
         quickPrompts: [...DEFAULTS.quickPrompts],
         accounts: {},
+        menuAccounts: {},
         instructions: '',
     };
     if (raw && typeof raw === 'object') {
@@ -281,17 +310,24 @@ function sanitize(raw) {
         if (EFFORTS.has(raw.effort)) next.effort = raw.effort;
         if (APPROVALS.has(raw.approval)) next.approval = raw.approval;
         if (COMMAND_MODES.has(raw.commandMode)) next.commandMode = raw.commandMode;
-        next.maxTurns = clampNumber(raw.maxTurns, DEFAULTS.maxTurns, 1, 200);
+        // Exactly 0, not anything that reads as 0: a missing value is the
+        // default and a null or "0" is clamped as before, so nothing becomes
+        // "unlimited" by accident.
+        next.maxTurns = raw.maxTurns === 0 ? 0 : clampNumber(raw.maxTurns, DEFAULTS.maxTurns, 1, 200);
         next.transcriptLines = clampNumber(raw.transcriptLines, DEFAULTS.transcriptLines, 20, 2000);
         if ('allowLocalTools' in raw) next.allowLocalTools = Boolean(raw.allowLocalTools);
         if ('groupToolCalls' in raw) next.groupToolCalls = Boolean(raw.groupToolCalls);
         if ('autoRemember' in raw) next.autoRemember = Boolean(raw.autoRemember);
         if ('computerUse' in raw) next.computerUse = Boolean(raw.computerUse);
         if (COMPUTER_PACES.has(raw.computerPace)) next.computerPace = raw.computerPace;
+        if ('browserUse' in raw) next.browserUse = Boolean(raw.browserUse);
         if ('voiceInput' in raw) next.voiceInput = Boolean(raw.voiceInput);
         if (VOICE_ENGINES.has(raw.voiceEngine)) next.voiceEngine = raw.voiceEngine;
         if (VOICE_MODELS.has(raw.voiceModel)) next.voiceModel = raw.voiceModel;
         if (typeof raw.voiceLanguage === 'string' && /^[a-z]{0,3}$/.test(raw.voiceLanguage)) next.voiceLanguage = raw.voiceLanguage;
+        // Forever unless a number of days is actually given: anything that is
+        // not one keeps everything, never the other way round.
+        next.historyDays = clampNumber(raw.historyDays, DEFAULTS.historyDays, 0, HISTORY_MAX_DAYS);
         if (Array.isArray(raw.autoApproveCommands)) {
             next.autoApproveCommands = raw.autoApproveCommands
                 .map(entry => String(entry || '').trim().toLowerCase())
@@ -311,6 +347,14 @@ function sanitize(raw) {
             next.accounts = Object.fromEntries(Object.entries(raw.accounts)
                 .filter(([provider, id]) => PROVIDERS.has(provider) && typeof id === 'string' && id.trim())
                 .map(([provider, id]) => [provider, id.trim().slice(0, 80)]));
+        }
+        if (raw.menuAccounts && typeof raw.menuAccounts === 'object' && !Array.isArray(raw.menuAccounts)) {
+            next.menuAccounts = Object.fromEntries(Object.entries(raw.menuAccounts)
+                .filter(([provider, ids]) => PROVIDERS.has(provider) && Array.isArray(ids))
+                .map(([provider, ids]) => [provider, [...new Set(ids
+                    .filter(id => typeof id === 'string' && id.trim())
+                    .map(id => id.trim().slice(0, 80)))].slice(0, 20)])
+                .filter(([, ids]) => ids.length > 0));
         }
         if (Array.isArray(raw.quickPrompts)) {
             // Kept as written, case and all: these are sentences a person typed
@@ -389,7 +433,7 @@ const PER_AGENT = [
     'provider', 'model', 'effort', 'approval', 'commandMode', 'maxTurns',
     'transcriptLines', 'allowLocalTools', 'autoApproveCommands',
     'blockedCommands', 'quickPrompts', 'instructions', 'autoRemember',
-    'accounts', 'computerUse', 'computerPace',
+    'accounts', 'menuAccounts', 'computerUse', 'computerPace', 'browserUse',
 ];
 
 const pick = (source, keys) => Object.fromEntries(
@@ -415,7 +459,10 @@ function get(agentId) {
         ...current,
         agentId: id,
         // The agent's MCP servers ride along so a provider reads one object.
-        mcpServers: agents.get(id)?.mcpServers || [],
+        // Its browser among them only while browser use is on: this is the
+        // one place every runtime reads its servers from.
+        mcpServers: (agents.get(id)?.mcpServers || [])
+            .filter(server => current.browserUse || !isBrowserServer(server)),
         // The envelope, for the same reason. A containerised agent has the
         // runtime's own local tools forced off here, once, so every provider
         // and the tool gate read the same answer: on this machine, that agent
@@ -480,6 +527,8 @@ function set(patch, agentId) {
     // One runtime's account at a time is what the page sends, so it lands
     // over the others rather than replacing the map.
     if (own.accounts && typeof own.accounts === 'object') own.accounts = { ...(before.accounts || {}), ...own.accounts };
+    // The same for the menu's accounts: one runtime's list at a time.
+    if (own.menuAccounts && typeof own.menuAccounts === 'object') own.menuAccounts = { ...(before.menuAccounts || {}), ...own.menuAccounts };
     const shared = { ...source };
     for (const key of PER_AGENT) delete shared[key];
     // A key travels beside the settings, never inside them: it is taken out

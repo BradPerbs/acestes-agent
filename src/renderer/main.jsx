@@ -7,7 +7,7 @@ import LockScreen from './components/LockScreen';
 import ScreenshotView from './components/ScreenshotView';
 import AssistantWindow from './components/assistant/AssistantWindow';
 import ActivityOverlay from './components/assistant/ActivityOverlay';
-import { applyAppColors } from './lib/app-colors';
+import { INITIAL_THEME, applyAppColors, readAppColors } from './lib/app-colors';
 import { dismissBootSplash } from './lib/boot-splash';
 import { playChime } from './lib/chime';
 import { DEFAULT_TOAST_MS, MAX_TOAST_MS, TOAST_EXIT_MS } from './lib/toast';
@@ -35,7 +35,7 @@ import './input.css';
 // effect, which lands *after* the first paint. Anything reading the class
 // during render would otherwise see light mode and bake in the wrong colours.
 (() => {
-    const stored = localStorage.getItem('theme') || 'system';
+    const stored = localStorage.getItem('theme') || INITIAL_THEME;
     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
     document.documentElement.classList.toggle(
         'dark',
@@ -46,7 +46,7 @@ import './input.css';
     // that theme *is*, so the first paint has to already be in them.
     if (stored !== 'custom') return;
     try {
-        applyAppColors(JSON.parse(localStorage.getItem('appColors') || 'null'));
+        applyAppColors(readAppColors(localStorage.getItem('appColors')));
     } catch {
         // An unreadable palette leaves the variables at the app's own colours,
         // which is a working app rather than a half-painted one.

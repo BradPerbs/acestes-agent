@@ -56,6 +56,17 @@ export function mix(from, to, amount) {
 }
 
 /**
+ * The light an agent casts on the window behind the sidebar: its colour, and
+ * the lighter one of its family for the fainter glow lower down. Null for
+ * white and black, which have no hue to cast, so the ground keeps its own
+ * neutral wash.
+ */
+export function agentGlow(id) {
+    const color = agentColor(id);
+    return color.ink ? null : { from: color.from, to: color.to };
+}
+
+/**
  * The ink one colour is drawn in: `line`, and `lineDark` for a dark theme,
  * where the colour itself would sink into the background and is lifted
  * towards white instead; and `paper`, what the helmet is filled with, or

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import AgentMark from './AgentMark';
 import AssistantWorkspace from './AssistantWorkspace';
 import WindowControls from '../ui/WindowControls';
+import { INITIAL_THEME } from '../../lib/app-colors';
 import { APP_GUTTER, TITLE_BAR_HEIGHT } from '../../lib/layout';
 import { useT } from '../../i18n';
 
@@ -25,7 +26,7 @@ import { useT } from '../../i18n';
 function useFollowTheme() {
     useEffect(() => {
         const apply = () => {
-            const stored = localStorage.getItem('theme') || 'system';
+            const stored = localStorage.getItem('theme') || INITIAL_THEME;
             const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
             document.documentElement.classList.toggle(
                 'dark',

@@ -14,6 +14,7 @@ import SearchField from './ui/SearchField';
 import ConfirmDialog from './ui/ConfirmDialog';
 import { CollapsingButton } from './ui/Button';
 import useNarrow from '../hooks/useNarrow';
+import { HEADING } from '../lib/text-styles';
 import { useT } from '../i18n';
 
 /**
@@ -108,8 +109,7 @@ function Marked({ text, ranges = [] }) {
 /** The small heading over each half of the list. */
 function GroupLabel({ children }) {
     return (
-        <div className="px-3 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wider
-            text-gray-500 dark:text-neutral-500">
+        <div className={`px-3 pt-2 pb-1 ${HEADING}`}>
             {children}
         </div>
     );

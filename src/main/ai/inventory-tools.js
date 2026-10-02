@@ -6,6 +6,7 @@ const snippetConfig = require('../snippet-config');
 const proxyConfig = require('../proxy-config');
 const mcpLibrary = require('./mcp-library');
 const mcpProbe = require('./mcp-probe');
+const { isBrowserServer } = require('./browser-use');
 const secrets = require('./secrets');
 
 /**
@@ -610,6 +611,16 @@ function build({ z, ok, fail, hostInScope, publicHost, agentHosts }) {
                 );
                 if (!saved) return fail('The server definition was not accepted.');
                 changed(ctx, 'mcp');
+
+                // A browser the user just approved adding is a browser they
+                // want used, so browser use comes on with it. Off, the server
+                // would be saved and then quietly left out of every run.
+                // Required here rather than at the top: the settings module
+                // needs Electron, which this one is tested without.
+                if (isBrowserServer(saved)) {
+                    const assistantSettings = require('./settings');
+                    if (!assistantSettings.get(agent.id).browserUse) assistantSettings.set({ browserUse: true }, agent.id);
+                }
 
                 // Shake hands with it now, so a wrong command or a stale
                 // token is found here rather than at the next conversation.

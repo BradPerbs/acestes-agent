@@ -675,6 +675,12 @@ contextBridge.exposeInMainWorld('api', {
         speechStatus: (options) => ipcRenderer.invoke('ai-speech-status', options || {}),
         speechInstall: () => ipcRenderer.invoke('ai-speech-install'),
         speechDownload: () => ipcRenderer.invoke('ai-speech-download'),
+        // Browser use, for its settings: whether Node.js and a browser are
+        // here, installing Node.js, and that install's output as it goes.
+        // See main/ai/browser-use.js.
+        browserStatus: () => ipcRenderer.invoke('ai-browser-status'),
+        browserInstallNode: () => ipcRenderer.invoke('ai-browser-install-node'),
+        onBrowser: (callback) => subscribe('ai-browser', callback),
         // Live dictation (Parakeet): audio streamed in as it is recorded,
         // `onDictation` hearing the words so far, stop handing back the rest.
         dictationStart: () => ipcRenderer.invoke('ai-dictation-start'),
@@ -722,6 +728,35 @@ contextBridge.exposeInMainWorld('api', {
         remove: (name, { agentId, shared = false } = {}) => ipcRenderer.invoke('secrets-remove', { name, agentId, shared }),
     },
 
+    /**
+     * The agent's files: its own and the shared ones, as records. The bytes
+     * stay in main; a file is added from the user's own dialog or drop, and
+     * opened, revealed or copied out by main. Changes from either side are
+     * announced as `inventory.onChange` with kind "files".
+     */
+    files: {
+        list: (agentId) => ipcRenderer.invoke('files-list', agentId),
+        // The open dialog, then the chosen files stored: `{ added, errors }` or `{ canceled }`.
+        add: (agentId) => ipcRenderer.invoke('files-add', agentId),
+        // Files dropped on the page, resolved to their paths on this side.
+        addDropped: (agentId, fileList) => {
+            const paths = [...(fileList || [])].map((file) => {
+                try {
+                    return webUtils.getPathForFile(file);
+                } catch {
+                    return '';
+                }
+            }).filter(Boolean);
+            return ipcRenderer.invoke('files-add-paths', { agentId, paths });
+        },
+        // `patch`: { name, description, tags, shared }
+        update: (agentId, id, patch) => ipcRenderer.invoke('files-update', { agentId, id, patch }),
+        remove: (agentId, id) => ipcRenderer.invoke('files-remove', { agentId, id }),
+        open: (agentId, id) => ipcRenderer.invoke('files-open', { agentId, id }),
+        reveal: (agentId, id) => ipcRenderer.invoke('files-reveal', { agentId, id }),
+        exportFile: (agentId, id) => ipcRenderer.invoke('files-export', { agentId, id }),
+    },
+
     runs: {
         list: (filter) => ipcRenderer.invoke('runs-list', filter || {}),
         get: (runId) => ipcRenderer.invoke('runs-get', runId),
@@ -758,7 +793,7 @@ contextBridge.exposeInMainWorld('api', {
     /**
      * The inventory, as the agent changes it. Its tools write hosts, snippets
      * and proxies straight to the store, so a window has to be told to read
-     * a collection again: `{ kind: 'hosts' | 'snippets' | 'proxies' | 'keys', agentId }`.
+     * a collection again: `{ kind: 'hosts' | 'snippets' | 'proxies' | 'keys' | 'files', agentId }`.
      */
     inventory: {
         onChange: (callback) => subscribe('inventory-changed', callback),

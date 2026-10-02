@@ -13,6 +13,9 @@ import {
     isDiscovered,
 } from '../../lib/ai-catalog';
 import { useEnterOn } from '../../hooks/useEnter';
+import useUsageLimits from '../../hooks/useUsageLimits';
+import { accountName, answeringAccount, keyOf, offeredAccounts } from '../../lib/usage-limits';
+import { HEADING } from '../../lib/text-styles';
 import { useT } from '../../i18n';
 
 /**
@@ -38,6 +41,11 @@ import { useT } from '../../i18n';
  *
  * The keyboard works the way a command palette does: type to filter, arrows
  * to move, Enter to pick, Escape to close.
+ *
+ * An agent can also be listed under more than one of its sign-ins, ticked for
+ * the menu in the usage panel: then each account is a group of its own under
+ * the agent's name, the same models in each, and picking a row picks the
+ * account the conversation runs on as well as the model.
  */
 
 const WIDTH = 'w-[21rem]';
@@ -45,7 +53,7 @@ const WIDTH = 'w-[21rem]';
 /** Every word typed has to appear somewhere in the row, in any order. */
 function matches(row, words) {
     if (words.length === 0) return true;
-    const haystack = `${row.label} ${row.short} ${row.value} ${row.hint || ''} ${PROVIDER_NAMES[row.provider] || ''}`.toLowerCase();
+    const haystack = `${row.label} ${row.short} ${row.value} ${row.hint || ''} ${PROVIDER_NAMES[row.provider] || ''} ${row.accountName || ''}`.toLowerCase();
     return words.every(word => haystack.includes(word));
 }
 
@@ -77,7 +85,7 @@ function Pending({ loading, onRefresh }) {
     );
 }
 
-function MenuBody({ rows, model, settings, providers, catalogs, loading, onRefresh, onPick, onEffort, onClose }) {
+function MenuBody({ rows, model, settings, providers, catalogs, offered, loading, onRefresh, onPick, onEffort, onClose }) {
     const t = useT();
     const [query, setQuery] = useState('');
     const [active, setActive] = useState(-1);
@@ -90,14 +98,25 @@ function MenuBody({ rows, model, settings, providers, catalogs, loading, onRefre
     const words = query.toLowerCase().split(/\s+/).filter(Boolean);
     const groups = useMemo(() => {
         const on = new Set(providers?.length ? providers : [settings.provider]);
-        return PROVIDER_ORDER.filter(provider => on.has(provider)).map(provider => ({
-            provider,
-            rows: rows.filter(row => row.provider === provider && matches(row, words)),
-            pending: !isDiscovered(catalogs?.[provider]),
-        })).filter(group => group.rows.length > 0 || (words.length === 0 && group.pending));
+        return PROVIDER_ORDER.filter(provider => on.has(provider)).flatMap((provider) => {
+            const pending = !isDiscovered(catalogs?.[provider]);
+            // One group per account where the agent is offered under
+            // several, and one for the agent otherwise.
+            const several = offered?.[provider]?.accounts?.length > 1 ? offered[provider].accounts : null;
+            return (several || [null]).map((account, index) => ({
+                key: account ? `${provider}@${account.id}` : provider,
+                provider,
+                account,
+                rows: rows.filter(row => row.provider === provider
+                    && (!account || row.account === account.id)
+                    && matches(row, words)),
+                // Said once, under the first, rather than once per account.
+                pending: pending && index === 0,
+            }));
+        }).filter(group => group.rows.length > 0 || (words.length === 0 && group.pending));
         // `words` is derived from `query`.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [rows, providers, catalogs, settings.provider, query]);
+    }, [rows, providers, catalogs, offered, settings.provider, query]);
 
     const flat = groups.flatMap(group => group.rows);
 
@@ -144,7 +163,9 @@ function MenuBody({ rows, model, settings, providers, catalogs, loading, onRefre
     const described = flat[active] || model;
     // Headings whenever more than one agent is on, even when a search has
     // narrowed the list to one of them: the rows still need to say whose.
-    const marked = (providers?.length || 0) > 1;
+    // And whenever one agent is offered under several accounts, for the
+    // same reason: two "Opus" rows need to say whose plan each spends.
+    const marked = (providers?.length || 0) > 1 || Object.keys(offered || {}).length > 0;
 
     let index = -1;
 
@@ -189,14 +210,24 @@ function MenuBody({ rows, model, settings, providers, catalogs, loading, onRefre
                 )}
 
                 {groups.map(group => (
-                    <div key={group.provider} role="group" aria-label={PROVIDER_NAMES[group.provider]}>
+                    <div
+                        key={group.key}
+                        role="group"
+                        aria-label={group.account
+                            ? `${PROVIDER_NAMES[group.provider]} · ${group.account.name}`
+                            : PROVIDER_NAMES[group.provider]}
+                    >
                         {marked && (
-                            <div className="sticky top-0 z-10 flex items-center gap-1.5 h-7 px-2 mt-1 first:mt-0
-                                bg-white/95 dark:bg-surface-raised/95 backdrop-blur-sm
-                                text-[10px] font-semibold uppercase tracking-[0.08em] text-gray-500 dark:text-neutral-400"
+                            <div className={`sticky top-0 z-10 flex items-center gap-1.5 h-7 px-2 mt-1 first:mt-0
+                                bg-white/95 dark:bg-surface-raised/95 backdrop-blur-sm ${HEADING}`}
                             >
                                 <span className="leading-none text-gray-600 dark:text-gray-300"><ProviderMark provider={group.provider} size={11} /></span>
-                                <span className="truncate">{PROVIDER_NAMES[group.provider]}</span>
+                                <span className="shrink-0">{PROVIDER_NAMES[group.provider]}</span>
+                                {group.account && (
+                                    <span className="min-w-0 truncate text-gray-400 dark:text-neutral-500" title={group.account.name}>
+                                        · {group.account.name}
+                                    </span>
+                                )}
                             </div>
                         )}
 
@@ -296,14 +327,32 @@ export default function ModelMenu({ settings, catalogs, providers, loading, onRe
 
     useEnterOn(menuRef, open && 'dialog');
 
+    // The agents offered under more than one sign-in, with what to call each
+    // and which one this conversation answers on.
+    const { overview } = useUsageLimits();
+    const offered = useMemo(() => {
+        const on = providers?.length ? providers : [settings.provider];
+        return Object.fromEntries(on.map((provider) => {
+            const list = offeredAccounts(overview, settings, provider);
+            if (list.length < 2) return null;
+            return [provider, {
+                current: answeringAccount(overview, settings, provider)?.id || '',
+                accounts: list.map((account) => {
+                    const name = accountName(account, overview.limits?.[keyOf(provider, account.id)], t);
+                    return { id: account.id, name: name.full, short: name.short };
+                }),
+            }];
+        }).filter(Boolean));
+    }, [overview, settings, providers, t]);
+
     const rows = useMemo(
-        () => mergedModelRows(catalogs, providers, settings),
-        [catalogs, providers, settings]
+        () => mergedModelRows(catalogs, providers, settings, offered),
+        [catalogs, providers, settings, offered]
     );
 
     // Undefined when nothing is pinned and the agent has not named a default.
     // The chip names the agent then, since that much is known.
-    const model = currentModelRow(rows, settings);
+    const model = currentModelRow(rows, settings, offered);
     const stops = useMemo(() => effortStops(model), [model]);
     const shown = nearestEffort(stops, settings.effort);
     const effort = stops.find(option => option.value === shown);
@@ -335,7 +384,9 @@ export default function ModelMenu({ settings, catalogs, providers, loading, onRe
     }, [open]);
 
     // The effort travels with the model, because the scales differ, and the
-    // agent travels with it too: a row names one model of one agent's.
+    // agent travels with it too: a row names one model of one agent's. So
+    // does the account, where the row is one of several: an empty one puts
+    // the conversation back on the agent's own choice.
     const pick = (row) => {
         setOpen(false);
         if (row.key === model?.key) return;
@@ -343,6 +394,7 @@ export default function ModelMenu({ settings, catalogs, providers, loading, onRe
             provider: row.provider,
             model: row.value,
             effort: nearestEffort(effortStops(row), settings.effort),
+            account: row.account || '',
         });
     };
 
@@ -353,7 +405,9 @@ export default function ModelMenu({ settings, catalogs, providers, loading, onRe
                 aria-haspopup="listbox"
                 aria-expanded={open}
                 onClick={() => setOpen(value => !value)}
-                title={t('assistant.modelAndEffort')}
+                title={model?.accountName
+                    ? `${t('assistant.modelAndEffort')} · ${model.accountName}`
+                    : t('assistant.modelAndEffort')}
                 className={`h-7 pl-2 pr-1.5 rounded-xl flex items-center gap-1 transition-colors
                     text-[11px] outline-none focus-visible:ring-2
                     focus-visible:ring-gray-900/20 dark:focus-visible:ring-white/25
@@ -372,6 +426,11 @@ export default function ModelMenu({ settings, catalogs, providers, loading, onRe
                     </span>
                 )}
                 <span className="font-medium">{model?.short || PROVIDER_NAMES[settings.provider] || ''}</span>
+                {/* Which account, when the menu offers more than one: the
+                    same model name under two logins spends two plans. */}
+                {model?.accountShort && (
+                    <span className="max-w-[7rem] truncate opacity-60">{model.accountShort}</span>
+                )}
                 {effort && <span className="opacity-60">{effortLabel(effort)}</span>}
                 <ArrowDown01Icon
                     size={11}
@@ -396,6 +455,7 @@ export default function ModelMenu({ settings, catalogs, providers, loading, onRe
                         settings={settings}
                         providers={providers}
                         catalogs={catalogs}
+                        offered={offered}
                         loading={loading}
                         onRefresh={onRefresh}
                         onPick={pick}

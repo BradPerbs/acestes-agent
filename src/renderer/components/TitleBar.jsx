@@ -2,7 +2,6 @@ import { memo, useEffect, useLayoutEffect, useMemo, useState, useRef, useCallbac
 import { createPortal } from 'react-dom';
 import {
     ArrowRight01Icon,
-    BubbleChatAddIcon,
     Cancel01Icon,
     CancelCircleIcon,
     Copy01Icon,
@@ -420,8 +419,11 @@ function SessionTab({
                     ) : isConversation ? (
                         // The agent's mark, pulsing while it is answering: a
                         // chat working behind another tab should be visibly
-                        // doing so, the way a dialling session is.
-                        <AgentMark size={14} look={tab.agentLook} className={tab.busy ? 'animate-pulse' : ''} />
+                        // doing so, the way a dialling session is. Larger than
+                        // the 16px slot it shares with the close button, into
+                        // the tab's padding, so it is big enough to be drawn
+                        // in lines rather than as a solid glyph.
+                        <AgentMark size={20} look={tab.agentLook} className={tab.busy ? 'animate-pulse' : ''} />
                     ) : (
                         <OsIcon
                             os={hostOs(tab.host)}
@@ -638,6 +640,11 @@ function TitleBar({
     onConversationDelete,
     /** A fresh conversation with the agent a conversation tab belongs to. */
     onNewConversationWith,
+    /**
+     * The agents a new conversation can be with, offered by right-clicking
+     * the plus. Empty with the agent off, which leaves the plus no menu.
+     */
+    agents = [],
     /** The plus: a conversation with the agent on, a session launcher with it off. */
     onNewTab,
     newTabLabel,
@@ -886,9 +893,10 @@ function TitleBar({
             },
             // The tab's own agent, not whichever one is selected, and left
             // unselected: this is a second chat with it, not a switch to it.
+            // Wearing that agent's mark, so it reads as which agent it is.
             isConversation && tab.agentLook && {
                 label: t('agents.chatWith', { name: tab.agentLook.name }),
-                icon: <BubbleChatAddIcon size={size} />,
+                icon: <AgentMark size={14} look={tab.agentLook} />,
                 onClick: () => onNewConversationWith?.(tab.agentLook.id),
             },
             isConversation && {
@@ -981,7 +989,29 @@ function TitleBar({
         ];
     }, [menu, groups, sessionTabs, onGroupColor, onGroupDelete, onTabClose, markClosing, startRename, t]);
 
-    const menuItems = menu?.kind === 'group' ? groupMenuItems : tabMenuItems;
+    /**
+     * The plus's own menu: every agent, to open the new tab with whichever
+     * one is wanted, without making it the selected agent. A plain click on
+     * the plus is still a chat with the selected one.
+     */
+    const plusMenuItems = useMemo(() => {
+        if (menu?.kind !== 'plus' || agents.length === 0) return [];
+
+        return [
+            { type: 'heading', label: t('titleBar.newConversationWith') },
+            ...agents.map(agent => ({
+                // By id: two agents can share a name.
+                key: agent.id,
+                label: agent.name,
+                icon: <AgentMark size={14} look={agent} />,
+                onClick: () => onNewConversationWith?.(agent.id),
+            })),
+        ];
+    }, [menu, agents, onNewConversationWith, t]);
+
+    const menuItems = menu?.kind === 'group'
+        ? groupMenuItems
+        : menu?.kind === 'plus' ? plusMenuItems : tabMenuItems;
 
     /** The strip as single tabs and outlined group runs. */
     const segments = useMemo(() => segmentStrip(stripItems, groups), [stripItems, groups]);
@@ -1095,6 +1125,12 @@ function TitleBar({
                     <button
                         className="tab-add flex items-center justify-center w-8 h-8 rounded-xl text-gray-400 dark:text-gray-500 hover:text-gray-900 dark:hover:text-white hover:bg-gray-900/[0.06] dark:hover:bg-surface-control transition-colors app-no-drag shrink-0"
                         onClick={onNewTab}
+                        // Which agent the new tab is with, when there is a
+                        // choice to make.
+                        onContextMenu={(event) => {
+                            event.preventDefault();
+                            if (agents.length > 0) setMenu({ kind: 'plus', x: event.clientX, y: event.clientY });
+                        }}
                         title={newTabLabel || t('newTab.title')}
                         // Pointer events rather than `:hover`, since the turn is
                         // GSAP's now. The colours behind it are still the

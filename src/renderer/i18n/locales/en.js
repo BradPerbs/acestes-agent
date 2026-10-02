@@ -50,6 +50,7 @@ export default {
     'nav.keychain': 'Keychain',
     'nav.proxies': 'Proxies',
     'nav.memory': 'Memory',
+    'nav.files': 'Files',
     'nav.mcp': 'MCP servers',
     'nav.logs': 'Logs',
     'nav.runs': 'Runs',
@@ -383,6 +384,42 @@ export default {
     'memory.importFailed': 'Could not import the notes',
 
     /* ---------------------------------------------------------------- *
+     * Files
+     * ---------------------------------------------------------------- */
+    'files.search': 'Search files',
+    'files.add': 'Add files',
+    'files.note': 'Files this agent carries: it can read them, use them in local commands, send them to '
+        + 'servers, folders and other agents, and save its own here. Shared files belong to every agent.',
+    'files.summary_one': '{count} file, {size}.',
+    'files.summary_other': '{count} files, {size}.',
+    'files.empty': 'No files yet',
+    'files.emptyNote': 'Drop files here or use Add files. The agent saves files here too as it works.',
+    'files.dropHere': 'Drop to add to this agent’s files',
+    'files.added_one': 'Added {count} file',
+    'files.added_other': 'Added {count} files',
+    'files.shared': 'Shared',
+    'files.open': 'Open',
+    'files.reveal': 'Show in folder',
+    'files.saveCopy': 'Save a copy',
+    'files.exported': 'Saved a copy',
+    'files.referenceHint': 'In a local command the agent runs, this is the file’s path',
+    'files.editTitle': 'Edit file',
+    'files.name': 'Name',
+    'files.description': 'Description',
+    'files.descriptionPlaceholder': 'What this file is, for you and the agent later',
+    'files.tags': 'Tags',
+    'files.tagsHint': 'Separated by commas. Up to eight.',
+    'files.sharedLabel': 'Shared with every agent',
+    'files.sharedHint': 'Every agent can read and send a shared file. Only you change or delete it.',
+    'files.deleteTitle': 'Delete {name}?',
+    'files.deleteMessage': 'The file is removed from this agent’s inventory for good.',
+    'files.deleteSharedMessage': 'This file is shared: it goes from every agent’s inventory, for good.',
+    'files.openFailed': 'Could not open the file',
+    'files.exportFailed': 'Could not save a copy',
+    'files.saveFailed': 'Could not save the changes',
+    'files.deleteFailed': 'Could not delete the file',
+
+    /* ---------------------------------------------------------------- *
      * MCP servers
      * ---------------------------------------------------------------- */
     'mcp.empty': 'No MCP servers yet',
@@ -651,6 +688,7 @@ export default {
     'titleBar.closeGroupTabs_one': 'Close the tab',
     'titleBar.closeGroupTabs_other': 'Close all {count} tabs',
     'titleBar.newConversation': 'New conversation',
+    'titleBar.newConversationWith': 'New conversation with',
     'titleBar.newSession': 'New session',
     'titleBar.hideSidebar': 'Hide sidebar',
     'titleBar.showSidebar': 'Show sidebar',
@@ -715,7 +753,7 @@ export default {
     'termColors.subtitle': 'Pick every color yourself, or start from a built-in theme and change '
         + 'what you want.',
     'termColors.groupBase': 'Base',
-    'termColors.groupAnsi': 'ANSI Colors',
+    'termColors.groupAnsi': 'ANSI colours',
     'termColors.background': 'Background',
     'termColors.foreground': 'Text',
     'termColors.cursor': 'Cursor',
@@ -803,6 +841,9 @@ export default {
     'settings.nav.appearance': 'Appearance',
     'settings.nav.servers': 'SSH & Servers',
     'settings.nav.assistant': 'AI Agent',
+    'settings.nav.permissions': 'Permissions',
+    'settings.nav.agentic': 'Agentic Use',
+    'settings.nav.chat': 'Chat & Voice',
     'settings.nav.security': 'Security',
     'settings.nav.backup': 'Backup',
     'settings.nav.about': 'About',
@@ -989,8 +1030,6 @@ export default {
     'statusBar.usage': 'Usage',
     'statusBar.usageLabel': 'Usage limits',
     'statusBar.usageHint': 'Plan limits for the accounts in use. Click for the details.',
-    'statusBar.today_one': 'Today {tokens} tokens · {count} turn',
-    'statusBar.today_other': 'Today {tokens} tokens · {count} turns',
     'statusBar.tabs_one': '{count} tab',
     'statusBar.tabs_other': '{count} tabs',
     'statusBar.memoryTitle': 'App memory',
@@ -1032,6 +1071,9 @@ export default {
     'statusBar.noFigures': 'No plan limits read yet. Refresh to check.',
     'statusBar.otherAccounts': 'Other accounts',
     'statusBar.use': 'Use',
+    'statusBar.tickHint': 'Use this account. With two ticked, the model menu lists both, and each conversation picks one.',
+    'statusBar.untickHint': 'In use. Untick to stop using it.',
+    'statusBar.lastTickHint': 'In use. Tick another account to use both, or to switch.',
     'statusBar.otherAgents': 'Other agents',
     'statusBar.quietToday': 'Nothing today',
     'statusBar.noPlanNote': 'These report no plan limits; what this computer sent is counted instead.',
@@ -1133,6 +1175,20 @@ export default {
     'settings.assistant.groupToolCalls': 'Group tool calls',
     'settings.assistant.groupToolCallsDesc': 'Fold consecutive tool calls into one summary row that opens into the calls. '
         + 'On: a burst of reads and commands reads as one line instead of a screen of rows.',
+    'settings.chat.history': 'Keep conversations',
+    'settings.chat.historyDesc': 'Every conversation is kept, whole, until you delete it. For every agent on this computer.',
+    'settings.chat.historyDescLimited': 'Conversations nobody has touched for this long are deleted, at launch and every '
+        + 'few hours. Pinned conversations are always kept. For every agent on this computer.',
+    'settings.chat.historyForever': 'Forever',
+    'settings.chat.historyDays_one': '{count} day',
+    'settings.chat.historyDays_other': '{count} days',
+    'settings.chat.historyYear': '1 year',
+    'settings.chat.historyConfirmTitle': 'Delete older conversations?',
+    'settings.chat.historyConfirmMessage_one': 'Conversations not touched in the last day are deleted now, and from then on '
+        + 'as they reach that age. Pinned conversations are kept. This cannot be undone.',
+    'settings.chat.historyConfirmMessage_other': 'Conversations not touched in the last {count} days are deleted now, and from '
+        + 'then on as they reach that age. Pinned conversations are kept. This cannot be undone.',
+    'settings.chat.historyConfirm': 'Delete and keep this setting',
     'settings.assistant.hooks': 'Hooks',
     'settings.assistant.hooksDesc': 'Commands of yours that run around the agent\'s work, on this computer, inside '
         + 'the folders it is granted. They apply whichever runtime the agent is on.',
@@ -1280,7 +1336,74 @@ export default {
         + 'gives it more context to work from and uses more of the conversation’s budget.',
     'settings.assistant.tools': 'What it can do',
     'settings.assistant.toolsDesc': '{count} tools, of which {readOnly} only read. The rest are '
-        + 'subject to the approval setting above.',
+        + 'subject to the approval setting under Permissions.',
+
+    /* ---------------------------------------------------------------- *
+     * Settings: the agent's other pages
+     * ---------------------------------------------------------------- */
+    'settings.permissions.title': 'Permissions',
+    'settings.permissions.desc': 'What {name} may do without asking: which actions wait for your '
+        + 'approval, which commands are refused outright, what it may touch on this computer, and '
+        + 'the hooks that run around its work.',
+    'settings.agentic.title': 'Agentic Use',
+    'settings.agentic.desc': 'What {name} can reach and operate: commands on your servers, files and '
+        + 'a shell on this computer, the desktop’s own apps, and a web browser.',
+    'settings.agentic.alwaysOn': 'Always on',
+    'settings.agentic.servers': 'Your servers',
+    'settings.agentic.serversDesc': 'Works through the SSH sessions you open. It never sees a stored '
+        + 'password or key.',
+    'settings.agentic.local': 'Files and commands on this computer',
+    'settings.agentic.localDesc': 'Reads and writes files and runs commands here, not only on your '
+        + 'servers. Approvals still apply; looking things up on the web works either way.',
+    'settings.agentic.desktop': 'Desktop apps',
+    'settings.agentic.desktopDesc': 'Uses the apps on your screen with the real mouse and keyboard, '
+        + 'where you can watch. Also called computer use.',
+    'settings.agentic.browser': 'Web browser',
+    'settings.agentic.browserDesc': 'Opens pages in a real browser and clicks, types, fills forms and '
+        + 'reads them. Also called browser use.',
+    'settings.agentic.browserChecking': 'Checking this computer for what the browser needs…',
+    'settings.agentic.browserAdding': 'Setting up Playwright for this agent…',
+    'settings.agentic.browserTesting': 'Starting the browser server once to check it works. The first '
+        + 'start downloads Playwright, which can take a minute.',
+    'settings.agentic.browserReady_one': '{name} is ready, with {count} browser tool.',
+    'settings.agentic.browserReady_other': '{name} is ready, with {count} browser tools.',
+    'settings.agentic.browserSetUp': '{name} is set up.',
+    'settings.agentic.browserTest': 'Check it works',
+    'settings.agentic.browserRetry': 'Try again',
+    'settings.agentic.browserSlow': 'It did not answer in time. The first start downloads Playwright, '
+        + 'so give it another go in a moment.',
+    'settings.agentic.browserFailed': 'The browser server did not start: {error}',
+    'settings.agentic.browserSetupFailed': 'The browser could not be set up.',
+    'settings.agentic.browserMissing': 'No Chrome or Edge was found on this computer. Install one, '
+        + 'then check again.',
+    'settings.agentic.getChrome': 'Get Google Chrome',
+    'settings.agentic.checkAgain': 'Check again',
+    'settings.agentic.browserWindow': 'Show the browser window',
+    'settings.agentic.browserWindowDesc': 'Watch it work and step in for a sign-in or a captcha. Off, '
+        + 'it runs out of sight.',
+    'settings.agentic.browserExtension': 'Drives your own browser through the Playwright extension, '
+        + 'with your tabs and sign-ins.',
+    'settings.agentic.browserManage': 'Switching this off keeps {name}, so nothing has to be set up '
+        + 'again. Its full settings are in Inventory > MCP servers.',
+    'settings.agentic.nodeMissing': 'The browser runs on Node.js, which is not installed on this '
+        + 'computer.',
+    'settings.agentic.nodeOld': 'Node.js {version} is too old for the browser. It needs version 18 or '
+        + 'later.',
+    'settings.agentic.nodeInstall': 'Install Node.js',
+    'settings.agentic.nodeDownload': 'Download from nodejs.org',
+    'settings.agentic.nodeInstalling': 'Installing Node.js…',
+    'settings.agentic.nodeInstallFailed': 'Node.js could not be installed.',
+    'settings.agentic.nodeInstallNote.winget': 'Installs the LTS release with winget. Windows may ask '
+        + 'for permission.',
+    'settings.agentic.nodeInstallNote.brew': 'Installs it with Homebrew.',
+    'settings.agentic.stepsDesc': 'How many tool calls one question may take before the agent stops and '
+        + 'reports back. Slide to the end for no limit.',
+    'settings.agentic.stepsUnlimited': 'No limit: a turn goes on until the work is done or you stop '
+        + 'it. Best for long unattended jobs; a run that loops keeps going.',
+    'settings.agentic.noLimit': 'No limit',
+    'settings.chat.title': 'Chat & Voice',
+    'settings.chat.desc': 'The conversation with {name}: the questions an empty chat offers, '
+        + 'speaking instead of typing, and whether it writes down what it learned.',
 
     /* ---------------------------------------------------------------- *
      * Settings: Monitoring
@@ -1891,6 +2014,12 @@ export default {
     'assistant.stop': 'Stop',
     'assistant.askAbout': 'Ask about {about}',
     'assistant.costHint': 'Estimated cost of this conversation, charged per token',
+    'assistant.context.usage': 'Context used',
+    'assistant.context.tokens': 'Tokens',
+    'assistant.context.cost': 'Cost',
+    'assistant.context.tokensOf': '{used} of {limit}',
+    'assistant.context.label': 'Context {percent}% full, {tokens} tokens',
+    'assistant.context.unknownLimit': 'Context: {tokens} tokens',
 
     'assistant.currentSession': 'Current session',
     'assistant.nothingConnected': 'Nothing connected',

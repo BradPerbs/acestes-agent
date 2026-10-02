@@ -3,6 +3,7 @@ import { LockKeyIcon } from 'hugeicons-react';
 import Dialog, { DialogButton } from '../ui/Dialog';
 import Checkbox from '../ui/Checkbox';
 import { formatMode } from '../../lib/format';
+import { HEADING } from '../../lib/text-styles';
 
 const CLASSES = [
     { key: 'owner', label: 'Owner', shift: 6 },
@@ -60,10 +61,10 @@ export default function PermissionsModal({ entry, onApply, onClose }) {
         >
             <table className="w-full text-sm">
                 <thead>
-                    <tr className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-neutral-500">
-                        <th className="text-left pb-2 font-semibold" />
+                    <tr className={HEADING}>
+                        <th className="text-left pb-2 font-medium" />
                         {BITS.map(bit => (
-                            <th key={bit.key} className="pb-2 font-semibold w-20">{bit.label}</th>
+                            <th key={bit.key} className="pb-2 font-medium w-20">{bit.label}</th>
                         ))}
                     </tr>
                 </thead>

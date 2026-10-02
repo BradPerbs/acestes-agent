@@ -44,6 +44,11 @@ const localTerminal = require('../local-terminal');
  * closing as well as the window. Only the cheap half is kept: a restored
  * conversation has a transcript and the agent's own id for it, and starts its
  * query again on the next message, exactly as a parked one does.
+ *
+ * Every conversation is kept, whole, for as long as the user wants it: none is
+ * dropped for being old or long or for there being many. The one way one goes
+ * other than being deleted is the history setting, which is off unless the
+ * user chose a period (see `sweepHistory`).
  */
 
 const PROVIDERS = {
@@ -62,17 +67,10 @@ const PROVIDERS = {
     openai: require('./providers/openai'),
 };
 
-/** Kept per conversation, so a long session cannot grow without bound. */
-const MAX_EVENTS = 4000;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
-/**
- * How many conversations stay reachable from the history menu.
- *
- * They cost a page of events each once parked, not a process, so this is a
- * generous number. It exists because a Map that only ever grows is a leak with
- * a nice name.
- */
-const MAX_CONVERSATIONS = 20;
+/** How often the history setting is applied again while the app stays open. */
+const HISTORY_SWEEP_INTERVAL = 6 * 60 * 60 * 1000;
 
 /** How long a tool call waits for a person before it gives up. */
 /**
@@ -248,6 +246,7 @@ function nextId(prefix) {
  * public function that touches the map calls it, so no caller has to remember.
  */
 let hydrated = false;
+let historyTimer = null;
 
 function hydrate() {
     if (hydrated) return;
@@ -271,28 +270,87 @@ function hydrate() {
     // of that. See `shutdown`.
     archive.resume();
 
-    for (const record of archive.read()) {
+    // Every one of them, as a stub: what the lists need now, the events when
+    // somebody opens it. See archive.js.
+    const providerOf = new Map();
+    for (const meta of archive.load()) {
         // Resumable only under the runtime its own agent is set to now.
-        const conversation = archive.unpack(record, settings.get(record.agentId || undefined).provider);
-        if (conversation && !conversations.has(conversation.id)) {
-            // A chat written before there were agents belongs to whoever is
-            // selected: it has to be listed somewhere.
-            if (!agents.get(conversation.agentId)) conversation.agentId = agents.activeId();
-            conversations.set(conversation.id, conversation);
+        const agentKey = meta.agentId || '';
+        if (!providerOf.has(agentKey)) providerOf.set(agentKey, settings.get(agentKey || undefined).provider);
+        const conversation = archive.stub(meta, providerOf.get(agentKey));
+        if (!conversation || conversations.has(conversation.id)) continue;
+        conversations.set(conversation.id, conversation);
+        // A chat written before there were agents belongs to whoever is
+        // selected: it has to be listed somewhere.
+        if (!agents.get(conversation.agentId)) {
+            conversation.agentId = agents.activeId();
+            archive.save(conversation.id);
         }
+        // Cut short by the app closing mid-turn: read in now, so the line
+        // saying so is written once rather than added on every read.
+        if (meta.busy) {
+            void conversation.events;
+            archive.save(conversation.id);
+        }
+    }
+
+    // The user's own retention choice, if they made one, applied at launch
+    // and every few hours after. Nothing goes otherwise.
+    sweepHistory();
+    if (!historyTimer) {
+        historyTimer = setInterval(() => {
+            try {
+                sweepHistory();
+            } catch (error) {
+                console.error('Could not apply the history setting:', error.message);
+            }
+        }, HISTORY_SWEEP_INTERVAL);
+        historyTimer.unref?.();
     }
 }
 
 /**
- * What is written out: the most recent conversations that have something in
- * them. A panel opens a conversation the moment it is mounted, so without the
- * title check the history menu would fill up with blank entries nobody started.
+ * Where the archive reads from: the map, and whether a conversation is in use
+ * (a query running or starting), which is what keeps its events in memory.
  */
-archive.setSource(() => [...conversations.values()]
-    .filter(conversation => conversation.title || conversation.events.length > 0)
-    .sort((a, b) => b.updatedAt - a.updatedAt)
-    .slice(0, archive.MAX_CONVERSATIONS)
-    .map(archive.pack));
+archive.setSource({
+    get: id => conversations.get(id),
+    all: () => conversations.values(),
+    canRelease: conversation => !conversation.session && !conversation.starting && !conversation.busy,
+});
+
+/**
+ * Delete the conversations older than the history setting allows, when the
+ * user has set one. 0, the default, is forever, and this does nothing at all.
+ *
+ * Old means not touched: a conversation from a year ago that was carried on
+ * yesterday is yesterday's. Never one the user pinned, and never one in use.
+ */
+function sweepHistory() {
+    const days = Number(settings.get().historyDays) || 0;
+    if (days <= 0) return 0;
+    const cutoff = Date.now() - days * DAY_MS;
+    let deleted = 0;
+    for (const conversation of [...conversations.values()]) {
+        if (conversation.pinned || conversation.session || conversation.starting || conversation.busy) continue;
+        if (!(Number(conversation.updatedAt) < cutoff)) continue;
+        conversations.delete(conversation.id);
+        checkpoints.forget(conversation.id);
+        computer.forget(conversation.id);
+        archive.remove(conversation.id);
+        deleted += 1;
+    }
+    if (deleted > 0) {
+        activity.record({
+            category: 'security',
+            action: 'assistant.history-retention',
+            outcome: 'info',
+            target: 'Assistant',
+            detail: `Deleted ${deleted} conversation${deleted === 1 ? '' : 's'} not touched in ${days} days, as the history setting asks`,
+        });
+    }
+    return deleted;
+}
 
 /**
  * Which servers a conversation is about, in the one shape the rest of this
@@ -347,14 +405,12 @@ function create(target = {}) {
 
     const id = nextId('conv');
     const scope = normalizeScope(target);
-    // Room is made before the new one goes in, never after: with the list
-    // at its cap, trimming afterwards took the youngest untitled one, which
-    // was this one, and the first message into it found it gone.
-    trim();
     // Whose conversation this is: the agent the panel named, else the one
     // selected, since that is who a new chat is to.
     const agentId = agents.get(target.agentId)?.id || agents.activeId();
-    conversations.set(id, {
+    // Tracked by the archive from the start, so its events can be let go of
+    // and read back like any other once it is written and put down.
+    conversations.set(id, archive.track({
         id,
         agentId,
         ...scope,
@@ -403,7 +459,7 @@ function create(target = {}) {
         parentId: '',
         spawnedFrom: '',
         depth: 0,
-    });
+    }, []));
     return { conversationId: id, agentId, ...scope };
 }
 
@@ -488,9 +544,11 @@ function effectiveSettings(conversation) {
     const patch = conversation.settingsPatch || {};
     // A pinned runtime is resolved as that runtime, key and all, not as the
     // agent's default with a name swapped in.
+    // The pinned account goes with it: the menu can offer one runtime's
+    // models under more than one sign-in.
     const agentSettings = patch.provider && PROVIDERS[patch.provider]
-        ? resolvedFor(patch.provider, conversation.agentId)
-        : resolved(conversation.agentId);
+        ? resolvedFor(patch.provider, conversation.agentId, patch.account)
+        : resolvedFor(settings.get(conversation.agentId).provider, conversation.agentId, patch.account);
     const base = { ...agentSettings, ...(patch.model ? { model: patch.model } : {}), ...(patch.effort ? { effort: patch.effort } : {}) };
     const policy = conversation.runPolicy;
     if (!policy || !policy.approvals || policy.approvals === 'inherit') return base;
@@ -520,39 +578,9 @@ function effectiveSettings(conversation) {
     }
 }
 
-/**
- * Forget the oldest parked conversations, once there are more than the cap.
- *
- * Only ones that are properly asleep are candidates: a conversation with a
- * running query, or one waiting on an approval, is in use whatever its age.
- */
-function trim() {
-    let excess = conversations.size - MAX_CONVERSATIONS;
-    if (excess <= 0) return;
-
-    // A conversation opened in the last minute is one somebody is about to
-    // type into, whatever the list looks like.
-    const fresh = Date.now() - 60 * 1000;
-    const parked = [...conversations.values()]
-        .filter(conversation => !conversation.session && !conversation.starting && !conversation.busy)
-        .filter(conversation => !(conversation.createdAt > fresh && conversation.events.length === 0))
-        // Untitled first, then oldest. Nothing was ever said in an untitled
-        // one: the panel opens a conversation the moment it is mounted, and a
-        // scratch conversation nobody typed into should not be able to push a
-        // week of real history off the end of the list.
-        .sort((a, b) => (
-            Number(Boolean(a.title)) - Number(Boolean(b.title)) || a.updatedAt - b.updatedAt
-        ));
-
-    for (const conversation of parked) {
-        if (excess <= 0) break;
-        conversations.delete(conversation.id);
-        excess -= 1;
-    }
-}
-
 /** The ids of the live conversations, for the backup preview to count against. */
 function conversationIds() {
+    hydrate();
     return [...conversations.keys()];
 }
 
@@ -560,9 +588,10 @@ function conversationIds() {
  * Bring conversations from a backup into the live map, the same way `hydrate`
  * adopts the ones from disk: unpacked under the runtime their agent is set to
  * now, repaired onto the selected agent when theirs is gone, matched on id.
- * The archive picks them up from the map on its next write.
+ * All of them: a restore adds to the history, it does not make room in it.
  */
 function importConversations(records, { overwrite = false } = {}) {
+    hydrate();
     const result = { added: 0, replaced: 0, skipped: 0 };
     for (const record of Array.isArray(records) ? records : []) {
         let conversation;
@@ -585,19 +614,8 @@ function importConversations(records, { overwrite = false } = {}) {
         } else {
             result.added++;
         }
-        conversations.set(conversation.id, conversation);
-    }
-    if (result.added > 0 || result.replaced > 0) {
-        while (conversations.size > archive.MAX_CONVERSATIONS) {
-            let oldest = null;
-            for (const conversation of conversations.values()) {
-                if (conversation.pinned) continue;
-                if (!oldest || conversation.updatedAt < oldest.updatedAt) oldest = conversation;
-            }
-            if (!oldest) break;
-            conversations.delete(oldest.id);
-        }
-        archive.save();
+        conversations.set(conversation.id, archive.track(conversation, conversation.events));
+        archive.save(conversation.id);
     }
     return result;
 }
@@ -635,14 +653,12 @@ const DELTAS = new Set(['text-delta', 'thinking-delta']);
  * conversation again, so its copy is refreshed too.
  */
 function scrubHistory() {
+    hydrate();
     let touched = 0;
     for (const conversation of conversations.values()) {
-        let changed = false;
-        conversation.events = conversation.events.map((event) => {
-            const clean = secrets.scrubDeep(event);
-            if (clean !== event) changed = true;
-            return clean;
-        });
+        // Every conversation, including the ones whose events are only on
+        // disk: those are rewritten where they are rather than read in.
+        let changed = archive.rewriteEvents(conversation, events => events.map(event => secrets.scrubDeep(event)));
         // The title is the first message, cut short: a key pasted as the
         // opening line was the title of the conversation in every list.
         const title = secrets.scrub(conversation.title || '');
@@ -652,6 +668,7 @@ function scrubHistory() {
         }
         if (changed) {
             touched += 1;
+            archive.save(conversation.id);
             notify('ai-history-scrubbed', { conversationId: conversation.id });
         }
     }
@@ -701,8 +718,7 @@ function emit(conversation, event) {
     // A reply streams in as hundreds of fragments. Each still goes to the
     // windows as it comes, but the log keeps one growing fragment rather
     // than hundreds: the panel folds them into the same draft either way,
-    // and in the log they were most of the 4000 events a conversation is
-    // allowed, pushing its real history out and all of it into every replay.
+    // and hundreds of them would go into every replay of the conversation.
     const last = conversation.events[conversation.events.length - 1];
     if (DELTAS.has(stamped.type) && last?.type === stamped.type && !stamped.via && !last.via) {
         conversation.events[conversation.events.length - 1] = { ...last, text: `${last.text || ''}${stamped.text || ''}` };
@@ -711,17 +727,22 @@ function emit(conversation, event) {
         return;
     }
 
-    conversation.updatedAt = stamped.at;
-    conversation.events.push(stamped);
-    if (conversation.events.length > MAX_EVENTS) {
-        conversation.events.splice(0, conversation.events.length - MAX_EVENTS);
+    // How full the context is: only the latest reading is ever shown, so it
+    // replaces the one before rather than adding one per step to the log.
+    if (stamped.type === 'context' && !stamped.via) {
+        const previous = conversation.events.findIndex(entry => entry.type === 'context' && !entry.via);
+        if (previous >= 0) conversation.events.splice(previous, 1);
     }
+
+    conversation.updatedAt = stamped.at;
+    // All of it: nothing is dropped off the front of a long conversation.
+    conversation.events.push(stamped);
     notify('ai-event', { conversationId: conversation.id, event: stamped });
     tellSubagents(conversation, stamped);
 
     // A stream preview is not worth a write of its own: the finished block that
     // replaces it is an event in its own right, and that one schedules one.
-    if (!archive.isTransient(stamped.type)) archive.save();
+    if (!archive.isTransient(stamped.type)) archive.save(conversation.id);
 }
 
 /* ------------------------------------------------------------------ *
@@ -902,13 +923,36 @@ async function revertTurn(conversationId, turnId) {
             'The user undid the file changes from one of your earlier turns. These files are back as they '
                 + `were before it, so read them again before relying on what you wrote:\n${result.reverted.map(file => `- ${file}`).join('\n')}`,
         ].filter(Boolean).join('\n\n');
-        archive.save();
+        archive.save(conversation.id);
     }
     return result;
 }
 
 /** How much of the earlier conversation a branch carries into its first message. */
 const MAX_CARRY_OVER = 60000;
+
+/**
+ * What was said in a conversation before its latest message, for a runtime
+ * taking it over with no memory of it. The latest message is left out
+ * because it is about to be sent on its own.
+ */
+function saidBefore(conversation) {
+    const events = (conversation.events || []).filter(event => !event.parentId);
+    let end = events.length;
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+        if (events[index].type === 'user-message') {
+            end = index;
+            break;
+        }
+    }
+    const lines = [];
+    for (const event of events.slice(0, end)) {
+        if (event.type === 'user-message') lines.push('## You', '', event.text || '', '');
+        else if (event.type === 'assistant-text') lines.push('## Agent', '', event.text || '', '');
+    }
+    const said = lines.join('\n').trim();
+    return said.length > MAX_CARRY_OVER ? said.slice(-MAX_CARRY_OVER) : said;
+}
 
 /**
  * A new conversation holding this one up to the end of a turn.
@@ -981,7 +1025,7 @@ function copyUpTo(source, end) {
     copy.updatedAt = Date.now();
     const said = exportMarkdown(copy.id, { messagesOnly: true }) || '';
     copy.carryOver = said.length > MAX_CARRY_OVER ? said.slice(-MAX_CARRY_OVER) : said;
-    archive.save();
+    archive.save(copy.id);
     return { success: true, conversationId: copy.id, agentId: copy.agentId };
 }
 
@@ -994,7 +1038,7 @@ function setScope(conversationId, target) {
 
     const scope = normalizeScope(target);
     Object.assign(conversation, scope);
-    archive.save();
+    archive.save(conversation.id);
     return { success: true, ...scope };
 }
 
@@ -1006,8 +1050,14 @@ function setScope(conversationId, target) {
  * list of one that is switched on but not selected has to hand it the key
  * stored for it, or the ask goes out with somebody else's credential on it.
  */
-function resolvedFor(provider, agentId) {
-    const base = settings.get(agentId);
+function resolvedFor(provider, agentId, accountOverride = '') {
+    let base = settings.get(agentId);
+    // A conversation the composer put on one particular sign-in runs on it,
+    // while that account is still ticked for the agent. One unticked or
+    // removed since falls back to the agent's own choice rather than to the
+    // machine's login, which is the nearer answer.
+    const pinned = pinnedAccountFor(base, provider, accountOverride);
+    if (pinned) base = { ...base, accounts: { ...(base.accounts || {}), [provider]: pinned } };
     const accountId = accountIdFor(base, provider);
     return {
         ...base,
@@ -1030,6 +1080,23 @@ function accountIdFor(current, provider) {
     return accounts.resolve(provider, current?.accounts?.[provider])?.id || accounts.DEFAULT_ID;
 }
 
+/**
+ * A conversation's own account, when it still counts: it exists, and it is
+ * one of the accounts ticked for the agent (the one in use, or one beside it
+ * in `menuAccounts`). Empty otherwise, which is the agent's choice.
+ */
+function pinnedAccountFor(current, provider, id) {
+    if (!id || !accounts.supports(provider)) return '';
+    if (accounts.resolve(provider, id)?.id !== id) return '';
+    const ticked = id === accountIdFor(current, provider) || (current?.menuAccounts?.[provider] || []).includes(id);
+    return ticked ? id : '';
+}
+
+/** The account a conversation runs on under these settings, its pin included. */
+function conversationAccount(current, provider, pinned) {
+    return pinnedAccountFor(current, provider, pinned) || accountIdFor(current, provider);
+}
+
 /** The settings as the agent behind a conversation sees them. */
 function resolved(agentId) {
     return resolvedFor(settings.get(agentId).provider, agentId);
@@ -1040,8 +1107,9 @@ function resolved(agentId) {
  * Changing one of these means the query has to be started again.
  */
 // computerUse among them: Claude Code loads the computer tools up front only
-// while it is on (see providers/claude-code.js).
-const RESTART_ON = ['provider', 'maxTurns', 'allowLocalTools', 'computerUse'];
+// while it is on (see providers/claude-code.js). browserUse too: it decides
+// whether the browser's MCP server is in the set the query was started with.
+const RESTART_ON = ['provider', 'maxTurns', 'allowLocalTools', 'computerUse', 'browserUse'];
 
 /**
  * Whether a change of settings moved the runtime a conversation is on to
@@ -1066,6 +1134,13 @@ function accountMoved(conversation, before, after) {
  * watching it run.
  */
 function reconfigure(before, after, agentId = '') {
+    // A history period chosen, or shortened, applies now rather than at the
+    // next launch: it is what the user just asked for.
+    if (before?.historyDays !== after?.historyDays) {
+        hydrate();
+        sweepHistory();
+    }
+
     // The account describes a runtime rather than the app, so it does not
     // survive a change of agent. The model catalog needs no clearing: it is
     // keyed by provider, so the one held for the agent just left simply stops
@@ -1109,7 +1184,13 @@ function reconfigure(before, after, agentId = '') {
             }
             if (!own.effort && before.effort !== after.effort) session.setEffort?.(after.effort);
         }
-        if (RESTART_ON.some(field => before[field] !== after[field]) || accountMoved(conversation, before, after)) {
+        // A conversation pinned to an account of its own is not moved by the
+        // agent's account moving, any more than its model is, unless its own
+        // was the one unticked.
+        const provider = conversation.provider || after.provider;
+        const accountChanged = conversationAccount(before, provider, own.account)
+            !== conversationAccount(after, provider, own.account);
+        if (RESTART_ON.some(field => before[field] !== after[field]) || accountChanged) {
             if (session || conversation.starting) conversation.needsRestart = true;
         }
     }
@@ -1441,8 +1522,15 @@ function ensureProvider(conversation) {
     // The same for a change of account on the same runtime: a Claude Code
     // session lives in the folder of the account that made it, and the other
     // account's CLI has never heard of it.
+    //
+    // Moving accounts is what the model menu offers when one runtime is
+    // listed under several sign-ins, usually because one is near its limit,
+    // so what was said goes with the next message instead: the conversation
+    // carries on rather than starting over with a model that remembers none
+    // of it. Held only until that message, so it is not archived.
     if (conversation.provider === current.provider
         && (conversation.accountId || accounts.DEFAULT_ID) !== current.accountId) {
+        if (conversation.providerSessionId) conversation.movedOver = saidBefore(conversation);
         conversation.providerSessionId = '';
     }
 
@@ -1684,6 +1772,12 @@ function handleProviderEvent(conversation, event) {
     if (event.type === 'tool-call' && !event.local) {
         recordToolActivity(conversation, event);
     }
+    // Whose window it is, so a panel shows it only while that runtime is the
+    // one answering: a reading from before a switch is about another model.
+    if (event.type === 'context') {
+        emit(conversation, { ...event, provider: conversation.provider || '' });
+        return;
+    }
     emit(conversation, event);
     recordRunEvent(conversation, event);
 }
@@ -1905,7 +1999,7 @@ function reportToParent(child, status) {
         parent.pendingNote,
         `The conversation you started, "${title}" (${child.id}), ${how}. What it said last:\n${said.slice(0, 4000)}`,
     ].filter(Boolean).join('\n\n');
-    archive.save();
+    archive.save(parent.id);
 }
 
 /** The child's cost is the parent's cost. */
@@ -2134,7 +2228,7 @@ function conversationsApiFor(conversation) {
     /** Open it, send the first message if there is one, and report. */
     const launch = async (child, { message = '', open = true, focus = false, wait = false }) => {
         const shown = open ? showConversations(conversation, [child.id], { focus }) : { opened: false };
-        archive.save();
+        archive.save(child.id);
         const driven = message ? await drive(child, message, { wait, visible: shown.opened }) : { status: 'idle' };
         if (driven.error) return { error: `${driven.error} (conversation ${child.id})` };
         return {
@@ -2572,8 +2666,17 @@ function setConversationModel(conversationId, patch = {}) {
     if (model) next.model = String(model).slice(0, 120);
     const effort = patch.effort !== undefined ? patch.effort : current.effort;
     if (effort) next.effort = String(effort).slice(0, 20);
+    // Which sign-in, when the menu offered the runtime under more than one.
+    // An account belongs to its runtime, so a change of runtime that does not
+    // name one drops it, and an empty one goes back to the agent's choice.
+    const account = patch.account !== undefined
+        ? patch.account
+        : (next.provider === current.provider ? current.account : '');
+    if (account && typeof account === 'string' && next.provider && accounts.supports(next.provider)) {
+        next.account = account.slice(0, 80);
+    }
     conversation.settingsPatch = Object.keys(next).length ? next : null;
-    archive.save();
+    archive.save(conversation.id);
 
     const after = effectiveSettings(conversation);
     const session = conversation.session;
@@ -2884,6 +2987,16 @@ async function send(conversationId, text, attachments = [], tagged = []) {
             );
             conversation.carryOver = '';
         }
+        // A conversation just moved to another sign-in of the same runtime,
+        // whose sessions the new one cannot read. See ensureProvider.
+        if (conversation.movedOver) {
+            parts.push(
+                '<earlier-conversation>\nThis chat has just moved to another account of the same agent, whose '
+                + 'sessions are kept apart, so you have no memory of it. This is what was said before this '
+                + `message. Carry on from it.\n\n${conversation.movedOver}\n</earlier-conversation>`,
+            );
+            conversation.movedOver = '';
+        }
         if (conversation.pendingNote) {
             parts.push(`<app-note>\n${conversation.pendingNote}\n</app-note>`);
             conversation.pendingNote = '';
@@ -2952,7 +3065,7 @@ function nameConversation(conversation) {
         const title = secrets.scrub(name);
         conversation.titleSource = title ? 'model' : 'message';
         if (!title) {
-            archive.save();
+            archive.save(conversation.id);
             return;
         }
         conversation.title = title;
@@ -3026,10 +3139,10 @@ async function close(conversationId) {
     conversations.delete(conversationId);
     checkpoints.forget(conversationId);
     computer.forget(conversationId);
-    // Thrown away for good, so it goes from the file too. Suspended during a
+    // Thrown away for good, so its file goes too. Suspended during a
     // shutdown, which closes every conversation without meaning to forget any
     // of them.
-    archive.save();
+    archive.remove(conversationId);
     try {
         // As in `restart`: a query still coming up has to be waited for, or it
         // outlives the conversation it belonged to.
@@ -3073,12 +3186,14 @@ function history(conversationId) {
 }
 
 /**
- * Every conversation the app still holds, newest first.
+ * Every conversation the app holds, newest first: every one ever had on this
+ * machine and not deleted.
  *
  * The ones with a query running, the ones parked, and the ones read back off
  * disk from an earlier run, because from the panel's side those differences are
  * invisible: picking any of them reads the same event log back, and only
- * sending into it starts anything.
+ * sending into it starts anything. Listing one does not read its events in;
+ * the archive keeps what a row needs.
  */
 function list({ agentId = '' } = {}) {
     hydrate();
@@ -3088,20 +3203,8 @@ function list({ agentId = '' } = {}) {
         // only ever show the agent that is selected. Nothing that was never
         // spoken into: a tab opened and left is not a conversation yet.
         .filter(conversation => !agentId || conversation.agentId === agentId)
-        .filter(conversation => conversation.title || conversation.events.length > 0)
-        .map(conversation => ({
-            conversationId: conversation.id,
-            agentId: conversation.agentId,
-            title: conversation.title,
-            scope: conversation.scope,
-            sessionId: conversation.boundSessionId,
-            busy: conversation.busy,
-            live: Boolean(conversation.session || conversation.starting),
-            createdAt: conversation.createdAt,
-            updatedAt: conversation.updatedAt,
-            pinned: Boolean(conversation.pinned),
-            messages: conversation.events.filter(event => event.type === 'user-message').length,
-        }))
+        .filter(archive.hasContent)
+        .map(describe)
         // The pinned ones first, newest within each half. Ordered here rather
         // than in each list that draws it, so the sidebar and the page agree.
         .sort((a, b) => (Number(b.pinned) - Number(a.pinned)) || (b.updatedAt - a.updatedAt));
@@ -3120,20 +3223,22 @@ function describe(conversation) {
         createdAt: conversation.createdAt,
         updatedAt: conversation.updatedAt,
         pinned: Boolean(conversation.pinned),
-        messages: conversation.events.filter(event => event.type === 'user-message').length,
+        messages: archive.messageCount(conversation),
     };
 }
 
 /**
  * Search one agent's conversations by what was said in them. See search.js
  * for the query language; this only hands it the conversations and the
- * lookups it needs.
+ * lookups it needs. All of them, however old: the ones whose events are on
+ * disk only are read one at a time and let go again, so a search across a
+ * long history does not end up holding all of it.
  */
 async function search({ agentId = '', query = '', limit, openIds = [] } = {}) {
     hydrate();
     const rows = [...conversations.values()]
         .filter(conversation => !agentId || conversation.agentId === agentId)
-        .filter(conversation => conversation.title || conversation.events.length > 0);
+        .filter(archive.hasContent);
     const hostsById = new Map(store.getHosts().map(host => [host.id, host]));
     return searchModule.search(rows, {
         query,
@@ -3142,6 +3247,11 @@ async function search({ agentId = '', query = '', limit, openIds = [] } = {}) {
         hostName: (id) => hostsById.get(id)?.name || '',
         live: (conversation) => Boolean(conversation.session || conversation.starting),
         describe,
+        eventsOf: archive.peekEvents,
+        sketchOf: (conversation) => {
+            const { firstMessage, lastMessage } = archive.summaryOf(conversation);
+            return searchModule.sketchFrom(conversation.title, firstMessage, lastMessage);
+        },
     });
 }
 
@@ -3159,7 +3269,7 @@ function pin(conversationId, pinned) {
     const next = Boolean(pinned);
     if (conversation.pinned !== next) {
         conversation.pinned = next;
-        archive.save();
+        archive.save(conversation.id);
     }
     return { ok: true, pinned: next };
 }
@@ -3171,9 +3281,9 @@ function reassign(fromAgentId, toAgentId) {
     for (const conversation of conversations.values()) {
         if (conversation.agentId !== fromAgentId) continue;
         conversation.agentId = toAgentId;
+        archive.save(conversation.id);
         moved += 1;
     }
-    if (moved > 0) archive.save();
     return moved;
 }
 
@@ -3377,6 +3487,7 @@ module.exports = {
     search,
     pin,
     reassign,
+    sweepHistory,
     status,
     models,
     detect,
@@ -3397,6 +3508,7 @@ module.exports = {
         conversationsApi: (conversationId) => conversationsApiFor(conversations.get(conversationId)),
         conversation: (conversationId) => conversations.get(conversationId),
         turnEnd,
+        saidBefore: (conversationId) => saidBefore(conversations.get(conversationId)),
         reportToParent: (conversationId, status) => reportToParent(conversations.get(conversationId), status),
         setCheckWait: (ms) => { CHECK_WAIT = ms; },
     },

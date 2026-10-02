@@ -78,8 +78,9 @@ function createWindow() {
             ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 20, y: 14 } }
             : { frame: false }),
         // What the frame shows before the renderer has painted anything. The
-        // app's own window colour, so the first frame is not a different dark.
-        backgroundColor: '#16161e',
+        // window colour the app starts in (the Black palette, INITIAL_APP_COLORS
+        // in renderer/lib/app-colors.js), so the first frame is not a different dark.
+        backgroundColor: '#000000',
         webPreferences: {
             preload: path.join(__dirname, 'preload.js'),
             contextIsolation: true,

@@ -22,6 +22,7 @@ import {
     proxyRoute,
     supportsAuth,
 } from '../../lib/proxies';
+import { HEADING } from '../../lib/text-styles';
 
 /**
  * The proxy editor.
@@ -347,7 +348,7 @@ function ProxyDialog({ proxy, proxies = [], dismiss, onClose, onSave, onTest }) 
                 {/* Everything past this line has a working default, and most
                     proxies never touch any of it. */}
                 <div className="flex items-center gap-3 pt-2">
-                    <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-neutral-400">
+                    <span className={`shrink-0 ${HEADING}`}>
                         Optional
                     </span>
                     <span className="h-px flex-1 bg-gray-200 dark:bg-surface-control" />

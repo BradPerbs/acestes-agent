@@ -15,6 +15,8 @@ import {
     UnfoldMoreIcon,
 } from 'hugeicons-react';
 import { setSidebar, slideSidebar } from '../lib/panelMotion';
+import { agentGlow, agentInk } from '../lib/agent-colors';
+import { agentLook } from '../lib/agent-look';
 import { cubicBezier, prefersReducedMotion, seconds } from '../lib/motion';
 import AgentMark from './assistant/AgentMark';
 import PanelMenu from './assistant/PanelMenu';
@@ -30,21 +32,18 @@ import { useT } from '../i18n';
  * screen lit. Changing the agent changes all of it.
  */
 
-const ACTIVE = 'bg-gray-900/[0.06] dark:bg-surface-control text-gray-900 dark:text-white';
-const IDLE = 'text-gray-600 dark:text-gray-400 hover:bg-gray-900/[0.04] dark:hover:bg-surface-control/60 '
-    + 'hover:text-gray-900 dark:hover:text-gray-200';
-
 /**
- * The agent's card at the top of the column: who it is and its two places,
- * lifted one step off the column's ground so they read as one thing, the
- * agent, rather than three rows that happen to sit together. The
- * conversations under it stay on the ground, since they are the column's
- * running list rather than part of the agent.
+ * The column has no background, cards or borders of its own. It stands on the
+ * window's ground, which carries the agent's faint wash (`.app-ground` in
+ * input.css), and everything in it is a translucent fill on that ground: a
+ * whisper on hover, a little more for the one you are on. Translucent rather
+ * than solid so the wash runs on under a lit row instead of stopping at it.
+ * In dark mode the fills are the ramp's control step, so they keep the
+ * theme's hue rather than going grey.
  */
-const CARD = `flex flex-col p-1 rounded-2xl
-    bg-white dark:bg-surface-raised
-    ring-1 ring-black/[0.05] dark:ring-white/[0.05]
-    shadow-[0_1px_2px_rgba(16,24,40,0.04),0_1px_3px_rgba(16,24,40,0.03)] dark:shadow-none`;
+const ACTIVE = 'bg-gray-900/[0.06] dark:bg-surface-control/80 text-gray-900 dark:text-white';
+const HOVER = 'hover:bg-gray-900/[0.04] dark:hover:bg-surface-control/50';
+const IDLE = `text-gray-600 dark:text-gray-400 ${HOVER} hover:text-gray-900 dark:hover:text-gray-200`;
 
 const FOCUS = 'outline-none focus-visible:ring-2 focus-visible:ring-gray-900/20 dark:focus-visible:ring-white/25';
 
@@ -57,12 +56,16 @@ function NavItem({ label, icon, active, onClick }) {
             type="button"
             onClick={onClick}
             aria-current={active ? 'page' : undefined}
-            className={`nav-item group/nav w-full flex items-center gap-2.5 h-9 px-2 rounded-xl text-left
+            // Inset 12px like every row in the column, so the icons, the
+            // heading and the chat titles all start on one line.
+            className={`nav-item group/nav w-full flex items-center gap-2.5 h-8 px-3 rounded-lg text-left
                 text-[13px] font-medium transition-colors ${FOCUS} ${active ? ACTIVE : IDLE}`}
         >
+            {/* The page you are on has its icon in the agent's colour: the
+                one touch of it below the helmet. */}
             <span className={`shrink-0 flex transition-colors
                 ${active
-                    ? 'text-gray-900 dark:text-white'
+                    ? 'agent-accent'
                     : 'text-gray-400 dark:text-neutral-500 group-hover/nav:text-gray-700 dark:group-hover/nav:text-gray-300'}`}>
                 {icon}
             </span>
@@ -210,7 +213,7 @@ function ConversationsHeading({
                     className="shrink-0 w-7 h-7 flex items-center justify-center rounded-full transition-colors
                         text-gray-500 dark:text-gray-400
                         hover:bg-gray-900/[0.06] hover:text-gray-900
-                        dark:hover:bg-surface-control dark:hover:text-white"
+                        dark:hover:bg-surface-control/80 dark:hover:text-white"
                 >
                     <Search01Icon size={15} strokeWidth={2} />
                 </button>
@@ -224,7 +227,7 @@ function ConversationsHeading({
                     className="shrink-0 w-7 h-7 flex items-center justify-center rounded-full transition-colors
                         text-gray-500 dark:text-gray-400
                         hover:bg-gray-900/[0.06] hover:text-gray-900
-                        dark:hover:bg-surface-control dark:hover:text-white"
+                        dark:hover:bg-surface-control/80 dark:hover:text-white"
                 >
                     <PlusSignIcon size={15} strokeWidth={2.5} />
                 </button>
@@ -233,9 +236,11 @@ function ConversationsHeading({
             {/* The search face: the pill, which is the magnifier grown. */}
             <div
                 ref={pillRef}
+                // The same fill as the magnifier's hover, which is what it
+                // grows out of, and translucent like the rest of the column.
                 className="absolute top-1/2 -translate-y-1/2 h-7 rounded-full overflow-hidden
-                    bg-gray-200 dark:bg-surface-control
-                    focus-within:bg-gray-200/80 dark:focus-within:bg-surface-control/80
+                    bg-gray-900/[0.06] dark:bg-surface-control/80
+                    focus-within:bg-gray-900/[0.05] dark:focus-within:bg-surface-control/60
                     transition-colors"
                 style={{ visibility: 'hidden', width: PILL_START }}
             >
@@ -316,14 +321,12 @@ function ConversationRow({ conversation, active, onOpen, onDelete, onPin, delete
                 // for: a pinned row keeps room for its pin, and hover or focus
                 // makes room for both. Held back all the time, the gap cut
                 // every title short for buttons that were not there.
-                className={`w-full flex items-center gap-2 pl-3 h-8 rounded-lg text-left text-[13px]
+                // Lit the way the rows above it are, a fill on the ground
+                // rather than a white tile lifted off it.
+                className={`w-full flex items-center gap-2 pl-3 h-8 rounded-[10px] text-left text-[13px]
                     transition-colors ${FOCUS}
                     ${conversation.pinned ? 'pr-8' : 'pr-3'} group-hover/row:pr-14 group-focus-within/row:pr-14
-                    ${active
-                        ? 'bg-white dark:bg-surface-control text-gray-900 dark:text-white '
-                            + 'ring-1 ring-black/[0.05] dark:ring-0 shadow-[0_1px_2px_rgba(16,24,40,0.05)] dark:shadow-none'
-                        : 'text-gray-600 dark:text-gray-400 hover:bg-gray-900/[0.04] dark:hover:bg-surface-raised '
-                            + 'hover:text-gray-900 dark:hover:text-gray-200'}`}
+                    ${active ? ACTIVE : IDLE}`}
             >
                 {/* Working, said as a dot, the way the tab strip says it. */}
                 {conversation.busy && (
@@ -343,10 +346,13 @@ function ConversationRow({ conversation, active, onOpen, onDelete, onPin, delete
                     aria-pressed={Boolean(conversation.pinned)}
                     title={pinLabel}
                     onClick={onPin}
+                    // No tile behind it on hover: the glyph itself comes up to
+                    // full colour, which is all the row needs to say "this one".
                     className={`w-6 h-6 rounded-md flex items-center justify-center transition-colors
                         focus-visible:opacity-100
                         text-gray-400 dark:text-neutral-500
-                        hover:bg-gray-900/[0.06] hover:text-gray-900 dark:hover:bg-white/[0.08] dark:hover:text-white
+                        hover:text-gray-900 dark:hover:text-white
+                        focus-visible:text-gray-900 dark:focus-visible:text-white
                         ${conversation.pinned ? 'opacity-100' : 'opacity-0 group-hover/row:opacity-100'}`}
                 >
                     {conversation.pinned ? (
@@ -365,7 +371,8 @@ function ConversationRow({ conversation, active, onOpen, onDelete, onPin, delete
                     className="w-6 h-6 rounded-md flex items-center justify-center transition-colors
                         opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100
                         text-gray-400 dark:text-neutral-500
-                        hover:bg-red-500/10 hover:text-red-500 dark:hover:text-red-400"
+                        hover:text-red-500 dark:hover:text-red-400
+                        focus-visible:text-red-500 dark:focus-visible:text-red-400"
                 >
                     <Delete02Icon size={13} strokeWidth={1.5} />
                 </button>
@@ -491,55 +498,70 @@ function Sidebar({
         onNavChange('conversations');
     };
 
+    /**
+     * The agent's colour, as the accent on the lit page's icon. Left unset for
+     * white and black, which have no hue to lend and whose ink would vanish
+     * into one theme or the other as an icon colour.
+     */
+    const ink = agentInk(agentLook(activeAgent).color);
+    const accent = agentGlow(agentLook(activeAgent).color)
+        ? { '--agent-accent': ink.line, '--agent-accent-dark': ink.lineDark }
+        : undefined;
+
     return (
         <nav
             id="sidebar"
             ref={navRef}
-            className="bg-gray-100 dark:bg-surface-base flex flex-col shrink-0 overflow-hidden"
+            // No background of its own: the window's ground, and the agent's
+            // wash on it, is the column's background.
+            className="flex flex-col shrink-0 overflow-hidden"
         >
-            <div className="flex flex-col gap-0.5 flex-1 min-h-0">
-                <div className={CARD}>
-                    {/* Who this column is about. Drawn as a menu rather than a
-                        page, since choosing an agent is a switch, not a place to
-                        go. Portalled: the column clips, and a list of agents
-                        hanging off its foot would be cut off at the first row. */}
-                    <PanelMenu
-                        portal
-                        menuClassName="w-64"
-                        sections={agentSections}
-                        trigger={({ open, toggle }) => (
-                            <button
-                                type="button"
-                                aria-haspopup="menu"
-                                aria-expanded={open}
-                                onClick={toggle}
-                                className={`w-full flex items-center gap-2.5 px-2 py-2 rounded-xl text-left
-                                    transition-colors ${FOCUS}
-                                    ${open ? ACTIVE : 'hover:bg-gray-900/[0.04] dark:hover:bg-surface-control/60'}`}
-                            >
-                                <AgentMark size={28} look={activeAgent} />
-                                <span className="min-w-0 flex-1">
-                                    <span className="block text-[13px] leading-5 font-semibold truncate
-                                        text-gray-900 dark:text-white">
-                                        {activeAgent?.name || t('agents.agent')}
-                                    </span>
-                                    <span className="block text-[11px] leading-4 truncate text-gray-500 dark:text-neutral-500">
-                                        {t('agents.agent')}
-                                    </span>
+            <div className="flex flex-col gap-0.5 flex-1 min-h-0" style={accent}>
+                {/* Who this column is about. Drawn as a menu rather than a
+                    page, since choosing an agent is a switch, not a place to
+                    go. Portalled: the column clips, and a list of agents
+                    hanging off its foot would be cut off at the first row.
+
+                    The mark sits 6px in, so its middle lines up with the
+                    icons under it. */}
+                <PanelMenu
+                    portal
+                    menuClassName="w-64"
+                    sections={agentSections}
+                    trigger={({ open, toggle }) => (
+                        <button
+                            type="button"
+                            aria-haspopup="menu"
+                            aria-expanded={open}
+                            onClick={toggle}
+                            className={`group/agent w-full flex items-center gap-2.5 pl-1.5 pr-2.5 py-1.5 rounded-xl
+                                text-left transition-colors ${FOCUS} ${open ? ACTIVE : HOVER}`}
+                        >
+                            <AgentMark size={28} look={activeAgent} />
+                            <span className="min-w-0 flex-1">
+                                <span className="block text-[13px] leading-5 font-semibold tracking-[-0.01em]
+                                    truncate text-gray-900 dark:text-white">
+                                    {activeAgent?.name || t('agents.agent')}
                                 </span>
-                                {/* Up and down rather than down: this opens a
-                                    list to switch between, not a section. */}
-                                <UnfoldMoreIcon
-                                    size={14}
-                                    strokeWidth={2}
-                                    className="shrink-0 text-gray-400 dark:text-neutral-500"
-                                />
-                            </button>
-                        )}
-                    />
+                                <span className="block text-[11px] leading-4 truncate text-gray-500 dark:text-neutral-500">
+                                    {t('agents.agent')}
+                                </span>
+                            </span>
+                            {/* Up and down rather than down: this opens a
+                                list to switch between, not a section. */}
+                            <UnfoldMoreIcon
+                                size={14}
+                                strokeWidth={2}
+                                className="shrink-0 transition-colors text-gray-400 dark:text-neutral-500
+                                    group-hover/agent:text-gray-700 dark:group-hover/agent:text-gray-300"
+                            />
+                        </button>
+                    )}
+                />
 
-                    <div aria-hidden="true" className="mx-2 my-1 h-px bg-gray-900/[0.06] dark:bg-white/[0.05]" />
-
+                {/* The agent's two places, straight under it with a breath of
+                    space between rather than a rule or a box. */}
+                <div className="mt-1.5 flex flex-col gap-0.5">
                     <NavItem
                         label={t('nav.inventory')}
                         icon={<Layers01Icon size={17} strokeWidth={1.6} />}
@@ -569,7 +591,7 @@ function Sidebar({
                     onSubmit={searchEverything}
                 />
 
-                <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-0.5 pb-2">
+                <div className="sidebar-list-fade flex-1 min-h-0 overflow-y-auto flex flex-col gap-0.5 pb-4">
                     {listed.length === 0 ? (
                         <p className="px-3 py-1.5 text-xs text-gray-500 dark:text-neutral-500">
                             {t('conversations.empty')}

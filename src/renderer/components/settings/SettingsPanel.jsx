@@ -1,9 +1,12 @@
-import { memo, useCallback, useState } from 'react';
-import SettingsNav, { SETTINGS_CATEGORIES } from './SettingsNav';
+import { memo, useCallback, useEffect, useState } from 'react';
+import SettingsNav, { SETTINGS_CATEGORIES, SETTINGS_JUMP } from './SettingsNav';
 import { StackedProvider } from './ui/stacked';
 import useNarrow from '../../hooks/useNarrow';
 import GeneralPage from './pages/GeneralPage';
 import AssistantPage from './pages/AssistantPage';
+import PermissionsPage from './pages/PermissionsPage';
+import AgenticPage from './pages/AgenticPage';
+import ChatPage from './pages/ChatPage';
 import AppearancePage from './pages/AppearancePage';
 import ServersPage from './pages/ServersPage';
 import SecurityPage from './pages/SecurityPage';
@@ -14,6 +17,9 @@ import AboutPage from './pages/AboutPage';
 const PAGES = {
     general: GeneralPage,
     assistant: AssistantPage,
+    permissions: PermissionsPage,
+    agentic: AgenticPage,
+    chat: ChatPage,
     appearance: AppearancePage,
     servers: ServersPage,
     security: SecurityPage,
@@ -71,6 +77,16 @@ function SettingsPanel(props) {
     const changeCategory = useCallback((next) => {
         setCategory(next);
         localStorage.setItem(CATEGORY_KEY, next);
+    }, []);
+
+    // A jump from the chat (to quick prompts, to accounts) writes the page it
+    // wants before it navigates. Settings is often already mounted behind the
+    // conversation tab when that happens, so the page is read again here
+    // rather than only when the panel first draws.
+    useEffect(() => {
+        const onJump = () => setCategory(readCategory());
+        window.addEventListener(SETTINGS_JUMP, onJump);
+        return () => window.removeEventListener(SETTINGS_JUMP, onJump);
     }, []);
 
     const Page = PAGES[category] || PAGES.general;

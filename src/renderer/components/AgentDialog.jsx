@@ -144,7 +144,9 @@ function ModeInfo() {
                             {t(`agents.mode.${mode}.desc`)}
                         </p>
 
-                        <div className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-400">
+                        {/* The heading's type (lib/text-styles), in the colour
+                            that says which list it is. */}
+                        <div className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
                             {t('agents.mode.can')}
                         </div>
                         <ul className="mt-1 mb-2.5 space-y-1">
@@ -156,7 +158,7 @@ function ModeInfo() {
                             ))}
                         </ul>
 
-                        <div className="text-[10px] font-semibold uppercase tracking-wide text-red-600 dark:text-red-400">
+                        <div className="text-xs font-medium text-red-600 dark:text-red-400">
                             {t('agents.mode.cannot')}
                         </div>
                         <ul className="mt-1 space-y-1">

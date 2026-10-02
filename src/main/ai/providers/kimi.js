@@ -47,6 +47,13 @@ const mcpConfig = require('../mcp-config');
 /** The name our tools are served under. As elsewhere: what they do, not whose. */
 const SERVER_NAME = 'remote';
 
+/**
+ * What "no ceiling" (a step limit of 0 in Settings) is passed as: the CLI
+ * wants a number, so one no turn reaches, and small enough for whatever
+ * integer type it parses into.
+ */
+const UNLIMITED_TURNS = 10000;
+
 /** How long one headless run may take before it is given up on. */
 /**
  * How long a turn may go without a word from the CLI before it is given up
@@ -496,7 +503,8 @@ function writeConfig({ home, base = '', url, current, effort = '' }) {
         // The same ceiling every other agent here is given, and it does the same
         // job: a model that has decided to read one more file forever stops on
         // its own rather than when somebody notices.
-        `max_steps_per_turn = ${Math.max(1, Number(current.maxTurns) || 40)}`,
+        // 0 is "no ceiling", given as one no turn reaches.
+        `max_steps_per_turn = ${current.maxTurns === 0 ? UNLIMITED_TURNS : Math.max(1, Number(current.maxTurns) || 40)}`,
         '',
         // Ours are allowed outright. The approval gate they pass is the one in
         // `mcp-host`, and a second question from the agent would only be asked

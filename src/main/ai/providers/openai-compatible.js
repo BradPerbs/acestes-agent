@@ -583,7 +583,8 @@ async function start({
         // The step cap is the same setting the other agents are given, and it
         // does the same job: a model that has decided to read one more file
         // forever stops on its own rather than when somebody notices.
-        const limit = Math.max(1, current.maxTurns || 40);
+        // 0 is no ceiling: the loop ends when the model stops calling tools.
+        const limit = current.maxTurns === 0 ? Infinity : Math.max(1, current.maxTurns || 40);
 
         for (let step = 0; step < limit; step += 1) {
             if (stopped) return;

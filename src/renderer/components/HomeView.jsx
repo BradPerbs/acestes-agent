@@ -4,6 +4,7 @@ import InventoryTabs, { INVENTORY_PAGES } from './InventoryTabs';
 import InventoryOverview from './InventoryOverview';
 import McpPanel from './McpPanel';
 import MemoryPanel from './MemoryPanel';
+import FilesPanel from './FilesPanel';
 import HostsPanel from './HostsPanel';
 import KeychainPanel from './KeychainPanel';
 import ProxiesPanel from './ProxiesPanel';
@@ -166,6 +167,10 @@ function HomeView({
 
             {activeNav === 'snippets' && (
                 <SnippetsPanel isActive={isActive} reachedForPage={reachedForPage} allHosts={allHosts} agentId={agentId} />
+            )}
+
+            {activeNav === 'files' && (
+                <FilesPanel agentId={agentId} />
             )}
 
             {activeNav === 'jobs' && (

@@ -1,4 +1,4 @@
-import { memo, useCallback, useRef } from 'react';
+import { Fragment, memo, useCallback, useRef } from 'react';
 import {
     SlidersHorizontalIcon,
     PaintBoardIcon,
@@ -6,6 +6,9 @@ import {
     ShieldKeyIcon,
     Archive01Icon,
     InformationCircleIcon,
+    UserShield01Icon,
+    CursorMagicSelection01Icon,
+    BubbleChatIcon,
 } from 'hugeicons-react';
 import AgentMark from '../assistant/AgentMark';
 import Tooltip from '../ui/Tooltip';
@@ -28,19 +31,48 @@ const AgentIcon = ({ size = 17, className = '' }) => (
  * entry here, a matching component in the panel's page map, and a
  * `settings.nav.<id>` string in the catalogs. The nav and the router read from
  * the same list, so the two cannot drift apart.
+ *
+ * `group` draws a rule above the first category of each run, so the agent's
+ * pages read as one block between the app's own.
  */
 export const SETTINGS_CATEGORIES = [
-    { id: 'general', icon: SlidersHorizontalIcon },
+    { id: 'general', icon: SlidersHorizontalIcon, group: 'app' },
     // The agent second, right under the app's own basics: it is what the
-    // app is about. Everything to do with terminals, sessions and servers
-    // is one category further down, as tabs of a single page.
-    { id: 'assistant', icon: AgentIcon },
-    { id: 'appearance', icon: PaintBoardIcon },
-    { id: 'servers', icon: ServerStack01Icon },
-    { id: 'security', icon: ShieldKeyIcon },
-    { id: 'backup', icon: Archive01Icon },
-    { id: 'about', icon: InformationCircleIcon },
+    // app is about. It was one page of twenty cards, which nobody could find
+    // a setting on, so it is four: the agent and its models, what it may do
+    // without asking, what it can reach and operate (computer use, the
+    // browser), and the chat itself.
+    { id: 'assistant', icon: AgentIcon, group: 'agent' },
+    { id: 'permissions', icon: UserShield01Icon, group: 'agent' },
+    { id: 'agentic', icon: CursorMagicSelection01Icon, group: 'agent' },
+    { id: 'chat', icon: BubbleChatIcon, group: 'agent' },
+    // Everything to do with terminals, sessions and servers is one category,
+    // as tabs of a single page.
+    { id: 'appearance', icon: PaintBoardIcon, group: 'machine' },
+    { id: 'servers', icon: ServerStack01Icon, group: 'machine' },
+    { id: 'security', icon: ShieldKeyIcon, group: 'machine' },
+    { id: 'backup', icon: Archive01Icon, group: 'machine' },
+    { id: 'about', icon: InformationCircleIcon, group: 'machine' },
 ];
+
+/**
+ * Which page a jump into settings for one card lands on. The chat's "create
+ * quick prompts" and the usage popover's "manage accounts" name a card; the
+ * card decides the page, so the caller does not need to know the layout.
+ */
+const FOCUS_CATEGORY = {
+    quickPrompts: 'chat',
+    accounts: 'assistant',
+};
+
+export const categoryForFocus = (focus) => FOCUS_CATEGORY[focus] || 'assistant';
+
+/**
+ * Sent on the window when something outside settings asks for one of its
+ * pages. Settings stays mounted behind a conversation tab, so a jump made
+ * while it is already open would otherwise land on whatever page was up.
+ */
+export const SETTINGS_JUMP = 'settings-jump';
 
 /**
  * The category list, or the same list as a rail of icons.
@@ -84,9 +116,19 @@ function SettingsNav({ active, onChange, collapsed = false }) {
             onKeyDown={handleKeyDown}
             className={`sticky top-0 shrink-0 flex flex-col gap-0.5 ${collapsed ? 'w-9' : 'w-40'}`}
         >
-            {SETTINGS_CATEGORIES.map(({ id, icon: Icon }) => {
+            {SETTINGS_CATEGORIES.map(({ id, icon: Icon, group }, index) => {
                 const isActive = id === active;
                 const label = t(`settings.nav.${id}`);
+                // Not a button, so the arrow-key walk (which indexes buttons)
+                // steps straight over it.
+                const startsGroup = index > 0 && SETTINGS_CATEGORIES[index - 1].group !== group;
+                const rule = startsGroup && (
+                    <div
+                        role="separator"
+                        aria-hidden="true"
+                        className={`my-1.5 h-px bg-gray-900/[0.08] dark:bg-white/[0.08] ${collapsed ? 'mx-1.5' : 'mx-3'}`}
+                    />
+                );
 
                 const button = (
                     <button
@@ -112,9 +154,14 @@ function SettingsNav({ active, onChange, collapsed = false }) {
 
                 // To the side rather than below: a rail is a column of ten of
                 // these, and a bubble under one covers the next.
-                return collapsed
-                    ? <Tooltip key={id} label={label} placement="right">{button}</Tooltip>
-                    : button;
+                return (
+                    <Fragment key={id}>
+                        {rule}
+                        {collapsed
+                            ? <Tooltip label={label} placement="right">{button}</Tooltip>
+                            : button}
+                    </Fragment>
+                );
             })}
         </nav>
     );

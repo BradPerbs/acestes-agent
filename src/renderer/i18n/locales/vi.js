@@ -272,6 +272,9 @@ export default {
     'settings.nav.appearance': 'Giao diện',
     'settings.nav.servers': 'SSH & Máy chủ',
     'settings.nav.assistant': 'Trợ lý AI',
+    'settings.nav.permissions': 'Quyền hạn',
+    'settings.nav.agentic': 'Tác vụ tự động',
+    'settings.nav.chat': 'Trò chuyện',
     'settings.nav.security': 'Bảo mật',
     'settings.nav.backup': 'Sao lưu',
     'settings.nav.about': 'Giới thiệu',
@@ -535,7 +538,31 @@ export default {
         + 'Đặt cao hơn thì nó có nhiều ngữ cảnh hơn, và cũng tốn nhiều hạn mức của cuộc trò chuyện hơn.',
     'settings.assistant.tools': 'Nó làm được những gì',
     'settings.assistant.toolsDesc': '{count} công cụ, trong đó {readOnly} công cụ chỉ đọc. Số còn '
-        + 'lại chịu ràng buộc của thiết lập phê duyệt ở trên.',
+        + 'lại chịu ràng buộc của thiết lập phê duyệt trong mục Quyền hạn.',
+    'settings.permissions.title': 'Quyền hạn',
+    'settings.permissions.desc': 'Những gì {name} được làm mà không cần hỏi: hành động nào chờ bạn '
+        + 'phê duyệt, lệnh nào bị từ chối hẳn, nó được chạm vào gì trên máy này, và các hook chạy '
+        + 'quanh công việc của nó.',
+    'settings.agentic.title': 'Tác vụ tự động',
+    'settings.agentic.desc': 'Những gì {name} có thể với tới và điều khiển: lệnh trên máy chủ của bạn, '
+        + 'tệp và shell trên máy này, các ứng dụng trên màn hình và một trình duyệt.',
+    'settings.agentic.alwaysOn': 'Luôn bật',
+    'settings.agentic.servers': 'Máy chủ của bạn',
+    'settings.agentic.serversDesc': 'Làm việc qua các phiên SSH bạn mở. Nó không bao giờ thấy mật khẩu hay khoá đã lưu.',
+    'settings.agentic.local': 'Tệp và lệnh trên máy này',
+    'settings.agentic.localDesc': 'Đọc, ghi tệp và chạy lệnh ngay trên máy này, không chỉ trên máy chủ. Việc phê duyệt vẫn áp dụng.',
+    'settings.agentic.desktop': 'Ứng dụng trên màn hình',
+    'settings.agentic.desktopDesc': 'Dùng các ứng dụng trên màn hình bằng chuột và bàn phím thật, ngay trước mắt bạn. Còn gọi là điều khiển máy tính.',
+    'settings.agentic.browser': 'Trình duyệt web',
+    'settings.agentic.browserDesc': 'Mở trang trong một trình duyệt thật, nhấp, gõ, điền biểu mẫu và đọc. Còn gọi là điều khiển trình duyệt.',
+    'settings.agentic.browserWindow': 'Hiện cửa sổ trình duyệt',
+    'settings.agentic.browserWindowDesc': 'Xem nó làm việc và can thiệp khi cần đăng nhập hoặc captcha. Tắt thì chạy ẩn.',
+    'settings.agentic.stepsDesc': 'Số lần gọi công cụ một câu hỏi được dùng trước khi tác tử dừng lại và báo cáo. Kéo hết cỡ để không giới hạn.',
+    'settings.agentic.stepsUnlimited': 'Không giới hạn: một lượt chạy đến khi xong việc hoặc bạn dừng nó. Hợp với việc dài không cần trông.',
+    'settings.agentic.noLimit': 'Không giới hạn',
+    'settings.chat.title': 'Trò chuyện & Giọng nói',
+    'settings.chat.desc': 'Cuộc trò chuyện với {name}: các câu hỏi mà một cuộc trò chuyện trống gợi '
+        + 'ý, nói thay vì gõ, và việc nó có ghi lại điều đã học hay không.',
 
     /* ---- Settings: Monitoring ---- */
     'settings.monitoring.title': 'Theo dõi',

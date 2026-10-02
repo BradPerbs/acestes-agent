@@ -53,6 +53,22 @@ export const DEFAULT_APP_COLORS = {
 };
 
 /**
+ * True black with no tint at all, for OLED screens and dark rooms. Steps are
+ * closer than the default ramp's because the eye splits greys this dark finely.
+ */
+const BLACK_APP_COLORS = { base: '#000000', raised: '#0a0a0a', control: '#141414', hover: '#1f1f1f', active: '#2a2a2a', muted: '#6e6e6e' };
+
+/**
+ * What the app comes up in before anyone has chosen: the Custom theme wearing
+ * the Black palette. Only a fallback for an empty store; a theme someone has
+ * picked is kept. public/boot.js cannot import this and repeats both (the
+ * theme, and black as the window colour), as does the frame's backgroundColor
+ * in main; keep them in step.
+ */
+export const INITIAL_THEME = 'custom';
+export const INITIAL_APP_COLORS = BLACK_APP_COLORS;
+
+/**
  * Palettes to start from. Each is the same six-step ramp as the default, so
  * picking one is a complete theme rather than a hue the rest has to be matched
  * to by hand.
@@ -69,13 +85,7 @@ export const APP_COLOR_PRESETS = [
         label: 'Graphite',
         colors: { base: '#0d0d0f', raised: '#16161a', control: '#212127', hover: '#2b2b33', active: '#383840', muted: '#6b6b78' },
     },
-    // True black with no tint at all, for OLED screens and dark rooms. Steps are
-    // closer than the default ramp's because the eye splits greys this dark finely.
-    {
-        id: 'black',
-        label: 'Black',
-        colors: { base: '#000000', raised: '#0a0a0a', control: '#141414', hover: '#1f1f1f', active: '#2a2a2a', muted: '#6e6e6e' },
-    },
+    { id: 'black', label: 'Black', colors: BLACK_APP_COLORS },
     {
         id: 'nord',
         label: 'Nord',
@@ -297,6 +307,14 @@ export function sanitizeAppColors(colors) {
         result[field.key] = normalizeHex(source[field.key], DEFAULT_APP_COLORS[field.key]);
         return result;
     }, {});
+}
+
+/**
+ * The palette in a store, as the raw string kept under `appColors`: the
+ * starting one when nothing has been saved. Throws on a string that is not JSON.
+ */
+export function readAppColors(saved) {
+    return saved ? sanitizeAppColors(JSON.parse(saved)) : { ...INITIAL_APP_COLORS };
 }
 
 /** The preset these colours are, if they are still exactly one of them. */

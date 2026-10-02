@@ -31,6 +31,7 @@ const aiWindows = require('./ai/windows');
 const computer = require('./ai/computer');
 const overlay = require('./ai/overlay');
 const speech = require('./ai/speech');
+const browserUse = require('./ai/browser-use');
 const updates = require('./updates');
 const startup = require('./startup');
 const resources = require('./resources');
@@ -39,6 +40,7 @@ const memory = require('./ai/memory');
 const assistantSettings = require('./ai/settings');
 const accountActions = require('./ai/account-actions');
 const aiSecrets = require('./ai/secrets');
+const aiFiles = require('./ai/files');
 const conversationArchive = require('./ai/archive');
 const container = require('./ai/container');
 const headless = require('./ai/headless');
@@ -1632,6 +1634,19 @@ function register(getWindow) {
                 to: next.computerUse ? 'on' : 'off',
             });
         }
+        if (Boolean(before.browserUse) !== Boolean(next.browserUse)) {
+            changes.push({
+                field: 'browser use',
+                from: before.browserUse ? 'on' : 'off',
+                to: next.browserUse ? 'on' : 'off',
+            });
+        }
+        // Not a widening, but the one setting here that deletes things, so
+        // the record of who chose it sits beside what it deleted.
+        if ((before.historyDays || 0) !== (next.historyDays || 0)) {
+            const days = value => (value > 0 ? `${value} days` : 'forever');
+            changes.push({ field: 'conversation history', from: days(before.historyDays || 0), to: days(next.historyDays || 0) });
+        }
         if (changes.length > 0) {
             activity.record({
                 category: 'security',
@@ -1640,7 +1655,9 @@ function register(getWindow) {
                 target: 'Assistant',
                 detail: `Approvals: ${next.approval}`
                     + `${next.allowLocalTools ? ', local tools allowed' : ''}`
-                    + `${next.computerUse ? ', computer use on' : ''}`,
+                    + `${next.computerUse ? ', computer use on' : ''}`
+                    + `${next.browserUse ? ', browser use on' : ''}`
+                    + `${next.historyDays > 0 ? `, conversations kept ${next.historyDays} days` : ''}`,
                 changes,
             });
         }
@@ -1778,6 +1795,81 @@ function register(getWindow) {
     handle('secrets-remove', (event, { name, agentId, shared } = {}) =>
         aiSecrets.remove(String(name || ''), shared ? '' : secretOwner(agentId)));
 
+    /* ---------------- Files ---------------- */
+
+    // The agent's files, as the Files page shows them: the agent's own and
+    // the shared ones. The user may change either; see ai/files.js. Paths
+    // to add come from the user's own dialog or drop, never from a page that
+    // names one on its own, and the bytes on disk are opened or copied out
+    // here rather than handed across.
+    const fileOwner = secretOwner;
+    const filesChanged = (agentId) => notify('inventory-changed', { kind: 'files', agentId: fileOwner(agentId) });
+    const addPaths = async (agentId, paths) => {
+        const owner = fileOwner(agentId);
+        const result = { added: [], errors: [] };
+        for (const filePath of paths) {
+            const kept = await aiFiles.add({ fromPath: filePath, source: filePath }, owner);
+            if (kept.error) result.errors.push({ path: filePath, message: kept.error });
+            else result.added.push(kept.file);
+        }
+        if (result.added.length) filesChanged(owner);
+        return result;
+    };
+    handle('files-list', (event, agentId) => aiFiles.list(fileOwner(agentId)));
+    handle('files-add', async (event, agentId) => {
+        const { canceled, filePaths } = await dialog.showOpenDialog(getWindow(), {
+            title: 'Add files',
+            properties: ['openFile', 'multiSelections'],
+        });
+        if (canceled || !filePaths?.length) return { canceled: true, added: [], errors: [] };
+        return addPaths(agentId, filePaths);
+    });
+    // Dropped on the page: the paths preload resolved from the File objects.
+    handle('files-add-paths', async (event, { agentId, paths } = {}) => (
+        addPaths(agentId, (Array.isArray(paths) ? paths : []).map(String).filter(Boolean).slice(0, 100))
+    ));
+    handle('files-update', async (event, { agentId, id, patch } = {}) => {
+        const result = await aiFiles.update(String(id || ''), fileOwner(agentId), patch || {}, { asUser: true });
+        if (!result.error) filesChanged(agentId);
+        return result;
+    });
+    handle('files-remove', async (event, { agentId, id } = {}) => {
+        const result = await aiFiles.remove(String(id || ''), fileOwner(agentId), { asUser: true });
+        if (!result.error) filesChanged(agentId);
+        return result;
+    });
+    // Opened with whatever the OS opens that kind of file with. On the
+    // stored copy itself, so an edit made there is the file's new contents.
+    handle('files-open', async (event, { agentId, id } = {}) => {
+        const where = aiFiles.pathOf(String(id || ''), fileOwner(agentId));
+        if (!where) return { success: false, message: 'That file is not in this inventory.' };
+        const problem = await shell.openPath(where);
+        return problem ? { success: false, message: problem } : { success: true };
+    });
+    handle('files-reveal', (event, { agentId, id } = {}) => {
+        const where = aiFiles.pathOf(String(id || ''), fileOwner(agentId));
+        if (!where) return { success: false, message: 'That file is not in this inventory.' };
+        shell.showItemInFolder(where);
+        return { success: true };
+    });
+    handle('files-export', async (event, { agentId, id } = {}) => {
+        const owner = fileOwner(agentId);
+        const file = aiFiles.get(String(id || ''), owner);
+        const where = aiFiles.pathOf(String(id || ''), owner);
+        if (!file || !where) return { success: false, message: 'That file is not in this inventory.' };
+        const { canceled, filePath } = await dialog.showSaveDialog(getWindow(), {
+            title: 'Save a copy',
+            defaultPath: path.join(app.getPath('downloads'), file.name),
+        });
+        if (canceled || !filePath) return { success: false, canceled: true };
+        try {
+            await fs.promises.copyFile(where, filePath);
+        } catch (error) {
+            return { success: false, message: `Could not write the file: ${error.message}` };
+        }
+        return { success: true, path: filePath };
+    });
+
     handle('agents-list', () => agents.snapshot());
     handle('agents-select', (event, id) => {
         const result = agents.select(String(id || ''));
@@ -1821,6 +1913,7 @@ function register(getWindow) {
             // chat left shows them. Anything running in one (a dev server) is
             // ended along with the shell.
             localTerminal.destroyGroup(localTerminal.groupForAgent(gone));
+            aiFiles.moveAll(gone, result.activeId);
             notify('ai-settings', assistant.settings.get());
             // Its container and workspace go with it. Best effort: Docker may
             // not be running, and an orphan container is a `docker rm` away.
@@ -1962,6 +2055,13 @@ function register(getWindow) {
             return { ok: false, error: error.message };
         }
     });
+
+    // Browser use: whether this computer has what the Playwright server
+    // needs, and installing Node.js when it does not. The install is the
+    // user's to start, from the button in Settings that says so.
+    browserUse.setNotifier(state => broadcast('ai-browser', state));
+    handle('ai-browser-status', () => browserUse.status());
+    handle('ai-browser-install-node', () => browserUse.installNode());
 
     // Live dictation (Parakeet): audio streamed in while the user talks, the
     // words so far sent back to the window that is listening, the rest handed

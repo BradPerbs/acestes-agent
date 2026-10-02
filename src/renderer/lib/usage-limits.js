@@ -78,6 +78,19 @@ export function headlineWindows(windows) {
     return [short, week].filter(Boolean);
 }
 
+/**
+ * What the status bar itself shows: the five-hour window alone. The week
+ * stays in the panel, and joins the bar only once it is close or spent,
+ * since that is the one that stops you for days rather than hours. A plan
+ * with no five-hour window shows its week so it does not vanish from the bar.
+ */
+export function barWindows(windows) {
+    const headline = headlineWindows(windows);
+    const short = headline.find(window => baseOf(window) === 'five_hour');
+    if (!short) return headline.slice(0, 1);
+    return headline.filter(window => window === short || toneOf(window) !== 'ok');
+}
+
 /** How loud a window is: over, close, or fine. */
 export function toneOf(window) {
     if (!window) return 'ok';
@@ -111,6 +124,77 @@ export function chosenAccount(overview, settings, provider) {
     if (!Array.isArray(list)) return null;
     const wanted = settings?.accounts?.[provider];
     return list.find(account => account.id === wanted) || list.find(account => account.builtIn) || list[0] || null;
+}
+
+/**
+ * The accounts ticked for one runtime, in the order they are listed: the one
+ * in use (`accounts`, which a conversation that has not picked runs on) and
+ * the others ticked beside it (`menuAccounts`). Never empty where the
+ * runtime has accounts at all.
+ */
+export function tickedAccounts(overview, settings, provider) {
+    const list = overview?.accounts?.[provider];
+    if (!Array.isArray(list)) return [];
+    const inUse = chosenAccount(overview, settings, provider);
+    const others = new Set(settings?.menuAccounts?.[provider] || []);
+    return list.filter(account => account.id === inUse?.id || others.has(account.id));
+}
+
+/**
+ * The settings patch one click on an account's box makes, or null when it
+ * would change nothing. Ticking adds it beside the others. Clearing one that
+ * is not the one in use takes it away; clearing the one in use hands that to
+ * the next ticked account. The last ticked account stays: an agent with no
+ * account has nothing to run on.
+ */
+export function toggleAccountPatch(overview, settings, provider, id) {
+    const ticked = tickedAccounts(overview, settings, provider).map(account => account.id);
+    const inUse = chosenAccount(overview, settings, provider)?.id || 'default';
+    const others = ticked.filter(other => other !== inUse);
+    if (!ticked.includes(id)) return { menuAccounts: { [provider]: [...others, id] } };
+    if (ticked.length === 1) return null;
+    if (id !== inUse) return { menuAccounts: { [provider]: others.filter(other => other !== id) } };
+    const [next, ...rest] = others;
+    return { accounts: { [provider]: next }, menuAccounts: { [provider]: rest } };
+}
+
+/**
+ * The accounts whose models the composer's menu lists separately for one
+ * runtime: the ticked ones, when there are two or more. Fewer is the menu as
+ * it always was, one row per model.
+ */
+export function offeredAccounts(overview, settings, provider) {
+    const ticked = tickedAccounts(overview, settings, provider);
+    return ticked.length > 1 ? ticked : [];
+}
+
+/**
+ * The account a conversation's runtime answers on: the one it is pinned to,
+ * while that is still ticked, and the agent's choice otherwise. Mirrors
+ * `resolvedFor` in the main process.
+ */
+export function answeringAccount(overview, settings, provider) {
+    const pinned = settings?.provider === provider && settings?.account
+        && tickedAccounts(overview, settings, provider).find(account => account.id === settings.account);
+    return pinned || chosenAccount(overview, settings, provider);
+}
+
+/**
+ * What to call an account in a menu: `{ full, short }`. The address it signs
+ * in as when it has been read, the name it was given otherwise, and for the
+ * machine's own login with nothing read, that it is this computer's.
+ */
+export function accountName(account, entry, t) {
+    const email = entry?.identity?.email || '';
+    if (account?.builtIn) {
+        const machine = t('statusBar.machine');
+        return { full: email || t('settings.accounts.machineLogin'), short: email ? email.split('@')[0] : machine };
+    }
+    const label = account?.label || '';
+    return {
+        full: email && label && label !== email ? `${label} · ${email}` : (email || label),
+        short: label || (email ? email.split('@')[0] : ''),
+    };
 }
 
 /** When one account's figures were last read, from a check or a turn. */

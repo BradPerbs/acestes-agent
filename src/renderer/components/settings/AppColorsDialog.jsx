@@ -5,10 +5,11 @@ import Select from '../ui/Select';
 import {
     APP_COLOR_FIELDS,
     APP_COLOR_PRESETS,
-    DEFAULT_APP_COLORS,
+    INITIAL_APP_COLORS,
     derivePalette,
     sanitizeAppColors,
 } from '../../lib/app-colors';
+import { HEADING } from '../../lib/text-styles';
 import { useT } from '../../i18n';
 
 /**
@@ -106,7 +107,7 @@ export default function AppColorsDialog({ colors, onSave, onClose }) {
             onClose={onClose}
             footer={
                 <>
-                    <DialogButton onClick={() => { setPreset(''); setDraft({ ...DEFAULT_APP_COLORS }); }}>
+                    <DialogButton onClick={() => { setPreset(''); setDraft({ ...INITIAL_APP_COLORS }); }}>
                         {t('common.reset')}
                     </DialogButton>
                     <DialogButton onClick={onClose}>{t('common.cancel')}</DialogButton>
@@ -153,7 +154,7 @@ export default function AppColorsDialog({ colors, onSave, onClose }) {
                 </div>
 
                 <div className="pb-2">
-                    <h4 className="text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-3">
+                    <h4 className={`${HEADING} mb-3`}>
                         {t('appColors.surfaces')}
                     </h4>
                     <div className="grid grid-cols-2 gap-x-4 gap-y-3">

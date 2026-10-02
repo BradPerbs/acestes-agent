@@ -3,6 +3,7 @@ import { Search01Icon, SortingAZ01Icon, Tick02Icon } from 'hugeicons-react';
 import MenuButton from '../ui/MenuButton';
 import Tag from '../ui/Tag';
 import { SORT_LABELS, SORT_MANUAL, SORT_NAME, SORT_NAME_DESC, SORT_RECENT } from '../../lib/organize';
+import { HEADING } from '../../lib/text-styles';
 import { useT } from '../../i18n';
 
 const SORT_ORDER = [SORT_NAME, SORT_NAME_DESC, SORT_RECENT, SORT_MANUAL];
@@ -160,9 +161,10 @@ function TagSection({ tags, selected, mode, onToggle, onModeChange, onClear }) {
                         <button
                             type="button"
                             onClick={onClear}
-                            className="px-1 text-[10px] font-bold uppercase tracking-wider
-                                text-gray-400 dark:text-neutral-500
-                                hover:text-gray-900 dark:hover:text-white transition-colors"
+                            // Said in the heading's own voice, since it sits in
+                            // the heading's row.
+                            className={`px-1 ${HEADING}
+                                hover:text-gray-900 dark:hover:text-white transition-colors`}
                         >
                             {t('common.clear')}
                         </button>
@@ -230,7 +232,7 @@ function TagSection({ tags, selected, mode, onToggle, onModeChange, onClear }) {
 function SectionLabel({ children, aside }) {
     return (
         <div className="flex items-center justify-between gap-2 pl-2.5 pr-1 pt-1.5 pb-1 min-h-[24px]">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-neutral-500">
+            <span className={HEADING}>
                 {children}
             </span>
             {aside}

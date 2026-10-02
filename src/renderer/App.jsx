@@ -4,6 +4,7 @@ import { toastStyle as getToastStyle } from './lib/toast';
 import TitleBar from './components/TitleBar';
 import Sidebar from './components/Sidebar';
 import HomeView from './components/HomeView';
+import { categoryForFocus, SETTINGS_JUMP } from './components/settings/SettingsNav';
 import TerminalView from './components/TerminalView';
 import HostModal from './components/HostModal';
 import NewTabView from './components/NewTabView';
@@ -20,7 +21,8 @@ import { useAgents } from './hooks/useAgents';
 import { useConversationList } from './hooks/useConversationList';
 import AgentDialog from './components/AgentDialog';
 import { INVENTORY_PAGES } from './components/InventoryTabs';
-import { nextAgentLook } from './lib/agent-look';
+import { agentLook, nextAgentLook } from './lib/agent-look';
+import { agentGlow } from './lib/agent-colors';
 import { useTheme } from './hooks/useTheme';
 import { useSessions } from './hooks/useSessions';
 import { useTerminalTheme } from './hooks/useTerminalTheme';
@@ -112,6 +114,9 @@ const readSavedGroups = () => {
  * would send the next thing typed to all nine.
  */
 const BROADCAST_SCOPES = ['off', 'tab', 'window'];
+
+/** No agents to offer, as one array, so the memoised title bar is not redrawn for a fresh one. */
+const NO_AGENTS = [];
 
 /**
  * A terminal tab, holding one pane to begin with.
@@ -1292,16 +1297,21 @@ function App() {
      * Jump from the panel to its settings.
      *
      * The category is written before navigating because that is where the
-     * settings shell reads it from, so this lands on the Assistant page rather
-     * than on whichever one was open last.
+     * settings shell reads it from, so this lands on the agent's page that
+     * holds the card asked for (quick prompts are on Chat & Voice, accounts
+     * on AI Agent) rather than on whichever one was open last. The event is
+     * for a settings panel that is already mounted behind a conversation tab
+     * and would not read the category again on its own.
      */
     const handleOpenAssistantSettings = useCallback((focus = '') => {
-        window.localStorage.setItem('settings.category', 'assistant');
+        const wanted = typeof focus === 'string' ? focus : '';
+        window.localStorage.setItem('settings.category', categoryForFocus(wanted));
         // Which card the page should scroll to and light up, when the jump
         // was about one thing: "create quick prompts" from an empty chat
         // lands on the quick prompts box, not at the top of a long page.
         // Session storage, because it is a one-shot for this window.
-        if (typeof focus === 'string' && focus) window.sessionStorage.setItem('settings.focus', focus);
+        if (wanted) window.sessionStorage.setItem('settings.focus', wanted);
+        window.dispatchEvent(new Event(SETTINGS_JUMP));
         setActiveTabId('home');
         setActiveNav('settings');
         setReachedForPage(count => count + 1);
@@ -2086,17 +2096,23 @@ function App() {
             .catch(() => {});
     }, [assistantShown, assistantSessions, agentHosts, activeSessionId]);
 
+    // The selected agent's colour, washed faintly across the ground behind the
+    // sidebar (see `.app-ground` in input.css). Unset for white and black, which
+    // leaves the neutral wash the stylesheet starts from.
+    const groundGlow = agentGlow(agentLook(activeAgent).color);
+
     return (
         // `app-drag` turns the gutter around the shell into a window frame you
         // can drag; `#app-layout` below opts back out for the content.
         <div
-            className="h-full flex flex-col bg-gray-100 dark:bg-surface-base text-gray-900 dark:text-gray-100 font-inter overflow-hidden app-drag selection:bg-yellow-500/30 selection:text-yellow-600 dark:selection:text-yellow-400"
+            className="app-ground h-full flex flex-col bg-gray-100 dark:bg-surface-base text-gray-900 dark:text-gray-100 font-inter overflow-hidden app-drag selection:bg-yellow-500/30 selection:text-yellow-600 dark:selection:text-yellow-400"
             style={{
                 // A single gutter around the shell, and the same value between
                 // the title bar and the content below it. Fullscreen drops it
                 // so the terminal reaches the window edges.
                 padding: fullscreenTabId ? 0 : APP_GUTTER,
                 gap: fullscreenTabId ? 0 : APP_GUTTER,
+                ...(groundGlow && { '--ground-tint': groundGlow.from, '--ground-tint-2': groundGlow.to }),
             }}
         >
             {!fullscreenTabId && (
@@ -2126,6 +2142,9 @@ function App() {
                     onTabDetach={(tabId) => detachConversationTabs([tabId])}
                     onConversationDelete={handleDeleteConversationTab}
                     onNewConversationWith={handleNewConversationWith}
+                    // What right-clicking the plus offers. None with the
+                    // agent off, where the plus opens a session instead.
+                    agents={assistantShown ? agents : NO_AGENTS}
                     onNewTab={assistantShown ? handleNewConversation : handleNewTab}
                     newTabLabel={assistantShown ? t('titleBar.newConversation') : t('newTab.title')}
                     onNewSession={handleNewTab}
