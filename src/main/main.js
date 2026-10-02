@@ -1,3 +1,10 @@
+// First, before anything else: a Finder/Dock launch on macOS (and a
+// desktop-file launch on Linux) starts with a minimal PATH that knows no
+// `node`, so script CLIs like `pi` die at spawn and their model lists come
+// back empty, while `npm run dev` inherits the terminal's PATH and works.
+// See shell-path.js.
+require('./shell-path').ensureShellPath();
+
 const { app, BrowserWindow, screen, shell } = require('electron');
 const { windowIcon } = require('./app-icon');
 const fs = require('fs');
