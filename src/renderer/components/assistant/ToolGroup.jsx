@@ -8,6 +8,7 @@ import {
     Search01Icon,
 } from 'hugeicons-react';
 import Markdown from '../../lib/markdown';
+import { toolBucket } from '../../lib/tool-bucket';
 import ToolCall, { DOTS, callStatus } from './ToolCall';
 import { useT } from '../../i18n';
 
@@ -29,25 +30,6 @@ import { useT } from '../../i18n';
  * object for as long as its members are, which lets the segment it sits in
  * tell nothing has changed.
  */
-
-/** Which summary bucket a tool belongs in, by name. Lower-cased. */
-export function toolBucket(name = '') {
-    const lower = String(name || '').toLowerCase();
-    if (!lower) return 'other';
-    // Edits first: an "edit" that also mentions a file is still an edit.
-    if (lower.includes('edit') || lower.includes('write') || lower.includes('apply_patch')
-        || lower.includes('replace') || lower.startsWith('save_') || lower.startsWith('delete_')
-        || lower === 'create' || lower === 'todowrite' || lower === 'todo') return 'edits';
-    if (lower.includes('search') || lower === 'grep' || lower === 'glob' || lower === 'find'
-        || lower === 'recall' || lower === 'lookup' || lower.startsWith('search_')) return 'searches';
-    if (lower.includes('run') || lower.includes('exec') || lower.includes('bash')
-        || lower.includes('command') || lower.includes('shell') || lower.includes('terminal')
-        || lower === 'send_input' || lower === 'type_text' || lower === 'press_keys') return 'commands';
-    if (lower.includes('read') || lower.includes('list') || lower.includes('view')
-        || lower.includes('cat') || lower === 'ls'
-        || lower.startsWith('list_') || lower.startsWith('read_')) return 'views';
-    return 'other';
-}
 
 const isThoughtItem = item => item.kind === 'assistant';
 
@@ -86,7 +68,7 @@ function previewOf(item) {
  * Collapsed to one line with a brain, like a tool call. Opens into the full
  * text, with the extended thinking above it where there is any.
  */
-export function Thought({ item }) {
+export function Thought({ item, bare = false }) {
     const t = useT();
     const [open, setOpen] = useState(false);
     const preview = previewOf(item);
@@ -99,10 +81,11 @@ export function Thought({ item }) {
                 type="button"
                 onClick={() => setOpen(value => !value)}
                 aria-expanded={open}
-                className="w-full min-w-0 h-8 pl-6 pr-2.5 flex items-center gap-2 text-left select-none
-                    transition-colors hover:bg-gray-100 dark:hover:bg-white/[0.06]"
+                className={`w-full min-w-0 h-8 pr-2.5 flex items-center gap-2 text-left select-none
+                    transition-colors hover:bg-gray-100 dark:hover:bg-white/[0.06]
+                    ${bare ? 'pl-[10px]' : 'pl-6'}`}
             >
-                <BrainIcon size={13} strokeWidth={2} className="shrink-0 text-gray-400 dark:text-gray-500" />
+                <BrainIcon size={14} strokeWidth={2} className="shrink-0 text-gray-400 dark:text-gray-500" />
                 <span className="text-[11px] font-medium text-gray-600 dark:text-gray-400 shrink-0">
                     {t('assistant.thought')}
                 </span>
@@ -123,7 +106,7 @@ export function Thought({ item }) {
             </button>
 
             {open && (
-                <div className="pl-6 pr-2.5 pb-2.5 space-y-2">
+                <div className={`${bare ? 'pl-[10px]' : 'pl-6'} pr-2.5 pb-2.5 space-y-2`}>
                     {thinking && (
                         <div className="rounded-lg px-2.5 py-2 bg-gray-100/70 dark:bg-white/[0.04]">
                             <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase
@@ -207,19 +190,31 @@ export default function ToolGroup({ group, conversationId, onOpenConversation })
             </button>
 
             {open && (
-                <div className="border-t border-black/[0.06] dark:border-white/[0.06] py-0.5 space-y-0.5">
-                    {items.map(item => (
-                        item.kind === 'assistant'
-                            ? <Thought key={item.id} item={item} />
-                            : (
-                                <ToolCall
-                                    key={item.id}
-                                    item={item}
-                                    conversationId={conversationId}
-                                    onOpenConversation={onOpenConversation}
-                                />
-                            )
-                    ))}
+                <div className="border-t border-black/[0.06] dark:border-white/[0.06] py-1">
+                    {/* One rail for the whole burst, with an elbow per row:
+                        the burst reads as a timeline rather than a stack of
+                        boxes. The tick sits at the row's middle (h-8). */}
+                    <div className="ml-3 border-l border-black/10 dark:border-white/10 pl-1 space-y-0.5">
+                        {items.map(item => (
+                            <div
+                                key={item.id}
+                                className="relative before:absolute before:-left-[5px] before:top-4
+                                    before:w-[5px] before:border-t
+                                    before:border-black/10 dark:before:border-white/10"
+                            >
+                                {item.kind === 'assistant'
+                                    ? <Thought item={item} bare />
+                                    : (
+                                        <ToolCall
+                                            item={item}
+                                            conversationId={conversationId}
+                                            onOpenConversation={onOpenConversation}
+                                            bare
+                                        />
+                                    )}
+                            </div>
+                        ))}
+                    </div>
                 </div>
             )}
         </div>

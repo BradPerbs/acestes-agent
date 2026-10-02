@@ -1,8 +1,27 @@
 import { useMemo, useState } from 'react';
-import { ArrowDown01Icon, ArrowUpRight01Icon } from 'hugeicons-react';
+import {
+    ArrowDown01Icon,
+    ArrowUpRight01Icon,
+    CheckListIcon,
+    CommandLineIcon,
+    Edit02Icon,
+    EyeIcon,
+    File01Icon,
+    Search01Icon,
+} from 'hugeicons-react';
 import CopyButton from '../ui/CopyButton';
 import DiffView from './DiffView';
+import { chipFor, todoProgress, verbFor } from '../../lib/tool-bucket';
 import { translate, useT } from '../../i18n';
+
+/** The verb's icon, by the name tool-bucket gives it. Kept here so that file stays free of JSX. */
+const VERB_ICONS = {
+    todo: CheckListIcon,
+    read: EyeIcon,
+    edit: Edit02Icon,
+    search: Search01Icon,
+    run: CommandLineIcon,
+};
 
 /**
  * One tool call, as a row in the transcript.
@@ -160,7 +179,14 @@ const REFUSED = {
 export function describeCall(name, input = {}) {
     switch (name) {
         case 'run_command':
-            return { mono: true, text: input.command || '' };
+        case 'run_local_command':
+        case 'Bash':
+        case 'bash':
+        case 'shell':
+        case 'run_terminal_command':
+            // The verb row already says Run, so the row carries the bare
+            // command rather than a "command: …" dump.
+            return { mono: true, text: input.command || input.cmd || '' };
         case 'send_input':
             return { mono: true, text: input.text || '' };
         case 'read_file':
@@ -311,7 +337,7 @@ export function describeCall(name, input = {}) {
     }
 }
 
-export default function ToolCall({ item, conversationId = '', onOpenConversation }) {
+export default function ToolCall({ item, conversationId = '', onOpenConversation, bare = false }) {
     const t = useT();
     // An edit opens on its own: the change is the point of the row, and
     // having to click to see what was done to a file is one click too many.
@@ -333,9 +359,28 @@ export default function ToolCall({ item, conversationId = '', onOpenConversation
     }, [item, subagent, conversationId, onOpenConversation]);
     const status = callStatus(item);
     const meta = taskStatus(item.task, t);
+    // A verb row when the tool names its kind: an icon and a verb instead
+    // of the status dot and the raw tool name. Unknown tools keep the row
+    // they always had.
+    const verb = verbFor(item.name);
+    const VerbIcon = verb ? VERB_ICONS[verb.icon] : null;
+    const chip = verb ? chipFor(item.name, item.input) : null;
+    const progress = verb?.icon === 'todo' ? todoProgress(item.input) : null;
+    const detail = progress
+        ? t('assistant.todoProgress', { done: progress.done, total: progress.total })
+        : (chip ? '' : summary.text);
+    const tint = refused
+        ? 'text-gray-400 dark:text-gray-600'
+        : status === 'running'
+            ? 'text-blue-500 animate-pulse'
+            : status === 'waiting'
+                ? 'text-amber-500'
+                : status === 'error'
+                    ? 'text-red-500'
+                    : 'text-gray-400 dark:text-gray-500';
 
     return (
-        <div className="rounded-lg bg-gray-50 dark:bg-white/[0.035] overflow-hidden">
+        <div className={bare ? 'overflow-hidden' : 'rounded-lg bg-gray-50 dark:bg-white/[0.035] overflow-hidden'}>
             <div className="flex items-center">
                 {/* Not selectable, unlike the output it opens: this row is a
                     control, and dragging across a transcript should pick up what
@@ -349,27 +394,41 @@ export default function ToolCall({ item, conversationId = '', onOpenConversation
                         hover:bg-gray-100 dark:hover:bg-white/[0.06] disabled:hover:bg-transparent
                         disabled:cursor-default"
                 >
-                    <span
-                        aria-hidden="true"
-                        className={`w-1.5 h-1.5 rounded-full shrink-0 ${refused
-                            ? 'bg-gray-400 dark:bg-gray-600'
-                            : DOTS[status] || DOTS.done}`}
-                    />
+                    {VerbIcon ? (
+                        <VerbIcon size={14} strokeWidth={2} className={`shrink-0 ${tint}`} aria-hidden="true" />
+                    ) : (
+                        <span
+                            aria-hidden="true"
+                            className={`w-1.5 h-1.5 rounded-full shrink-0 ${refused
+                                ? 'bg-gray-400 dark:bg-gray-600'
+                                : DOTS[status] || DOTS.done}`}
+                        />
+                    )}
 
                     <span className="text-[11px] font-medium text-gray-600 dark:text-gray-400 shrink-0">
-                        {title}
+                        {verb ? (refused ? t(refused) : t(verb.key)) : title}
                     </span>
 
-                    {summary.text && (
+                    {chip ? (
+                        <span
+                            className="min-w-0 max-w-[60%] flex items-center gap-1.5 truncate rounded-md
+                                bg-black/[0.05] dark:bg-white/[0.07] px-1.5 py-0.5
+                                text-[11px] text-gray-600 dark:text-gray-300"
+                            title={chip.full}
+                        >
+                            <File01Icon size={12} strokeWidth={2} className="shrink-0 text-gray-400 dark:text-gray-500" />
+                            <span className="truncate font-jetbrains">{chip.base}</span>
+                        </span>
+                    ) : detail ? (
                         <span
                             className={`min-w-0 flex-1 truncate text-[11px] text-gray-500 dark:text-gray-500 ${
                                 summary.mono ? 'font-jetbrains' : ''
                             }`}
                             title={summary.text}
                         >
-                            {summary.text}
+                            {detail}
                         </span>
-                    )}
+                    ) : null}
 
                     {meta && (
                         <span
