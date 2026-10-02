@@ -82,6 +82,10 @@ function MenuBody({ rows, model, settings, providers, catalogs, loading, onRefre
     const [query, setQuery] = useState('');
     const [active, setActive] = useState(-1);
     const listRef = useRef(null);
+    // The highlighted row is only scrolled into view after keyboard moves.
+    // Scrolling after a hover would move the list under a still pointer,
+    // which fires a new hover on the row that slid underneath and shakes.
+    const followKeyboard = useRef(false);
 
     const words = query.toLowerCase().split(/\s+/).filter(Boolean);
     const groups = useMemo(() => {
@@ -100,13 +104,17 @@ function MenuBody({ rows, model, settings, providers, catalogs, loading, onRefre
     // Land on the model in use when the menu opens, and on the first match
     // once something is typed.
     useEffect(() => {
+        followKeyboard.current = true;
         if (words.length > 0) setActive(flat.length > 0 ? 0 : -1);
         else setActive(Math.max(-1, flat.findIndex(row => row.key === model?.key)));
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [query]);
 
-    // The highlighted row stays in view as the arrows move it.
+    // The highlighted row stays in view as the arrows move it. Hover never
+    // scrolls: the list moving under a still pointer is what shakes.
     useEffect(() => {
+        if (!followKeyboard.current) return;
+        followKeyboard.current = false;
         const node = listRef.current?.querySelector(`[data-index="${active}"]`);
         node?.scrollIntoView({ block: 'nearest' });
     }, [active]);
@@ -115,6 +123,7 @@ function MenuBody({ rows, model, settings, providers, catalogs, loading, onRefre
         if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
             event.preventDefault();
             if (flat.length === 0) return;
+            followKeyboard.current = true;
             const step = event.key === 'ArrowDown' ? 1 : -1;
             setActive(current => (current < 0 ? 0 : (current + step + flat.length) % flat.length));
         } else if (event.key === 'Enter') {
@@ -204,7 +213,7 @@ function MenuBody({ rows, model, settings, providers, catalogs, loading, onRefre
                                     role="option"
                                     aria-selected={selected}
                                     data-index={position}
-                                    onMouseMove={() => { if (active !== position) setActive(position); }}
+                                    onMouseEnter={() => { if (active !== position) { followKeyboard.current = false; setActive(position); } }}
                                     onClick={() => onPick(row)}
                                     className={`w-full h-8 px-2.5 flex items-center gap-2 rounded-lg text-left transition-colors
                                         ${highlighted ? 'bg-gray-100 dark:bg-white/[0.06]' : ''}`}
@@ -231,7 +240,7 @@ function MenuBody({ rows, model, settings, providers, catalogs, loading, onRefre
                             );
                         })}
 
-                        {group.pending && group.rows.length === 0 && <Pending loading={loading} onRefresh={onRefresh} />}
+                        {group.pending && group.rows.length === 0 && <Pending loading={loading} onRefresh={() => onRefresh([group.provider])} />}
                     </div>
                 ))}
             </div>
@@ -239,11 +248,12 @@ function MenuBody({ rows, model, settings, providers, catalogs, loading, onRefre
             {/* The highlighted model in a sentence, and the dial, both fixed
                 below the list so neither has to be scrolled to. */}
             <div className="shrink-0 border-t border-gray-100 dark:border-white/[0.06] bg-gray-50/70 dark:bg-black/10">
-                {described?.hint && (
-                    <p className="px-3.5 pt-2.5 text-[11px] leading-snug text-gray-500 dark:text-neutral-400 line-clamp-2">
-                        {described.hint}
-                    </p>
-                )}
+                {/* Always the same height: the hint changes with the hovered
+                    row, and a footer that grows and shrinks moves the list
+                    under a still pointer, which shakes. */}
+                <p className="px-3.5 pt-2.5 text-[11px] leading-snug text-gray-500 dark:text-neutral-400 line-clamp-2 min-h-[2.75rem]">
+                    {described?.hint || '\u00a0'}
+                </p>
                 {stops.length > 1 ? (
                     <div className="pt-2">
                         <div className="px-3.5 pb-1.5 flex items-baseline justify-between text-[11px]">
@@ -269,6 +279,20 @@ export default function ModelMenu({ settings, catalogs, providers, loading, onRe
     const [open, setOpen] = useState(false);
     const wrapperRef = useRef(null);
     const menuRef = useRef(null);
+    // Whether the open menu has already had its one retry for the agents
+    // with nothing to show. A runtime that was still coming up when first
+    // asked heals here without hunting for the retry button; main answers
+    // a recent miss without starting anything, so reopening stays cheap.
+    const retried = useRef(false);
+    useEffect(() => {
+        if (!open) { retried.current = false; return; }
+        if (retried.current || loading) return;
+        const on = providers?.length ? providers : [settings.provider];
+        const missing = on.filter(provider => !isDiscovered(catalogs?.[provider]));
+        if (missing.length === 0) return;
+        retried.current = true;
+        onRefresh(missing);
+    }, [open, loading, catalogs, providers, settings.provider, onRefresh]);
 
     useEnterOn(menuRef, open && 'dialog');
 

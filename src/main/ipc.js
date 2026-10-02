@@ -1817,6 +1817,10 @@ function register(getWindow) {
         if (!result.error) {
             assistant.reassign(gone, result.activeId);
             memory.moveAll(gone, result.activeId);
+            // Its terminals go with it: they belonged to the project, and no
+            // chat left shows them. Anything running in one (a dev server) is
+            // ended along with the shell.
+            localTerminal.destroyGroup(localTerminal.groupForAgent(gone));
             notify('ai-settings', assistant.settings.get());
             // Its container and workspace go with it. Best effort: Docker may
             // not be running, and an orphan container is a `docker rm` away.

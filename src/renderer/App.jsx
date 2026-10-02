@@ -12,7 +12,6 @@ import SessionScreen from './components/ui/SessionScreen';
 import SplitLayout from './components/panes/SplitLayout';
 import PanePicker from './components/panes/PanePicker';
 import ConversationView from './components/assistant/ConversationView';
-import { localTerminalGroup } from './hooks/useLocalTerminals';
 import ConversationSplitView from './components/assistant/ConversationSplitView';
 import ConfirmDialog from './components/ui/ConfirmDialog';
 import useConversationTabs, { readStoredConversationTabs } from './hooks/useConversationTabs';
@@ -249,17 +248,10 @@ function App() {
     const tabsRef = useRef(tabs);
     tabsRef.current = tabs;
 
-    // A conversation's terminal outlives its panel being remounted, so it has
-    // to be ended when the conversation itself goes, whichever way it went:
-    // closed, detached to another window, or dropped with its agent.
-    const conversationTabIds = useRef(new Set());
-    useEffect(() => {
-        const now = new Set(tabs.filter(tab => tab.type === 'conversation').map(tab => tab.id));
-        for (const id of conversationTabIds.current) {
-            if (!now.has(id)) window.api.ssh.closeLocalGroup?.(localTerminalGroup(id));
-        }
-        conversationTabIds.current = now;
-    }, [tabs]);
+    // Terminals belong to a project, not to the chat they were opened from,
+    // so closing a chat ends none of them: every other chat of the project
+    // keeps showing the same tabs. They end with their tab, with their
+    // project (see agents-remove in main), or with the shell itself.
 
     // For the status bar's right end. Home is always there, so it is not one
     // of the tabs someone opened; a split terminal tab is one tab and as many

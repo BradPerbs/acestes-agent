@@ -457,14 +457,22 @@ async function start({
 
 /** What this Pi can run, from an RPC session with no session file. */
 async function listModels({ settings = {} } = {}) {
-    if (!commandFor([])) return null;
+    if (!commandFor([])) {
+        console.error('Could not read the model list from Pi: the pi binary was not found on PATH.');
+        return null;
+    }
     let proc;
-    try { proc = launch({ ...settings, model: '', effort: '' }); } catch { return null; }
+    try { proc = launch({ ...settings, model: '', effort: '' }); } catch (error) {
+        console.error('Could not read the model list from Pi:', error.message);
+        return null;
+    }
     const rpc = connect(proc.child);
     try {
         const rows = describeModels(await rpc.send('get_available_models', {}, { timeout: START_TIMEOUT }));
+        if (!rows.length) console.error('Pi reported no models.');
         return rows.length ? rows : null;
-    } catch {
+    } catch (error) {
+        console.error('Could not read the model list from Pi:', error.message);
         return null;
     } finally {
         acp.stopProcess(proc.child);
@@ -514,7 +522,8 @@ async function readLimits({ settings = {} } = {}) {
 }
 
 function detect() {
-    return { ok: Boolean(findPi()), reason: 'notFound' };
+    const found = findPi();
+    return { ok: Boolean(found), reason: found ? '' : 'notFound' };
 }
 
 module.exports = {

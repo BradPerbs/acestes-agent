@@ -103,7 +103,7 @@ function open(parent, conversationIds = []) {
         ...windowIcon(),
         ...position,
         ...(process.platform === 'darwin'
-            ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 19, y: 24 } }
+            ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 20, y: 14 } }
             : { frame: false }),
         backgroundColor: '#16161e',
         show: false,

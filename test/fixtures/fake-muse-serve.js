@@ -10,7 +10,7 @@
 
 let buffer = '';
 let serverId = 1;
-const state = { model: 'muse-spark-1.3', effort: 'high', servers: {}, session: '0198f0aa-1111-7000-8000-0000000000aa', pending: new Map() };
+const state = { model: 'muse-spark-1.3', effort: 'high', servers: {}, session: '0198f0aa-1111-7000-8000-0000000000aa', pending: new Map(), granted: [] };
 
 const send = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
 const notify = (method, params) => send({ jsonrpc: '2.0', method, params: { sessionId: state.session, ...params }, emittedAtMs: Date.now() });
@@ -77,16 +77,27 @@ function handle(message) {
     const { id, method, params = {} } = message;
     switch (method) {
         case 'initialize':
-            send({ jsonrpc: '2.0', id, result: { serverInfo: { name: 'muse-session-server', version: '0.0.0-fixture' }, schema: { version: 1, fingerprint: 'sha256:0' }, grantedCapabilities: [], experimentalApi: Boolean(params.capabilities?.experimentalApi) } });
+            state.granted = Array.isArray(params.capabilities?.requestedCapabilities)
+                ? params.capabilities.requestedCapabilities.filter(name => name === 'sessionMcp')
+                : [];
+            send({ jsonrpc: '2.0', id, result: { serverInfo: { name: 'muse-session-server', version: '0.0.0-fixture' }, schema: { version: 1, fingerprint: 'sha256:0' }, grantedCapabilities: state.granted, experimentalApi: Boolean(params.capabilities?.experimentalApi) } });
             return;
         case 'initialized':
             return;
         case 'session/start':
+            if (params.config?.mcpServers && Object.keys(params.config.mcpServers).length && !state.granted.includes('sessionMcp')) {
+                send({ jsonrpc: '2.0', id, error: { code: -32010, message: 'session MCP configuration requires the sessionMcp capability', data: { kind: 'capabilityRequired', capability: 'sessionMcp' } } });
+                return;
+            }
             state.servers = params.config?.mcpServers || {};
             if (params.modelId) state.model = params.modelId;
             send({ jsonrpc: '2.0', id, result: { session: session(), viewCursor: 'v:1' } });
             return;
         case 'session/resume':
+            if (params.config?.mcpServers && Object.keys(params.config.mcpServers).length && !state.granted.includes('sessionMcp')) {
+                send({ jsonrpc: '2.0', id, error: { code: -32010, message: 'session MCP configuration requires the sessionMcp capability', data: { kind: 'capabilityRequired', capability: 'sessionMcp' } } });
+                return;
+            }
             state.servers = params.config?.mcpServers || {};
             state.session = params.sessionId;
             state.resumed = true;

@@ -148,8 +148,11 @@ function step(state, event, owned) {
                 result: '',
                 isError: false,
             });
-            // Any text that streamed before the call belongs above it.
-            if (draft.text.trim()) {
+            // Anything that streamed before the call belongs above it: the
+            // narration and, where the model thought without speaking, its
+            // thinking on its own. Thinking-only used to be dropped here,
+            // which is why work between calls never showed a thought.
+            if (draft.text.trim() || draft.thinking.trim()) {
                 edit().splice(items.length - 1, 0, {
                     kind: 'assistant',
                     id: `a-${event.at}-pre`,
@@ -348,6 +351,18 @@ function step(state, event, owned) {
             return { ...state, rateLimit: event };
 
         case 'result':
+            // Thinking left over when the turn ends with no reply to carry
+            // it (no assistant-text follows) is kept as a thought of its own
+            // rather than dropped with the draft.
+            if (draft.text.trim() || draft.thinking.trim()) {
+                edit().push({
+                    kind: 'assistant',
+                    id: `a-${event.at}-end`,
+                    text: draft.text,
+                    thinking: draft.thinking,
+                });
+                draft = emptyDraft();
+            }
             busy = false;
             costUsd += event.costUsd || 0;
             if (event.isError && event.subtype !== 'success') {
@@ -365,6 +380,14 @@ function step(state, event, owned) {
         case 'error':
             busy = false;
             settleTasks(items, edit);
+            if (draft.text.trim() || draft.thinking.trim()) {
+                edit().push({
+                    kind: 'assistant',
+                    id: `a-${event.at}-end`,
+                    text: draft.text,
+                    thinking: draft.thinking,
+                });
+            }
             edit().push({ kind: 'notice', id: `e-${event.at}`, tone: 'error', text: event.message });
             draft = emptyDraft();
             break;
@@ -403,6 +426,14 @@ function step(state, event, owned) {
         case 'interrupted':
             busy = false;
             settleTasks(items, edit);
+            if (draft.text.trim() || draft.thinking.trim()) {
+                edit().push({
+                    kind: 'assistant',
+                    id: `a-${event.at}-end`,
+                    text: draft.text,
+                    thinking: draft.thinking,
+                });
+            }
             edit().push({ kind: 'notice', id: `i-${event.at}`, tone: 'info', text: 'Stopped.' });
             draft = emptyDraft();
             break;

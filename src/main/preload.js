@@ -252,7 +252,7 @@ contextBridge.exposeInMainWorld('api', {
         openLocal: ({ id, agentId, shellId, cwd, cols, rows }) =>
             ipcRenderer.invoke('local-terminal-open', { id, agentId, shellId, cwd, cols, rows }),
         closeLocal: (id) => ipcRenderer.invoke('local-terminal-close', id),
-        // Every terminal of one conversation, when the conversation goes.
+        // Every terminal of one project, when the project goes.
         closeLocalGroup: (group) => ipcRenderer.invoke('local-terminal-close-group', group),
 
         onDisconnected: (callback) => subscribe('ssh-disconnected', callback),

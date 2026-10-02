@@ -72,11 +72,10 @@ function createWindow() {
         // its own three buttons. macOS keeps its traffic lights: a frameless
         // window there loses them outright, and nothing this app could draw
         // instead would behave the way the rest of the system does. So it gets
-        // an inset title bar, positioned to sit in the middle of the app's own
-        // 40px bar (12px gutter above it, 16px of button), and TitleBar.jsx
-        // leaves a gap on the left for them.
+        // an inset title bar, positioned to sit centred in the app's own 40px
+        // bar, and TitleBar.jsx leaves a gap on the left for them.
         ...(process.platform === 'darwin'
-            ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 19, y: 24 } }
+            ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 20, y: 14 } }
             : { frame: false }),
         // What the frame shows before the renderer has painted anything. The
         // app's own window colour, so the first frame is not a different dark.

@@ -300,9 +300,11 @@ function ConversationView({
     const t = useT();
     const title = tab.customTitle || status?.title || t('assistant.newConversation');
 
-    // The terminal panel: its tabs, whether it is showing, which way it sits,
-    // how much of the view it has, and where its slide is.
-    const terminals = useLocalTerminals(tab.id);
+    // The terminal panel: the project's tabs, whether it is showing, which way
+    // it sits, how much of the view it has, and where its slide is. Scoped to
+    // the project rather than this chat, so every chat of it shares the same
+    // terminals.
+    const terminals = useLocalTerminals(agentId, tab.id);
     const dock = useDockMotion(terminals.open);
     const [shares, setShares] = useState(readShares);
     const [sideBySide, setSideBySide] = useState(true);

@@ -78,6 +78,9 @@ function harness(overrides = {}) {
         assert.deepStrictEqual(rows.map(row => row.value), ['muse-spark-1.3', 'muse-spark-1.3-contributor']);
         assert.strictEqual(rows[0].preferred, true);
         assert.strictEqual(rows[1].short, 'Muse Spark 1.3');
+        // Five stops through Max: `ultra` parses on MSP but resolves to the
+        // base knobs on these models, so it is not offered.
+        assert.deepStrictEqual(rows[0].effort, ['low', 'medium', 'high', 'xhigh', 'max']);
     });
 
     await test('limits and identity are read without a turn', async () => {

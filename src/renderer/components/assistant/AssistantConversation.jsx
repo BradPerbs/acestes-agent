@@ -371,6 +371,15 @@ export default function AssistantConversation({
         readModels(providers);
     }, [providers, readModels]);
 
+    // A retry aimed at the agents that came back with nothing, so opening
+    // the menu heals a cold-start miss on its own instead of respawning
+    // every runtime that already answered. Main answers a recent miss at
+    // once rather than starting its runtime again, which keeps this cheap.
+    const refreshModels = useCallback((only) => {
+        const missing = Array.isArray(only) && only.length > 0 ? only : providers;
+        readModels(missing, { refresh: true });
+    }, [providers, readModels]);
+
     // Main announces a catalog whenever one is read or the agent changes. It
     // carries the agent it belongs to, so it is filed under that agent rather
     // than replacing what is held, and nothing here has to reason about what
@@ -751,6 +760,7 @@ export default function AssistantConversation({
                     onBranch={onOpenConversation && !assistant.subagent ? branchFrom : null}
                     onOpenConversation={onOpenConversation}
                     onLayout={keepAtBottom}
+                    groupTools={settings ? settings.groupToolCalls !== false : true}
                 />
 
                 {/* The turn in progress. Replaced by a finished block the
@@ -1035,7 +1045,7 @@ export default function AssistantConversation({
                                     catalogs={catalogs}
                                     providers={providers}
                                     loading={readingModels}
-                                    onRefresh={() => readModels(providers, { refresh: true })}
+                                    onRefresh={refreshModels}
                                     onChange={changeModel}
                                 />
                             )}

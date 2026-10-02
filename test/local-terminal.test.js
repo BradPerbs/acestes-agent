@@ -234,15 +234,25 @@ async function run() {
         assert.strictEqual(local.destroy('local-t1:2'), false);
     });
 
-    await check('closing the conversation ends all of its terminals and nobody else\'s', async () => {
-        await local.open({ id: 'local-t1:3' }, { window: fakeWindow(), shells: SHELLS });
-        await local.open({ id: 'local-t2:1' }, { window: fakeWindow(), shells: SHELLS });
-        assert.strictEqual(local.destroyGroup('local-t1'), 2);
-        assert.strictEqual(local.get('local-t1:1'), undefined);
-        assert.strictEqual(local.get('local-t1:3'), undefined);
-        assert.ok(local.get('local-t2:1'), 'another conversation\'s terminal is untouched');
-        assert.strictEqual(local.destroyGroup('local-t'), 0, 'a prefix of a group is not the group');
-        local.destroy('local-t2:1');
+    await check('closing the project ends all of its terminals and nobody else\'s', async () => {
+        await local.open({ id: `${local.groupForAgent('agent-1')}:1` }, { window: fakeWindow(), shells: SHELLS });
+        await local.open({ id: `${local.groupForAgent('agent-1')}:2` }, { window: fakeWindow(), shells: SHELLS });
+        await local.open({ id: `${local.groupForAgent('agent-2')}:1` }, { window: fakeWindow(), shells: SHELLS });
+        assert.strictEqual(local.destroyGroup(local.groupForAgent('agent-1')), 2);
+        assert.strictEqual(local.get(`${local.groupForAgent('agent-1')}:1`), undefined);
+        assert.strictEqual(local.get(`${local.groupForAgent('agent-1')}:2`), undefined);
+        assert.ok(local.get(`${local.groupForAgent('agent-2')}:1`), 'another project\'s terminal is untouched');
+        assert.strictEqual(local.destroyGroup('local-agent'), 0, 'a prefix of a group is not the group');
+        assert.strictEqual(local.destroyGroup(local.groupForAgent('agent-1')), 0, 'ending it twice ends nothing');
+        local.destroy(`${local.groupForAgent('agent-2')}:1`);
+    });
+
+    await check('one project\'s group never matches another\'s longer id', async () => {
+        await local.open({ id: `${local.groupForAgent('agent-1')}:1` }, { window: fakeWindow(), shells: SHELLS });
+        await local.open({ id: `${local.groupForAgent('agent-12')}:1` }, { window: fakeWindow(), shells: SHELLS });
+        assert.strictEqual(local.destroyGroup(local.groupForAgent('agent-1')), 1);
+        assert.ok(local.get(`${local.groupForAgent('agent-12')}:1`), 'agent-12 survives agent-1 going');
+        local.destroyAll();
     });
 
     await check('a shell that exits on its own tells the pane and is gone', async () => {

@@ -202,6 +202,22 @@ let lastAccount = null;
 const modelCatalogs = new Map();
 
 /**
+ * When an agent was last asked and had nothing to report, by agent.
+ *
+ * A `null` in the catalogs above used to be kept for the life of the app,
+ * so one read that landed while its runtime was still coming up \u2013 Pi
+ * still indexing on a cold start, a binary mid-update \u2013 left its menu
+ * section empty until the retry button was found and pressed. A miss is
+ * now kept only here, and only briefly: a later ask past the window tries
+ * again, while asks inside it answer at once instead of starting the
+ * runtime over and over.
+ */
+const modelMisses = new Map();
+
+/** How long a miss counts before the next ask tries the runtime again. */
+const MODEL_MISS_TTL = 2 * 60 * 1000;
+
+/**
  * The in-flight asks, so ten panels opening at once do not start ten of them.
  *
  * One per agent rather than one slot, for the same reason the catalogs are
@@ -1062,8 +1078,8 @@ function reconfigure(before, after, agentId = '') {
     // so what was read from the last one is not an answer about this one. The
     // list is dropped rather than refreshed here: reading it means a request,
     // and someone typing an address has not finished typing it.
-    if (before.localBaseUrl !== after.localBaseUrl) modelCatalogs.delete('local');
-    if (before.apiBaseUrl !== after.apiBaseUrl || before.apiKeys?.openai !== after.apiKeys?.openai) modelCatalogs.delete('openai');
+    if (before.localBaseUrl !== after.localBaseUrl) { modelCatalogs.delete('local'); modelMisses.delete('local'); }
+    if (before.apiBaseUrl !== after.apiBaseUrl || before.apiKeys?.openai !== after.apiKeys?.openai) { modelCatalogs.delete('openai'); modelMisses.delete('openai'); }
 
     if (before.provider !== after.provider || before.localBaseUrl !== after.localBaseUrl || before.apiBaseUrl !== after.apiBaseUrl) {
         if (before.provider !== after.provider) lastAccount = null;
@@ -3177,9 +3193,18 @@ function models({ refresh = false, provider: wanted = '' } = {}) {
     // A forced ask drops what is held for this agent and starts again. The
     // menu offers it when a read came back with nothing, which is usually a
     // runtime that was not up yet rather than an agent with no models.
-    if (refresh) modelCatalogs.delete(asked);
+    if (refresh) {
+        modelCatalogs.delete(asked);
+        modelMisses.delete(asked);
+    }
 
     if (modelCatalogs.has(asked)) return Promise.resolve(modelCatalogs.get(asked));
+    // A recent miss answers at once rather than starting the runtime again
+    // for every panel that opens; past the window the next ask retries, so
+    // a runtime that was still coming up heals on its own. See modelMisses.
+    if (!refresh && modelMisses.has(asked) && Date.now() - modelMisses.get(asked) < MODEL_MISS_TTL) {
+        return Promise.resolve(null);
+    }
     if (!refresh && modelsPending.has(asked)) return modelsPending.get(asked);
 
     const provider = PROVIDERS[asked];
@@ -3187,13 +3212,25 @@ function models({ refresh = false, provider: wanted = '' } = {}) {
 
     const promise = provider.listModels({ settings: resolvedFor(asked) })
         .then((rows) => {
-            const list = rows?.length ? rows : null;
-            // Stored against the agent that answered, whether or not that is
-            // still the one selected. A later ask for a different agent reads
-            // its own entry, and a switch back does not have to ask again.
-            modelCatalogs.set(asked, list);
-            notify('ai-models', { provider: asked, models: list });
-            return list;
+            if (rows?.length) {
+                // Stored against the agent that answered, whether or not that
+                // is still the one selected. A later ask for a different agent
+                // reads its own entry, and a switch back does not have to ask
+                // again.
+                modelCatalogs.set(asked, rows);
+                modelMisses.delete(asked);
+                notify('ai-models', { provider: asked, models: rows });
+                return rows;
+            }
+            // Asked, and nothing to report: remembered briefly rather than
+            // kept, so the next ask past the window tries again instead of
+            // inheriting one bad start for the life of the app. Providers
+            // resolve rather than reject on a failure (Pi's listModels
+            // returns null when its runtime never answered), which is why
+            // this lives here and not only in the catch below.
+            modelMisses.set(asked, Date.now());
+            notify('ai-models', { provider: asked, models: null });
+            return null;
         })
         .catch((error) => {
             // Said out loud rather than swallowed: an empty model menu with no
@@ -3201,6 +3238,7 @@ function models({ refresh = false, provider: wanted = '' } = {}) {
             // menu. Not cached either, so the next ask tries again rather than
             // inheriting one bad start for the life of the app.
             console.error(`Could not read the model list from ${asked}:`, error.message);
+            modelMisses.set(asked, Date.now());
             return null;
         })
         .finally(() => {

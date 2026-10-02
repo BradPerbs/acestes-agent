@@ -676,6 +676,12 @@ function LocalTerminalPanel({ terminals, agentId = '', visible = true, settled =
             <div className="relative flex-1 min-h-0">
                 {terminals.terminals.map((term) => {
                     const stage = stageOf(term);
+                    // Only the chat in front draws the shells. Every chat of
+                    // the project stays mounted and shares this list, and two
+                    // live views of one shell would fight over its port: the
+                    // second attach replays the backlog into both. The tabs
+                    // above stay live everywhere; the screens attach here.
+                    const live = visible && stage !== 'waiting';
                     return (
                         // Left to inherit when in front: an explicit `visible`
                         // would show through a conversation tab that is hidden.
@@ -684,14 +690,14 @@ function LocalTerminalPanel({ terminals, agentId = '', visible = true, settled =
                             className="absolute inset-0"
                             style={{ visibility: term.id === terminals.activeId ? undefined : 'hidden' }}
                         >
-                            {stage === 'pick' && (
+                            {live && stage === 'pick' && (
                                 <FolderPicker
                                     folders={agentFolders}
                                     onPick={(path) => chooseFolder(term.id, path)}
                                     onCancel={() => remove(term.id)}
                                 />
                             )}
-                            {stage === 'shell' && (
+                            {live && stage === 'shell' && (
                                 <LocalTerminalView
                                     id={term.id}
                                     shellId={term.shellId}

@@ -20,13 +20,15 @@ const agents = require('./agents');
  * carrying the bytes, the transcript fed on the way through) with three
  * differences:
  *
- *   There is no host record. A terminal belongs to a conversation's panel, so
+ *   There is no host record. A terminal belongs to a project's panel, so
  *   it is opened by id, with the shell the user picked from `listShells`, and
  *   starts in the agent's first granted folder, the project it is working on,
  *   or the home folder when it has none.
  *
- *   A conversation has several. Their ids are `<group>:<n>`, the group being
- *   the conversation's, so closing the conversation ends all of them at once.
+ *   A project has several, shared by all of its chats. Their ids are
+ *   `<group>:<n>`, the group being the project's (see `groupForAgent`), so
+ *   removing the project ends all of them at once while closing a chat ends
+ *   none.
  *
  *   It outlives its pane. The panel is remounted whenever a conversation moves
  *   in or out of the split view, and hidden whenever the user puts it away; a
@@ -456,7 +458,16 @@ function destroy(id) {
     return true;
 }
 
-/** End every terminal of one conversation: the ids `<group>:<n>`. */
+/**
+ * The group one project's terminal ids share: `<group>:<n>`. Mirrored in the
+ * renderer (see useLocalTerminals `localTerminalGroupForAgent`); the two
+ * have to agree, since the renderer names the ids and main ends the group.
+ */
+function groupForAgent(agentId) {
+    return `local-agent-${agentId}`;
+}
+
+/** End every terminal of one project: the ids `<group>:<n>`. */
 function destroyGroup(group) {
     if (!group) return 0;
     let ended = 0;
@@ -487,6 +498,7 @@ module.exports = {
     describe,
     destroy,
     destroyGroup,
+    groupForAgent,
     destroyAll,
     listShells,
     listFolders,

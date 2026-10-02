@@ -1022,8 +1022,9 @@ function TitleBar({
                     gap: '12px',
                     // Room for the traffic lights, which macOS draws over this
                     // row at the position main.js gives them. Wide enough to
-                    // clear the cluster and still leave the burger a margin.
-                    ...(IS_MAC ? { paddingLeft: 68 } : {}),
+                    // clear the cluster (x 20 + ~52px of buttons) and still
+                    // leave the burger a margin.
+                    ...(IS_MAC ? { paddingLeft: 80 } : {}),
                 }}
             >
                 {/* Burger Menu */}

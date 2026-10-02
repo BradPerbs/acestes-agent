@@ -546,6 +546,20 @@ export default function AssistantSection() {
 
                 <SettingRow
                     className={DIVIDED}
+                    align="center"
+                    title={t('settings.assistant.groupToolCalls')}
+                    description={t('settings.assistant.groupToolCallsDesc')}
+                    control={
+                        <Toggle
+                            ariaLabel={t('settings.assistant.groupToolCalls')}
+                            checked={settings.groupToolCalls !== false}
+                            onChange={(value) => update({ groupToolCalls: value })}
+                        />
+                    }
+                />
+
+                <SettingRow
+                    className={DIVIDED}
                     title={t('settings.assistant.allowList')}
                     description={t('settings.assistant.allowListDesc')}
                 >

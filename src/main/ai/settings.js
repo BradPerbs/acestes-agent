@@ -129,6 +129,11 @@ const DEFAULTS = {
     maxTurns: 100,
     // How much terminal output a single read hands back.
     transcriptLines: 240,
+    // Whether consecutive tool calls fold into one grouped row instead of
+    // one row per call. On: a burst of reads and commands reads as a single
+    // summary ("8 reads · 3 commands") that opens into the calls. Off keeps
+    // every call as its own row, the way it always was.
+    groupToolCalls: true,
     // Whether the assistant may touch this machine (its filesystem, its shell)
     // as well as the servers. On: the agent has the same tools it has in its
     // own terminal, and every call still stops at the approval card. Off is
@@ -279,6 +284,7 @@ function sanitize(raw) {
         next.maxTurns = clampNumber(raw.maxTurns, DEFAULTS.maxTurns, 1, 200);
         next.transcriptLines = clampNumber(raw.transcriptLines, DEFAULTS.transcriptLines, 20, 2000);
         if ('allowLocalTools' in raw) next.allowLocalTools = Boolean(raw.allowLocalTools);
+        if ('groupToolCalls' in raw) next.groupToolCalls = Boolean(raw.groupToolCalls);
         if ('autoRemember' in raw) next.autoRemember = Boolean(raw.autoRemember);
         if ('computerUse' in raw) next.computerUse = Boolean(raw.computerUse);
         if (COMPUTER_PACES.has(raw.computerPace)) next.computerPace = raw.computerPace;

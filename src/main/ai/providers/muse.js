@@ -37,8 +37,17 @@ const LABEL = 'Muse Code';
 const START_TIMEOUT = 60 * 1000;
 const IDLE_TIMEOUT = 30 * 60 * 1000;
 
-/** MSP's reasoning tiers that the app has a name for, low to high. */
-const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
+/** MSP's reasoning tiers that the app has a name for, low to high.
+ *
+ * Five, not six: `ultra` parses on the wire but resolves to the base knobs
+ * on Muse models (`muse model-profile show <model> --effort ultra` reports
+ * `full`/`false`, unlike `max`'s `trimmed`/`true`), so offering it would put
+ * a stop above Max that buys nothing. A stored `ultra` is sent as `max`.
+ */
+const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
+
+/** The tier sent for an app level: Codex's top stop rides as Muse's. */
+const wireEffort = (effort) => (effort === 'ultra' ? 'max' : effort);
 
 /** A UUIDv7: 48 bits of milliseconds, the version, and randomness. */
 function uuid7() {
@@ -113,7 +122,10 @@ async function handshake(rpc, { experimental = false } = {}) {
         clientInfo: { name: 'acestes_agent', title: 'Acestes Agent', version },
         // No dialogs of Muse's own: questions come to the person through the
         // app's cards, and approvals through `approval/decide`.
-        capabilities: { userInputDialogs: false, ...(experimental ? { experimentalApi: true } : {}) },
+        // `sessionMcp` is the grant `session/start` and `session/resume`
+        // require before they accept `config.mcpServers`; without it the
+        // host rejects the start with -32010 `capabilityRequired`.
+        capabilities: { userInputDialogs: false, requestedCapabilities: ['sessionMcp'], ...(experimental ? { experimentalApi: true } : {}) },
     }, { timeout: START_TIMEOUT });
     rpc.notify('initialized');
     return result;
@@ -149,9 +161,10 @@ function describeModels(result) {
         description: String(row.description || '').slice(0, 200),
         preferred: Boolean(row.isDefault),
         providerId: row.providerId || '',
-        // MSP names eight tiers and does not say which a model honours; the
-        // app's six are all among them.
-        effort: null,
+        // MSP names eight tiers but `ultra` resolves to the base knobs on
+        // these models, so the menu offers the five through `max` and a
+        // stored `ultra` rounds down to it. See EFFORTS.
+        effort: ['low', 'medium', 'high', 'xhigh', 'max'],
     }));
 }
 
@@ -342,10 +355,11 @@ async function start({
     }
 
     async function applyEffort(effort) {
-        if (!EFFORTS.includes(effort) || effort === currentEffort) return;
+        const level = wireEffort(effort);
+        if (!EFFORTS.includes(level) || level === currentEffort) return;
         try {
-            await rpc.request('session/setReasoningEffort', { commandId: uuid7(), sessionId, reasoningEffort: effort });
-            currentEffort = effort;
+            await rpc.request('session/setReasoningEffort', { commandId: uuid7(), sessionId, reasoningEffort: level });
+            currentEffort = level;
         } catch {
             // As above.
         }
@@ -523,7 +537,7 @@ async function start({
                 commandId: uuid7(),
                 input,
                 displayText: text,
-                ...(EFFORTS.includes(current.effort) ? { reasoningEffort: current.effort } : {}),
+                ...(EFFORTS.includes(wireEffort(current.effort)) ? { reasoningEffort: wireEffort(current.effort) } : {}),
             });
             turn.id = accepted?.turnId || '';
             const done = await Promise.race([
