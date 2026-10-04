@@ -7,6 +7,9 @@ const { app } = require('electron');
 const mcpHost = require('../mcp-host');
 const mcpConfig = require('../mcp-config');
 const acp = require('./acp');
+// Pictures staged for the turn, as files the CLI is pointed at. Shared with
+// the Codex provider, whose headless run takes them the same way (see Grok).
+const { stageImages } = require('./codex');
 
 /**
  * The Antigravity provider.
@@ -176,6 +179,26 @@ function deniedNotice(denied) {
         + 'Headless runs cannot ask, so set approvals to "Never ask" for this agent to let it act, or allow them in Antigravity\'s own settings.';
 }
 
+/**
+ * The prompt with staged pictures named in it.
+ *
+ * A headless run takes text, not image blocks, so pictures ride as files the
+ * run is pointed at: written out for the turn by `stageImages` (see codex),
+ * named here, removed when the turn ends. The agent opens them with its own
+ * file tools, the same way it opens anything else the prompt points at.
+ */
+function promptWithImages(text, paths = []) {
+    const body = String(text || '').trim();
+    if (!paths.length) return body;
+    const lines = paths.map(file => `- ${file}`);
+    return [
+        body || 'See the attached images.',
+        '',
+        'Attached images (open each file to view it):',
+        ...lines,
+    ].join('\n');
+}
+
 /** One turn's stdout, as the transcript's events. */
 function createTranslator(onEvent) {
     const steps = new Map();
@@ -285,13 +308,20 @@ async function start({
     let warnedTools = false;
     let queue = Promise.resolve();
 
-    async function turn(text) {
+    async function turn(text, images = []) {
         const current = getSettings();
         const directory = workspace();
         writeMcpConfig(directory, current, host);
 
-        const body = preamble ? `${preamble}\n\n---\n\n${text}` : text;
+        // Pictures ride as files the run is pointed at: staged for the turn,
+        // named in the prompt, removed afterwards (see Grok). A headless run
+        // takes text, not image blocks, and the agent opens them with its own
+        // file tools, the same way it opens anything else the prompt points at.
+        const staged = await stageImages(images || []);
+        const prompt = promptWithImages(text, staged.paths);
+        const body = preamble ? `${preamble}\n\n---\n\n${prompt}` : prompt;
         preamble = '';
+        try {
 
         const command = commandFor(runArguments({
             model: current.model,
@@ -381,13 +411,16 @@ async function start({
             turns: 1,
             sessionId: conversationId,
         });
+        } finally {
+            await staged.cleanup();
+        }
     }
 
     if (conversationId) onEvent({ type: 'session', sessionId: conversationId, model: settings.model || '' });
 
     return {
-        send(text) {
-            queue = queue.then(() => (running = turn(text))).catch((error) => {
+        send(text, images = []) {
+            queue = queue.then(() => (running = turn(text, images))).catch((error) => {
                 onEvent({ type: 'error', message: describeFailure(error?.message) });
                 onEvent({ type: 'result', subtype: 'error', isError: true, costUsd: 0 });
             });
@@ -628,8 +661,10 @@ module.exports = {
     readLimits,
     detect,
     findAgy,
-    supportsImages: false,
+    promptWithImages,
     SERVER_NAME,
+    // Pictures go in as files on the turn's prompt: see `promptWithImages`.
+    supportsImages: true,
     _test: {
         createTranslator,
         runArguments,
@@ -638,6 +673,7 @@ module.exports = {
         windowsFrom,
         describeModels,
         writeMcpConfig,
+        promptWithImages,
         useCommand: (command) => { override = command; },
     },
 };

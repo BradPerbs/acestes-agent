@@ -97,12 +97,14 @@ async function run() {
         fs.rmSync(root, { recursive: true, force: true });
     }
 
-    // Claude Code and Codex take pictures, and say so. Grok Build takes them
-    // as files named on the turn's prompt. The rest do not.
+    // Claude Code and Codex take pictures, and say so. Grok Build and Antigravity
+    // take them as files named on the turn's prompt. The rest do not.
     assert.strictEqual(claude.supportsImages, true);
     assert.strictEqual(codex.supportsImages, true);
     const grokBuild = require('../src/main/ai/providers/grok');
     assert.strictEqual(grokBuild.supportsImages, true);
+    const antigravity = require('../src/main/ai/providers/antigravity');
+    assert.strictEqual(antigravity.supportsImages, true, 'antigravity reads images as files on the prompt');
     for (const name of ['opencode', 'kimi', 'local']) {
         const provider = require(`../src/main/ai/providers/${name}`);
         assert.notStrictEqual(provider.supportsImages, true, `${name} does not claim to read images`);
@@ -120,6 +122,12 @@ async function run() {
         grokBuild.promptWithImages('', ['/tmp/image-1.png']).split('\n')[0],
         'See the attached images.',
         'a picture sent on its own still carries words'
+    );
+    assert.strictEqual(antigravity.promptWithImages('hello', []), 'hello', 'antigravity text alone stays a string');
+    assert.strictEqual(
+        antigravity.promptWithImages('what is this?', ['/tmp/image-1.png']),
+        'what is this?\n\nAttached images (open each file to view it):\n- /tmp/image-1.png',
+        'antigravity names pictures under the words about them'
     );
 
     // The web is not a local tool. This is what "the assistant has no
