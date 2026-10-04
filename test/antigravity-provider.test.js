@@ -45,9 +45,13 @@ async function test(name, fn) {
 
     await test('the model list comes from "agy models"', async () => {
         const rows = await agy.listModels();
-        assert.deepStrictEqual(rows.map(row => row.value), ['gemini-3.8-flash', 'claude-opus-4.6']);
-        assert.strictEqual(rows[0].preferred, true);
+        assert.deepStrictEqual(rows.map(row => row.value), ['gemini-3.8-flash-high', 'claude-opus-4.6']);
+        assert.strictEqual(rows[0].label, 'Gemini 3.8 Flash (High)');
         assert.strictEqual(rows[1].short, 'Claude Opus 4.6');
+        assert.deepStrictEqual(rows[0].effort, ['low', 'medium', 'high', 'xhigh', 'max']);
+        // The real TSV shape parses too, including a Fetching line on stderr.
+        const tsv = agy._test.describeModels('Fetching available models...\ngemini-3.8-flash-high\tGemini 3.8 Flash (High)\n');
+        assert.strictEqual(tsv[0].value, 'gemini-3.8-flash-high');
     });
 
     await test('/usage becomes a five-hour and a weekly window, without a turn', async () => {
@@ -59,7 +63,7 @@ async function test(name, fn) {
     });
 
     const events = [];
-    let current = { approval: 'writes', allowLocalTools: true, mcpServers: [], model: 'gemini-3.8-flash', effort: 'xhigh' };
+    let current = { approval: 'writes', allowLocalTools: true, mcpServers: [], model: 'gemini-3.8-flash-high', effort: 'xhigh' };
     const session = await agy.start({
         settings: current,
         getSettings: () => current,
@@ -75,7 +79,7 @@ async function test(name, fn) {
         const texts = events.filter(event => event.type === 'assistant-text').map(event => event.text);
         assert.strictEqual(texts[0], 'Looking. ');
         assert.ok(texts[1].includes('servers=remote'), texts[1]);
-        assert.ok(texts[1].includes('effort=high'), 'xhigh rounds down to high');
+        assert.ok(texts[1].includes('effort=xhigh'), 'xhigh passes through to the CLI');
         assert.ok(texts[1].includes('prompt=with-system'));
         assert.ok(texts[1].includes('skip=false'));
         const call = events.find(event => event.type === 'tool-call');

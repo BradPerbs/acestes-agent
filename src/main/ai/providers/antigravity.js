@@ -42,8 +42,8 @@ const SERVER_NAME = 'remote';
 const LABEL = 'Antigravity';
 const IDLE_TIMEOUT = 30 * 60 * 1000;
 
-/** The levels `--effort` takes; the app's higher ones round down to `high`. */
-const EFFORT_MAP = { low: 'low', medium: 'medium', high: 'high', xhigh: 'high', max: 'high', ultra: 'high' };
+/** The levels `--effort` takes (`agy --help`); the app's `ultra` runs as `max`. */
+const EFFORT_MAP = { low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max', ultra: 'max' };
 
 let override = null;
 
@@ -413,8 +413,33 @@ function runJson(args, settings = {}, timeout = 30000) {
     });
 }
 
-/** `agy models --output-format json`, as the composer's rows. */
+/** `agy models`, as the composer's rows.
+ *
+ * The subcommand takes no `--output-format` flag and prints one
+ * `slug<TAB>label` line per model (`Fetching…` goes to stderr). Older
+ * shapes (a JSON array, `{ models: […] }`) are still accepted so the
+ * scripted `agy` in the tests keeps working.
+ */
 function describeModels(answer) {
+    if (typeof answer === 'string') {
+        const text = answer.trim();
+        // Tolerate a JSON payload (the scripted `agy` in tests) as well as
+        // the real TSV.
+        if (text.startsWith('[') || text.startsWith('{')) {
+            try { answer = JSON.parse(text); } catch { answer = text; }
+        }
+        if (typeof answer === 'string') {
+            answer = answer.split(/\r?\n/)
+                .map(line => line.trim())
+                .filter(line => line && !/^fetching/i.test(line))
+                .map((line) => {
+                    const [slug, ...rest] = line.split('\t');
+                    const label = rest.join('\t').trim() || slug.trim();
+                    return { slug: slug.trim(), display_name: label };
+                })
+                .filter(entry => entry.slug);
+        }
+    }
     const list = Array.isArray(answer) ? answer
         : Array.isArray(answer?.models) ? answer.models
             : Array.isArray(answer?.structured_output?.models) ? answer.structured_output.models : [];
@@ -429,13 +454,44 @@ function describeModels(answer) {
             short: String(label).replace(/\s*\([^)]*\)\s*$/, ''),
             description: String(entry?.description || '').slice(0, 200),
             preferred: Boolean(entry?.default || entry?.is_default || entry?.current),
-            effort: ['low', 'medium', 'high'],
+            effort: ['low', 'medium', 'high', 'xhigh', 'max'],
         };
     }).filter(Boolean).slice(0, 60);
 }
 
+/** Run one plain-text subcommand (`agy models`) and return its stdout, or null. */
+function runText(args, settings = {}, timeout = 30000) {
+    const command = commandFor(args);
+    if (!command) return Promise.resolve(null);
+    return new Promise((resolve) => {
+        let stdout = '';
+        let child;
+        try {
+            child = spawn(command.command, command.args, {
+                cwd: workspace(),
+                env: { ...process.env, ...(settings.accountEnv || {}) },
+                stdio: ['ignore', 'pipe', 'pipe'],
+                windowsHide: true,
+            });
+        } catch {
+            resolve(null);
+            return;
+        }
+        const timer = setTimeout(() => { acp.stopProcess(child); resolve(null); }, timeout);
+        child.stdout.setEncoding('utf8');
+        child.stdout.on('data', (chunk) => { stdout += chunk; });
+        child.stderr.resume();
+        child.on('error', () => { clearTimeout(timer); resolve(null); });
+        child.on('close', (code) => {
+            clearTimeout(timer);
+            if (code !== 0 || !stdout.trim()) resolve(null);
+            else resolve(stdout);
+        });
+    });
+}
+
 async function listModels() {
-    const rows = describeModels(await runJson(['models', '--output-format', 'json']));
+    const rows = describeModels(await runText(['models']));
     return rows.length ? rows : null;
 }
 

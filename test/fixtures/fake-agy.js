@@ -10,7 +10,13 @@ const flag = (name) => { const index = args.indexOf(name); return index >= 0 ? a
 const out = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
 
 if (args[0] === 'models') {
-    out([{ slug: 'gemini-3.8-flash', display_name: 'Gemini 3.8 Flash', default: true }, { slug: 'claude-opus-4.6', display_name: 'Claude Opus 4.6 (thinking)' }]);
+    // The real subcommand takes no `--output-format` flag and prints TSV.
+    if (args.includes('--output-format')) {
+        process.stderr.write('Error: flags provided but not defined: -output-format\n');
+        process.exit(1);
+    }
+    process.stdout.write('gemini-3.8-flash-high\tGemini 3.8 Flash (High)\n');
+    process.stdout.write('claude-opus-4.6\tClaude Opus 4.6 (thinking)\n');
     process.exit(0);
 }
 if (args[0] === '-p' && args[1] === '/usage') {
