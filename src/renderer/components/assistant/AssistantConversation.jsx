@@ -565,16 +565,41 @@ export default function AssistantConversation({
      * Follow the bottom, unless the user has scrolled up to read something.
      * Yanking the view back down while they are reading output from three tool
      * calls ago is what makes a streaming panel unusable.
+     *
+     * Read from which way the view moved, not only from where it ended up.
+     * A wheel scroll is animated in small steps, and while a reply streams
+     * the bottom is re-pinned every frame; judged on distance alone, each
+     * step is still "near the bottom", gets snapped back, and the user can
+     * never get away from it. So any move up lets go at once, and only
+     * coming back down to the bottom takes hold again.
      */
+    const lastTop = useRef(0);
     const onScroll = useCallback(() => {
         const node = scrollRef.current;
         if (!node) return;
-        stickToBottom.current = node.scrollHeight - node.scrollTop - node.clientHeight < 60;
+        const top = node.scrollTop;
+        const gap = node.scrollHeight - top - node.clientHeight;
+        // Content shrinking under a pinned view also lowers scrollTop, but
+        // leaves it on the bottom: that is not the user leaving.
+        if (top < lastTop.current - 1 && gap > 1) stickToBottom.current = false;
+        else if (gap < 60) stickToBottom.current = true;
+        lastTop.current = top;
+    }, []);
+
+    // The wheel and the keys say where the user is going before the view
+    // has moved at all, so a frame of streaming in between cannot undo it.
+    const onWheel = useCallback((event) => {
+        if (event.deltaY < 0) stickToBottom.current = false;
+    }, []);
+    const onScrollKey = useCallback((event) => {
+        if (['PageUp', 'ArrowUp', 'Home'].includes(event.key)) stickToBottom.current = false;
     }, []);
 
     const keepAtBottom = useCallback(() => {
         const node = scrollRef.current;
-        if (node && stickToBottom.current) node.scrollTop = node.scrollHeight;
+        if (!node || !stickToBottom.current) return;
+        node.scrollTop = node.scrollHeight;
+        lastTop.current = node.scrollTop;
     }, []);
 
     const draftQuiet = useQuiet(assistant.draft.text);
@@ -1051,6 +1076,8 @@ export default function AssistantConversation({
             <div
                 ref={scrollRef}
                 onScroll={onScroll}
+                onWheel={onWheel}
+                onKeyDown={onScrollKey}
                 className={`assistant-prose flex-1 min-h-0 overflow-y-auto px-3 flex flex-col gap-3
                     ${empty ? '' : 'py-3'}`}
             >
