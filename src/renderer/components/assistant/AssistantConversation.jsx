@@ -1569,7 +1569,6 @@ export default function AssistantConversation({
                             <ContextRing
                                 context={assistant.context}
                                 provider={shownSettings?.provider}
-                                costUsd={assistant.costUsd}
                             />
                             <Usage
                                 account={assistant.account}

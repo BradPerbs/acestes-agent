@@ -7,8 +7,9 @@ import { localeTag, useT } from '../../i18n';
  * The same figure OpenCode Desktop draws beside its composer: the latest
  * reply's tokens (what went in, cached or not, and what came back) over the
  * model's context window. It moves once per step of a turn and says, on
- * hover, the tokens and the window behind the percentage, and what the
- * conversation has cost when the runtime reports a cost.
+ * hover, the tokens and the window behind the percentage. Cost is left to the
+ * Usage chip beside it, which shows it only when the account is billed per
+ * token: on a plan the runtime's figure is not a real bill.
  *
  * Nothing is drawn until a runtime has reported a reading, and nothing for a
  * reading from another runtime than the one now answering: after a switch it
@@ -36,7 +37,7 @@ function Row({ name, value }) {
     );
 }
 
-export default function ContextRing({ context, provider, costUsd = 0 }) {
+export default function ContextRing({ context, provider }) {
     const t = useT();
     if (!context || !context.used || (context.provider && provider && context.provider !== provider)) return null;
 
@@ -54,7 +55,6 @@ export default function ContextRing({ context, provider, costUsd = 0 }) {
         <span className="flex flex-col gap-0.5 min-w-[11rem]">
             <Row name={t('assistant.context.usage')} value={percent === null ? '—' : `${percent}%`} />
             <Row name={t('assistant.context.tokens')} value={tokens} />
-            {costUsd > 0 && <Row name={t('assistant.context.cost')} value={`$${costUsd.toFixed(costUsd < 1 ? 3 : 2)}`} />}
         </span>
     );
 

@@ -2100,7 +2100,6 @@ export default {
     'assistant.costHint': 'Estimated cost of this conversation, charged per token',
     'assistant.context.usage': 'Context used',
     'assistant.context.tokens': 'Tokens',
-    'assistant.context.cost': 'Cost',
     'assistant.context.tokensOf': '{used} of {limit}',
     'assistant.context.label': 'Context {percent}% full, {tokens} tokens',
     'assistant.context.unknownLimit': 'Context: {tokens} tokens',
