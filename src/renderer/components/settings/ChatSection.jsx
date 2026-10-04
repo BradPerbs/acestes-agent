@@ -14,8 +14,8 @@ import { useT } from '../../i18n';
 
 /**
  * The conversation itself: the one-click questions on an empty chat, whether
- * the agent writes down what it learned after a turn, how long the history is
- * kept, and speaking a message instead of typing it.
+ * the agent has a memory at all and writes down what it learned after a turn,
+ * how long the history is kept, and speaking a message instead of typing it.
  */
 
 const toText = (list) => (list || []).join('\n');
@@ -105,6 +105,9 @@ export default function ChatSection() {
 
     if (!settings) return <LoadingCard />;
 
+    // On unless switched off: a config from before the setting existed has none.
+    const memoryOn = settings.memory !== false;
+
     return (
         <>
             <div
@@ -145,12 +148,26 @@ export default function ChatSection() {
 
             <SettingCard>
                 <SettingRow
+                    title={t('settings.assistant.memory')}
+                    description={t(memoryOn ? 'settings.assistant.memoryDesc' : 'settings.assistant.memoryOffDesc')}
+                    control={
+                        <Toggle
+                            ariaLabel={t('settings.assistant.memory')}
+                            checked={memoryOn}
+                            onChange={(value) => update({ memory: value })}
+                        />
+                    }
+                />
+
+                <SettingRow
+                    className={DIVIDED}
                     title={t('settings.assistant.autoRemember')}
                     description={t('settings.assistant.autoRememberDesc')}
                     control={
                         <Toggle
                             ariaLabel={t('settings.assistant.autoRemember')}
-                            checked={Boolean(settings.autoRemember)}
+                            checked={memoryOn && Boolean(settings.autoRemember)}
+                            disabled={!memoryOn}
                             onChange={(value) => update({ autoRemember: value })}
                         />
                     }

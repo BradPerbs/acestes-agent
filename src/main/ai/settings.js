@@ -179,8 +179,16 @@ const DEFAULTS = {
     // of things nobody here asked for is filler, and the useful ones are the
     // ones a particular person asks their particular fleet over and over.
     quickPrompts: [],
+    // Whether the agent has a memory at all: its notes in the prompt, the
+    // ones that bear on each message sent with it, and the remember, recall
+    // and forget tools. Off makes every conversation start from nothing but
+    // the prompt and what the user says. The notebook itself is kept, and
+    // the Memory page still shows and edits it, so switching back on loses
+    // nothing. See memory.js.
+    memory: true,
     // After a turn that did real work, ask the agent to write down what is
     // worth keeping. Off by default: it is an extra turn, and a visible one.
+    // Never runs while `memory` is off.
     autoRemember: false,
     // Whether the agent may use this computer's apps with the real mouse and
     // keyboard. Off until someone switches it on: it is the one tool that acts
@@ -351,6 +359,7 @@ function sanitize(raw) {
         next.transcriptLines = clampNumber(raw.transcriptLines, DEFAULTS.transcriptLines, 20, 2000);
         if ('allowLocalTools' in raw) next.allowLocalTools = Boolean(raw.allowLocalTools);
         if ('groupToolCalls' in raw) next.groupToolCalls = Boolean(raw.groupToolCalls);
+        if ('memory' in raw) next.memory = Boolean(raw.memory);
         if ('autoRemember' in raw) next.autoRemember = Boolean(raw.autoRemember);
         if ('computerUse' in raw) next.computerUse = Boolean(raw.computerUse);
         if (COMPUTER_PACES.has(raw.computerPace)) next.computerPace = raw.computerPace;
@@ -477,7 +486,7 @@ function persist() {
 const PER_AGENT = [
     'provider', 'model', 'effort', 'approval', 'commandMode', 'maxTurns',
     'transcriptLines', 'allowLocalTools', 'autoApproveCommands',
-    'blockedCommands', 'quickPrompts', 'instructions', 'autoRemember',
+    'blockedCommands', 'quickPrompts', 'instructions', 'memory', 'autoRemember',
     'accounts', 'menuAccounts', 'computerUse', 'computerPace', 'browserUse',
 ];
 

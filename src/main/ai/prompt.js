@@ -238,7 +238,9 @@ function build(context) {
 
     // The notebook, ahead of the situation for the same reason: it is what the
     // agent knows going in, and the moment is what it finds there.
-    if (context.memory) {
+    // Neither section while the agent's memory is switched off: no notes, and
+    // no invitation to use tools that would only refuse.
+    if (context.memory && !context.memoryOff) {
         blocks.push(
             '',
             '## What you remember',
@@ -251,14 +253,19 @@ function build(context) {
         );
     }
 
+    if (!context.memoryOff) {
+        blocks.push(
+            '',
+            '## Memory',
+            '',
+            'Use remember for anything worth knowing next time: how the user likes things done, facts '
+            + 'about their machines that are not on the host record, decisions taken, what a fix turned '
+            + 'out to be. One fact per note, short and specific, and never a secret. Use recall when you '
+            + 'need a note that is not in front of you.',
+        );
+    }
+
     blocks.push(
-        '',
-        '## Memory',
-        '',
-        'Use remember for anything worth knowing next time: how the user likes things done, facts '
-        + 'about their machines that are not on the host record, decisions taken, what a fix turned '
-        + 'out to be. One fact per note, short and specific, and never a secret. Use recall when you '
-        + 'need a note that is not in front of you.',
         '',
         '## Your inventory',
         '',

@@ -1188,6 +1188,11 @@ export default {
     'settings.assistant.approval.writes.note': 'Only stop external calls.',
     'settings.assistant.approval.never.note': 'Nothing stops for approval, including commands that '
         + 'delete data or restart services. Only sensible for hosts you can afford to break.',
+    'settings.assistant.memory': 'Memory',
+    'settings.assistant.memoryDesc': 'The agent keeps notes between conversations: the newest go into every chat, '
+        + 'and the ones that bear on a message are sent with it. It can remember, recall and forget.',
+    'settings.assistant.memoryOffDesc': 'Off: every conversation starts with no notes, and the agent cannot save, '
+        + 'search or delete any. The notes it has are kept and still shown on the Memory page.',
     'settings.assistant.autoRemember': 'Write down what it learned',
     'settings.assistant.autoRememberDesc': 'After a turn that did real work, the agent takes one more turn to save '
         + 'anything worth keeping to its memory. An extra turn, visible in the conversation.',

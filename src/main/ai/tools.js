@@ -46,6 +46,15 @@ const z = zodModule.z || zodModule;
 /** How much of a remote file one read may return. */
 const MAX_FILE_BYTES = 120000;
 
+/**
+ * Whether this agent's memory is switched off (the `memory` setting). The
+ * tools stay listed, like the computer's, so no runtime has to be started
+ * again with a different set; they refuse instead, and say why.
+ */
+const memoryOff = (ctx) => ctx?.settings?.memory === false;
+const MEMORY_OFF = 'Memory is switched off for this agent, so nothing is saved, searched or deleted. The user can '
+    + 'switch it on in Settings, Chat, "Memory". Say so rather than working around it.';
+
 /* ------------------------------------------------------------------ *
  * Shared helpers
  * ------------------------------------------------------------------ */
@@ -705,6 +714,7 @@ const TOOLS = [
             tags: z.array(z.string()).optional().describe('Up to eight short tags, e.g. ["preference", "nginx"].'),
         },
         handler: async (input, ctx) => {
+            if (memoryOff(ctx)) return fail(MEMORY_OFF);
             const entry = memory.add(ctx.agentId, { text: input.text, tags: input.tags, source: 'agent' });
             if (!entry) return fail('There was nothing to remember.');
             return ok({ saved: true, id: entry.id, text: entry.text, tags: entry.tags });
@@ -723,9 +733,9 @@ const TOOLS = [
             query: z.string().describe('Words to look for.'),
             limit: z.number().int().min(1).max(50).optional().describe('How many to return. Defaults to 10.'),
         },
-        handler: async (input, ctx) => ok({
+        handler: async (input, ctx) => (memoryOff(ctx) ? fail(MEMORY_OFF) : ok({
             matches: await memory.search(ctx.agentId, input.query, input.limit || 10),
-        }),
+        })),
     },
 
     {
@@ -738,11 +748,12 @@ const TOOLS = [
         shape: {
             id: z.string().describe('The note id, e.g. m-abc123-4.'),
         },
-        handler: async (input, ctx) => (
-            memory.remove(ctx.agentId, input.id)
+        handler: async (input, ctx) => {
+            if (memoryOff(ctx)) return fail(MEMORY_OFF);
+            return memory.remove(ctx.agentId, input.id)
                 ? ok({ forgotten: input.id })
-                : fail(`There is no note with the id "${input.id}".`)
-        ),
+                : fail(`There is no note with the id "${input.id}".`);
+        },
     },
 
     /* -------------------------------------------------------------- *

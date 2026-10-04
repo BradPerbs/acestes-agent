@@ -1121,7 +1121,9 @@ function resolved(agentId) {
 // computerUse among them: Claude Code loads the computer tools up front only
 // while it is on (see providers/claude-code.js). browserUse too: it decides
 // whether the browser's MCP server is in the set the query was started with.
-const RESTART_ON = ['provider', 'maxTurns', 'allowLocalTools', 'computerUse', 'browserUse'];
+// memory as well: the notes and the memory section are in the system prompt,
+// which is only written when a query starts.
+const RESTART_ON = ['provider', 'maxTurns', 'allowLocalTools', 'computerUse', 'browserUse', 'memory'];
 
 /**
  * Whether a change of settings moved the runtime a conversation is on to
@@ -1519,8 +1521,10 @@ function ensureProvider(conversation) {
         // before the tools have to refuse.
         sandbox: agents.sandbox(conversation.agentId),
         // As it stands when the query starts; notes written mid-conversation
-        // are reached with recall until the next one.
-        memory: memory.summary(conversation.agentId),
+        // are reached with recall until the next one. Nothing while the
+        // agent's memory is switched off.
+        memory: current.memory === false ? '' : memory.summary(conversation.agentId),
+        memoryOff: current.memory === false,
     });
 
     // A session id belongs to the agent that issued it. Switching agents
@@ -1914,7 +1918,8 @@ function endRun(conversation, status, detail = {}) {
 
     // The built-in run-end hook: one more turn to write down what was
     // learned, only after a turn that did real work, and never after itself.
-    if (status === 'done' && !conversation.remembering && resolved(conversation.agentId).autoRemember) {
+    const remembers = resolved(conversation.agentId);
+    if (status === 'done' && !conversation.remembering && remembers.memory !== false && remembers.autoRemember) {
         let calls = 0;
         try { calls = runs.get(runId)?.toolCalls || 0; } catch { calls = 0; }
         if (calls >= 3) {
@@ -3039,7 +3044,9 @@ async function send(conversationId, text, attachments = [], tagged = [], attache
         // What the agent remembers that bears on this message, found by
         // meaning. The newest notes are in the system prompt already; this is
         // how the rest of a notebook too big for a prompt still reaches it.
-        const remembered = body ? await memory.relevant(conversation.agentId, body) : [];
+        const remembered = body && resolved(conversation.agentId).memory !== false
+            ? await memory.relevant(conversation.agentId, body)
+            : [];
         if (remembered.length > 0) {
             parts.push(
                 '<memory>\nNotes from your memory that may bear on this message:\n'
