@@ -798,7 +798,8 @@ input[type="color"]::-webkit-color-swatch {
 
 /* Geometry is animated, so a split or a zoom resolves rather than jumps. The
    terminal inside refits once the box has settled, not on every frame. */
-.pane-box {
+.pane-box,
+.conv-split-terminal {
     transition:
         left 0.22s cubic-bezier(0.16, 1, 0.3, 1),
         top 0.22s cubic-bezier(0.16, 1, 0.3, 1),
@@ -807,14 +808,19 @@ input[type="color"]::-webkit-color-swatch {
 }
 
 /* A dragged divider has to track the pointer exactly; easing it would put the
-   pane a frame or two behind the handle the user is holding. */
+   pane a frame or two behind the handle the user is holding. A terminal laid
+   over a conversation split pane follows the same rule, or it would trail
+   the pane it sits on. */
 body.pane-resizing-x .pane-box,
-body.pane-resizing-y .pane-box {
+body.pane-resizing-y .pane-box,
+body.pane-resizing-x .conv-split-terminal,
+body.pane-resizing-y .conv-split-terminal {
     transition: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .pane-box {
+    .pane-box,
+    .conv-split-terminal {
         transition: none;
     }
 }

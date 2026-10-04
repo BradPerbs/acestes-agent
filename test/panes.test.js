@@ -115,6 +115,31 @@ async function main() {
         assert.deepStrictEqual(orderOf(next), ['a', 'x', 'b']);
     });
 
+    // Resolve one of our calc() strings against a parent of `size` px.
+    const resolve = (css, size) => {
+        const match = /calc\((-?[\d.]+)% \+ (-?[\d.]+)px\)/.exec(css);
+        return (Number(match[1]) / 100) * size + Number(match[2]);
+    };
+
+    check('insetBoxStyle lands an outside overlay on the pane SplitLayout draws', () => {
+        const { measureLayout, insetBoxStyle, DIVIDER_SIZE } = panes;
+        const a = leaf('a');
+        const b = leaf('b');
+        const root = createSplit('row', [a, b], [0.5, 0.5]);
+        const W = 1000;
+        const H = 600;
+        const I = 6;
+        const inner = W - 2 * I;
+        const box = measureLayout(root).panes.find((pane) => pane.id === b.id).box;
+        const style = insetBoxStyle(box, I, 30);
+        // Where SplitLayout puts b: inset, then a's half and the divider.
+        const half = (inner - DIVIDER_SIZE) / 2;
+        assert.ok(Math.abs(resolve(style.left, W) - (I + half + DIVIDER_SIZE)) < 0.05);
+        assert.ok(Math.abs(resolve(style.width, W) - half) < 0.05);
+        assert.ok(Math.abs(resolve(style.top, H) - (I + 30)) < 0.05);
+        assert.ok(Math.abs(resolve(style.height, H) - (H - 2 * I - 30)) < 0.05);
+    });
+
     if (failed > 0) {
         console.log(`panes: ${passed} passed, ${failed} failed`);
         process.exitCode = 1;

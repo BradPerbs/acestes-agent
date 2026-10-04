@@ -4,7 +4,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { SearchAddon } from '@xterm/addon-search';
 import { WebLinksAddon } from '@xterm/addon-web-links';
-import { Cancel01Icon, Maximize01Icon, Minimize01Icon, CommandLineIcon, Folder01Icon, Camera01Icon, Refresh01Icon, ArrowDataTransferHorizontalIcon, LayoutTwoColumnIcon, LayoutTwoRowIcon, ArrowExpand01Icon, ArrowShrink01Icon, Search01Icon, FlashIcon, Menu01Icon, Megaphone02Icon, RecordIcon, StopCircleIcon } from 'hugeicons-react';
+import { Cancel01Icon, Maximize01Icon, Minimize01Icon, CommandLineIcon, Folder01Icon, Camera01Icon, Refresh01Icon, ArrowDataTransferHorizontalIcon, LayoutTwoColumnIcon, LayoutTwoRowIcon, ArrowExpand01Icon, ArrowShrink01Icon, Search01Icon, FlashIcon, Menu01Icon, Megaphone02Icon, RecordIcon, StopCircleIcon, BubbleChatIcon } from 'hugeicons-react';
 import { resolveTerminalTheme } from '../hooks/useTerminalTheme';
 import { DEFAULT_TERMINAL_SETTINGS, resolveFontFamily } from '../hooks/useTerminalSettings';
 import toast from 'react-hot-toast';
@@ -200,6 +200,8 @@ function TerminalView({
     onToggleFullscreen,
     onFocus,
     onSplit,
+    /** Put this tab beside a chat in the conversation split view. */
+    onSplitWithChat,
     onToggleZoom,
     onClosePane,
     onConnectResult,
@@ -1020,6 +1022,19 @@ function TerminalView({
             onSelect: () => onSplit?.('column', 'pick'),
         },
     ];
+
+    // Beside a chat rather than another session: the conversation split view,
+    // with this tab as one of its panes.
+    if (onSplitWithChat) {
+        splitItems.push(
+            { separator: true },
+            {
+                label: 'Split with a conversation',
+                icon: <BubbleChatIcon size={14} strokeWidth={2} />,
+                onSelect: () => onSplitWithChat(),
+            }
+        );
+    }
 
     if (isSplit) {
         splitItems.push(

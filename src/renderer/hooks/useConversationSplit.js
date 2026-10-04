@@ -24,15 +24,33 @@ import {
  * `{ kind: 'pane', id, tabId }`, where `tabId` names a conversation tab
  * or is null for a picker.
  *
- * Only geometry plus the conversation behind each pane is persisted
- * (`assistant.split.v1`): tab ids are transient, so each pane stores the
- * `conversationId` and is reconciled against the open tabs on load.
+ * A pane can also hold a terminal tab, so a chat and the session it is
+ * about can sit side by side. The terminal itself is not rendered by the
+ * split: it stays where terminal tabs always live and is laid over its
+ * pane from outside (App.jsx), so joining or leaving a split never
+ * remounts it, redials it, or costs it its scrollback.
+ *
+ * Only geometry plus what each pane holds is persisted
+ * (`assistant.split.v1`): conversation tab ids are transient, so a chat
+ * pane stores its `conversationId`; terminal tab ids are restored as they
+ * were, so a terminal pane stores `terminalTabId`. Both are reconciled
+ * against the open tabs on load.
  */
+
+/** What a split pane may hold: a chat, or a terminal session tab. */
+export const isSplittableTab = (tab) => tab?.type === 'conversation' || tab?.type === 'terminal';
 
 export const CONVERSATION_SPLIT_KEY = 'assistant.split.v1';
 
 /** More than four chats side by side stops being useful. */
 export const MAX_CONVERSATION_PANES = 4;
+
+/**
+ * The strip a terminal pane keeps at its head inside a conversation split:
+ * the pane's handle for dragging, switching and closing. The terminal is
+ * laid over the rest of the pane, below it.
+ */
+export const SPLIT_SESSION_HEADER = 32;
 
 let sequence = 0;
 const paneUid = () => {
@@ -66,14 +84,19 @@ function readStoredSplit() {
  * data, matching panes to currently open tabs. Panes with no match become
  * pickers so the geometry survives even when the chat does not.
  */
-function rebuildLayout(node, tabByConversation) {
+function rebuildLayout(node, tabByConversation, terminalTabIds) {
     if (!node || typeof node !== 'object') return null;
     if (node.kind === 'pane') {
+        if (node.terminalTabId) {
+            return makeConversationPane(terminalTabIds.has(node.terminalTabId) ? node.terminalTabId : null);
+        }
         const tabId = node.conversationId ? tabByConversation.get(node.conversationId) || null : null;
         return { ...makeConversationPane(tabId), ...(node.conversationId ? { conversationId: node.conversationId } : {}) };
     }
     if (node.kind === 'split' && Array.isArray(node.children)) {
-        const children = node.children.map((child) => rebuildLayout(child, tabByConversation)).filter(Boolean);
+        const children = node.children
+            .map((child) => rebuildLayout(child, tabByConversation, terminalTabIds))
+            .filter(Boolean);
         if (children.length === 0) return null;
         if (children.length === 1) return children[0];
         const sizes = Array.isArray(node.sizes) && node.sizes.length === children.length
@@ -84,9 +107,12 @@ function rebuildLayout(node, tabByConversation) {
     return null;
 }
 
-function serializeLayout(node, conversationByTab) {
+function serializeLayout(node, conversationByTab, terminalTabIds) {
     if (!node) return null;
     if (isConversationPane(node)) {
+        if (node.tabId && terminalTabIds.has(node.tabId)) {
+            return { kind: 'pane', terminalTabId: node.tabId };
+        }
         const conversationId = node.tabId ? conversationByTab.get(node.tabId) || '' : '';
         return { kind: 'pane', conversationId };
     }
@@ -94,7 +120,7 @@ function serializeLayout(node, conversationByTab) {
         kind: 'split',
         direction: node.direction,
         sizes: [...node.sizes],
-        children: node.children.map((child) => serializeLayout(child, conversationByTab)),
+        children: node.children.map((child) => serializeLayout(child, conversationByTab, terminalTabIds)),
     };
 }
 
@@ -133,7 +159,7 @@ export default function useConversationSplit({ tabs, activeTabId }) {
     tabsRef.current = tabs;
 
     const conversationTabs = useMemo(() => tabs.filter((t) => t.type === 'conversation'), [tabs]);
-    const tabIds = useMemo(() => new Set(conversationTabs.map((t) => t.id)), [conversationTabs]);
+    const tabIds = useMemo(() => new Set(tabs.filter(isSplittableTab).map((t) => t.id)), [tabs]);
 
     const panes = useMemo(() => (layout ? collectPanes(layout) : []), [layout]);
     const active = layout !== null;
@@ -150,7 +176,8 @@ export default function useConversationSplit({ tabs, activeTabId }) {
         const tabByConversation = new Map(
             conversationTabs.filter((t) => t.conversationId).map((t) => [t.conversationId, t.id]),
         );
-        const next = rebuildLayout(stored.layout, tabByConversation);
+        const terminalTabIds = new Set(tabsRef.current.filter((t) => t.type === 'terminal').map((t) => t.id));
+        const next = rebuildLayout(stored.layout, tabByConversation, terminalTabIds);
         if (!next || paneCount(next) < 2) return;
         setLayout(next);
         const leaves = collectPanes(next);
@@ -173,8 +200,11 @@ export default function useConversationSplit({ tabs, activeTabId }) {
                         .filter((t) => t.type === 'conversation' && t.conversationId)
                         .map((t) => [t.id, t.conversationId]),
                 );
+                const terminalTabIds = new Set(
+                    tabsRef.current.filter((t) => t.type === 'terminal').map((t) => t.id),
+                );
                 localStorage.setItem(CONVERSATION_SPLIT_KEY, JSON.stringify({
-                    layout: serializeLayout(layoutRef.current, conversationByTab),
+                    layout: serializeLayout(layoutRef.current, conversationByTab, terminalTabIds),
                 }));
             } catch { /* ignore */ }
         }, 400);
@@ -205,18 +235,23 @@ export default function useConversationSplit({ tabs, activeTabId }) {
         if (changed) setLayout((current) => (current ? walk(current) : current));
     }, [layout, tabIds]);
 
+    /**
+     * Open a split from one tab, a chat or a terminal.
+     *
+     * The new pane opens on the picker unless told what to hold: it used to
+     * take the next chat along on its own, which left no way to put a
+     * terminal beside a conversation. The picker offers chats and sessions
+     * alike, so which one sits beside is the user's choice, one click away.
+     */
     const startSplit = useCallback((tabId, direction = 'row', otherTabId = null) => {
-        const tabsNow = tabsRef.current.filter((t) => t.type === 'conversation');
-        const current = tabsNow.find((t) => t.id === tabId) || tabsNow[0];
+        const tabsNow = tabsRef.current.filter(isSplittableTab);
+        const current = tabsNow.find((t) => t.id === tabId)
+            || tabsNow.find((t) => t.type === 'conversation');
         if (!current) return;
-        // Prefer a chat not already on screen so the split shows two
-        // conversations, not one twice.
-        const shown = new Set(layoutRef.current ? collectPanes(layoutRef.current).map((p) => p.tabId) : []);
-        const other = (otherTabId && tabsNow.find((t) => t.id === otherTabId))
-            || tabsNow.find((t) => t.id !== current.id && !shown.has(t.id))
-            || null;
-        const left = { ...makeConversationPane(current.id), conversationId: current.conversationId || '' };
-        const right = { ...makeConversationPane(other?.id || null), conversationId: other?.conversationId || '' };
+        const other = (otherTabId && otherTabId !== current.id && tabsNow.find((t) => t.id === otherTabId)) || null;
+        const paneFor = (tab) => ({ ...makeConversationPane(tab?.id || null), conversationId: tab?.conversationId || '' });
+        const left = paneFor(current);
+        const right = paneFor(other);
         const next = createSplit(direction, [left, right]);
         setLayout(next);
         setFocusedPaneId(left.id);
@@ -226,11 +261,9 @@ export default function useConversationSplit({ tabs, activeTabId }) {
         const current = layoutRef.current;
         if (!current) return;
         if (paneCount(current) >= MAX_CONVERSATION_PANES) return;
-        const tabsNow = tabsRef.current.filter((t) => t.type === 'conversation');
         const shown = new Set(collectPanes(current).map((p) => p.tabId));
-        const other = (otherTabId && tabsNow.find((t) => t.id === otherTabId))
-            || tabsNow.find((t) => !shown.has(t.id))
-            || null;
+        const other = (otherTabId && !shown.has(otherTabId)
+            && tabsRef.current.find((t) => t.id === otherTabId && isSplittableTab(t))) || null;
         const addition = { ...makeConversationPane(other?.id || null), conversationId: other?.conversationId || '' };
         setLayout(splitPane(current, paneId, direction, addition));
         setFocusedPaneId(addition.id);
@@ -247,9 +280,13 @@ export default function useConversationSplit({ tabs, activeTabId }) {
             setFocusedPaneId(null);
             return remaining?.tabId || null;
         }
+        // The tab now focused is the one to bring forward. Handing back the
+        // closed pane's own tab instead would put it straight back on
+        // screen, over whichever pane took focus.
+        const first = collectPanes(next).find((pane) => pane.tabId) || collectPanes(next)[0];
         setLayout(next);
-        setFocusedPaneId(collectPanes(next)[0]?.id || null);
-        return null;
+        setFocusedPaneId(first?.id || null);
+        return first?.tabId || null;
     }, []);
 
     const exitSplit = useCallback(() => {
@@ -258,7 +295,7 @@ export default function useConversationSplit({ tabs, activeTabId }) {
     }, []);
 
     const setPaneTab = useCallback((paneId, tabId) => {
-        const tab = tabsRef.current.find((t) => t.id === tabId && t.type === 'conversation');
+        const tab = tabsRef.current.find((t) => t.id === tabId && isSplittableTab(t));
         if (!tab) return;
         setLayout((current) => {
             if (!current) return current;

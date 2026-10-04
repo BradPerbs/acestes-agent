@@ -16,7 +16,7 @@ import ConversationView from './components/assistant/ConversationView';
 import ConversationSplitView from './components/assistant/ConversationSplitView';
 import ConfirmDialog from './components/ui/ConfirmDialog';
 import useConversationTabs, { readStoredConversationTabs } from './hooks/useConversationTabs';
-import useConversationSplit, { MAX_CONVERSATION_PANES } from './hooks/useConversationSplit';
+import useConversationSplit, { MAX_CONVERSATION_PANES, SPLIT_SESSION_HEADER } from './hooks/useConversationSplit';
 import { useAgents } from './hooks/useAgents';
 import { useConversationList } from './hooks/useConversationList';
 import AgentDialog from './components/AgentDialog';
@@ -44,12 +44,14 @@ import {
 } from './lib/tabs';
 import {
     MAX_PANES,
+    PANE_INSET,
     cloneLayout,
     collectPanes,
     createPane,
     deserializeLayout,
     equalizeSplit,
     findPane,
+    insetBoxStyle,
     measureLayout,
     neighborPane,
     paneCount,
@@ -277,9 +279,15 @@ function App() {
     const broadcastRef = useRef(broadcast);
     broadcastRef.current = broadcast;
 
+    // The tabs the conversation split holds, kept current further down where
+    // the split is known. A terminal in it shares the split's sidebar.
+    const splitTabIdsRef = useRef(new Set());
+
     const toggleSidebar = useCallback(() => {
         const tab = tabsRef.current.find(entry => entry.id === activeTabIdRef.current);
-        if (takesTheWidth(tab)) setSidebarPeekTabId(current => (current === tab.id ? null : tab.id));
+        if (takesTheWidth(tab) && !splitTabIdsRef.current.has(tab.id)) {
+            setSidebarPeekTabId(current => (current === tab.id ? null : tab.id));
+        }
         else setSidebarHidden(current => !current);
     }, []);
 
@@ -1765,6 +1773,26 @@ function App() {
         conversationSplit.startSplit(tabId, 'row');
     }, [conversationSplit, t]);
 
+    /**
+     * The same split, opened from a terminal tab: the session on one side
+     * and a picker on the other, which offers the open chats and a new one.
+     */
+    const handleTerminalSplitWithChat = useCallback((tabId) => {
+        const { layout, panes, focusedPaneId } = conversationSplit;
+        if (layout) {
+            // A split is already arranged: join it rather than replace it,
+            // beside the pane last in focus.
+            if (panes.length >= MAX_CONVERSATION_PANES) {
+                toast.error(t('assistant.splitLimit', { count: MAX_CONVERSATION_PANES }), { style: getToastStyle() });
+                return;
+            }
+            conversationSplit.splitPaneById(focusedPaneId || panes[0]?.id, 'row', tabId);
+        } else {
+            conversationSplit.startSplit(tabId, 'row');
+        }
+        setActiveTabId(tabId);
+    }, [conversationSplit, t]);
+
     const handleConversationSplitPane = useCallback((paneId, direction) => {
         if (conversationSplit.panes.length >= MAX_CONVERSATION_PANES) {
             toast.error(t('assistant.splitLimit', { count: MAX_CONVERSATION_PANES }), { style: getToastStyle() });
@@ -1773,10 +1801,9 @@ function App() {
         conversationSplit.splitPaneById(paneId, direction);
     }, [conversationSplit, t]);
 
-    const handleConversationClosePane = useCallback((paneId, tabId) => {
-        const remainingTabId = conversationSplit.closePane(paneId);
-        if (remainingTabId) setActiveTabId(remainingTabId);
-        else if (tabId) setActiveTabId(tabId);
+    const handleConversationClosePane = useCallback((paneId) => {
+        const frontTabId = conversationSplit.closePane(paneId);
+        if (frontTabId) setActiveTabId(frontTabId);
     }, [conversationSplit]);
 
     const handleConversationExitSplit = useCallback(() => {
@@ -1812,13 +1839,16 @@ function App() {
     useEffect(() => {
         if (!conversationSplit.active || !conversationSplit.layout) return;
         const front = tabsRef.current.find((tab) => tab.id === activeTabId);
-        if (front?.type !== 'conversation') return;
+        if (front?.type !== 'conversation' && front?.type !== 'terminal') return;
         const panes = collectPanes(conversationSplit.layout);
         const holder = panes.find((pane) => pane.tabId === activeTabId);
         if (holder) {
             if (holder.id !== conversationSplit.focusedPaneId) conversationSplit.focusPane(holder.id);
             return;
         }
+        // A terminal outside the split takes the window as it always has;
+        // only chats are pulled into a pane by the strip.
+        if (front.type !== 'conversation') return;
         // A fresh chat lands in an empty picker first so it never covers a
         // conversation the user arranged on screen.
         const empty = panes.find((pane) => !pane.tabId);
@@ -2029,7 +2059,15 @@ function App() {
 
     const activeTab = tabs.find(tab => tab.id === activeTabId);
 
-    const sidebarCollapsed = takesTheWidth(activeTab) ? sidebarPeekTabId !== activeTabId : sidebarHidden;
+    // A terminal sitting in the conversation split is a pane of it, not a
+    // tab taking the width: clicking from the chat into it must not swing
+    // the sidebar shut and reflow every pane.
+    const terminalInSplit = activeTab?.type === 'terminal'
+        && Boolean(conversationSplit.layout)
+        && collectPanes(conversationSplit.layout).some((pane) => pane.tabId === activeTab.id);
+    const sidebarCollapsed = takesTheWidth(activeTab) && !terminalInSplit
+        ? sidebarPeekTabId !== activeTabId
+        : sidebarHidden;
 
     /* Split-view inputs, memoized so the split subtree keeps its memo hits:
      * fresh collections here would re-render every pane on each App render,
@@ -2042,6 +2080,14 @@ function App() {
         () => new Map(tabs.filter((tab) => tab.type === 'conversation').map((tab) => [tab.id, tab])),
         [tabs],
     );
+    const splitSessionTabs = useMemo(
+        () => stripTabs.filter((tab) => tab.type === 'terminal'),
+        [stripTabs],
+    );
+    const splitSessionById = useMemo(
+        () => new Map(splitSessionTabs.map((tab) => [tab.id, tab])),
+        [splitSessionTabs],
+    );
     const splitTabIds = useMemo(
         () => new Set(
             conversationSplit.layout
@@ -2050,11 +2096,37 @@ function App() {
         ),
         [conversationSplit.layout],
     );
+    splitTabIdsRef.current = splitTabIds;
 
     // The chats on screen: the tab in front, and with the split up, every
     // chat in it, since a pane beside the focused one is seen finishing too.
+    // A terminal in the split being the one in focus still shows the split.
     const splitShown = Boolean(conversationSplit.active && conversationSplit.layout)
-        && activeTab?.type === 'conversation';
+        && (activeTab?.type === 'conversation'
+            || (activeTab?.type === 'terminal' && splitTabIds.has(activeTab.id)));
+
+    /**
+     * Where each terminal tab in the split sits, as CSS for its wrapper.
+     *
+     * The terminal is never rendered by the split itself: moving it into the
+     * split's tree would remount it, and a remounted terminal dials a second
+     * shell and loses its scrollback. Its wrapper stays where terminal tabs
+     * live and is laid over its pane instead, below the strip the split
+     * draws at the pane's head.
+     */
+    const splitTerminalPlaces = useMemo(() => {
+        const places = new Map();
+        if (!splitShown) return places;
+        const { panes } = measureLayout(conversationSplit.layout);
+        for (const pane of panes) {
+            if (!pane.node.tabId || !splitSessionById.has(pane.node.tabId)) continue;
+            places.set(pane.node.tabId, {
+                paneId: pane.id,
+                style: insetBoxStyle(pane.box, PANE_INSET, SPLIT_SESSION_HEADER),
+            });
+        }
+        return places;
+    }, [splitShown, conversationSplit.layout, splitSessionById]);
     const inView = useCallback(
         (tabId) => tabId === activeTabId || (splitShown && splitTabIds.has(tabId)),
         [activeTabId, splitShown, splitTabIds],
@@ -2298,10 +2370,7 @@ function App() {
                         With split view on, the panes own the visible chats
                         and tabs outside the split stay mounted hidden. */}
                     {(() => {
-                        const splitActive = conversationSplit.active && conversationSplit.layout;
-                        const frontIsConversation = activeTab?.type === 'conversation';
-                        const showSplit = splitActive && frontIsConversation;
-                        if (showSplit) {
+                        if (splitShown) {
                             const background = tabs.filter((tab) => tab.type === 'conversation' && !splitTabIds.has(tab.id));
                             return (
                                 <>
@@ -2339,6 +2408,8 @@ function App() {
                                             focusedPaneId={conversationSplit.focusedPaneId}
                                             stripTabs={splitConversationTabs}
                                             tabById={splitTabById}
+                                            sessionTabs={splitSessionTabs}
+                                            sessionById={splitSessionById}
                                             conversationStatuses={conversationStatuses}
                                             sessions={assistantSessions}
                                             hosts={agentHosts}
@@ -2412,21 +2483,50 @@ function App() {
                     {tabs.filter(t => t.type === 'terminal').map((tab) => {
                         const isActiveTab = activeTabId === tab.id;
                         const split = paneCount(tab.layout) > 1;
+                        // Sitting in the conversation split: on screen with
+                        // it, laid over its pane, above the split's own layer.
+                        const place = splitTerminalPlaces.get(tab.id);
 
                         return (
                             <div
                                 key={tab.id}
                                 data-tab-panes={tab.id}
-                                style={{
-                                    visibility: isActiveTab ? 'visible' : 'hidden',
-                                    position: 'absolute',
-                                    top: 0,
-                                    left: 0,
-                                    right: 0,
-                                    bottom: 0,
-                                    zIndex: isActiveTab ? 10 : 0,
-                                }}
+                                className={place ? 'conv-split-terminal overflow-hidden rounded-b-xl' : undefined}
+                                onPointerDownCapture={place
+                                    ? () => {
+                                        if (place.paneId !== conversationSplit.focusedPaneId || !isActiveTab) {
+                                            handleConversationFocusPane(place.paneId, tab.id);
+                                        }
+                                    }
+                                    : undefined}
+                                style={place
+                                    ? {
+                                        visibility: 'visible',
+                                        position: 'absolute',
+                                        ...place.style,
+                                        zIndex: 20,
+                                    }
+                                    : {
+                                        visibility: isActiveTab ? 'visible' : 'hidden',
+                                        position: 'absolute',
+                                        top: 0,
+                                        left: 0,
+                                        right: 0,
+                                        bottom: 0,
+                                        zIndex: isActiveTab ? 10 : 0,
+                                    }}
                             >
+                                {place && (
+                                    <span
+                                        aria-hidden="true"
+                                        className={`pane-ring pointer-events-none absolute inset-0 rounded-b-xl z-40 ${
+                                            place.paneId === conversationSplit.focusedPaneId ? 'pane-ring-active' : ''
+                                        }`}
+                                        // The strip above draws the top edge;
+                                        // a second one here would be a seam.
+                                        style={{ clipPath: 'inset(2px 0 0 0)' }}
+                                    />
+                                )}
                                 <SplitLayout
                                     layout={tab.layout}
                                     focusedPaneId={tab.focusedPaneId}
@@ -2472,6 +2572,9 @@ function App() {
                                                 onToggleFullscreen={() => handleToggleFullscreen(tab.id)}
                                                 onFocus={() => handleFocusPane(tab.id, pane.id)}
                                                 onSplit={(direction, source) => handleSplitPane(tab.id, pane.id, direction, source)}
+                                                onSplitWithChat={assistantShown && !place
+                                                    ? () => handleTerminalSplitWithChat(tab.id)
+                                                    : undefined}
                                                 onToggleZoom={() => handleToggleZoom(tab.id, pane.id)}
                                                 onClosePane={() => handleClosePane(tab.id, pane.id)}
                                                 onConnectResult={handleConnectResult}

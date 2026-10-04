@@ -474,6 +474,26 @@ export function boxStyle(box) {
 }
 
 /**
+ * A box as CSS for something laid over a split from outside it.
+ *
+ * `measureLayout` boxes are shares of SplitLayout's own surface, which sits
+ * `inset` px in from every edge of its parent once split. Whatever is placed
+ * over a pane from that parent (a terminal tab sitting in a conversation
+ * split, see App.jsx) has to add the inset back and take it out of the shares,
+ * or it lands a few pixels off. `top` is extra room left at the pane's head,
+ * for a header the split view draws there itself.
+ */
+export function insetBoxStyle(box, inset = 0, top = 0) {
+    const value = (frac, px) => `calc(${(frac * 100).toFixed(4)}% + ${px.toFixed(2)}px)`;
+    return {
+        left: value(box.fracX, inset + box.pxX - 2 * inset * box.fracX),
+        top: value(box.fracY, inset + box.pxY - 2 * inset * box.fracY + top),
+        width: value(box.fracW, box.pxW - 2 * inset * box.fracW),
+        height: value(box.fracH, box.pxH - 2 * inset * box.fracH - top),
+    };
+}
+
+/**
  * The pane a directional move should land on, chosen from measured rectangles
  * rather than the tree: what looks like "the pane to the right" is a question
  * about the screen, and the tree only answers it for simple layouts.

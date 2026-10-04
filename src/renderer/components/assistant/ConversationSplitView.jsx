@@ -1,13 +1,15 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { PlusSignIcon } from 'hugeicons-react';
+import { Cancel01Icon, CommandLineIcon, PlusSignIcon, Unlink01Icon } from 'hugeicons-react';
 import SplitLayout from '../panes/SplitLayout';
 import ConversationView from './ConversationView';
+import ConversationPaneSwitcher from './ConversationPaneSwitcher';
 import AgentMark from './AgentMark';
+import { OsIcon, hostOs } from '../../lib/os-icons';
 import { PANE_HEADER_HEIGHT } from '../../lib/layout';
-import { HAIRLINE } from './AssistantConversation';
+import { HAIRLINE, HeaderButton } from './AssistantConversation';
 import { useT } from '../../i18n';
-import { MAX_CONVERSATION_PANES, applyConversationDrop } from '../../hooks/useConversationSplit';
+import { MAX_CONVERSATION_PANES, SPLIT_SESSION_HEADER, applyConversationDrop } from '../../hooks/useConversationSplit';
 import { collectPanes, measureLayout, paneCount } from '../../lib/panes';
 
 /**
@@ -78,20 +80,38 @@ const sameZone = (a, b) => (
         && a.direction === b.direction && a.before === b.before)
 );
 
-function ConversationPanePicker({ tabs, statuses, usedTabIds, onPick, onNew }) {
+const PICK_ROW = `w-full flex items-center gap-2 px-2.5 py-2 rounded-xl text-left transition-colors
+    hover:bg-gray-100 dark:hover:bg-surface-control outline-none
+    focus-visible:ring-2 focus-visible:ring-gray-900/20 dark:focus-visible:ring-white/25`;
+
+const PICK_HEADING = 'px-2.5 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-neutral-500';
+
+function ConversationPanePicker({ tabs, sessionTabs = [], usedTabIds, onPick, onNew, onClose }) {
     const t = useT();
     const choices = tabs.filter((tab) => !usedTabIds.has(tab.id));
+    const sessions = sessionTabs.filter((tab) => !usedTabIds.has(tab.id));
     return (
         <div className="absolute inset-0 flex flex-col">
             <div
-                className={`shrink-0 px-3 flex items-center border-b ${HAIRLINE}`}
+                data-pane-header="true"
+                className={`shrink-0 px-3 flex items-center gap-2 border-b ${HAIRLINE} conv-pane-header`}
                 style={{ height: PANE_HEADER_HEIGHT }}
             >
-                <span className="text-xs font-semibold text-gray-500 dark:text-neutral-400">
+                <span className="min-w-0 flex-1 truncate text-xs font-semibold text-gray-500 dark:text-neutral-400">
                     {t('assistant.splitPickTitle')}
                 </span>
+                {onClose && (
+                    <HeaderButton
+                        title={t('assistant.closeSplitPane')}
+                        icon={<Cancel01Icon size={16} strokeWidth={1.75} />}
+                        onClick={onClose}
+                    />
+                )}
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-1">
+                {sessionTabs.length > 0 && (
+                    <div className={PICK_HEADING}>{t('assistant.splitPickConversations')}</div>
+                )}
                 {choices.map((tab) => (
                     <button
                         key={tab.id}
@@ -108,7 +128,7 @@ function ConversationPanePicker({ tabs, statuses, usedTabIds, onPick, onNew }) {
                         {tab.busy && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />}
                     </button>
                 ))}
-                {choices.length === 0 && (
+                {choices.length === 0 && sessions.length === 0 && (
                     <p className="px-2 py-4 text-xs text-gray-500 dark:text-neutral-400">
                         {t('assistant.splitPickEmpty')}
                     </p>
@@ -116,14 +136,88 @@ function ConversationPanePicker({ tabs, statuses, usedTabIds, onPick, onNew }) {
                 <button
                     type="button"
                     onClick={onNew}
-                    className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl text-xs font-medium
-                        text-gray-600 dark:text-neutral-300 transition-colors
-                        hover:bg-gray-100 dark:hover:bg-surface-control outline-none
-                        focus-visible:ring-2 focus-visible:ring-gray-900/20 dark:focus-visible:ring-white/25"
+                    className={`${PICK_ROW} text-xs font-medium text-gray-600 dark:text-neutral-300`}
                 >
                     <PlusSignIcon size={15} strokeWidth={2} />
                     {t('assistant.splitPickNew')}
                 </button>
+
+                {sessions.length > 0 && (
+                    <>
+                        <div className={PICK_HEADING}>{t('assistant.splitPickSessions')}</div>
+                        {sessions.map((tab) => (
+                            <button
+                                key={tab.id}
+                                type="button"
+                                onClick={() => onPick(tab.id)}
+                                className={PICK_ROW}
+                            >
+                                <OsIcon os={hostOs(tab.host)} distro={tab.host?.distro} className="w-4 h-4 shrink-0" />
+                                <span className="min-w-0 flex-1 truncate text-xs font-medium text-gray-900 dark:text-white">
+                                    {tab.title}
+                                </span>
+                                <span
+                                    className={`w-1.5 h-1.5 rounded-full shrink-0 ${tab.connected ? 'bg-emerald-500' : 'bg-gray-300 dark:bg-neutral-600'}`}
+                                />
+                            </button>
+                        ))}
+                    </>
+                )}
+            </div>
+        </div>
+    );
+}
+
+/**
+ * A terminal tab's pane in a conversation split.
+ *
+ * Only the head is drawn here. The terminal itself stays mounted where
+ * terminal tabs live and is laid over the rest of this pane from App.jsx,
+ * so it keeps its session and scrollback through every rearrangement. This
+ * strip is what makes it a pane of the split: it drags like a chat header,
+ * switches what the pane shows, and closes the pane without closing the
+ * session.
+ */
+function SessionPaneHeader({ tab, conversationTabs, sessionTabs, onSwitch, onNew, onClose, onExit }) {
+    const t = useT();
+    return (
+        <div className="absolute inset-0 flex flex-col bg-white dark:bg-surface-raised">
+            <div
+                data-pane-header="true"
+                className={`shrink-0 pl-2 pr-1 flex items-center gap-1 border-b ${HAIRLINE} conv-pane-header`}
+                style={{ height: SPLIT_SESSION_HEADER }}
+            >
+                <ConversationPaneSwitcher
+                    tab={tab}
+                    title={tab.title}
+                    icon={<CommandLineIcon size={15} strokeWidth={1.75} className="shrink-0 text-gray-500 dark:text-neutral-400" />}
+                    tabs={conversationTabs}
+                    sessionTabs={sessionTabs}
+                    onSwitch={onSwitch}
+                    onNew={onNew}
+                />
+                {onClose && (
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        title={t('assistant.closeSplitPane')}
+                        className="w-7 h-7 shrink-0 flex items-center justify-center rounded-lg text-gray-500 dark:text-neutral-400
+                            hover:bg-gray-100 dark:hover:bg-surface-control transition-colors"
+                    >
+                        <Cancel01Icon size={14} strokeWidth={1.75} />
+                    </button>
+                )}
+                {onExit && (
+                    <button
+                        type="button"
+                        onClick={onExit}
+                        title={t('assistant.exitSplit')}
+                        className="w-7 h-7 shrink-0 flex items-center justify-center rounded-lg text-gray-500 dark:text-neutral-400
+                            hover:bg-gray-100 dark:hover:bg-surface-control transition-colors"
+                    >
+                        <Unlink01Icon size={14} strokeWidth={1.75} />
+                    </button>
+                )}
             </div>
         </div>
     );
@@ -134,6 +228,9 @@ function ConversationSplitView({
     focusedPaneId,
     stripTabs,
     tabById,
+    /** Terminal tabs in strip form, and the same keyed by id. */
+    sessionTabs = [],
+    sessionById = new Map(),
     conversationStatuses,
     sessions,
     hosts,
@@ -176,12 +273,16 @@ function ConversationSplitView({
 
     const titleOf = useCallback((paneId) => {
         const pane = collectPanes(layout).find((entry) => entry.id === paneId);
+        const session = pane?.tabId ? sessionById.get(pane.tabId) : null;
+        if (session) return { title: session.title || '', look: null, session: true };
         const tab = pane?.tabId ? tabById.get(pane.tabId) : null;
+        const strip = tab ? stripTabs.find((entry) => entry.id === tab.id) : null;
         return {
-            title: tab?.title || '',
+            title: strip?.title || tab?.title || '',
             look: tab?.agentLook || lookFor(tab?.agentId),
+            session: false,
         };
-    }, [layout, tabById, lookFor]);
+    }, [layout, tabById, sessionById, stripTabs, lookFor]);
 
     // One global click trap: a drag released over a header button must not
     // click it. Armed only by a real drag, so ordinary clicks pass through.
@@ -240,11 +341,14 @@ function ConversationSplitView({
             highlight.style.display = 'none';
             return;
         }
+        // In window pixels: the highlight lives on the body, above the
+        // terminals that are laid over their panes from outside this view.
+        const px = pxBox(box, rect);
         highlight.style.display = 'block';
-        highlight.style.left = `${box.fracX * 100}%`;
-        highlight.style.top = `${box.fracY * 100}%`;
-        highlight.style.width = `${box.fracW * 100}%`;
-        highlight.style.height = `${box.fracH * 100}%`;
+        highlight.style.left = `${rect.left + px.left}px`;
+        highlight.style.top = `${rect.top + px.top}px`;
+        highlight.style.width = `${px.right - px.left}px`;
+        highlight.style.height = `${px.bottom - px.top}px`;
         highlight.dataset.variant = zone.kind === 'swap' ? 'swap' : 'dock';
     }, [layout]);
 
@@ -278,8 +382,8 @@ function ConversationSplitView({
             if (!current.lifted) {
                 if (Math.hypot(moveEvent.clientX - current.originX, moveEvent.clientY - current.originY) < DRAG_THRESHOLD) return;
                 current.lifted = true;
-                const { title, look } = titleOf(current.paneId);
-                setDrag({ paneId: current.paneId, title, look });
+                const { title, look, session } = titleOf(current.paneId);
+                setDrag({ paneId: current.paneId, title, look, session });
                 document.body.classList.add('conv-pane-dragging');
                 updateGhost(moveEvent.clientX, moveEvent.clientY);
             }
@@ -339,16 +443,39 @@ function ConversationSplitView({
             onResizeSplit={onResizeSplit}
             onEqualizeSplit={onEqualizeSplit}
             renderPane={(pane, { focused }) => {
+                const session = pane.tabId ? sessionById.get(pane.tabId) : null;
+                if (session) {
+                    return (
+                        <div
+                            className="absolute inset-0"
+                            onPointerDownCapture={() => { if (!focused) onFocusPane(pane.id, session.id); }}
+                            onPointerDown={(event) => beginPaneDrag(pane.id, event)}
+                        >
+                            <SessionPaneHeader
+                                tab={session}
+                                conversationTabs={stripTabs}
+                                sessionTabs={sessionTabs}
+                                onSwitch={(tabId) => onPickTab(pane.id, tabId)}
+                                onNew={() => onNewIntoPane(pane.id)}
+                                onClose={() => onClosePane(pane.id, null)}
+                                onExit={count <= 2 ? onExitSplit : undefined}
+                            />
+                        </div>
+                    );
+                }
                 const tab = pane.tabId ? tabById.get(pane.tabId) : null;
                 if (!tab) {
                     return (
-                        <ConversationPanePicker
-                            tabs={stripTabs}
-                            statuses={conversationStatuses}
-                            usedTabIds={usedTabIds}
-                            onPick={(tabId) => onPickTab(pane.id, tabId)}
-                            onNew={() => onNewIntoPane(pane.id)}
-                        />
+                        <div className="absolute inset-0" onPointerDown={(event) => beginPaneDrag(pane.id, event)}>
+                            <ConversationPanePicker
+                                tabs={stripTabs}
+                                sessionTabs={sessionTabs}
+                                usedTabIds={usedTabIds}
+                                onPick={(tabId) => onPickTab(pane.id, tabId)}
+                                onNew={() => onNewIntoPane(pane.id)}
+                                onClose={() => onClosePane(pane.id, null)}
+                            />
+                        </div>
                     );
                 }
                 return (
@@ -383,6 +510,7 @@ function ConversationSplitView({
                             onClosePane={() => onClosePane(pane.id, tab.id)}
                             onExitSplit={count <= 2 ? onExitSplit : undefined}
                             switchTabs={stripTabs}
+                            switchSessions={sessionTabs}
                             onSwitchTab={(tabId) => onPickTab(pane.id, tabId)}
                             onNewIntoPane={() => onNewIntoPane(pane.id)}
                         />
@@ -390,13 +518,23 @@ function ConversationSplitView({
                 );
             }}
         />
-        {/* Drop overlay: same inset as the panes, so previews land on them. */}
-        <div ref={overlayRef} className="pointer-events-none absolute" style={{ inset: 6 }} aria-hidden="true">
-            <div ref={zoneRef} className="conv-drop-preview" style={{ display: 'none' }} />
-        </div>
+        {/* Drop overlay: same inset as the panes, so measured boxes land on
+            them. Only measured; the highlight itself is on the body. */}
+        <div ref={overlayRef} className="pointer-events-none absolute" style={{ inset: 6 }} aria-hidden="true" />
+        {createPortal(
+            <div
+                ref={zoneRef}
+                className="conv-drop-preview"
+                style={{ display: 'none', position: 'fixed', zIndex: 9998 }}
+                aria-hidden="true"
+            />,
+            document.body,
+        )}
         {drag && createPortal(
             <div ref={ghostRef} className="conv-drag-ghost" aria-hidden="true">
-                <AgentMark size={14} look={drag.look} />
+                {drag.session
+                    ? <CommandLineIcon size={14} strokeWidth={2} />
+                    : <AgentMark size={14} look={drag.look} />}
                 <span>{drag.title}</span>
             </div>,
             document.body,

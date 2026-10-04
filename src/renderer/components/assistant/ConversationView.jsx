@@ -294,6 +294,8 @@ function ConversationView({
     onExitSplit,
     /** The chats a split pane can be pointed at; enables the title switcher. */
     switchTabs = null,
+    /** Terminal tabs the same switcher offers, so a pane can turn into one. */
+    switchSessions = [],
     onSwitchTab,
     onNewIntoPane,
 }) {
@@ -363,6 +365,7 @@ function ConversationView({
                         agentLook={agentLook}
                         busy={status?.busy}
                         tabs={switchTabs}
+                        sessionTabs={switchSessions}
                         onSwitch={onSwitchTab}
                         onNew={onNewIntoPane}
                     />
