@@ -18,6 +18,8 @@
 
 import { memo } from 'react';
 import CopyButton from '../components/ui/CopyButton';
+import Chart, { ChartPending } from '../components/ui/Chart';
+import { parseChart } from './chart-spec';
 
 const FENCE = /^```([\w+-]*)\s*$/;
 const HEADING = /^(#{1,4})\s+(.*)$/;
@@ -139,6 +141,28 @@ function CodeBlock({ code, language }) {
             <pre className="px-3 py-2 overflow-x-auto bg-gray-50 dark:bg-surface-base">
                 <code className="font-jetbrains text-xs leading-relaxed whitespace-pre">{code}</code>
             </pre>
+        </div>
+    );
+}
+
+/**
+ * A ```chart fence: the chart, or the code with the reason it is not one.
+ *
+ * While the fence is still open the spec is half an object, so it waits as a
+ * placeholder rather than failing to parse sixty times a second. A finished
+ * fence that does not read as a chart falls back to the code block it would
+ * otherwise have been, so a bad spec costs a picture and never the reply.
+ */
+function ChartFence({ code, closed }) {
+    const parsed = parseChart(code);
+    if (parsed.chart) return <Chart chart={parsed.chart} />;
+    if (!closed) return <ChartPending />;
+    return (
+        <div className="[&:not(:first-child)]:mt-2">
+            <CodeBlock code={code} language="chart" />
+            <div className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+                Not drawn: {parsed.error}
+            </div>
         </div>
     );
 }
@@ -299,7 +323,10 @@ function parse(text) {
                 index += 1;
             }
             const code = collected.join('\n');
-            blocks.push({ kind: 'code', code, language, sig: `${language}\u0000${code}` });
+            // A fence with no end is a reply still arriving, or one cut off.
+            // A code block draws the same either way; a chart cannot.
+            const closed = index < lines.length;
+            blocks.push({ kind: 'code', code, language, closed, sig: `${language}\u0000${closed}\u0000${code}` });
             continue;
         }
 
@@ -375,7 +402,9 @@ function parse(text) {
 const Block = memo(function Block({ block, prefix }) {
     switch (block.kind) {
         case 'code':
-            return <CodeBlock code={block.code} language={block.language} />;
+            return block.language.toLowerCase() === 'chart'
+                ? <ChartFence code={block.code} closed={block.closed} />
+                : <CodeBlock code={block.code} language={block.language} />;
         case 'table':
             return <Table header={block.header} rows={block.rows} align={block.align} />;
         case 'h':

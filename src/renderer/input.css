@@ -1639,3 +1639,121 @@ body.tab-dragging .session-tab {
 .scrollbar-none::-webkit-scrollbar {
     display: none;
 }
+
+/* Charts in replies (components/ui/Chart.jsx).
+   The series colours are one validated order, light and dark each stepped for
+   its own surface rather than one set flipped: the order is what keeps
+   neighbours apart for colour-blind readers, so a slot is never reused or
+   skipped. Checked against white and the dark ramp's raised surface: every
+   adjacent pair clears the colour-blind and normal-vision floors in both. The
+   status colours (good, warning, critical) are reserved for state: meters,
+   uptime cells, failed runs. They never stand in for a series. */
+.chart-root {
+    --chart-surface: #ffffff;
+    --chart-1: #2a78d6;
+    --chart-2: #eb6834;
+    --chart-3: #1baf7a;
+    --chart-4: #eda100;
+    --chart-5: #e87ba4;
+    --chart-6: #008300;
+    --chart-7: #4a3aa7;
+    --chart-8: #e34948;
+    --chart-grid: rgb(0 0 0 / 0.055);
+    --chart-cursor: rgb(0 0 0 / 0.18);
+    --chart-track: rgb(0 0 0 / 0.055);
+    --chart-mark: rgb(0 0 0 / 0.32);
+    --chart-other: #b9b8b1;
+    --chart-good: #0ca30c;
+    /* A strip of good cells is most of every uptime chart, so "up" is a
+       quieter green than the status one: present, not shouting. */
+    --chart-up: #3aa76d;
+    --chart-warning: #fab219;
+    --chart-critical: #d03b3b;
+}
+.dark .chart-root {
+    --chart-surface: rgb(var(--app-base));
+    --chart-1: #3987e5;
+    --chart-2: #d95926;
+    --chart-3: #199e70;
+    --chart-4: #c98500;
+    --chart-5: #d55181;
+    --chart-6: #008300;
+    --chart-7: #9085e9;
+    --chart-8: #e66767;
+    --chart-grid: rgb(255 255 255 / 0.055);
+    --chart-cursor: rgb(255 255 255 / 0.22);
+    --chart-track: rgb(255 255 255 / 0.07);
+    --chart-mark: rgb(255 255 255 / 0.38);
+    --chart-other: #5c5b56;
+    --chart-good: #0ca30c;
+    --chart-up: #2a8a57;
+    --chart-warning: #fab219;
+    --chart-critical: #d03b3b;
+}
+
+.chart-bar {
+    transition: background-color 0.15s ease;
+}
+.chart-bar-row:hover .chart-bar {
+    background-color: color-mix(in srgb, var(--chart-1) 32%, transparent) !important;
+}
+
+/* Motion on the way in, once: lines draw left to right (each path is given
+   pathLength="1"), washes fade up behind them, bars grow from their baseline. */
+@keyframes chart-draw {
+    from { stroke-dashoffset: 1; }
+    to { stroke-dashoffset: 0; }
+}
+@keyframes chart-fade {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+@keyframes chart-grow {
+    from { transform: scaleX(0); }
+    to { transform: scaleX(1); }
+}
+@keyframes chart-appear {
+    from { opacity: 0; transform: translateY(3px); }
+    to { opacity: 1; transform: none; }
+}
+.chart-appear {
+    animation: chart-appear 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+/* A span still running: diagonal hatching, so it reads as unfinished
+   without a second colour. */
+.chart-running {
+    background-image: repeating-linear-gradient(135deg, rgb(255 255 255 / 0.22) 0 4px, transparent 4px 8px);
+}
+@keyframes chart-shimmer {
+    from { background-position: 150% 0; }
+    to { background-position: -50% 0; }
+}
+.chart-draw {
+    stroke-dasharray: 1;
+    animation: chart-draw 1s cubic-bezier(0.65, 0, 0.35, 1) both;
+}
+.chart-fade {
+    animation: chart-fade 0.8s ease-out 0.35s both;
+}
+.chart-grow {
+    transform-origin: left center;
+    animation: chart-grow 0.75s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.chart-shimmer {
+    background-image: linear-gradient(100deg, transparent 30%, rgb(0 0 0 / 0.035) 50%, transparent 70%);
+    background-size: 200% 100%;
+    animation: chart-shimmer 1.6s linear infinite;
+}
+.dark .chart-shimmer {
+    background-image: linear-gradient(100deg, transparent 30%, rgb(255 255 255 / 0.05) 50%, transparent 70%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .chart-draw,
+    .chart-fade,
+    .chart-grow,
+    .chart-appear,
+    .chart-shimmer {
+        animation: none;
+    }
+}
