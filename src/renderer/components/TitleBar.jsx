@@ -27,7 +27,7 @@ import ContextMenu from './ui/ContextMenu';
 import WindowControls from './ui/WindowControls';
 import NotificationsMenu from './NotificationsMenu';
 import AgentMark from './assistant/AgentMark';
-import Tooltip from './ui/Tooltip';
+import Tooltip, { useTooltip } from './ui/Tooltip';
 import MarqueeText from './ui/MarqueeText';
 import { TAB_COLORS, segmentStrip, tabColor, withAlpha } from '../lib/tabs';
 
@@ -236,6 +236,12 @@ function SessionTab({
     const color = tabColor(tab.color);
     // A chat's title slides to show its end while pointed at, as in the list.
     const [hovered, setHovered] = useState(false);
+    // Which agent a chat belongs to, said on hover rather than on the tab:
+    // a second line under every title made the whole strip read cluttered.
+    const { triggerProps: agentTipProps, tooltip: agentTip } = useTooltip({
+        label: agentName,
+        enabled: Boolean(agentName) && !closing,
+    });
 
     /** Whichever element the tab is: a button, or the field it is renamed in. */
     const tabRef = useRef(null);
@@ -365,7 +371,7 @@ function SessionTab({
     return (
         <button
             ref={tabRef}
-            className={`tab-item session-tab flex items-center gap-2 px-3 ${agentName ? 'py-1' : 'py-2'} rounded-xl text-xs font-medium cursor-pointer group relative z-10 overflow-hidden app-no-drag ${
+            className={`tab-item session-tab flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium cursor-pointer group relative z-10 overflow-hidden app-no-drag ${
                 active
                     ? 'bg-gray-900/[0.08] dark:bg-surface-control text-gray-900 dark:text-white'
                     : 'bg-gray-900/[0.04] dark:bg-surface-raised text-gray-500 dark:text-gray-400 hover:bg-gray-900/[0.06] dark:hover:bg-surface-control'
@@ -373,7 +379,6 @@ function SessionTab({
             data-tab={tab.id}
             data-active={active ? 'true' : 'false'}
             data-closing={closing ? 'true' : undefined}
-            title={agentName ? `${tab.title}\n${agentName}` : tab.title}
             // Picking the tab up, and marking it while it is in hand. Spread
             // here so a tab mid-close, which is handed none, simply cannot be.
             {...dragProps}
@@ -386,8 +391,17 @@ function SessionTab({
                 boxShadow: `inset 0 0 0 1px ${withAlpha(color.hex, active ? 0.5 : 0.28)}`,
             } : undefined}
             onClick={closing ? undefined : () => onSelect(tab.id)}
-            onMouseEnter={isConversation ? () => setHovered(true) : undefined}
-            onMouseLeave={isConversation ? () => setHovered(false) : undefined}
+            onMouseEnter={isConversation ? (event) => {
+                setHovered(true);
+                agentTipProps.onMouseEnter?.(event);
+            } : undefined}
+            onMouseLeave={isConversation ? (event) => {
+                setHovered(false);
+                agentTipProps.onMouseLeave(event);
+            } : undefined}
+            onFocus={agentTipProps.onFocus}
+            onBlur={agentTipProps.onBlur}
+            onMouseDown={agentTipProps.onMouseDown}
             // Double-click to rename, the way every tab strip that can be
             // renamed does it. The menu carries the same action for discovery.
             onDoubleClick={closing ? undefined : (event) => {
@@ -451,24 +465,10 @@ function SessionTab({
                     </svg>
                 </span>
             </span>
-            {agentName ? (
-                // Two lines: the chat on top with the full width to itself,
-                // the project below it, muted. Plain truncation on both, not
-                // the marquee: its measure assumes a row, and the tooltip
-                // already carries the whole title on hover.
-                <span className="flex-1 min-w-0 flex flex-col justify-center leading-tight text-left">
-                    <span className="truncate">{tab.title}</span>
-                    <span
-                        className="truncate text-[10px] font-normal
-                            text-gray-400 dark:text-gray-500"
-                        aria-hidden="true"
-                    >
-                        {agentName}
-                    </span>
-                </span>
-            ) : isConversation
+            {isConversation
                 ? <MarqueeText text={tab.title} playing={hovered && !closing} className="text-left" />
                 : <span className="truncate flex-1 text-left min-w-0">{tab.title}</span>}
+            {agentTip}
 
             {/* Done while you were elsewhere: a chat that finished answering
                 behind another tab, until it is looked at. */}
@@ -1047,9 +1047,8 @@ function TitleBar({
             active={active}
             closing={closing}
             renaming={renaming?.kind === 'tab' && renaming.id === tab.id}
-            // The project suffix: conversations only, and only while there is
-            // more than one project to tell apart. Otherwise the tab is
-            // exactly as before.
+            // The agent, shown in a tooltip on hover: conversations only, and
+            // only while there is more than one agent to tell apart.
             agentName={tab.type === 'conversation' && agents.length > 1 ? (agentNames.get(tab.agentId) || '') : ''}
             // A tab on its way out is not one to pick up: it holds no slot in
             // the strip any more, and the drag would be carrying a ghost.
