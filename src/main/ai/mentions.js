@@ -25,7 +25,7 @@ const MAX_MENTIONS = 20;
 const MAX_TEXT = 60000;
 
 /** The kinds that can be tagged, and where each is looked up. */
-const KINDS = ['host', 'snippet', 'memory', 'proxy', 'key', 'mcp'];
+const KINDS = ['host', 'snippet', 'memory', 'proxy', 'key', 'mcp', 'skill'];
 
 const clean = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
 
@@ -96,6 +96,13 @@ const RESOLVE = {
             : `command: ${[record.command, ...(record.args || [])].join(' ')}`],
         note: 'Its tools are already available to you.',
     }),
+    skill: (record) => ({
+        name: record.name,
+        detail: record.description ? `skill · ${record.description}`.slice(0, 300) : 'skill',
+        text: String(record.text || '').slice(0, MAX_TEXT),
+        lines: record.description ? [`description: ${record.description}`] : [],
+        note: 'The user invoked this skill with `/`. Treat it as the instructions for this request.',
+    }),
 };
 
 /** Where each kind is found in the inventory the caller hands in. */
@@ -106,6 +113,7 @@ const SOURCE = {
     proxy: 'proxies',
     key: 'keys',
     mcp: 'servers',
+    skill: 'skills',
 };
 
 /**
@@ -165,6 +173,7 @@ const LABEL = {
     proxy: 'proxy',
     key: 'key',
     mcp: 'mcp-server',
+    skill: 'skill',
 };
 
 /**

@@ -138,6 +138,20 @@ function connect(child, { onEvent = () => {}, onActivity = () => {} } = {}) {
     };
 }
 
+/** A context window as `128k` or `1M`: millions from 1,000,000 up, not `1024k`. */
+function formatContextWindow(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n) || n <= 0) return '';
+    if (n >= 1000000) {
+        const m = n / 1000000;
+        const text = m >= 10
+            ? String(Math.round(m))
+            : String(Math.round(m * 10) / 10).replace(/\.0$/, '');
+        return `${text}M`;
+    }
+    return `${Math.round(n / 1000)}k`;
+}
+
 /** `get_available_models`, as the composer's rows. */
 function describeModels(data) {
     const list = Array.isArray(data?.models) ? data.models : Array.isArray(data) ? data : [];
@@ -146,7 +160,7 @@ function describeModels(data) {
         resolved: model.id,
         label: model.name || model.id,
         short: String(model.name || model.id).replace(/\s*\([^)]*\)\s*$/, ''),
-        description: `${model.provider}${model.contextWindow ? ` · ${Math.round(model.contextWindow / 1000)}k context` : ''}`,
+        description: `${model.provider}${model.contextWindow ? ` · ${formatContextWindow(model.contextWindow)} context` : ''}`,
         preferred: false,
         // Pi clamps a level to what the model has, so every level is safe to
         // offer on a model that reasons at all.
@@ -592,5 +606,5 @@ module.exports = {
     detect,
     findPi,
     supportsImages: true,
-    _test: { describeModels, extensionPath, useCommand: (command) => { override = command; } },
+    _test: { describeModels, formatContextWindow, extensionPath, useCommand: (command) => { override = command; } },
 };

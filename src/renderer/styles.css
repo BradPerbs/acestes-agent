@@ -648,6 +648,10 @@ video {
   position: static;
 }
 
+.\!fixed {
+  position: fixed !important;
+}
+
 .fixed {
   position: fixed;
 }
@@ -670,6 +674,10 @@ video {
 
 .inset-0 {
   inset: 0px;
+}
+
+.inset-0\.5 {
+  inset: 0.125rem;
 }
 
 .inset-y-0 {
@@ -928,9 +936,14 @@ video {
   margin-right: 0.375rem;
 }
 
-.mx-2 {
-  margin-left: 0.5rem;
-  margin-right: 0.5rem;
+.mx-2\.5 {
+  margin-left: 0.625rem;
+  margin-right: 0.625rem;
+}
+
+.mx-3 {
+  margin-left: 0.75rem;
+  margin-right: 0.75rem;
 }
 
 .mx-auto {
@@ -1032,6 +1045,10 @@ video {
   margin-left: 0.5rem;
 }
 
+.ml-2\.5 {
+  margin-left: 0.625rem;
+}
+
 .ml-3 {
   margin-left: 0.75rem;
 }
@@ -1108,12 +1125,16 @@ video {
   margin-top: 2rem;
 }
 
+.mt-\[0\.5rem\] {
+  margin-top: 0.5rem;
+}
+
 .mt-\[1px\] {
   margin-top: 1px;
 }
 
-.mt-\[5px\] {
-  margin-top: 5px;
+.mt-\[2px\] {
+  margin-top: 2px;
 }
 
 .mt-\[7px\] {
@@ -1187,6 +1208,10 @@ video {
 
 .contents {
   display: contents;
+}
+
+.\!hidden {
+  display: none !important;
 }
 
 .hidden {
@@ -1393,6 +1418,10 @@ video {
   min-height: 1rem;
 }
 
+.min-h-\[2\.75rem\] {
+  min-height: 2.75rem;
+}
+
 .min-h-\[200px\] {
   min-height: 200px;
 }
@@ -1569,6 +1598,10 @@ video {
   width: 2px;
 }
 
+.w-\[3px\] {
+  width: 3px;
+}
+
 .w-\[62px\] {
   width: 62px;
 }
@@ -1604,6 +1637,10 @@ video {
 
 .min-w-\[1\.9em\] {
   min-width: 1.9em;
+}
+
+.min-w-\[11rem\] {
+  min-width: 11rem;
 }
 
 .min-w-\[15px\] {
@@ -1702,8 +1739,20 @@ video {
   max-width: 50%;
 }
 
+.max-w-\[60\%\] {
+  max-width: 60%;
+}
+
+.max-w-\[7rem\] {
+  max-width: 7rem;
+}
+
 .max-w-\[88\%\] {
   max-width: 88%;
+}
+
+.max-w-\[90px\] {
+  max-width: 90px;
 }
 
 .max-w-\[calc\(100\%-1\.5rem\)\] {
@@ -1822,6 +1871,22 @@ video {
   transform: translate(var(--tw-translate-x), var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y));
 }
 
+@keyframes bounce {
+  0%, 100% {
+    transform: translateY(-25%);
+    animation-timing-function: cubic-bezier(0.8,0,1,1);
+  }
+
+  50% {
+    transform: none;
+    animation-timing-function: cubic-bezier(0,0,0.2,1);
+  }
+}
+
+.animate-bounce {
+  animation: bounce 1s infinite;
+}
+
 @keyframes pulse {
   50% {
     opacity: .5;
@@ -1844,6 +1909,10 @@ video {
 
 .cursor-default {
   cursor: default;
+}
+
+.cursor-grabbing {
+  cursor: grabbing;
 }
 
 .cursor-not-allowed {
@@ -2044,6 +2113,10 @@ video {
 
 .gap-6 {
   gap: 1.5rem;
+}
+
+.gap-\[2px\] {
+  gap: 2px;
 }
 
 .gap-\[3px\] {
@@ -2252,6 +2325,10 @@ video {
   border-radius: 5px;
 }
 
+.rounded-\[6px\] {
+  border-radius: 6px;
+}
+
 .rounded-\[7px\] {
   border-radius: 7px;
 }
@@ -2270,6 +2347,11 @@ video {
 
 .rounded-xl {
   border-radius: 0.75rem;
+}
+
+.rounded-b-xl {
+  border-bottom-right-radius: 0.75rem;
+  border-bottom-left-radius: 0.75rem;
 }
 
 .rounded-l-lg {
@@ -2356,6 +2438,10 @@ video {
 
 .border-amber-300\/70 {
   border-color: rgb(252 211 77 / 0.7);
+}
+
+.border-black\/10 {
+  border-color: rgb(0 0 0 / 0.1);
 }
 
 .border-black\/\[0\.06\] {
@@ -2457,11 +2543,6 @@ video {
   border-color: transparent;
 }
 
-.bg-\[\#2f7bf6\] {
-  --tw-bg-opacity: 1;
-  background-color: rgb(47 123 246 / var(--tw-bg-opacity, 1));
-}
-
 .bg-amber-100 {
   --tw-bg-opacity: 1;
   background-color: rgb(254 243 199 / var(--tw-bg-opacity, 1));
@@ -2485,12 +2566,20 @@ video {
   background-color: rgb(245 158 11 / 0.1);
 }
 
+.bg-amber-500\/40 {
+  background-color: rgb(245 158 11 / 0.4);
+}
+
 .bg-black\/20 {
   background-color: rgb(0 0 0 / 0.2);
 }
 
 .bg-black\/40 {
   background-color: rgb(0 0 0 / 0.4);
+}
+
+.bg-black\/\[0\.05\] {
+  background-color: rgb(0 0 0 / 0.05);
 }
 
 .bg-blue-50 {
@@ -2624,8 +2713,8 @@ video {
   background-color: rgb(17 24 39 / 0.1);
 }
 
-.bg-gray-900\/30 {
-  background-color: rgb(17 24 39 / 0.3);
+.bg-gray-900\/25 {
+  background-color: rgb(17 24 39 / 0.25);
 }
 
 .bg-gray-900\/\[0\.03\] {
@@ -2723,6 +2812,11 @@ video {
   background-color: rgb(240 249 255 / var(--tw-bg-opacity, 1));
 }
 
+.bg-sky-500 {
+  --tw-bg-opacity: 1;
+  background-color: rgb(14 165 233 / var(--tw-bg-opacity, 1));
+}
+
 .bg-sky-500\/10 {
   background-color: rgb(14 165 233 / 0.1);
 }
@@ -2783,6 +2877,10 @@ video {
 
 .bg-white\/75 {
   background-color: rgb(255 255 255 / 0.75);
+}
+
+.bg-white\/80 {
+  background-color: rgb(255 255 255 / 0.8);
 }
 
 .bg-white\/95 {
@@ -3055,6 +3153,10 @@ video {
   padding-left: 0.75rem;
 }
 
+.pl-3\.5 {
+  padding-left: 0.875rem;
+}
+
 .pl-4 {
   padding-left: 1rem;
 }
@@ -3077,6 +3179,10 @@ video {
 
 .pl-9 {
   padding-left: 2.25rem;
+}
+
+.pl-\[10px\] {
+  padding-left: 10px;
 }
 
 .pr-0\.5 {
@@ -3359,12 +3465,12 @@ video {
   line-height: 1.25;
 }
 
-.tracking-\[0\.06em\] {
-  letter-spacing: 0.06em;
+.tracking-\[-0\.01em\] {
+  letter-spacing: -0.01em;
 }
 
-.tracking-\[0\.08em\] {
-  letter-spacing: 0.08em;
+.tracking-\[0\.06em\] {
+  letter-spacing: 0.06em;
 }
 
 .tracking-normal {
@@ -3381,6 +3487,11 @@ video {
 
 .tracking-wider {
   letter-spacing: 0.05em;
+}
+
+.text-\[\#2f7bf6\] {
+  --tw-text-opacity: 1;
+  color: rgb(47 123 246 / var(--tw-text-opacity, 1));
 }
 
 .text-amber-500 {
@@ -3439,6 +3550,11 @@ video {
 .text-cyan-700 {
   --tw-text-opacity: 1;
   color: rgb(14 116 144 / var(--tw-text-opacity, 1));
+}
+
+.text-emerald-500 {
+  --tw-text-opacity: 1;
+  color: rgb(16 185 129 / var(--tw-text-opacity, 1));
 }
 
 .text-emerald-600 {
@@ -3670,33 +3786,9 @@ video {
   box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
 }
 
-.shadow-\[0_0_0_3px_rgba\(16\2c 185\2c 129\2c 0\.18\)\] {
-  --tw-shadow: 0 0 0 3px rgba(16,185,129,0.18);
-  --tw-shadow-colored: 0 0 0 3px var(--tw-shadow-color);
-  box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
-}
-
 .shadow-\[0_1px_2px_rgba\(0\2c 0\2c 0\2c 0\.07\)\] {
   --tw-shadow: 0 1px 2px rgba(0,0,0,0.07);
   --tw-shadow-colored: 0 1px 2px var(--tw-shadow-color);
-  box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
-}
-
-.shadow-\[0_1px_2px_rgba\(16\2c 24\2c 40\2c 0\.04\)\2c 0_1px_3px_rgba\(16\2c 24\2c 40\2c 0\.03\)\] {
-  --tw-shadow: 0 1px 2px rgba(16,24,40,0.04),0 1px 3px rgba(16,24,40,0.03);
-  --tw-shadow-colored: 0 1px 2px var(--tw-shadow-color), 0 1px 3px var(--tw-shadow-color);
-  box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
-}
-
-.shadow-\[0_1px_2px_rgba\(16\2c 24\2c 40\2c 0\.05\)\] {
-  --tw-shadow: 0 1px 2px rgba(16,24,40,0.05);
-  --tw-shadow-colored: 0 1px 2px var(--tw-shadow-color);
-  box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
-}
-
-.shadow-\[0_1px_3px_rgba\(0\2c 0\2c 0\2c 0\.35\)\] {
-  --tw-shadow: 0 1px 3px rgba(0,0,0,0.35);
-  --tw-shadow-colored: 0 1px 3px var(--tw-shadow-color);
   box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
 }
 
@@ -3712,8 +3804,20 @@ video {
   box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
 }
 
+.shadow-\[0_2px_10px_rgba\(245\2c 158\2c 11\2c 0\.7\)\] {
+  --tw-shadow: 0 2px 10px rgba(245,158,11,0.7);
+  --tw-shadow-colored: 0 2px 10px var(--tw-shadow-color);
+  box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
+}
+
 .shadow-\[0_2px_8px_rgba\(0\2c 0\2c 0\2c 0\.07\)\] {
   --tw-shadow: 0 2px 8px rgba(0,0,0,0.07);
+  --tw-shadow-colored: 0 2px 8px var(--tw-shadow-color);
+  box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
+}
+
+.shadow-\[0_2px_8px_rgba\(0\2c 0\2c 0\2c 0\.4\)\] {
+  --tw-shadow: 0 2px 8px rgba(0,0,0,0.4);
   --tw-shadow-colored: 0 2px 8px var(--tw-shadow-color);
   box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
 }
@@ -3792,10 +3896,6 @@ video {
 
 .ring-black\/\[0\.04\] {
   --tw-ring-color: rgb(0 0 0 / 0.04);
-}
-
-.ring-black\/\[0\.05\] {
-  --tw-ring-color: rgb(0 0 0 / 0.05);
 }
 
 .ring-black\/\[0\.06\] {
@@ -3888,8 +3988,20 @@ video {
   transition-duration: 150ms;
 }
 
-.transition-\[left\] {
-  transition-property: left;
+.transition-\[left\2c transform\2c background-color\2c box-shadow\] {
+  transition-property: left,transform,background-color,box-shadow;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 150ms;
+}
+
+.transition-\[padding\2c opacity\] {
+  transition-property: padding,opacity;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 150ms;
+}
+
+.transition-\[width\2c background-color\] {
+  transition-property: width,background-color;
   transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
   transition-duration: 150ms;
 }
@@ -4749,6 +4861,37 @@ input[type="color"]::-webkit-color-swatch {
   transition: width 240ms cubic-bezier(0.2, 0, 0, 1);
 }
 
+/* The corner card's (ActivityOverlay.jsx): the rest of its row, with nothing
+   beside it to glide, and a phrase too long for it cut by an ellipsis rather
+   than at a letter, since the actions it names can run long. */
+
+.working-cell.working-fit {
+  flex: 1 1 0%;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
+  transition: none;
+}
+
+.working-fit .working-phrase {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A step darker (lighter, in the dark): the card is read at a glance from the
+   corner of the screen, over whatever app is behind it, where the line under
+   a turn sits quiet in a panel of its own. */
+
+.working-loud .working-phrase {
+  --working-base: rgb(107 114 128);
+  --working-glint: rgb(17 24 39);
+}
+
+.dark .working-loud .working-phrase {
+  --working-base: rgb(156 163 175);
+  --working-glint: rgb(243 244 246);
+}
+
 .working-phrase {
   --working-base: rgb(156 163 175);
   --working-glint: rgb(75 85 99);
@@ -4833,7 +4976,8 @@ input[type="color"]::-webkit-color-swatch {
 /* Geometry is animated, so a split or a zoom resolves rather than jumps. The
    terminal inside refits once the box has settled, not on every frame. */
 
-.pane-box {
+.pane-box,
+.conv-split-terminal {
   transition:
         left 0.22s cubic-bezier(0.16, 1, 0.3, 1),
         top 0.22s cubic-bezier(0.16, 1, 0.3, 1),
@@ -4842,15 +4986,20 @@ input[type="color"]::-webkit-color-swatch {
 }
 
 /* A dragged divider has to track the pointer exactly; easing it would put the
-   pane a frame or two behind the handle the user is holding. */
+   pane a frame or two behind the handle the user is holding. A terminal laid
+   over a conversation split pane follows the same rule, or it would trail
+   the pane it sits on. */
 
 body.pane-resizing-x .pane-box,
-body.pane-resizing-y .pane-box {
+body.pane-resizing-y .pane-box,
+body.pane-resizing-x .conv-split-terminal,
+body.pane-resizing-y .conv-split-terminal {
   transition: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pane-box {
+  .pane-box,
+    .conv-split-terminal {
     transition: none;
   }
 }
@@ -5625,6 +5774,83 @@ body.tab-dragging .session-tab {
   }
 }
 
+/* The window's ground: what the title bar, the sidebar and the gutters stand on,
+   and so, in practice, the sidebar's background.
+
+   The flat grey (or `--app-base`) stays underneath, from the root's own classes.
+   Over it, three layers, faintest last:
+   - a wash of the selected agent's colour from the top-left corner, where the
+     column starts, so the sidebar reads as that agent's;
+   - a fainter one of the lighter shade of the same family from the bottom-left;
+   - a sheen down from the top edge, so the column is lit from above rather than
+     printed flat.
+   Sized in pixels rather than percentages, so the light stays over the sidebar
+   however wide the window is and does not spread under the content.
+
+   The two tints are registered colours so a change of agent cross-fades the
+   wash instead of snapping it. Not inherited: they are set on the root and only
+   the root draws them, and an inherited property animating there would restyle
+   every element in the app on every frame. App.jsx writes them from the agent;
+   these initial values are the neutral wash for white and black agents. */
+
+@property --ground-tint {
+  syntax: '<color>';
+
+  inherits: false;
+
+  initial-value: rgb(139 147 167);
+}
+
+@property --ground-tint-2 {
+  syntax: '<color>';
+
+  inherits: false;
+
+  initial-value: rgb(139 147 167);
+}
+
+.app-ground {
+  background-image:
+        radial-gradient(560px 420px at 0 0, color-mix(in srgb, var(--ground-tint) 8%, transparent), transparent 72%),
+        radial-gradient(420px 560px at 0 100%, color-mix(in srgb, var(--ground-tint-2) 5%, transparent), transparent 72%),
+        linear-gradient(to bottom, rgb(255 255 255 / 0.5), rgb(255 255 255 / 0) 420px);
+  transition: --ground-tint 600ms ease, --ground-tint-2 600ms ease;
+}
+
+.dark .app-ground {
+  background-image:
+        radial-gradient(560px 420px at 0 0, color-mix(in srgb, var(--ground-tint) 9%, transparent), transparent 72%),
+        radial-gradient(420px 560px at 0 100%, color-mix(in srgb, var(--ground-tint-2) 4%, transparent), transparent 72%),
+        linear-gradient(to bottom, rgb(255 255 255 / 0.025), rgb(255 255 255 / 0) 420px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-ground {
+    transition: none;
+  }
+}
+
+/* The agent's colour as the sidebar's accent, on the lit page's icon.
+   Sidebar.jsx sets the variables from the agent; without them (white and black
+   agents, which have no hue) it is the text's own colour. */
+
+.agent-accent {
+  color: var(--agent-accent, currentColor);
+}
+
+.dark .agent-accent {
+  color: var(--agent-accent-dark, var(--agent-accent, currentColor));
+}
+
+/* The sidebar's list fading out at its foot rather than being cut off there.
+   A mask rather than a gradient painted over it, so it works on any ground,
+   the agent's wash included. */
+
+.sidebar-list-fade {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 20px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 20px), transparent);
+}
+
 /* Inset content card. Spacing comes from the app shell's gutter, so the panel
    itself carries no margin, see src/renderer/lib/layout.js */
 
@@ -5741,6 +5967,36 @@ body.tab-dragging .session-tab {
   color: rgb(107 114 128 / var(--tw-text-opacity, 1));
 }
 
+.before\:absolute::before {
+  content: var(--tw-content);
+  position: absolute;
+}
+
+.before\:-left-\[5px\]::before {
+  content: var(--tw-content);
+  left: -5px;
+}
+
+.before\:top-4::before {
+  content: var(--tw-content);
+  top: 1rem;
+}
+
+.before\:w-\[5px\]::before {
+  content: var(--tw-content);
+  width: 5px;
+}
+
+.before\:border-t::before {
+  content: var(--tw-content);
+  border-top-width: 1px;
+}
+
+.before\:border-black\/10::before {
+  content: var(--tw-content);
+  border-color: rgb(0 0 0 / 0.1);
+}
+
 .first\:mt-0:first-child {
   margin-top: 0px;
 }
@@ -5758,8 +6014,8 @@ body.tab-dragging .session-tab {
   border-color: rgb(156 163 175 / var(--tw-border-opacity, 1));
 }
 
-.focus-within\:bg-gray-200\/80:focus-within {
-  background-color: rgb(229 231 235 / 0.8);
+.focus-within\:bg-gray-900\/\[0\.05\]:focus-within {
+  background-color: rgb(17 24 39 / 0.05);
 }
 
 .focus-within\:opacity-100:focus-within {
@@ -6031,6 +6287,16 @@ body.tab-dragging .session-tab {
   background-color: rgb(17 24 39 / 0.03);
 }
 
+.focus-visible\:text-gray-900:focus-visible {
+  --tw-text-opacity: 1;
+  color: rgb(17 24 39 / var(--tw-text-opacity, 1));
+}
+
+.focus-visible\:text-red-500:focus-visible {
+  --tw-text-opacity: 1;
+  color: rgb(239 68 68 / var(--tw-text-opacity, 1));
+}
+
 .focus-visible\:opacity-100:focus-visible {
   opacity: 1;
 }
@@ -6203,11 +6469,6 @@ body.tab-dragging .session-tab {
   border-color: rgb(156 163 175 / var(--tw-border-opacity, 1));
 }
 
-.group:hover .group-hover\:border-gray-500 {
-  --tw-border-opacity: 1;
-  border-color: rgb(107 114 128 / var(--tw-border-opacity, 1));
-}
-
 .group\/slot:hover .group-hover\/slot\:bg-amber-500\/\[0\.18\] {
   background-color: rgb(245 158 11 / 0.18);
 }
@@ -6242,6 +6503,11 @@ body.tab-dragging .session-tab {
 
 .group\/row:hover .group-hover\/row\:pr-\[var\(--room\)\] {
   padding-right: var(--room);
+}
+
+.group\/agent:hover .group-hover\/agent\:text-gray-700 {
+  --tw-text-opacity: 1;
+  color: rgb(55 65 81 / var(--tw-text-opacity, 1));
 }
 
 .group\/member:hover .group-hover\/member\:text-gray-900 {
@@ -6369,6 +6635,19 @@ body.tab-dragging .session-tab {
   opacity: 0.5;
 }
 
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes ping {
+    75%, 100% {
+      transform: scale(2);
+      opacity: 0;
+    }
+  }
+
+  .motion-safe\:animate-ping {
+    animation: ping 1s cubic-bezier(0, 0, 0.2, 1) infinite;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .motion-reduce\:transition-none {
     transition-property: none;
@@ -6485,6 +6764,10 @@ body.tab-dragging .session-tab {
 .dark\:border-white:is(.dark *) {
   --tw-border-opacity: 1;
   border-color: rgb(255 255 255 / var(--tw-border-opacity, 1));
+}
+
+.dark\:border-white\/10:is(.dark *) {
+  border-color: rgb(255 255 255 / 0.1);
 }
 
 .dark\:border-white\/20:is(.dark *) {
@@ -6730,6 +7013,10 @@ body.tab-dragging .session-tab {
   background-color: rgb(var(--app-control) / 0.6);
 }
 
+.dark\:bg-surface-control\/80:is(.dark *) {
+  background-color: rgb(var(--app-control) / 0.8);
+}
+
 .dark\:bg-surface-hover:is(.dark *) {
   --tw-bg-opacity: 1;
   background-color: rgb(var(--app-hover) / var(--tw-bg-opacity, 1));
@@ -6761,8 +7048,8 @@ body.tab-dragging .session-tab {
   background-color: rgb(255 255 255 / 0.1);
 }
 
-.dark\:bg-white\/30:is(.dark *) {
-  background-color: rgb(255 255 255 / 0.3);
+.dark\:bg-white\/25:is(.dark *) {
+  background-color: rgb(255 255 255 / 0.25);
 }
 
 .dark\:bg-white\/75:is(.dark *) {
@@ -6889,6 +7176,11 @@ body.tab-dragging .session-tab {
   color: rgb(75 85 99 / var(--tw-text-opacity, 1));
 }
 
+.dark\:text-gray-700:is(.dark *) {
+  --tw-text-opacity: 1;
+  color: rgb(55 65 81 / var(--tw-text-opacity, 1));
+}
+
 .dark\:text-gray-900:is(.dark *) {
   --tw-text-opacity: 1;
   color: rgb(17 24 39 / var(--tw-text-opacity, 1));
@@ -7008,21 +7300,9 @@ body.tab-dragging .session-tab {
   box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
 }
 
-.dark\:shadow-none:is(.dark *) {
-  --tw-shadow: 0 0 #0000;
-  --tw-shadow-colored: 0 0 #0000;
-  box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
-}
-
 .dark\:shadow-black\/40:is(.dark *) {
   --tw-shadow-color: rgb(0 0 0 / 0.4);
   --tw-shadow: var(--tw-shadow-colored);
-}
-
-.dark\:ring-0:is(.dark *) {
-  --tw-ring-offset-shadow: var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color);
-  --tw-ring-shadow: var(--tw-ring-inset) 0 0 0 calc(0px + var(--tw-ring-offset-width)) var(--tw-ring-color);
-  box-shadow: var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000);
 }
 
 .dark\:ring-neutral-900:is(.dark *) {
@@ -7064,10 +7344,6 @@ body.tab-dragging .session-tab {
 
 .dark\:ring-white\/50:is(.dark *) {
   --tw-ring-color: rgb(255 255 255 / 0.5);
-}
-
-.dark\:ring-white\/\[0\.05\]:is(.dark *) {
-  --tw-ring-color: rgb(255 255 255 / 0.05);
 }
 
 .dark\:ring-white\/\[0\.06\]:is(.dark *) {
@@ -7140,17 +7416,27 @@ body.tab-dragging .session-tab {
   color: rgb(var(--app-muted) / var(--tw-text-opacity, 1));
 }
 
+.dark\:before\:border-white\/10:is(.dark *)::before {
+  content: var(--tw-content);
+  border-color: rgb(255 255 255 / 0.1);
+}
+
 .dark\:focus-within\:border-neutral-600:focus-within:is(.dark *) {
   --tw-border-opacity: 1;
   border-color: rgb(var(--app-hover) / var(--tw-border-opacity, 1));
 }
 
-.dark\:focus-within\:bg-surface-control\/80:focus-within:is(.dark *) {
-  background-color: rgb(var(--app-control) / 0.8);
+.dark\:focus-within\:bg-surface-control\/60:focus-within:is(.dark *) {
+  background-color: rgb(var(--app-control) / 0.6);
 }
 
 .dark\:focus-within\:ring-white\/15:focus-within:is(.dark *) {
   --tw-ring-color: rgb(255 255 255 / 0.15);
+}
+
+.dark\:hover\:border-gray-400:hover:is(.dark *) {
+  --tw-border-opacity: 1;
+  border-color: rgb(156 163 175 / var(--tw-border-opacity, 1));
 }
 
 .dark\:hover\:border-neutral-600:hover:is(.dark *) {
@@ -7248,6 +7534,10 @@ body.tab-dragging .session-tab {
 
 .dark\:hover\:bg-surface-control\/60:hover:is(.dark *) {
   background-color: rgb(var(--app-control) / 0.6);
+}
+
+.dark\:hover\:bg-surface-control\/80:hover:is(.dark *) {
+  background-color: rgb(var(--app-control) / 0.8);
 }
 
 .dark\:hover\:bg-surface-hover:hover:is(.dark *) {
@@ -7358,6 +7648,16 @@ body.tab-dragging .session-tab {
   background-color: rgb(255 255 255 / 0.04);
 }
 
+.dark\:focus-visible\:text-red-400:focus-visible:is(.dark *) {
+  --tw-text-opacity: 1;
+  color: rgb(248 113 113 / var(--tw-text-opacity, 1));
+}
+
+.dark\:focus-visible\:text-white:focus-visible:is(.dark *) {
+  --tw-text-opacity: 1;
+  color: rgb(255 255 255 / var(--tw-text-opacity, 1));
+}
+
 .dark\:focus-visible\:ring-white\/15:focus-visible:is(.dark *) {
   --tw-ring-color: rgb(255 255 255 / 0.15);
 }
@@ -7402,11 +7702,6 @@ body.tab-dragging .session-tab {
   color: rgb(255 255 255 / var(--tw-text-opacity, 1));
 }
 
-.group:hover .dark\:group-hover\:border-gray-400:is(.dark *) {
-  --tw-border-opacity: 1;
-  border-color: rgb(156 163 175 / var(--tw-border-opacity, 1));
-}
-
 .group:hover .dark\:group-hover\:border-neutral-500:is(.dark *) {
   --tw-border-opacity: 1;
   border-color: rgb(var(--app-muted) / var(--tw-border-opacity, 1));
@@ -7438,6 +7733,11 @@ body.tab-dragging .session-tab {
 
 .group\/slot:hover .dark\:group-hover\/slot\:bg-violet-400\/\[0\.18\]:is(.dark *) {
   background-color: rgb(167 139 250 / 0.18);
+}
+
+.group\/agent:hover .dark\:group-hover\/agent\:text-gray-300:is(.dark *) {
+  --tw-text-opacity: 1;
+  color: rgb(209 213 219 / var(--tw-text-opacity, 1));
 }
 
 .group\/member:hover .dark\:group-hover\/member\:text-gray-100:is(.dark *) {

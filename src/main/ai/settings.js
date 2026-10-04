@@ -215,6 +215,14 @@ const DEFAULTS = {
      * what a conversation that has not picked runs on.
      */
     menuAccounts: {},
+    /**
+     * The models each runtime hides from the composer's menu, by runtime:
+     * `{ 'codex': ['gpt-5.1-codex-mini'] }`. Display only: hiding a model
+     * declutters the menu, it never blocks anything already running on it,
+     * and the menu keeps offering the model the conversation is on whatever
+     * is ticked on the settings page.
+     */
+    hiddenModels: {},
 };
 
 /** Ten years: the longest period the history setting takes, short of forever. */
@@ -291,6 +299,7 @@ function sanitize(raw) {
         quickPrompts: [...DEFAULTS.quickPrompts],
         accounts: {},
         menuAccounts: {},
+        hiddenModels: {},
         instructions: '',
     };
     if (raw && typeof raw === 'object') {
@@ -358,6 +367,15 @@ function sanitize(raw) {
                 .map(([provider, ids]) => [provider, [...new Set(ids
                     .filter(id => typeof id === 'string' && id.trim())
                     .map(id => id.trim().slice(0, 80)))].slice(0, 20)])
+                .filter(([, ids]) => ids.length > 0));
+        }
+        if (raw.hiddenModels && typeof raw.hiddenModels === 'object' && !Array.isArray(raw.hiddenModels)) {
+            next.hiddenModels = Object.fromEntries(Object.entries(raw.hiddenModels)
+                .filter(([provider]) => PROVIDERS.has(provider))
+                .map(([provider, ids]) => [provider, [...new Set(
+                    (Array.isArray(ids) ? ids : [])
+                        .filter(id => typeof id === 'string' && id.trim())
+                        .map(id => id.trim().slice(0, 160)))].slice(0, 200)])
                 .filter(([, ids]) => ids.length > 0));
         }
         if (Array.isArray(raw.quickPrompts)) {

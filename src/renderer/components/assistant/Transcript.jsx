@@ -109,7 +109,7 @@ function RowContent({ item, conversationId, onRespond, onAnswer, onRevert, onOpe
                                     className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md
                                         text-xs bg-white/15 dark:bg-black/10"
                                 >
-                                    @{entry.name}
+                                    {entry.kind === 'skill' ? `/${entry.name}` : `@${entry.name}`}
                                 </span>
                             ))}
                         </div>

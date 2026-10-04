@@ -17,6 +17,7 @@ const overlay = require('./overlay');
 const { readImages } = require('./images');
 const { readFiles, fileBlock } = require('./attachments');
 const { readMentions, mentionBlock, stripMentions } = require('./mentions');
+const skills = require('./skills');
 const store = require('../store');
 const transcript = require('../transcript');
 const activity = require('../activity');
@@ -698,7 +699,6 @@ function emit(conversation, event) {
     if (stamped.input) stamped.input = catalog.redactInput(stamped.input);
 
     // The turn's answer rate, for the number beside its branch icon. The
-    // tracker times the reply's generation bursts as they stream past; the
     // stamp lands on the stored result so every window agrees. See
     // turn-rate.js for what it means and when there is nothing to say.
     const timing = conversation.rateTracker || (conversation.rateTracker = turnRate.createTracker());
@@ -2914,6 +2914,12 @@ async function send(conversationId, text, attachments = [], tagged = [], attache
 
     // What the message tagged is looked up here, against the inventory as it
     // stands, rather than trusted as text from the renderer. See `mentions.js`.
+    // Skills are resolved by id only, so invoking one reads its own file rather
+    // than every skill installed. See `skills.js`.
+    const taggedSkills = (Array.isArray(tagged) ? tagged : [])
+        .filter(entry => entry?.kind === 'skill' && entry?.id)
+        .map(entry => skills.get(String(entry.id)))
+        .filter(Boolean);
     const attached = readMentions(tagged, {
         hosts: store.getHosts(),
         snippets: store.getSnippets(),
@@ -2921,6 +2927,7 @@ async function send(conversationId, text, attachments = [], tagged = [], attache
         keys: store.getKeys(),
         notes: memory.list(conversation.agentId),
         servers: agents.get(conversation.agentId)?.mcpServers || [],
+        skills: taggedSkills,
     });
     if (attached.error) return { success: false, message: attached.error };
     const { mentions } = attached;

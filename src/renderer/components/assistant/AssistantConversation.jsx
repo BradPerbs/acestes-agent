@@ -16,7 +16,9 @@ import Markdown from '../../lib/markdown';
 import useAssistant from '../../hooks/useAssistant';
 import useTypewriter from '../../hooks/useTypewriter';
 import useMentionables from '../../hooks/useMentionables';
+import useSkills, { matchSkills } from '../../hooks/useSkills';
 import MentionPicker, { MentionIcon, matchMentions } from './MentionPicker';
+import SlashPicker from './SlashPicker';
 import ApprovalRequest from './ApprovalRequest';
 import QuestionRequest from './QuestionRequest';
 import WorkingIndicator from './WorkingIndicator';
@@ -33,6 +35,7 @@ import { isTextFile, readTextFile } from '../../lib/files';
 import { describe, toWire } from '../../lib/assistant-scope';
 import { pickLine } from '../../lib/aeneid';
 import { lastModel, rememberModel } from '../../lib/last-model';
+import { agentColor } from '../../lib/agent-colors';
 
 /** The rule inside a card, which is lighter than the one between two cards. */
 export const HAIRLINE = 'border-black/[0.06] dark:border-white/[0.06]';
@@ -313,10 +316,11 @@ export default function AssistantConversation({
     const [voiceNotice, setVoiceNotice] = useState('');
 
     /**
-     * What this message points at, tagged with `@`: hosts, snippets, notes,
-     * proxies, keys, MCP servers. Held as `{ kind, id, name }` and sent as the
-     * first two, so the main process reads the record as it stands rather than
-     * from a copy the panel took when it was tagged.
+     * What this message points at, tagged with `@` or invoked with `/`:
+     * hosts, snippets, notes, proxies, keys, MCP servers, skills. Held as
+     * `{ kind, id, name }` and sent as the first two, so the main process
+     * reads the record as it stands rather than from a copy the panel took
+     * when it was tagged.
      */
     const [mentions, setMentions] = useState([]);
     const mentionables = useMentionables({ agentId, hosts });
@@ -324,6 +328,20 @@ export default function AssistantConversation({
     /** `{ query, start }` while the picker is open, and the row highlighted. */
     const [mention, setMention] = useState(null);
     const [activeRow, setActiveRow] = useState(0);
+
+    /**
+     * The `/` picker: slash skills, open only while the message itself starts
+     * with `/` and the caret is still on the first line. `{ query }` is the
+     * command token being typed; anything after its first space is arguments
+     * and stays in the field when a skill is picked.
+     */
+    const { skills } = useSkills();
+    const [slash, setSlash] = useState(null);
+    const [slashRow, setSlashRow] = useState(0);
+    const slashMatches = useMemo(
+        () => (slash ? matchSkills(skills, slash.query) : []),
+        [slash, skills],
+    );
 
     /**
      * Follow-ups typed while a turn is running, per conversation: each is
@@ -524,6 +542,13 @@ export default function AssistantConversation({
         return pinModel(patch);
     }, [modelAgent, settings, shownSettings, pinModel]);
 
+    // The effort dial wears this chat's project colour. White and black have
+    // no hue to wear, so they get slate; everything else wears its `from`.
+    const sliderAccent = useMemo(
+        () => agentColor(agentLook?.color)?.from || '#64748B',
+        [agentLook],
+    );
+
     // `preventScroll` because the card is mounted at its full width inside a
     // column that is still only a rail wide, and clipped to it. Focusing the
     // composer without it makes the browser scroll the clip box sideways to
@@ -580,6 +605,7 @@ export default function AssistantConversation({
         setFileNotice('');
         setMentions([]);
         setMention(null);
+        setSlash(null);
         stickToBottom.current = true;
         if (inputRef.current) inputRef.current.style.height = 'auto';
     }, []);
@@ -694,13 +720,35 @@ export default function AssistantConversation({
         return { query: found[1], start: caret - found[1].length - 1 };
     }, []);
 
+    /**
+     * The command token being typed, if any: a `/` as the very first
+     * character of the message with the caret still on that line. Read on
+     * every change rather than held as a mode, so backspacing over the `/`
+     * or moving off the line closes the picker without anything noticing.
+     */
+    const readSlash = useCallback((value, caret) => {
+        if (!value.startsWith('/')) return null;
+        const before = value.slice(0, caret);
+        if (before.includes('\n')) return null;
+        const found = /^\/([A-Za-z0-9_-]{0,60})/.exec(before);
+        if (!found) return null;
+        return { query: found[1] };
+    }, []);
+
     const onText = useCallback((event) => {
         const { value, selectionStart } = event.target;
         setText(value);
+        const slashed = readSlash(value, selectionStart);
+        setSlash(slashed);
+        setSlashRow(0);
+        if (slashed) {
+            setMention(null);
+            return;
+        }
         const next = readMention(value, selectionStart);
         setMention(next);
         setActiveRow(0);
-    }, [readMention]);
+    }, [readMention, readSlash]);
 
     /**
      * Take the highlighted row: the `@query` in the text becomes the thing's
@@ -729,6 +777,57 @@ export default function AssistantConversation({
             node.setSelectionRange(at, at);
         });
     }, [mention, text]);
+
+    /**
+     * Take the highlighted skill: the `/command` token leaves the text and
+     * the skill itself is held as a chip, with any arguments already typed
+     * kept in the field. The caret lands at the start so the request can be
+     * finished in front of what was already written.
+     */
+    const pickSlash = useCallback((skill) => {
+        if (!slash) return;
+        const token = /^\/[A-Za-z0-9_-]*/.exec(text)?.[0] || `/${slash.query}`;
+        const rest = text.slice(token.length);
+        const next = rest.startsWith(' ') ? rest.slice(1) : rest;
+
+        setText(next);
+        setMentions(current => (
+            current.some(entry => entry.kind === 'skill' && entry.id === skill.id)
+                ? current
+                : [...current, { kind: 'skill', id: skill.id, name: skill.name || skill.id }]
+        ));
+        setSlash(null);
+
+        requestAnimationFrame(() => {
+            const node = inputRef.current;
+            if (!node) return;
+            node.focus({ preventScroll: true });
+            node.setSelectionRange(0, 0);
+            node.style.height = 'auto';
+            node.style.height = `${Math.min(node.scrollHeight, 160)}px`;
+        });
+    }, [slash, text]);
+
+    /** The `/` button: the same thing typing one does, for a pointer. */
+    const openSlash = useCallback(() => {
+        const node = inputRef.current;
+        if (!node) return;
+        const next = text.startsWith('/') ? text : `/${text}`;
+        setText(next);
+        const caret = node.selectionStart ?? next.length;
+        setSlash(readSlash(next, Math.max(caret, 1)));
+        setSlashRow(0);
+        setMention(null);
+        requestAnimationFrame(() => {
+            node.focus({ preventScroll: true });
+            const at = next.startsWith('/') ? Math.max(caret, 1) : caret + 1;
+            try {
+                node.setSelectionRange(at, at);
+            } catch {
+                // The field is laid out; the caret follows on the next frame.
+            }
+        });
+    }, [text, readSlash]);
 
     /** The `@` button: the same thing typing one does, for a pointer. */
     const openMentions = useCallback(() => {
@@ -848,6 +947,27 @@ export default function AssistantConversation({
         // Nothing is sent halfway through a sentence.
         if (dictating && event.key === 'Enter') {
             event.preventDefault();
+            return;
+        }
+        // The pickers are driven from here so the caret never leaves the
+        // field. The `/` picker wins while it is open; `@` waits beneath it.
+        if (slash && slashMatches.length > 0) {
+            if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                event.preventDefault();
+                const step = event.key === 'ArrowDown' ? 1 : -1;
+                setSlashRow(current => (current + step + slashMatches.length) % slashMatches.length);
+                return;
+            }
+            if (event.key === 'Enter' || event.key === 'Tab') {
+                event.preventDefault();
+                pickSlash(slashMatches[slashRow] || slashMatches[0]);
+                return;
+            }
+        }
+        if (slash && event.key === 'Escape') {
+            event.preventDefault();
+            event.stopPropagation();
+            setSlash(null);
             return;
         }
         // The picker is driven from here so the caret never leaves the field.
@@ -1167,8 +1287,18 @@ export default function AssistantConversation({
                             </span>
                         </div>
                     )}
+                    {/* What `/` opened, over the composer rather than in it. */}
+                    {slash && (
+                        <SlashPicker
+                            items={slashMatches}
+                            query={slash.query}
+                            active={slashRow}
+                            onPick={pickSlash}
+                            onHover={setSlashRow}
+                        />
+                    )}
                     {/* What `@` opened, over the composer rather than in it. */}
-                    {mention && (
+                    {mention && !slash && (
                         <MentionPicker
                             items={matches}
                             query={mention.query}
@@ -1192,7 +1322,7 @@ export default function AssistantConversation({
                                         text-gray-700 dark:text-gray-200"
                                 >
                                     <MentionIcon item={entry} size={12} />
-                                    <span className="max-w-[12rem] truncate">{entry.name}</span>
+                                    <span className="max-w-[12rem] truncate">{entry.kind === 'skill' ? `/${entry.name}` : entry.name}</span>
                                     <button
                                         type="button"
                                         aria-label={t('mentions.remove', { name: entry.name })}
@@ -1286,8 +1416,15 @@ export default function AssistantConversation({
                         readOnly={dictating}
                         onChange={onText}
                         onKeyDown={onKeyDown}
-                        onClick={(event) => setMention(readMention(event.target.value, event.target.selectionStart))}
-                        onBlur={() => setMention(null)}
+                        onClick={(event) => {
+                            const slashed = readSlash(event.target.value, event.target.selectionStart);
+                            setSlash(slashed);
+                            setMention(slashed ? null : readMention(event.target.value, event.target.selectionStart));
+                        }}
+                        onBlur={() => {
+                            setMention(null);
+                            setSlash(null);
+                        }}
                         onPaste={onPaste}
                         placeholder={assistant.busy ? t('assistant.queuePlaceholder') : t('assistant.askAbout', { about: described.sentence })}
                         className="block w-full max-h-40 px-3 pt-2.5 pb-1 bg-transparent
@@ -1309,6 +1446,21 @@ export default function AssistantConversation({
 
                         {/* Anything in the inventory can be named in a message.
                             The same thing typing `@` does, for a pointer. */}
+                        <Tooltip label={t('skills.tag')} hint="/" placement="top">
+                            <button
+                                type="button"
+                                aria-label={t('skills.tag')}
+                                onClick={openSlash}
+                                className={`w-7 h-7 shrink-0 flex items-center justify-center rounded-full
+                                    text-sm font-semibold transition-colors
+                                    ${slash || mentions.some(entry => entry.kind === 'skill')
+                                        ? 'bg-gray-100 dark:bg-surface-control text-gray-700 dark:text-gray-200'
+                                        : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-surface-control '
+                                            + 'hover:text-gray-700 dark:hover:text-gray-200'}`}
+                            >
+                                /
+                            </button>
+                        </Tooltip>
                         <Tooltip label={t('mentions.tag')} hint="@" placement="top">
                             <button
                                 type="button"
@@ -1407,6 +1559,7 @@ export default function AssistantConversation({
                                     loading={readingModels}
                                     onRefresh={refreshModels}
                                     onChange={changeModel}
+                                    accent={sliderAccent}
                                 />
                             )}
 

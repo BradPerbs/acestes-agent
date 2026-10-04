@@ -8,6 +8,7 @@ import Toggle from './ui/Toggle';
 import Button from '../ui/Button';
 import Reveal from '../ui/Reveal';
 import AccountsCard from './AccountsCard';
+import ModelsCard from './ModelsCard';
 import useAssistantSettings, { FIELD_CLASS } from './useAssistantSettings';
 import { useT } from '../../i18n';
 
@@ -326,6 +327,10 @@ export default function AssistantSection() {
                     </SettingRow>
                 </Reveal>
             </SettingCard>
+
+            {/* Which of each agent's models the composer's menu offers. Display
+                only, so it sits with the agents rather than with the signs-in. */}
+            <ModelsCard settings={settings} onSettings={update} />
 
             {/* Straight after the agents, because it is about them: which
                 sign-in each one runs under, and how much of its plan is left. */}

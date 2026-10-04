@@ -38,6 +38,7 @@ const resources = require('./resources');
 const agents = require('./agents');
 const memory = require('./ai/memory');
 const assistantSettings = require('./ai/settings');
+const aiSkills = require('./ai/skills');
 const accountActions = require('./ai/account-actions');
 const aiSecrets = require('./ai/secrets');
 const aiFiles = require('./ai/files');
@@ -691,6 +692,10 @@ function register(getWindow) {
     // Normalised in the store, so a malformed record from the renderer cannot
     // reach the palette or be written to disk in a shape nothing can read.
     handle('get-snippets', () => store.getSnippets());
+    // Slash skills: `SKILL.md` folders from ~/.claude/skills and
+    // ~/.agents/skills, listed as metadata. The full text is resolved in main
+    // on send, so this never carries instruction bodies.
+    handle('get-skills', () => aiSkills.list());
     handle('save-snippet', (event, snippet) => store.saveSnippet(snippet));
     handle('delete-snippet', (event, snippetId) => store.deleteSnippet(snippetId));
 

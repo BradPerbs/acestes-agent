@@ -85,7 +85,7 @@ function Pending({ loading, onRefresh }) {
     );
 }
 
-function MenuBody({ rows, model, settings, providers, catalogs, offered, loading, onRefresh, onPick, onEffort, onClose }) {
+function MenuBody({ rows, model, settings, providers, catalogs, offered, loading, onRefresh, onPick, onEffort, onClose, accent }) {
     const t = useT();
     const [query, setQuery] = useState('');
     const [active, setActive] = useState(-1);
@@ -292,7 +292,7 @@ function MenuBody({ rows, model, settings, providers, catalogs, offered, loading
                             <span className="font-medium text-gray-900 dark:text-white">{effortLabel(effort)}</span>
                         </div>
                         <div className="px-1">
-                            <EffortSlider options={stops} value={shown} onChange={onEffort} />
+                            <EffortSlider options={stops} value={shown} onChange={onEffort} accent={accent} />
                         </div>
                     </div>
                 ) : (
@@ -305,7 +305,7 @@ function MenuBody({ rows, model, settings, providers, catalogs, offered, loading
     );
 }
 
-export default function ModelMenu({ settings, catalogs, providers, loading, onRefresh, onChange }) {
+export default function ModelMenu({ settings, catalogs, providers, loading, onRefresh, onChange, accent }) {
     const t = useT();
     const [open, setOpen] = useState(false);
     const wrapperRef = useRef(null);
@@ -461,6 +461,7 @@ export default function ModelMenu({ settings, catalogs, providers, loading, onRe
                         onPick={pick}
                         onEffort={(value) => onChange({ effort: value })}
                         onClose={() => setOpen(false)}
+                        accent={accent}
                     />
                 </div>
             )}

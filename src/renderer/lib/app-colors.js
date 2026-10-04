@@ -76,6 +76,11 @@ export const INITIAL_APP_COLORS = BLACK_APP_COLORS;
 export const APP_COLOR_PRESETS = [
     { id: 'tokyo-night', label: 'Tokyo Night', colors: DEFAULT_APP_COLORS },
     {
+        id: 'claude',
+        label: 'Claude',
+        colors: { base: '#141413', raised: '#1e1e1c', control: '#30302e', hover: '#3e3e3a', active: '#4d4c48', muted: '#87867f' },
+    },
+    {
         id: 'midnight',
         label: 'Midnight',
         colors: { base: '#111219', raised: '#1a1b26', control: '#24253a', hover: '#2e3049', active: '#3b3d5c', muted: '#565982' },

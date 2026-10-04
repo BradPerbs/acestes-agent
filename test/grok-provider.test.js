@@ -460,6 +460,24 @@ async function run() {
                     },
                 },
                 'grok-internal': { info: { id: 'grok-internal', name: 'Internal', hidden: true } },
+                'muse-spark-1.3': {
+                    info: {
+                        id: 'muse-spark-1.3',
+                        model: 'muse-spark-1.3',
+                        model_family: 'meta',
+                        name: 'Muse Spark 1.3',
+                        hidden: false,
+                    },
+                },
+                'gpt-5.3-codex-spark': {
+                    info: {
+                        id: 'gpt-5.3-codex-spark',
+                        model: 'gpt-5.3-codex-spark',
+                        model_family: 'openai-codex',
+                        name: 'GPT-5.3 Codex Spark',
+                        hidden: false,
+                    },
+                },
             },
         }), 'utf8');
 
@@ -469,6 +487,14 @@ async function run() {
             ['grok-4.6', 'grok-4.5'],
             'a model the CLI hides is not one this app offers'
         );
+        assert.ok(
+            !rows.some(row => String(row.value).includes('muse-spark') || String(row.value).includes('codex')),
+            'third-party models from a shared proxy never land on the Grok Build menu'
+        );
+        assert.strictEqual(provider.isGrokModel('grok-4.7', { model_family: 'xai' }), true);
+        assert.strictEqual(provider.isGrokModel('grok-4.7-build-fast', { model: 'grok-4.7-build-fast' }), true);
+        assert.strictEqual(provider.isGrokModel('muse-spark-1.3', { model_family: 'meta' }), false);
+        assert.strictEqual(provider.isGrokModel('gpt-5.3-codex-spark', { model_family: 'openai-codex' }), false);
         assert.strictEqual(rows[0].short, 'Grok 4.6', 'the name it goes by is the name shown');
         assert.deepStrictEqual(
             rows[0].effort,

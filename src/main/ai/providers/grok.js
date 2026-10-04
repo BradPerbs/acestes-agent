@@ -246,13 +246,32 @@ function configuredModel(source) {
 }
 
 /**
+ * Whether a cache entry is a Grok model and belongs on this menu.
+ *
+ * The proxy behind `models_cache.json` could one day list third-party models
+ * beside Grok's own (Pi's catalog already mixes `meta/muse-spark`,
+ * `openai-codex/*` and `xai/grok-*` the same way). Grok Build runs Grok, so
+ * anything that is not Grok is filtered out here: Pi and Muse keep offering
+ * Muse Spark, Grok Build offers only Grok. Family wins when present
+ * (`model_family: "xai"`); otherwise the id has to look like Grok
+ * (`grok-4.6`, `grok-4.7-build-fast`).
+ */
+function isGrokModel(id, info = {}) {
+    const family = String(info.model_family || info.family || '').toLowerCase();
+    if (family) return family === 'xai' || family.startsWith('grok');
+    const candidate = String(info.model || info.id || id || '').toLowerCase();
+    return candidate.startsWith('grok-') || candidate === 'grok';
+}
+
+/**
  * The models the CLI cached when it last signed in.
  *
  * Each entry carries its own reasoning levels, which is better than the union
  * this app used to offer for every row: 4.6 takes an extra-high that 4.5 does
  * not, and a dial with a stop the model has never heard of is a dial that turns
  * a working conversation into a failed argument. Narrowed to the levels this
- * app has names for, and a model the CLI marks hidden is not offered at all.
+ * app has names for, a model the CLI marks hidden is not offered at all, and a
+ * model that is not Grok is not offered here either (see `isGrokModel`).
  */
 function cachedModels({ source = grokHome() } = {}) {
     const cache = readJson(path.join(source, 'models_cache.json'));
@@ -263,7 +282,7 @@ function cachedModels({ source = grokHome() } = {}) {
 
     const rows = Object.entries(models)
         .map(([id, entry]) => ({ id, info: entry?.info || {} }))
-        .filter(({ info }) => !info.hidden)
+        .filter(({ id, info }) => !info.hidden && isGrokModel(id, info))
         .map(({ id, info }) => ({
             value: info.id || id,
             resolved: info.model || info.id || id,
@@ -965,8 +984,11 @@ async function listModels({ settings: current = {} } = {}) {
 
     // No dial on this path. The request would carry a reasoning field the model
     // may not take, and a dial that turns a working conversation into a 400 is
-    // worse than no dial.
-    return rows.map(row => ({ ...row, effort: [] }));
+    // worse than no dial. Filtered to Grok too, so a proxy that lists
+    // third-party models does not put Muse Spark on the Grok Build menu.
+    const grokOnly = rows.filter(row => isGrokModel(row?.value || row?.resolved, { model: row?.resolved || row?.value }));
+    if (!grokOnly.length) return null;
+    return grokOnly.map(row => ({ ...row, effort: [] }));
 }
 
 /** A failure, in words that say what to do about it. */
@@ -1015,6 +1037,7 @@ module.exports = {
     signedIn,
     cachedModels,
     configuredModel,
+    isGrokModel,
     grokRoots,
     createTranslator,
     runArguments,

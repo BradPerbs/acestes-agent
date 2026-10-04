@@ -228,6 +228,7 @@ function SessionTab({
     onRenameStart,
     onRenameCommit,
     onRenameCancel,
+    agentName = '',
 }) {
     const t = useT();
     const isLauncher = tab.type === 'launcher';
@@ -364,7 +365,7 @@ function SessionTab({
     return (
         <button
             ref={tabRef}
-            className={`tab-item session-tab flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium cursor-pointer group relative z-10 overflow-hidden app-no-drag ${
+            className={`tab-item session-tab flex items-center gap-2 px-3 ${agentName ? 'py-1' : 'py-2'} rounded-xl text-xs font-medium cursor-pointer group relative z-10 overflow-hidden app-no-drag ${
                 active
                     ? 'bg-gray-900/[0.08] dark:bg-surface-control text-gray-900 dark:text-white'
                     : 'bg-gray-900/[0.04] dark:bg-surface-raised text-gray-500 dark:text-gray-400 hover:bg-gray-900/[0.06] dark:hover:bg-surface-control'
@@ -372,6 +373,7 @@ function SessionTab({
             data-tab={tab.id}
             data-active={active ? 'true' : 'false'}
             data-closing={closing ? 'true' : undefined}
+            title={agentName ? `${tab.title}\n${agentName}` : tab.title}
             // Picking the tab up, and marking it while it is in hand. Spread
             // here so a tab mid-close, which is handed none, simply cannot be.
             {...dragProps}
@@ -449,7 +451,22 @@ function SessionTab({
                     </svg>
                 </span>
             </span>
-            {isConversation
+            {agentName ? (
+                // Two lines: the chat on top with the full width to itself,
+                // the project below it, muted. Plain truncation on both, not
+                // the marquee: its measure assumes a row, and the tooltip
+                // already carries the whole title on hover.
+                <span className="flex-1 min-w-0 flex flex-col justify-center leading-tight text-left">
+                    <span className="truncate">{tab.title}</span>
+                    <span
+                        className="truncate text-[10px] font-normal
+                            text-gray-400 dark:text-gray-500"
+                        aria-hidden="true"
+                    >
+                        {agentName}
+                    </span>
+                </span>
+            ) : isConversation
                 ? <MarqueeText text={tab.title} playing={hovered && !closing} className="text-left" />
                 : <span className="truncate flex-1 text-left min-w-0">{tab.title}</span>}
 
@@ -1016,6 +1033,12 @@ function TitleBar({
     /** The strip as single tabs and outlined group runs. */
     const segments = useMemo(() => segmentStrip(stripItems, groups), [stripItems, groups]);
 
+    /** Agent names by id, so a chat tab can say which project it belongs to. */
+    const agentNames = useMemo(
+        () => new Map((agents || []).map(agent => [agent.id, agent.name])),
+        [agents],
+    );
+
     /** One tab, wherever it sits: loose in the strip or inside a group outline. */
     const renderTab = useCallback(({ tab, active, closing }) => (
         <SessionTab
@@ -1024,6 +1047,10 @@ function TitleBar({
             active={active}
             closing={closing}
             renaming={renaming?.kind === 'tab' && renaming.id === tab.id}
+            // The project suffix: conversations only, and only while there is
+            // more than one project to tell apart. Otherwise the tab is
+            // exactly as before.
+            agentName={tab.type === 'conversation' && agents.length > 1 ? (agentNames.get(tab.agentId) || '') : ''}
             // A tab on its way out is not one to pick up: it holds no slot in
             // the strip any more, and the drag would be carrying a ghost.
             dragProps={closing ? undefined : tabProps(tab.id)}
@@ -1037,7 +1064,7 @@ function TitleBar({
         />
     ), [
         renaming, tabProps, onTabClick, handleTabClose, openTabMenu, dropClosingTab,
-        startRename, commitTabRename, cancelRename,
+        startRename, commitTabRename, cancelRename, agents.length, agentNames,
     ]);
 
     return (

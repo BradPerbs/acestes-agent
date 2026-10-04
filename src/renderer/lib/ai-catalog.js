@@ -142,6 +142,18 @@ function modelRows(catalog, selected = '') {
  * runtime's list is the same whoever is signed in to it, so it is read once
  * and repeated, and the saved model is passed to the answering account alone.
  */
+/**
+ * The rows one runtime contributes, minus the models hidden on the settings
+ * page. The model the conversation is pinned to is always kept: hiding it
+ * declutters the menu, it must never strand the chip on a row that is gone.
+ */
+function visibleRows(rows, provider, settings) {
+    const hidden = settings?.hiddenModels?.[provider];
+    if (!Array.isArray(hidden) || hidden.length === 0) return rows;
+    const pinned = provider === settings?.provider ? settings?.model : '';
+    return rows.filter(row => !hidden.includes(row.value) || (pinned && covers(row, pinned)));
+}
+
 export function mergedModelRows(catalogs, providers, settings, offered = {}) {
     const on = new Set(providers?.length ? providers : [settings.provider]);
 
@@ -149,10 +161,10 @@ export function mergedModelRows(catalogs, providers, settings, offered = {}) {
         const answering = provider === settings.provider;
         const several = offered?.[provider]?.accounts?.length > 1 ? offered[provider] : null;
         if (!several) {
-            return modelRows(catalogs?.[provider], answering ? settings.model : '')
-                .map(row => ({ ...row, provider, key: `${provider}:${row.value}` }));
+            return visibleRows(modelRows(catalogs?.[provider], answering ? settings.model : '')
+                .map(row => ({ ...row, provider, key: `${provider}:${row.value}` })), provider, settings);
         }
-        return several.accounts.flatMap(account => modelRows(
+        return visibleRows(several.accounts.flatMap(account => modelRows(
             catalogs?.[provider],
             answering && account.id === several.current ? settings.model : '',
         ).map(row => ({
@@ -162,7 +174,7 @@ export function mergedModelRows(catalogs, providers, settings, offered = {}) {
             accountName: account.name,
             accountShort: account.short,
             key: `${provider}@${account.id}:${row.value}`,
-        })));
+        }))), provider, settings);
     });
 }
 

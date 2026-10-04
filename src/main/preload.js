@@ -142,6 +142,12 @@ contextBridge.exposeInMainWorld('api', {
         remove: (snippetId) => ipcRenderer.invoke('delete-snippet', snippetId),
     },
 
+    // Slash skills: metadata for the `/` picker (`{ id, name, description,
+    // hint, source }`). Bodies stay in main until a skill is invoked.
+    skills: {
+        list: () => ipcRenderer.invoke('get-skills'),
+    },
+
     /**
      * Saved proxies: SOCKS5, SOCKS4 and HTTP CONNECT servers a host can be
      * dialled through, whatever it speaks once it is connected.

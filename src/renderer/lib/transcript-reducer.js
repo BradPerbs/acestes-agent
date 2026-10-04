@@ -25,8 +25,8 @@ function outputTokensOf(usage) {
 /**
  * A turn's answer rate, for the number beside its branch icon.
  *
- * The main process stamps exact figures on the result (generation time,
- * timed off the streaming deltas, with the wall time alongside); a result
+ * The main process stamps exact figures on the result (active time: wall
+ * minus approval waits minus tool runs, with the wall time alongside); a result
  * read back from before that carry them is worked out here from the turn's
  * first message instead. Nothing when there is no usage to divide or no
  * time to divide by, and the row then shows no number rather than a wrong

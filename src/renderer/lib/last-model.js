@@ -1,11 +1,17 @@
 /**
- * The model the composer's chip was last left on, per agent, so a new
- * conversation starts on it instead of on the agent's default.
+ * What a new conversation starts on, per agent.
  *
- * It is held beside the agent's default rather than written over it: the chip
- * still never moves the agent's settings. The default it was picked against
- * is kept with it, and once that default changes on the settings page the
- * remembered pick gives way to it, since that is the newer decision.
+ * First an explicitly chosen default, set on the settings page: it is the
+ * newer decision, made for exactly this purpose, so it wins over the
+ * remembered pick. A model picked inside a chat then applies to that chat
+ * only. With no default set, the chip's last pick wins, and before any pick
+ * the agent's own default answers.
+ *
+ * The remembered pick is held beside the agent's settings rather than written
+ * over them: the chip still never moves the agent's settings. The default it
+ * was picked against is kept with it, and once that default changes on the
+ * settings page the remembered pick gives way to it, since that is the newer
+ * decision.
  */
 
 const KEY = 'assistant.lastModel';
@@ -24,10 +30,15 @@ function readAll() {
 /** The pick to start a new conversation on, or null for the agent's default. */
 export function lastModel(agentId, settings) {
     if (!agentId || !settings) return null;
+    const on = settings.providers?.length ? settings.providers : [settings.provider];
+    // An explicitly chosen default model is what new conversations start on,
+    // whatever was picked inside some other chat since.
+    if (settings.model && on.includes(settings.provider)) {
+        return { provider: settings.provider, model: settings.model, effort: settings.effort };
+    }
     const entry = readAll()[agentId];
     if (!entry?.pin?.model || entry.base !== base(settings)) return null;
     // A runtime switched off since is not one to start on.
-    const on = settings.providers?.length ? settings.providers : [settings.provider];
     if (entry.pin.provider && !on.includes(entry.pin.provider)) return null;
     // Nor an account taken out of the menu since: the new conversation goes
     // on the agent's own choice instead.

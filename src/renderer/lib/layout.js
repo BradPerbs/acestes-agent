@@ -6,14 +6,14 @@ export const APP_GUTTER = 6;
 /**
  * Height of the title bar's control row.
  *
- * The buttons and tabs inside it are 32px and centred, so this only has to be
- * *at least* 32. It is 40 because a tab group draws a border around a run of
- * tabs, and a 32px strip holding 32px tabs leaves nowhere for it to go: the
- * outline would be clipped to its left and right ends and read as a pair of
- * parentheses rather than a box. 40 = 32 for the tab, 2 of padding either side,
- * and the border itself.
+ * Single-line tabs are 32px and centred, two-line chat tabs (title over
+ * project) about 36px. It is 48 because a tab group draws a border around a
+ * run of tabs, and a strip holding 36px tabs leaves nowhere for it to go:
+ * the outline would be clipped to its left and right ends and read as a pair
+ * of parentheses rather than a box. 48 = 36 for the tallest tab, 2 of padding
+ * either side, and the border itself.
  */
-export const TITLE_BAR_HEIGHT = 40;
+export const TITLE_BAR_HEIGHT = 48;
 
 // Y coordinate where the title bar ends. Drawers open flush against it.
 export const TITLE_BAR_BOTTOM = APP_GUTTER + TITLE_BAR_HEIGHT;
