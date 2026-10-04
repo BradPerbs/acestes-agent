@@ -15,6 +15,8 @@ if (args[0] === 'models') {
         process.stderr.write('Error: flags provided but not defined: -output-format\n');
         process.exit(1);
     }
+    process.stdout.write('gemini-3.8-flash-low\tGemini 3.8 Flash (Low)\n');
+    process.stdout.write('gemini-3.8-flash-medium\tGemini 3.8 Flash (Medium)\n');
     process.stdout.write('gemini-3.8-flash-high\tGemini 3.8 Flash (High)\n');
     process.stdout.write('claude-opus-4.6\tClaude Opus 4.6 (thinking)\n');
     process.exit(0);

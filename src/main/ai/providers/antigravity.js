@@ -42,8 +42,35 @@ const SERVER_NAME = 'remote';
 const LABEL = 'Antigravity';
 const IDLE_TIMEOUT = 30 * 60 * 1000;
 
-/** The levels `--effort` takes (`agy --help`); the app's `ultra` runs as `max`. */
-const EFFORT_MAP = { low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max', ultra: 'max' };
+/**
+ * The effort suffix `agy models` bakes into each slug (`claude-opus-5-5-medium`),
+ * and the base model underneath it. The CLI also accepts the base with `--effort`,
+ * but rejects a suffixed slug paired with a different `--effort` as conflicting,
+ * and an `--effort` the base has no variant for (`claude-opus-5-5` has no `xhigh`).
+ */
+const EFFORT_SUFFIX = /-(low|medium|high|xhigh|max|ultra)$/i;
+
+/** The base model of a slug, without its baked-in tier (`claude-opus-5-5-medium` gives `claude-opus-5-5`). */
+function baseModelOf(value) {
+    const text = String(value || '');
+    const suffix = EFFORT_SUFFIX.exec(text);
+    return suffix ? text.slice(0, -suffix[0].length) : text;
+}
+
+/**
+ * The `--effort` sent for an app level.
+ *
+ * No model in the current lineup offers above `high` (`agy models` lists only
+ * low/medium/high variants, and `claude-opus-5-5` reports exactly those as
+ * available), so higher stored stops ride as `high` rather than hard-erroring
+ * the turn the way a mismatched `--effort` does. Revisit when `agy models`
+ * shows higher variants: their levels then belong here verbatim and in
+ * `EFFORT_ORDER` below.
+ */
+const EFFORT_MAP = { low: 'low', medium: 'medium', high: 'high', xhigh: 'high', max: 'high', ultra: 'high' };
+
+/** The effort order `describeModels` reports per base model in. */
+const EFFORT_ORDER = ['low', 'medium', 'high', 'xhigh', 'max'];
 
 let override = null;
 
@@ -91,11 +118,16 @@ function writeMcpConfig(directory, settings, host) {
 }
 
 function runArguments({ model, effort, conversationId, skipPermissions }) {
+    // The tier rides as `--effort` on the base model, never as a suffixed slug:
+    // an old stored `claude-opus-5-5-medium` still normalises to its base, so
+    // `--model` and `--effort` can never name two different tiers the way
+    // `claude-opus-5-5-medium` with `--effort high` did.
+    const base = baseModelOf(model);
     return [
         '--input-format', 'stream-json',
         '--output-format', 'stream-json',
         '--print-timeout', '12h',
-        ...(model ? ['--model', model] : []),
+        ...(base ? ['--model', base] : []),
         ...(EFFORT_MAP[effort] ? ['--effort', EFFORT_MAP[effort]] : []),
         ...(conversationId ? ['--conversation', conversationId] : []),
         ...(skipPermissions ? ['--dangerously-skip-permissions'] : []),
@@ -443,20 +475,49 @@ function describeModels(answer) {
     const list = Array.isArray(answer) ? answer
         : Array.isArray(answer?.models) ? answer.models
             : Array.isArray(answer?.structured_output?.models) ? answer.structured_output.models : [];
-    return list.map((entry) => {
-        const value = typeof entry === 'string' ? entry : entry?.slug || entry?.id || entry?.model || entry?.name;
-        if (!value) return null;
-        const label = typeof entry === 'string' ? entry : entry.display_name || entry.displayName || entry.name || value;
-        return {
-            value: String(value),
-            resolved: String(value),
-            label: String(label),
-            short: String(label).replace(/\s*\([^)]*\)\s*$/, ''),
-            description: String(entry?.description || '').slice(0, 200),
-            preferred: Boolean(entry?.default || entry?.is_default || entry?.current),
-            effort: ['low', 'medium', 'high', 'xhigh', 'max'],
-        };
-    }).filter(Boolean).slice(0, 60);
+    // One row per base model. `agy models` lists each tier as its own slug
+    // (`gemini-3.8-flash-low/medium/high`), and a row per slug would show
+    // three near-identical models while the slider offered stops the tier
+    // rejects. The row carries the tiers seen as its scale, so the slider
+    // draws exactly those; a base seen with no tier carries none, and the
+    // turn runs it with its default rather than guessing.
+    const groups = new Map();
+    for (const entry of list) {
+        const slug = typeof entry === 'string' ? entry : entry?.slug || entry?.id || entry?.model || entry?.name;
+        if (!slug) continue;
+        const rawLabel = typeof entry === 'string' ? slug : entry.display_name || entry.displayName || entry.name || slug;
+        const found = EFFORT_SUFFIX.exec(String(slug));
+        const tier = found ? found[1].toLowerCase() === 'ultra' ? 'max' : found[1].toLowerCase() : '';
+        const base = baseModelOf(slug);
+        // Only the tier in parentheses comes off the label (`Gemini 3.8 Flash
+        // (High)` gives `Gemini 3.8 Flash`); anything else parenthesised stays.
+        const label = String(rawLabel).replace(/\s*\((low|medium|high|xhigh|max|ultra)\)\s*$/i, '');
+        let group = groups.get(base);
+        if (!group) {
+            group = {
+                value: base,
+                resolved: base,
+                label,
+                short: label.replace(/\s*\([^)]*\)\s*$/, ''),
+                description: '',
+                preferred: false,
+                levels: new Set(),
+            };
+            groups.set(base, group);
+        }
+        if (tier && EFFORT_ORDER.includes(tier)) group.levels.add(tier);
+        if (!group.description && entry?.description) group.description = String(entry.description).slice(0, 200);
+        if (entry?.default || entry?.is_default || entry?.current) group.preferred = true;
+    }
+    return [...groups.values()].map(group => ({
+        value: group.value,
+        resolved: group.resolved,
+        label: group.label,
+        short: group.short || group.label,
+        description: group.description,
+        preferred: group.preferred,
+        effort: EFFORT_ORDER.filter(level => group.levels.has(level)),
+    })).slice(0, 60);
 }
 
 /** Run one plain-text subcommand (`agy models`) and return its stdout, or null. */
@@ -572,6 +633,7 @@ module.exports = {
     _test: {
         createTranslator,
         runArguments,
+        baseModelOf,
         deniedNotice,
         windowsFrom,
         describeModels,

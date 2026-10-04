@@ -43,15 +43,31 @@ async function test(name, fn) {
         assert.strictEqual(agy._test.deniedNotice([]), '');
     });
 
-    await test('the model list comes from "agy models"', async () => {
+    await test('the model list groups each tier into its base model', async () => {
         const rows = await agy.listModels();
-        assert.deepStrictEqual(rows.map(row => row.value), ['gemini-3.8-flash-high', 'claude-opus-4.6']);
-        assert.strictEqual(rows[0].label, 'Gemini 3.8 Flash (High)');
+        assert.deepStrictEqual(rows.map(row => row.value), ['gemini-3.8-flash', 'claude-opus-4.6']);
+        assert.strictEqual(rows[0].label, 'Gemini 3.8 Flash');
         assert.strictEqual(rows[1].short, 'Claude Opus 4.6');
-        assert.deepStrictEqual(rows[0].effort, ['low', 'medium', 'high', 'xhigh', 'max']);
+        assert.deepStrictEqual(rows[0].effort, ['low', 'medium', 'high']);
+        // A base seen with no tier carries none, and runs with its default.
+        assert.deepStrictEqual(rows[1].effort, []);
         // The real TSV shape parses too, including a Fetching line on stderr.
         const tsv = agy._test.describeModels('Fetching available models...\ngemini-3.8-flash-high\tGemini 3.8 Flash (High)\n');
-        assert.strictEqual(tsv[0].value, 'gemini-3.8-flash-high');
+        assert.strictEqual(tsv[0].value, 'gemini-3.8-flash');
+        assert.deepStrictEqual(tsv[0].effort, ['high']);
+    });
+
+    await test('the tier rides as --effort on the base model, never as a suffixed slug', () => {
+        // The reported failure: a medium slug with --effort high conflicted.
+        const args = agy._test.runArguments({ model: 'claude-opus-5-5-medium', effort: 'high' });
+        assert.ok(!args.some(arg => String(arg).includes('claude-opus-5-5-medium')), 'no suffixed slug');
+        assert.strictEqual(args[args.indexOf('--model') + 1], 'claude-opus-5-5');
+        assert.strictEqual(args[args.indexOf('--effort') + 1], 'high');
+        // Higher stored stops ride as the lineup's top instead of erroring.
+        const capped = agy._test.runArguments({ model: 'gemini-3.8-flash', effort: 'xhigh' });
+        assert.strictEqual(capped[capped.indexOf('--effort') + 1], 'high');
+        // No effort stored: the base runs with its default.
+        assert.ok(!agy._test.runArguments({ model: 'gemini-3.8-flash' }).includes('--effort'));
     });
 
     await test('/usage becomes a five-hour and a weekly window, without a turn', async () => {
@@ -63,7 +79,7 @@ async function test(name, fn) {
     });
 
     const events = [];
-    let current = { approval: 'writes', allowLocalTools: true, mcpServers: [], model: 'gemini-3.8-flash-high', effort: 'xhigh' };
+    let current = { approval: 'writes', allowLocalTools: true, mcpServers: [], model: 'gemini-3.8-flash', effort: 'high' };
     const session = await agy.start({
         settings: current,
         getSettings: () => current,
@@ -79,7 +95,8 @@ async function test(name, fn) {
         const texts = events.filter(event => event.type === 'assistant-text').map(event => event.text);
         assert.strictEqual(texts[0], 'Looking. ');
         assert.ok(texts[1].includes('servers=remote'), texts[1]);
-        assert.ok(texts[1].includes('effort=xhigh'), 'xhigh passes through to the CLI');
+        assert.ok(texts[1].includes('model=gemini-3.8-flash'), 'the base model passes to the CLI');
+        assert.ok(texts[1].includes('effort=high'), 'the tier passes as --effort');
         assert.ok(texts[1].includes('prompt=with-system'));
         assert.ok(texts[1].includes('skip=false'));
         const call = events.find(event => event.type === 'tool-call');
