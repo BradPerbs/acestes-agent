@@ -86,6 +86,18 @@ const COMPUTER_PACES = new Set(['slow', 'normal', 'fast']);
 const VOICE_ENGINES = new Set(['parakeet', 'whisper', 'faster-whisper']);
 const VOICE_MODELS = new Set(['tiny', 'base', 'small', 'medium', 'large-v3', 'turbo']);
 
+/** What a finished task sounds like. Mirrors SOUND_IDS in the renderer's lib/sounds.js. */
+const DONE_SOUNDS = new Set([
+    'chime', 'ding', 'pop', 'marimba',
+    'coin', 'powerup', 'levelup', 'fanfare', 'tada', 'alert',
+    'sadtrombone', 'rimshot', 'kaching', 'microwave', 'boing', 'slidewhistle',
+    'quack', 'crickets', 'airhorn', 'recordscratch', 'drumroll', 'buzzer',
+    'vineboom', 'bruh', 'oof', 'metalpipe', 'bong', 'bonk', 'fart', 'fartreverb',
+    'dialup', 'dundundun', 'braaam',
+    'flatline', 'funeral', 'toccata', 'youdied', 'kaboom',
+    'off',
+]);
+
 /**
  * Where a local model server is listening.
  *
@@ -199,6 +211,15 @@ const DEFAULTS = {
      * kept whatever this says. See `sweepHistory` in index.js.
      */
     historyDays: 0,
+    /**
+     * The sound played with the notification that a task finished out of
+     * sight, and how loud (0-100). The machine's, like the speakers it comes
+     * out of. Questions and approvals keep the app's chime whatever is
+     * picked here, so "needs you" never sounds like "done". See
+     * lib/sounds.js in the renderer.
+     */
+    doneSound: 'chime',
+    doneSoundVolume: 70,
     /**
      * Which sign-in each runtime uses for this agent, by runtime: an id from
      * accounts.js, or nothing for the login the machine already has. Only
@@ -341,6 +362,8 @@ function sanitize(raw) {
         // Forever unless a number of days is actually given: anything that is
         // not one keeps everything, never the other way round.
         next.historyDays = clampNumber(raw.historyDays, DEFAULTS.historyDays, 0, HISTORY_MAX_DAYS);
+        if (DONE_SOUNDS.has(raw.doneSound)) next.doneSound = raw.doneSound;
+        next.doneSoundVolume = clampNumber(raw.doneSoundVolume, DEFAULTS.doneSoundVolume, 0, 100);
         if (Array.isArray(raw.autoApproveCommands)) {
             next.autoApproveCommands = raw.autoApproveCommands
                 .map(entry => String(entry || '').trim().toLowerCase())
@@ -675,6 +698,7 @@ module.exports = {
     DEFAULTS,
     APPROVALS,
     COMMAND_MODES,
+    DONE_SOUNDS,
     EFFORTS,
     PROVIDERS,
     KEYED_PROVIDERS,

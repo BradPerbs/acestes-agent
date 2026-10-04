@@ -28,6 +28,8 @@ const TYPEAHEAD_RESET = 700;
  *
  * `options` are `{ value, label, disabled? }`. Values are compared as strings,
  * so a numeric field (the baud rate, the data bits) can keep its numbers.
+ * `{ value, label, heading: true }` is a section title in a long list: drawn
+ * as a small label, never picked, stepped over by the keys and typeahead.
  *
  * `required` is honoured through a mirrored native select, laid out behind the
  * button rather than hidden, so a form calling `reportValidity()` still gets
@@ -74,7 +76,7 @@ export default function Select({
     }, []);
 
     const pick = useCallback((option) => {
-        if (option.disabled) return;
+        if (option.disabled || option.heading) return;
         close();
         onChange(option.value);
     }, [close, onChange]);
@@ -133,8 +135,8 @@ export default function Select({
     // rather than off the top of the list.
     useEffect(() => {
         if (!open) return;
-        setActive(selectedIndex >= 0 ? selectedIndex : 0);
-    }, [open, selectedIndex]);
+        setActive(selectedIndex >= 0 ? selectedIndex : Math.max(0, options.findIndex(option => !option.heading)));
+    }, [open, selectedIndex, options]);
 
     useEffect(() => {
         if (!open || !position) return;
@@ -180,7 +182,7 @@ export default function Select({
                 let next = current;
                 for (let i = 0; i < options.length; i += 1) {
                     next = (next + delta + options.length) % options.length;
-                    if (!options[next].disabled) return next;
+                    if (!options[next].disabled && !options[next].heading) return next;
                 }
                 return current;
             });
@@ -189,7 +191,11 @@ export default function Select({
         switch (event.key) {
             case 'ArrowDown': event.stopPropagation(); step(1); return;
             case 'ArrowUp': event.stopPropagation(); step(-1); return;
-            case 'Home': event.preventDefault(); event.stopPropagation(); setActive(0); return;
+            case 'Home':
+                event.preventDefault();
+                event.stopPropagation();
+                setActive(Math.max(0, options.findIndex(option => !option.disabled && !option.heading)));
+                return;
             case 'End':
                 event.preventDefault();
                 event.stopPropagation();
@@ -228,6 +234,7 @@ export default function Select({
         // `search` is for the rows whose label is a node rather than a string,
         // which is the only way one of them can carry markup of its own.
         const starts = (option) => {
+            if (option.heading) return false;
             const text = option.search ?? (typeof option.label === 'string' ? option.label : '');
             return text.toLowerCase().startsWith(term);
         };
@@ -327,6 +334,20 @@ export default function Select({
                 >
                     {options.map((option, index) => {
                         const isSelected = index === selectedIndex;
+
+                        if (option.heading) {
+                            return (
+                                <div
+                                    key={String(option.value)}
+                                    ref={(node) => { rowsRef.current[index] = node; }}
+                                    role="presentation"
+                                    className={`px-2.5 pb-1 text-[11px] font-semibold uppercase tracking-wide
+                                        text-gray-400 dark:text-neutral-500 ${index > 0 ? 'pt-3' : 'pt-1.5'}`}
+                                >
+                                    {option.label}
+                                </div>
+                            );
+                        }
 
                         return (
                             <button

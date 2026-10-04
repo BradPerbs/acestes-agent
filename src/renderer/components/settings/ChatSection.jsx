@@ -7,6 +7,7 @@ import Button from '../ui/Button';
 import SegmentedControl from '../ui/SegmentedControl';
 import ConfirmDialog from '../ui/ConfirmDialog';
 import VoiceCard from './VoiceCard';
+import DoneSoundCard from './DoneSoundCard';
 import useAssistantSettings, { FIELD_CLASS } from './useAssistantSettings';
 import { SETTINGS_JUMP } from './SettingsNav';
 import { useT } from '../../i18n';
@@ -194,6 +195,8 @@ export default function ChatSection() {
                     }
                 />
             </SettingCard>
+
+            <DoneSoundCard settings={settings} update={update} fieldClass={FIELD_CLASS} />
 
             <VoiceCard settings={settings} update={update} fieldClass={FIELD_CLASS} />
 

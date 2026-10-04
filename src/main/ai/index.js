@@ -1907,6 +1907,8 @@ function endRun(conversation, status, detail = {}) {
             body: lastReply(conversation).replace(/\s+/g, ' ').slice(0, 200),
             conversationId: tabFor(conversation),
             runId,
+            // Played with the sound picked in Settings rather than the chime.
+            kind: 'done',
         });
     }
 

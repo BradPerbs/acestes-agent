@@ -9,7 +9,7 @@ import AssistantWindow from './components/assistant/AssistantWindow';
 import ActivityOverlay from './components/assistant/ActivityOverlay';
 import { INITIAL_THEME, applyAppColors, readAppColors } from './lib/app-colors';
 import { dismissBootSplash } from './lib/boot-splash';
-import { playChime } from './lib/chime';
+import { playSound } from './lib/sounds';
 import { DEFAULT_TOAST_MS, MAX_TOAST_MS, TOAST_EXIT_MS } from './lib/toast';
 
 // Self-hosted fonts, no CDN, so the app works offline and the CSP can stay closed.
@@ -63,8 +63,9 @@ const assistantWindowId = hashParams.get('assistant');
 const activityOverlay = hashParams.has('activity');
 
 // The sound of the assistant's notifications, played by whichever window
-// main picks, so it is heard once however many are open.
-window.api?.ai?.onChime?.(() => playChime());
+// main picks, so it is heard once however many are open. Main says which:
+// the one picked in Settings for a finished task, the chime otherwise.
+window.api?.ai?.onChime?.((chime) => playSound(chime?.sound, chime?.volume));
 
 /**
  * Holds the app behind the lock screen.

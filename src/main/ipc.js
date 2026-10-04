@@ -310,7 +310,7 @@ function register(getWindow) {
      * in one). A job's notification with no run behind it opens the Jobs
      * page; anything else, the Runs page.
      */
-    const toastFromAssistant = ({ title, body, conversationId = '', runId = '', jobId = '' }) => {
+    const toastFromAssistant = ({ title, body, conversationId = '', runId = '', jobId = '', kind = '' }) => {
         const anyWindow = () => {
             const window = getWindow();
             if (window && !window.isDestroyed()) return window;
@@ -348,7 +348,18 @@ function register(getWindow) {
             notification.on('failed', () => liveToasts.delete(notification));
             keepToast(notification);
             notification.show();
-            anyWindow()?.webContents.send('ai-chime');
+            // A finished task sounds the way Settings says; anything that
+            // needs the user keeps the app's chime.
+            let chime = { sound: 'chime' };
+            if (kind === 'done') {
+                try {
+                    const { doneSound, doneSoundVolume } = assistantSettings.get();
+                    chime = { sound: doneSound, volume: doneSoundVolume };
+                } catch {
+                    // Unreadable settings: the chime it always was.
+                }
+            }
+            if (chime.sound !== 'off') anyWindow()?.webContents.send('ai-chime', chime);
         } catch (error) {
             console.error('Could not show a notification:', error.message);
         }
