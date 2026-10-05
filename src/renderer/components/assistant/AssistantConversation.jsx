@@ -31,7 +31,7 @@ import DictationButton from './DictationButton';
 import { useT } from '../../i18n';
 import { groupApprovals } from '../../lib/approvals';
 import { IMAGE_TYPES, imageFiles, readImage } from '../../lib/images';
-import { isTextFile, readTextFile } from '../../lib/files';
+import { isAttachableFile, readTextFile } from '../../lib/files';
 import { describe, toWire } from '../../lib/assistant-scope';
 import { pickLine } from '../../lib/aeneid';
 import { lastModel, rememberModel } from '../../lib/last-model';
@@ -914,8 +914,8 @@ export default function AssistantConversation({
     }, [canAttach, t]);
 
     /**
-     * Take in plain files: code, Markdown, logs, config. These travel as
-     * words, so every agent takes them, whichever runtime is answering.
+     * Take in documents: text, Office files, PDFs. These travel as words,
+     * so every agent takes them, whichever runtime is answering.
      */
     const addAttachedFiles = useCallback(async (picked) => {
         for (const file of picked) {
@@ -939,9 +939,9 @@ export default function AssistantConversation({
         const pictures = list.filter(file => IMAGE_TYPES.includes(file.type));
         const rest = list.filter(file => !IMAGE_TYPES.includes(file.type));
         if (pictures.length > 0) await addImageFiles(pictures);
-        const words = rest.filter(isTextFile);
+        const words = rest.filter(isAttachableFile);
         if (words.length > 0) await addAttachedFiles(words);
-        const refused = rest.filter(file => !isTextFile(file));
+        const refused = rest.filter(file => !isAttachableFile(file));
         if (refused.length > 0 && words.length === 0 && pictures.length === 0) {
             setFileNotice(t('assistant.fileDropped', { name: refused[0].name || 'file' }));
         }
