@@ -89,6 +89,7 @@ const play = accounts.add({ provider: 'claude-code', label: 'Play' }).account;
     const catalog = await importRenderer('ai-catalog.js');
     const usage = await importRenderer('usage-limits.js');
     const lastModel = await importRenderer('last-model.js');
+    const reducer = await importRenderer('transcript-reducer.js');
 
     console.log('\nthe setting');
 
@@ -215,6 +216,53 @@ const play = accounts.add({ provider: 'claude-code', label: 'Play' }).account;
         assert.match(said, /Disks are at 40%/);
         assert.doesNotMatch(said, /And memory/, 'the latest message goes on its own');
         assert.doesNotMatch(said, /df -h/, 'messages only');
+    });
+
+    await check('an account this conversation\'s agent has not ticked is not pinned', () => {
+        // The menu once offered the selected agent's ticks in another agent's
+        // tab; the pin was kept, the chip named it, and every turn still went
+        // to the agent's own account, the one at its limit.
+        settings.set({ accounts: { 'claude-code': play.id }, menuAccounts: { 'claude-code': [] } });
+        const id = assistant.create({ scope: 'global' }).conversationId;
+        const entry = assistant._test.conversation(id);
+        const { pinned } = assistant.setConversationModel(id, { provider: 'claude-code', model: 'opus', account: 'default' });
+        assert.strictEqual(pinned.account, undefined, 'not offered for this agent, so not kept');
+        assert.strictEqual(assistant.effectiveSettings(entry).accountId, play.id);
+        settings.set({ menuAccounts: { 'claude-code': ['default'] } });
+        const again = assistant.setConversationModel(id, { provider: 'claude-code', model: 'opus', account: 'default' });
+        assert.strictEqual(again.pinned.account, 'default', 'kept once it is ticked');
+        assert.strictEqual(assistant.effectiveSettings(entry).accountId, accounts.DEFAULT_ID);
+        settings.set({ accounts: { 'claude-code': 'default' }, menuAccounts: { 'claude-code': [work.id, play.id] } });
+    });
+
+    await check('a change of model, effort or account draws a divider, but not in an empty chat', () => {
+        const id = assistant.create({ scope: 'global' }).conversationId;
+        const entry = assistant._test.conversation(id);
+        const dividers = () => entry.events.filter(event => event.type === 'model-changed');
+        assistant.setConversationModel(id, { provider: 'claude-code', model: 'opus', effort: 'high' });
+        assert.strictEqual(dividers().length, 0, 'nothing said yet');
+        assistant._test.emit(id, { type: 'user-message', text: 'Check the disks' });
+        assistant.setConversationModel(id, { provider: 'claude-code', model: 'opus', effort: 'xhigh' });
+        assert.strictEqual(dividers().at(-1)?.text, 'Switched to extra high effort');
+        assistant.setConversationModel(id, { provider: 'claude-code', model: 'opus', effort: 'xhigh', account: work.id });
+        assert.strictEqual(dividers().at(-1)?.text, 'Switched to Work');
+        assistant.setConversationModel(id, { provider: 'claude-code', model: 'sonnet', effort: 'xhigh', account: work.id });
+        assert.match(dividers().at(-1)?.text, /^Switched to (Sonnet|sonnet)/);
+        const count = dividers().length;
+        assistant.setConversationModel(id, { provider: 'claude-code', model: 'sonnet', effort: 'xhigh', account: work.id });
+        assert.strictEqual(dividers().length, count, 'the same pick again changes nothing');
+    });
+
+    await check('the transcript draws the change as a divider that does not end the turn', () => {
+        const state = reducer.replay([
+            { type: 'user-message', text: 'Hi', at: 1 },
+            { type: 'assistant-text', text: 'Hello', at: 2 },
+            { type: 'result', costUsd: 0, at: 3 },
+            { type: 'model-changed', text: 'Switched to Work', at: 4 },
+        ]);
+        const last = state.items.at(-1);
+        assert.strictEqual(last.kind, 'divider');
+        assert.strictEqual(last.text, 'Switched to Work');
     });
 
     console.log('\nthe menu');

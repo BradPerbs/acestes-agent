@@ -274,6 +274,12 @@ export default function AssistantConversation({
     const t = useT();
     const [settings, setSettings] = useState(null);
     /**
+     * The settings of the agent this tab belongs to, which is not always the
+     * one selected. Read for its accounts: the model menu offers the ones
+     * ticked for this agent, the only ones its conversations can run on.
+     */
+    const [agentSettings, setAgentSettings] = useState(null);
+    /**
      * The model lists, keyed by the agent each came from.
      *
      * Kept with the agent it came from rather than on its own, so that a list
@@ -415,9 +421,19 @@ export default function AssistantConversation({
     // moves around the app, which is the whole point of pinning it.
     const target = useMemo(() => toWire(scope, activeSessionId), [scope, activeSessionId]);
 
+    // Which sign-ins the menu offers, and which one a conversation that has
+    // not picked runs on, are this tab's agent's, not the selected agent's.
+    // Picking an account only the selected agent had ticked used to pin a
+    // conversation that main then ran on its own agent's account regardless.
+    const accountSettings = useMemo(() => {
+        if (!settings) return settings;
+        const own = agentSettings && (!agentId || agentSettings.agentId === agentId) ? agentSettings : null;
+        return own ? { ...settings, accounts: own.accounts, menuAccounts: own.menuAccounts } : settings;
+    }, [settings, agentSettings, agentId]);
+
     // A new conversation starts on the model the chip was last left on.
     const modelAgent = agentId || settings?.agentId || '';
-    const startPin = useMemo(() => lastModel(modelAgent, settings), [modelAgent, settings]);
+    const startPin = useMemo(() => lastModel(modelAgent, accountSettings), [modelAgent, accountSettings]);
 
     const assistant = useAssistant({ ...target, agentId, conversationId, onConversationChange, startPin });
 
@@ -444,15 +460,16 @@ export default function AssistantConversation({
     // composer, so the panel holds the settings rather than one field of them.
     // The settings page is still where they are explained.
     useEffect(() => {
-        window.api.ai.status()
+        window.api.ai.status(agentId)
             .then((status) => {
                 setSettings(status?.settings || null);
+                setAgentSettings(status?.agentSettings || null);
                 setCatalogs(status?.catalogs || {});
                 setImageProviders(status?.imageProviders || []);
                 setAgentProviders(status?.agentProviders || {});
             })
             .catch(() => {});
-    }, []);
+    }, [agentId]);
 
     /**
      * Which agents are switched on, as one array that keeps its identity.
@@ -512,13 +529,16 @@ export default function AssistantConversation({
     // moves its tabs' attach gate at once rather than on the next reload.
     useEffect(() => window.api.ai.onSettings((next) => {
         setSettings(next);
-        window.api.ai.status()
+        // Re-read for this tab's agent too: ticking an account for the menu
+        // may have been a change to it.
+        window.api.ai.status(agentId)
             .then((status) => {
+                setAgentSettings(status?.agentSettings || null);
                 setImageProviders(status?.imageProviders || []);
                 setAgentProviders(status?.agentProviders || {});
             })
             .catch(() => {});
-    }), []);
+    }), [agentId]);
 
     const changeSettings = useCallback(async (patch) => {
         const next = await window.api.ai.setSettings(patch);
@@ -533,14 +553,14 @@ export default function AssistantConversation({
     // here, and never moves the agent's settings.
     const pinned = assistant.pinned;
     const shownSettings = useMemo(
-        () => (settings && pinned ? { ...settings, ...pinned } : settings),
-        [settings, pinned],
+        () => (accountSettings && pinned ? { ...accountSettings, ...pinned } : accountSettings),
+        [accountSettings, pinned],
     );
     const pinModel = assistant.pinModel;
     const changeModel = useCallback((patch) => {
-        rememberModel(modelAgent, settings, { ...shownSettings, ...patch });
+        rememberModel(modelAgent, accountSettings, { ...shownSettings, ...patch });
         return pinModel(patch);
-    }, [modelAgent, settings, shownSettings, pinModel]);
+    }, [modelAgent, accountSettings, shownSettings, pinModel]);
 
     // The effort dial wears this chat's project colour. White and black have
     // no hue to wear, so they get slate; everything else wears its `from`.

@@ -197,7 +197,19 @@ function RowContent({ item, conversationId, onRespond, onAnswer, onRevert, onOpe
             />
         );
     }
+    if (item.kind === 'divider') return <Divider key={item.id} item={item} />;
     return <Notice key={item.id} item={item} />;
+}
+
+/** A thin rule with a few words on it: the chat moved to another model, effort or account. */
+function Divider({ item }) {
+    return (
+        <div className="flex items-center gap-2 py-0.5 text-[10.5px] text-gray-400 dark:text-neutral-500 select-none" role="separator">
+            <span className="h-px flex-1 bg-gray-200 dark:bg-white/[0.08]" />
+            <span className="shrink-0 max-w-[80%] truncate" title={item.text}>{item.text}</span>
+            <span className="h-px flex-1 bg-gray-200 dark:bg-white/[0.08]" />
+        </div>
+    );
 }
 
 /**
@@ -263,6 +275,9 @@ function findTurnEnds(items, busy, turnRates) {
             return;
         }
         if (!turn) return;
+        // A divider is between turns, not the end of one: the turn's row
+        // stays above it.
+        if (item.kind === 'divider') return;
         if (item.kind === 'assistant' && item.text) turn.text = item.text;
         if (item.kind !== 'notice') turn.worked = true;
         turn.last = index;

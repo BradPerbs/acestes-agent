@@ -478,6 +478,13 @@ function step(state, event, owned) {
             draft = emptyDraft();
             break;
 
+        // The composer's chip moved this chat to another model, effort or
+        // account. A divider rather than a notice, and the turn is left as it
+        // is: the change can land in the middle of one.
+        case 'model-changed':
+            edit().push({ kind: 'divider', id: `mc-${event.at}-${items.length}`, text: event.text || '' });
+            break;
+
         // Something the provider wanted said that is not the end of the turn,
         // so the turn is left running.
         case 'warning':

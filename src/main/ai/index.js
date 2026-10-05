@@ -2695,13 +2695,27 @@ function setConversationModel(conversationId, patch = {}) {
     const account = patch.account !== undefined
         ? patch.account
         : (next.provider === current.provider ? current.account : '');
-    if (account && typeof account === 'string' && next.provider && accounts.supports(next.provider)) {
+    // Kept only when this conversation's own agent would actually run on it.
+    // A menu built from another agent's ticks can offer an account this one
+    // does not have ticked; storing that pin anyway would have the chip name
+    // one account while every turn went to the agent's own, which is how a
+    // conversation stuck on a plan at its limit looked switched and was not.
+    if (account && typeof account === 'string' && next.provider && accounts.supports(next.provider)
+        && pinnedAccountFor(settings.get(conversation.agentId), next.provider, account.slice(0, 80))) {
         next.account = account.slice(0, 80);
     }
     conversation.settingsPatch = Object.keys(next).length ? next : null;
     archive.save(conversation.id);
 
     const after = effectiveSettings(conversation);
+    // A line in the chat saying what moved, so the turns after it read as the
+    // new model's. Only once something has been said: an empty chat has no
+    // "before" for the line to divide it from.
+    const change = describeModelChange(before, after);
+    if (change && conversation.events.some(event => event.type === 'user-message')) {
+        emit(conversation, { type: 'model-changed', text: change });
+        archive.save(conversation.id);
+    }
     const session = conversation.session;
     if (before.provider !== after.provider || accountMoved(conversation, before, after)) {
         if (session || conversation.starting) conversation.needsRestart = true;
@@ -2710,6 +2724,31 @@ function setConversationModel(conversationId, patch = {}) {
         if (before.effort !== after.effort) session.setEffort?.(after.effort);
     }
     return { pinned: conversation.settingsPatch };
+}
+
+const EFFORT_NAMES = { low: 'low', medium: 'medium', high: 'high', xhigh: 'extra high', max: 'max', ultra: 'ultra' };
+
+/**
+ * What a pick in the composer changed, as one short line for the chat:
+ * `Opus 5.5 · high effort · Work`, naming only the parts that moved. Empty
+ * when nothing that answers the next message is different.
+ */
+function describeModelChange(before, after) {
+    const parts = [];
+    if (before.provider !== after.provider || before.model !== after.model) {
+        const rows = modelCatalogs.get(after.provider) || [];
+        const row = rows.find(entry => entry?.value === after.model);
+        const runtime = PROVIDERS[after.provider]?.label || PROVIDERS[after.provider]?.name || after.provider;
+        parts.push(row?.label || after.model || `${runtime} default`);
+    }
+    if ((before.effort || '') !== (after.effort || '') && after.effort) {
+        parts.push(`${EFFORT_NAMES[after.effort] || after.effort} effort`);
+    }
+    if (before.provider === after.provider && (before.accountId || '') !== (after.accountId || '')) {
+        const account = accounts.resolve(after.provider, after.accountId);
+        parts.push(account?.builtIn ? 'this computer\'s login' : (account?.label || 'another account'));
+    }
+    return parts.length ? `Switched to ${parts.join(' · ')}` : '';
 }
 
 function jobsApiFor(conversation) {
@@ -3430,9 +3469,13 @@ async function detect(provider) {
     }
 }
 
-function status() {
+function status(agentId = '') {
     const current = settings.get();
     return {
+        // The settings of the agent a tab belongs to, which need not be the
+        // one selected: the composer's menu offers that agent's accounts,
+        // since those are the ones its conversations can run on.
+        agentSettings: agentId ? settings.get(agentId) : current,
         ready: Boolean(PROVIDERS[current.provider]),
         provider: current.provider,
         providers: Object.keys(PROVIDERS),

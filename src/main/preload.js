@@ -540,7 +540,8 @@ contextBridge.exposeInMainWorld('api', {
      * `history` exists.
      */
     ai: {
-        status: () => ipcRenderer.invoke('ai-status'),
+        // `agentId` adds that agent's settings as `agentSettings`.
+        status: (agentId) => ipcRenderer.invoke('ai-status', agentId || ''),
         setSettings: (patch) => ipcRenderer.invoke('ai-settings-set', patch),
         // The settings, whenever anything changes them. Both the panel and the
         // settings page show some of these and can be open at once.

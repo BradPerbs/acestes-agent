@@ -1621,7 +1621,7 @@ function register(getWindow) {
 
     /* ---------------- Assistant ---------------- */
 
-    handle('ai-status', () => assistant.status());
+    handle('ai-status', (event, agentId) => assistant.status(typeof agentId === 'string' ? agentId.slice(0, 80) : ''));
     // Brings the runtime up on its own if it has not been asked yet, so a
     // model menu is right the first time it is opened rather than after the
     // first message. Cached from then on; `ai-models` announces the answer.
