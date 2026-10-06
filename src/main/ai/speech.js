@@ -16,8 +16,8 @@ const parakeet = require('./parakeet');
  *                    written down while the user talks, so stopping takes a
  *                    fraction of a second. 25 European languages, told apart
  *                    by itself; the model is 670 MB, fetched once.
- *   whisper          built in: run through ONNX in this process the way the
- *                    memory's embeddings are (see embeddings.js). Nothing to
+ *   whisper          built in: run through ONNX (transformers.js) in this
+ *                    process. Nothing to
  *                    install; the model is fetched once, to userData, on the
  *                    first use (76 MB for base), and the page is told how
  *                    far the download has got.

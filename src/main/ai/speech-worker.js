@@ -3,9 +3,9 @@
  * sherpa-onnx) and a voice activity detector, in a process of their own.
  *
  * Its own process for two reasons. sherpa-onnx carries its own ONNX Runtime,
- * and the main process already has another loaded for the memory's
- * embeddings; on Windows the second DLL of that name would be handed the
- * first. And a model this size is better away from the process that draws
+ * and the main process may already have another loaded for whisper; on
+ * Windows the second DLL of that name would be handed the first. And a model
+ * this size is better away from the process that draws
  * every window.
  *
  * Audio arrives while the user talks. The detector cuts it where they pause,
