@@ -456,12 +456,86 @@ function readOutput(payload) {
         || unwrapOutput(payload?.rawOutput ?? payload?.raw_output);
 }
 
-function createTranslator(onEvent) {
+/**
+ * The model's context window, out of the CLI's own model cache.
+ *
+ * The cache is what the CLI itself reads before it draws its own picker, so
+ * it names the same models the menu offers, with the window each one runs
+ * in. Every known spelling of a model shares one entry, since the setting
+ * the turn runs under and the cache's own id are not always the same string.
+ */
+function contextWindows({ source = grokHome() } = {}) {
+    const cache = readJson(path.join(source, 'models_cache.json'));
+    const models = cache?.models;
+    const windows = new Map();
+    if (!models || typeof models !== 'object') return windows;
+    for (const [id, entry] of Object.entries(models)) {
+        const info = entry?.info || {};
+        const limit = Number(info.context_window)
+            || Number(info.contextWindows?.[0])
+            || Number(info.context_windows?.[0])
+            || 0;
+        if (!(limit > 0)) continue;
+        for (const alias of [id, info.id, info.model]) {
+            if (alias) windows.set(String(alias), limit);
+        }
+    }
+    return windows;
+}
+
+/**
+ * A usage object as tokens for the composer's ring: what went in, cached or
+ * not, and what came back.
+ *
+ * The CLI's `total_tokens` counts more than the two fields name (cached
+ * prompt tokens ride along in it: 11256 in and 111 out reads as 28647 on
+ * the wire), so the fuller figure wins rather than the sum understating the
+ * reading. Read leniently like the rest of this stream: a shape not listed
+ * here reads as nothing rather than as a crash.
+ */
+function usageTokens(usage) {
+    if (!usage || typeof usage !== 'object') return { used: 0, cached: 0 };
+    const input = Number(usage.input_tokens ?? usage.inputTokens ?? usage.prompt_tokens) || 0;
+    const output = Number(usage.output_tokens ?? usage.outputTokens ?? usage.completion_tokens) || 0;
+    const cached = Number(usage.cache_read_input_tokens ?? usage.cached_tokens ?? usage.cache_read) || 0;
+    const total = Number(usage.total_tokens ?? usage.totalTokens) || 0;
+    return { used: Math.max(input + output + cached, total), cached };
+}
+
+function createTranslator(onEvent, { model = '', contextLimit = () => 0 } = {}) {
     let text = '';
     let cost = 0;
     let usage = null;
     let sawError = false;
     const announced = new Set();
+    let lastContext = '';
+
+    /**
+     * How full the context is after the latest reply: its tokens over the
+     * model's window, as Pi draws it beside its composer. Said each time it
+     * moves, which is once per model call. Without a window there is no
+     * reading and the ring stays empty, as before: a percentage over a
+     * guessed window would be worse than none.
+     */
+    const reportContext = (reading) => {
+        const { used, cached } = usageTokens(reading);
+        if (used <= 0) return;
+        const limit = Number(contextLimit(model)) || 0;
+        if (limit <= 0) return;
+        const key = `${used}/${limit}/${cached}`;
+        if (key === lastContext) return;
+        lastContext = key;
+        onEvent({
+            type: 'context',
+            used,
+            limit,
+            percent: Math.round((used / limit) * 100),
+            model,
+            // Cache-read tokens behind this reading, when reported: the
+            // composer's tooltip shows the hit rate from it.
+            ...(cached > 0 ? { cached } : {}),
+        });
+    };
 
     /**
      * Any text so far, as a finished block.
@@ -541,6 +615,7 @@ function createTranslator(onEvent) {
                 case 'usage':
                     usage = payload.usage || payload;
                     cost += Number(payload.costUsd ?? payload.cost_usd ?? payload.cost ?? 0) || 0;
+                    if (payload.usage) reportContext(payload.usage);
                     return;
 
                 // The last line of a run, and the only one that totals it. The
@@ -549,7 +624,10 @@ function createTranslator(onEvent) {
                 // turn's, and the cost is only ever stated here: none of the
                 // usage lines carries one, which is why the chip read zero.
                 case 'end':
-                    if (payload.usage) usage = payload.usage;
+                    if (payload.usage) {
+                        usage = payload.usage;
+                        reportContext(payload.usage);
+                    }
                     cost += Number(payload.total_cost_usd ?? payload.totalCostUsd ?? 0) || 0;
                     return;
 
@@ -870,7 +948,15 @@ async function start(options) {
     async function turn(text, images = []) {
         const current = getSettings();
         const env = environment(current);
-        const translator = createTranslator(onEvent);
+        // The composer's ring: the reply's tokens over the model's window,
+        // out of the CLI's own model cache. Read per turn so a cache the
+        // CLI rewrites mid-conversation (sign-in, new model) takes effect
+        // on the next message rather than the next restart.
+        const windows = contextWindows();
+        const translator = createTranslator(onEvent, {
+            model: current.model || configuredModel(),
+            contextLimit: (name) => windows.get(String(name)) || 0,
+        });
         // Pictures ride as files the run is pointed at: staged for the turn,
         // named in the prompt, removed afterwards. The retry below reuses the
         // same staging, so nothing is cleaned up until the turn is over.
@@ -1043,6 +1129,8 @@ module.exports = {
     signedIn,
     cachedModels,
     configuredModel,
+    contextWindows,
+    usageTokens,
     isGrokModel,
     grokRoots,
     createTranslator,

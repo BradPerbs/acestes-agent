@@ -306,6 +306,91 @@ async function run() {
         'progress updates land on the call that is already there'
     );
 
+    /* ---------------- The composer's ring ---------------- */
+
+    // Pi reports a context reading per reply and Grok Build reported none,
+    // so the ring beside the model chip stayed empty on this runtime. The
+    // window comes from the CLI's own model cache; the tokens from the
+    // usage lines the stream already carries.
+    const metered = collect();
+    const meter = provider.createTranslator(metered.onEvent, {
+        model: 'grok-4.6',
+        contextLimit: (name) => (name === 'grok-4.6' ? 256000 : 0),
+    });
+    meter.event({ type: 'usage', usage: { input_tokens: 8455, output_tokens: 67 } });
+    meter.event({
+        type: 'end',
+        usage: { input_tokens: 11256, output_tokens: 111, total_tokens: 28647 },
+        total_cost_usd: 0.00540906,
+    });
+    meter.finish();
+
+    const readings = metered.events.filter(event => event.type === 'context');
+    assert.strictEqual(readings.length, 2, 'each step moves the ring, like Pi');
+    assert.deepStrictEqual(
+        readings.map(reading => reading.used),
+        [8522, 28647],
+        'per call the fields as stated; at the end the fuller total wins, since the total counts the cached tokens the fields omit'
+    );
+    assert.strictEqual(readings[0].limit, 256000);
+    assert.strictEqual(readings[0].percent, Math.round((8522 / 256000) * 100));
+    assert.strictEqual(readings[0].model, 'grok-4.6');
+
+    const sameAgain = collect();
+    const steady = provider.createTranslator(sameAgain.onEvent, {
+        model: 'grok-4.6',
+        contextLimit: () => 256000,
+    });
+    steady.event({ type: 'usage', usage: { input_tokens: 100, output_tokens: 10 } });
+    steady.event({ type: 'usage', usage: { input_tokens: 100, output_tokens: 10 } });
+    steady.finish();
+    assert.strictEqual(
+        sameAgain.events.filter(event => event.type === 'context').length,
+        1,
+        'an unchanged reading is not said twice'
+    );
+
+    const windowless = collect();
+    const blind = provider.createTranslator(windowless.onEvent, { model: 'grok-4.6' });
+    blind.event({ type: 'usage', usage: { input_tokens: 100, output_tokens: 10 } });
+    blind.finish();
+    assert.ok(
+        !windowless.events.some(event => event.type === 'context'),
+        'without a window there is no reading, and the ring stays empty as before'
+    );
+
+    const cacheHome = fs.mkdtempSync(path.join(os.tmpdir(), 'grok-windows-'));
+    try {
+        assert.strictEqual(provider.contextWindows({ source: cacheHome }).size, 0, 'no cache is no windows');
+        fs.writeFileSync(path.join(cacheHome, 'models_cache.json'), JSON.stringify({
+            models: {
+                'grok-4.6': { info: { id: 'grok-4.6', model: 'grok-4.6', context_window: 256000 } },
+                'odd': { info: { id: 'odd' } },
+            },
+        }), 'utf8');
+        const windows = provider.contextWindows({ source: cacheHome });
+        assert.strictEqual(windows.get('grok-4.6'), 256000, 'the window is the cache\'s own');
+        assert.ok(!windows.has('odd'), 'a model with no window offers none');
+    } finally {
+        fs.rmSync(cacheHome, { recursive: true, force: true });
+    }
+
+    assert.deepStrictEqual(
+        provider.usageTokens({ input_tokens: 100, output_tokens: 10 }),
+        { used: 110, cached: 0 },
+        'the fields as stated'
+    );
+    assert.deepStrictEqual(
+        provider.usageTokens({ input_tokens: 11256, output_tokens: 111, total_tokens: 28647 }),
+        { used: 28647, cached: 0 },
+        'the total wins when it counts more'
+    );
+    assert.deepStrictEqual(
+        provider.usageTokens({ type: 'usage', costUsd: 0.02 }),
+        { used: 0, cached: 0 },
+        'a cost-only line reads as nothing'
+    );
+
     /* ---------------- Pointing it at our tools ---------------- */
 
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'grok-config-'));
