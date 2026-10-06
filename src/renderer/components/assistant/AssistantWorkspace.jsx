@@ -15,6 +15,7 @@ import ContextMenu from '../ui/ContextMenu';
 import PanelMenu from './PanelMenu';
 import ScopeMenu from './ScopeMenu';
 import AssistantConversation, { HAIRLINE } from './AssistantConversation';
+import ConversationFind from './ConversationFind';
 import { useT } from '../../i18n';
 import { PANE_HEADER_HEIGHT } from '../../lib/layout';
 import {
@@ -940,13 +941,7 @@ export default function AssistantWorkspace({
                 rather than unmounting is what keeps a background tab's
                 stream, draft and scope. */}
             {tabs.map(tab => (
-                // A class rather than `hidden`: the attribute's reset and the
-                // `flex` utility weigh the same, and the utility is declared
-                // later, so a hidden flex box would still be drawn.
-                <div
-                    key={tab.id}
-                    className={tab.id === activeId ? 'flex-1 min-h-0 flex flex-col' : 'hidden'}
-                >
+                <WorkspacePane key={tab.id} active={tab.id === activeId}>
                     <AssistantConversation
                         tabId={tab.id}
                         conversationId={tab.conversationId}
@@ -961,8 +956,26 @@ export default function AssistantWorkspace({
                         onOpenSnippets={onOpenSnippets}
                         onOpenConversation={openConversation}
                     />
-                </div>
+                </WorkspacePane>
             ))}
+        </div>
+    );
+}
+
+/**
+ * One tab's conversation, with find over it (Ctrl+F while it is in front).
+ * A component of its own for the ref the search needs.
+ *
+ * A class rather than `hidden`: the attribute's reset and the `flex` utility
+ * weigh the same, and the utility is declared later, so a hidden flex box
+ * would still be drawn.
+ */
+function WorkspacePane({ active, children }) {
+    const ref = useRef(null);
+    return (
+        <div ref={ref} className={active ? 'relative flex-1 min-h-0 flex flex-col' : 'hidden'}>
+            <ConversationFind rootRef={ref} active={active} />
+            {children}
         </div>
     );
 }

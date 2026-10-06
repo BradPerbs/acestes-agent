@@ -1,12 +1,14 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
-import { Cancel01Icon, CommandLineIcon, Copy01Icon, SplitIcon, LinkSquare02Icon, Tick01Icon, Unlink01Icon } from 'hugeicons-react';
+import { Cancel01Icon, CommandLineIcon, Copy01Icon, Search01Icon, SplitIcon, LinkSquare02Icon, Tick01Icon, Unlink01Icon } from 'hugeicons-react';
 import AgentMark from './AgentMark';
 import ConversationPaneSwitcher from './ConversationPaneSwitcher';
+import ConversationFind from './ConversationFind';
 import ScopeMenu from './ScopeMenu';
 import LocalTerminalPanel from './LocalTerminalPanel';
 import useLocalTerminals from '../../hooks/useLocalTerminals';
 import AssistantConversation, { HAIRLINE, HeaderButton } from './AssistantConversation';
 import { PANE_HEADER_HEIGHT } from '../../lib/layout';
+import { MODIFIER_KEY } from '../../lib/platform';
 import { useT } from '../../i18n';
 
 /**
@@ -312,6 +314,11 @@ function ConversationView({
     const [sideBySide, setSideBySide] = useState(true);
     const bodyRef = useRef(null);
 
+    // Find in the conversation. The bar hangs in the chat's column rather
+    // than the whole view, so it is never drawn over the terminal beside it.
+    const chatRef = useRef(null);
+    const findRef = useRef(null);
+
     useEffect(() => {
         const element = bodyRef.current;
         if (!element) return undefined;
@@ -384,6 +391,15 @@ function ConversationView({
                     <ScopeMenu scope={tab.scope} {...scopeProps} />
                 </div>
 
+                {tab.conversationId && (
+                    <HeaderButton
+                        title={t('assistant.find')}
+                        hint={`${MODIFIER_KEY}+F`}
+                        icon={<Search01Icon size={16} strokeWidth={1.75} />}
+                        onClick={() => findRef.current?.open()}
+                    />
+                )}
+
                 {tab.conversationId && <CopyConversationButton conversationId={tab.conversationId} />}
 
                 <HeaderButton
@@ -427,12 +443,14 @@ function ConversationView({
 
             <div ref={bodyRef} className={`flex-1 min-h-0 flex ${direction === 'row' ? 'flex-row' : 'flex-col'}`}>
                 <div
-                    className="min-w-0 min-h-0 flex flex-col"
+                    ref={chatRef}
+                    className="relative min-w-0 min-h-0 flex flex-col"
                     style={{
                         flex: `${dock.expanded ? 1 - share : 1} 1 0`,
                         transition: dock.animating ? `flex-grow ${DOCK_MS}ms ${DOCK_EASE}` : 'none',
                     }}
                 >
+                    <ConversationFind ref={findRef} rootRef={chatRef} active={active} />
                     <div className="flex-1 min-h-0 flex flex-col w-full max-w-3xl mx-auto">
                         <AssistantConversation
                             tabId={tab.id}

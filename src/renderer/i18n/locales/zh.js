@@ -1091,4 +1091,12 @@ export default {
     'assistant.allowed': '已允许',
     'assistant.declined': '已拒绝',
     'assistant.timedOut': '已超时',
+    'assistant.find': '在对话中查找',
+    'assistant.findNoResults': '无结果',
+    'assistant.findBadPattern': '无效的模式',
+    'assistant.findMatchCase': '区分大小写',
+    'assistant.findWholeWord': '全字匹配',
+    'assistant.findRegex': '使用正则表达式',
+    'assistant.findPrevious': '上一个匹配项',
+    'assistant.findNext': '下一个匹配项',
 };

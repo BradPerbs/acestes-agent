@@ -117,6 +117,30 @@ select,
     background-color: rgb(251 191 36 / 0.25);
 }
 
+/* Find in a conversation; see lib/transcript-find.js. Every match in the same
+   amber as the settings search, the one being looked at in solid orange with
+   black text, which reads on a reply, on a code block and on either theme's
+   message bubble alike. The light theme's bubble is near-black with white
+   text, where the pale wash would turn to mud, so it gets a deeper one. */
+::highlight(conversation-find) {
+    background-color: rgb(253 230 138 / 0.7);
+    color: inherit;
+}
+
+:root.dark ::highlight(conversation-find) {
+    background-color: rgb(251 191 36 / 0.25);
+}
+
+:root:not(.dark) .assistant-bubble::highlight(conversation-find),
+:root:not(.dark) .assistant-bubble ::highlight(conversation-find) {
+    background-color: rgb(251 191 36 / 0.45);
+}
+
+::highlight(conversation-find-current) {
+    background-color: rgb(251 146 60);
+    color: #000;
+}
+
 /* Icons and logos should not tear off as drag ghosts. */
 img,
 svg {

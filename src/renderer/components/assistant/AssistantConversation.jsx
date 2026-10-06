@@ -36,6 +36,7 @@ import { describe, toWire } from '../../lib/assistant-scope';
 import { pickLine } from '../../lib/aeneid';
 import { lastModel, rememberModel } from '../../lib/last-model';
 import { agentColor } from '../../lib/agent-colors';
+import { TRANSCRIPT_HOLD } from '../../lib/transcript-find';
 
 /** The rule inside a card, which is lighter than the one between two cards. */
 export const HAIRLINE = 'border-black/[0.06] dark:border-white/[0.06]';
@@ -615,6 +616,17 @@ export default function AssistantConversation({
         if (['PageUp', 'ArrowUp', 'Home'].includes(event.key)) stickToBottom.current = false;
     }, []);
 
+    // Find going to a match says the same, before it moves the view; see
+    // ConversationFind. Coming back down to the bottom takes hold again, as
+    // it does after a wheel.
+    useEffect(() => {
+        const node = scrollRef.current;
+        if (!node) return undefined;
+        const hold = () => { stickToBottom.current = false; };
+        node.addEventListener(TRANSCRIPT_HOLD, hold);
+        return () => node.removeEventListener(TRANSCRIPT_HOLD, hold);
+    }, []);
+
     const keepAtBottom = useCallback(() => {
         const node = scrollRef.current;
         if (!node || !stickToBottom.current) return;
@@ -1095,6 +1107,7 @@ export default function AssistantConversation({
                 reply, not the label on the button next to it. */}
             <div
                 ref={scrollRef}
+                data-transcript=""
                 onScroll={onScroll}
                 onWheel={onWheel}
                 onKeyDown={onScrollKey}

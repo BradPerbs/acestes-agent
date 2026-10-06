@@ -1186,4 +1186,12 @@ export default {
     'assistant.allowed': 'Đã cho phép',
     'assistant.declined': 'Đã từ chối',
     'assistant.timedOut': 'Đã hết thời gian',
+    'assistant.find': 'Tìm trong cuộc trò chuyện',
+    'assistant.findNoResults': 'Không có kết quả',
+    'assistant.findBadPattern': 'Mẫu không hợp lệ',
+    'assistant.findMatchCase': 'Phân biệt hoa thường',
+    'assistant.findWholeWord': 'Khớp nguyên từ',
+    'assistant.findRegex': 'Dùng biểu thức chính quy',
+    'assistant.findPrevious': 'Kết quả trước',
+    'assistant.findNext': 'Kết quả tiếp theo',
 };

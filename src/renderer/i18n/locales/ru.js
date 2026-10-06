@@ -1303,4 +1303,12 @@ export default {
     'assistant.allowed': 'Разрешено',
     'assistant.declined': 'Отклонено',
     'assistant.timedOut': 'Истекло время',
+    'assistant.find': 'Найти в разговоре',
+    'assistant.findNoResults': 'Нет совпадений',
+    'assistant.findBadPattern': 'Неверный шаблон',
+    'assistant.findMatchCase': 'Учитывать регистр',
+    'assistant.findWholeWord': 'Слово целиком',
+    'assistant.findRegex': 'Регулярное выражение',
+    'assistant.findPrevious': 'Предыдущее совпадение',
+    'assistant.findNext': 'Следующее совпадение',
 };

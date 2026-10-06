@@ -214,6 +214,9 @@ export default function WorkingIndicator({ items }) {
     return (
         <div
             role="status"
+            // A rolling phrase is not something said in the conversation, and
+            // a find for "reading" should not land on it. See lib/transcript-find.
+            data-find-skip=""
             aria-label={t('assistant.working')}
             className="flex items-center gap-2 h-8 px-2.5 text-[11px] select-none
                 text-gray-400 dark:text-gray-500"

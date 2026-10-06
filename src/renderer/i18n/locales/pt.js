@@ -1254,4 +1254,12 @@ export default {
     'assistant.allowed': 'Permitido',
     'assistant.declined': 'Recusado',
     'assistant.timedOut': 'Expirou',
+    'assistant.find': 'Procurar na conversa',
+    'assistant.findNoResults': 'Sem resultados',
+    'assistant.findBadPattern': 'Padrão inválido',
+    'assistant.findMatchCase': 'Diferenciar maiúsculas',
+    'assistant.findWholeWord': 'Palavra inteira',
+    'assistant.findRegex': 'Usar expressão regular',
+    'assistant.findPrevious': 'Ocorrência anterior',
+    'assistant.findNext': 'Ocorrência seguinte',
 };

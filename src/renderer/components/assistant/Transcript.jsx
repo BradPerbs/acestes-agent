@@ -423,8 +423,11 @@ function Transcript({
     return (
         <>
             {start > 0 && (
-                <div className="h-8 flex items-center justify-center text-[11px] select-none
-                    text-gray-400 dark:text-gray-600">
+                <div
+                    data-find-skip=""
+                    className="h-8 flex items-center justify-center text-[11px] select-none
+                    text-gray-400 dark:text-gray-600"
+                >
                     {t('assistant.loadingEarlier', { count: start })}
                 </div>
             )}
