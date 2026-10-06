@@ -706,19 +706,52 @@ const TOOLS = [
         title: 'Remember something',
         readOnly: true,
         description:
-            'Save a note to your memory for later conversations: a preference the user stated, a fact '
-            + 'about their environment that is not on the host record, a decision, what a fix turned '
-            + 'out to be. It is shown to you at the start of every later conversation. One fact per '
-            + 'call, short and specific. Never save a password, a key or a token.',
+            'Save a note to your memory for later conversations. Choose its kind: "rule" for a standing '
+            + 'instruction or preference that applies to every task (it goes into every later '
+            + 'conversation, so keep rules few and short); "fact" for something that stays true until it '
+            + 'changes (how a machine or project is set up, where a thing lives, what a fix turned out to '
+            + 'be); "event" for what happened when (a release, an incident). Facts and events are found '
+            + 'by meaning and sent to you with a message they bear on. One subject per note, under 300 '
+            + 'characters, written so it makes sense on its own months from now. Save the lasting lesson, '
+            + 'not a log of the steps: git already keeps commits. To correct or update a note, pass its id '
+            + 'as replaces rather than writing a second one. Never save a password, a key or a token.',
         shape: {
             text: z.string().min(1).max(1000).describe('The note, one or two sentences.'),
-            tags: z.array(z.string()).optional().describe('Up to eight short tags, e.g. ["preference", "nginx"].'),
+            kind: z.enum(['rule', 'fact', 'event']).optional().describe('rule, fact or event. Worked out from the text if left out.'),
+            tags: z.array(z.string()).optional().describe('Up to eight short topic tags, e.g. ["nginx", "web-01"].'),
+            replaces: z.string().optional().describe('The id of a note this one corrects or updates; that note is rewritten in place.'),
         },
         handler: async (input, ctx) => {
             if (memoryOff(ctx)) return fail(MEMORY_OFF);
-            const entry = memory.add(ctx.agentId, { text: input.text, tags: input.tags, source: 'agent' });
+            if (input.replaces) {
+                const held = memory.get(ctx.agentId, input.replaces);
+                if (!held) return fail(`There is no note with the id "${input.replaces}". Leave out replaces to save a new one.`);
+                const entry = memory.update(ctx.agentId, held.id, {
+                    text: input.text,
+                    kind: input.kind,
+                    ...(input.tags ? { tags: input.tags } : {}),
+                });
+                if (!entry) return fail('There was nothing to remember.');
+                memory.markShown(ctx.conversationId, [entry.id]);
+                return ok({ updated: true, id: entry.id, kind: entry.kind, text: entry.text, tags: entry.tags, was: held.text });
+            }
+            const entry = memory.add(ctx.agentId, { text: input.text, tags: input.tags, kind: input.kind, source: 'agent' });
             if (!entry) return fail('There was nothing to remember.');
-            return ok({ saved: true, id: entry.id, text: entry.text, tags: entry.tags });
+            memory.markShown(ctx.conversationId, [entry.id]);
+            // Said back while the agent still has the conversation in front of
+            // it, which is the cheapest moment to fold two notes into one.
+            const close = await memory.similar(ctx.agentId, entry.id).catch(() => []);
+            return ok({
+                saved: true,
+                id: entry.id,
+                kind: entry.kind,
+                text: entry.text,
+                tags: entry.tags,
+                ...(close.length ? {
+                    similar: close,
+                    hint: 'These notes say much the same. If one is now redundant, forget it, or rewrite it with remember and replaces so one note holds both.',
+                } : {}),
+            });
         },
     },
 
@@ -727,16 +760,32 @@ const TOOLS = [
         title: 'Search your memory',
         readOnly: true,
         description:
-            'Search the notes you kept in earlier conversations. The newest are already in your '
-            + 'context; use this for something older or more specific. Matches on words in the note '
-            + 'and on its tags.',
+            'Search all the notes you kept in earlier conversations, by meaning and by word. Your rules '
+            + 'are already in your context, and notes that bear on a message are sent with it, but that is '
+            + 'a few at most: use this when the topic index in your context mentions something you need, '
+            + 'before saying you do not know something about this user or their systems, and before '
+            + 'repeating an investigation.',
         shape: {
-            query: z.string().describe('Words to look for.'),
+            query: z.string().describe('What to look for, in a few words or a question.'),
+            kind: z.enum(['rule', 'fact', 'event']).optional().describe('Only notes of this kind.'),
+            tag: z.string().optional().describe('Only notes with this tag.'),
             limit: z.number().int().min(1).max(50).optional().describe('How many to return. Defaults to 10.'),
         },
-        handler: async (input, ctx) => (memoryOff(ctx) ? fail(MEMORY_OFF) : ok({
-            matches: await memory.search(ctx.agentId, input.query, input.limit || 10),
-        })),
+        handler: async (input, ctx) => {
+            if (memoryOff(ctx)) return fail(MEMORY_OFF);
+            const matches = await memory.search(ctx.agentId, input.query, input.limit || 10, { kind: input.kind, tag: input.tag });
+            memory.markShown(ctx.conversationId, matches.map(match => match.id));
+            return ok({
+                matches: matches.map(match => ({
+                    id: match.id,
+                    kind: match.kind,
+                    text: match.text,
+                    tags: match.tags,
+                    updated: new Date(match.updatedAt).toISOString().slice(0, 10),
+                    ...(match.score !== undefined ? { score: match.score } : {}),
+                })),
+            });
+        },
     },
 
     {
@@ -745,13 +794,15 @@ const TOOLS = [
         readOnly: true,
         description:
             'Delete one of your notes by id, when it is wrong or no longer true. The id is shown '
-            + 'beside each note in your context and in recall results.',
+            + 'beside each note in your context and in recall results. To correct a note instead, use '
+            + 'remember with replaces.',
         shape: {
             id: z.string().describe('The note id, e.g. m-abc123-4.'),
+            reason: z.string().optional().describe('Why it no longer holds, in a few words.'),
         },
         handler: async (input, ctx) => {
             if (memoryOff(ctx)) return fail(MEMORY_OFF);
-            return memory.remove(ctx.agentId, input.id)
+            return memory.remove(ctx.agentId, input.id, { reason: input.reason || 'Forgotten by the agent' })
                 ? ok({ forgotten: input.id })
                 : fail(`There is no note with the id "${input.id}".`);
         },

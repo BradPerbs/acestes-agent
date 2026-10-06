@@ -190,6 +190,13 @@ const DEFAULTS = {
     // worth keeping. Off by default: it is an extra turn, and a visible one.
     // Never runs while `memory` is off.
     autoRemember: false,
+    // Now and then, once the agent has been quiet a while, its runtime reads
+    // the notebook and merges duplicates, brings stale notes up to date and
+    // files each under its kind. On by default: it is what keeps the notes
+    // small and the rules in the prompt. Every change is logged on the Memory
+    // page and the last tidy can be undone. Never runs while `memory` is off.
+    // See memory-tidy.js.
+    memoryTidy: true,
     // Whether the agent may use this computer's apps with the real mouse and
     // keyboard. Off until someone switches it on: it is the one tool that acts
     // where the person is working. See computer.js.
@@ -384,6 +391,7 @@ function sanitize(raw) {
         if ('groupToolCalls' in raw) next.groupToolCalls = Boolean(raw.groupToolCalls);
         if ('memory' in raw) next.memory = Boolean(raw.memory);
         if ('autoRemember' in raw) next.autoRemember = Boolean(raw.autoRemember);
+        if ('memoryTidy' in raw) next.memoryTidy = Boolean(raw.memoryTidy);
         if ('computerUse' in raw) next.computerUse = Boolean(raw.computerUse);
         if ('bareProvider' in raw) next.bareProvider = Boolean(raw.bareProvider);
         if (raw.toolBundles && typeof raw.toolBundles === 'object' && !Array.isArray(raw.toolBundles)) {
@@ -521,7 +529,7 @@ function persist() {
 const PER_AGENT = [
     'provider', 'model', 'effort', 'approval', 'commandMode', 'maxTurns',
     'transcriptLines', 'allowLocalTools', 'autoApproveCommands',
-    'blockedCommands', 'quickPrompts', 'instructions', 'memory', 'autoRemember',
+    'blockedCommands', 'quickPrompts', 'instructions', 'memory', 'autoRemember', 'memoryTidy',
     'accounts', 'menuAccounts', 'computerUse', 'computerPace', 'browserUse',
     'toolBundles', 'bareProvider',
 ];

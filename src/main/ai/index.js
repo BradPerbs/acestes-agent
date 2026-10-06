@@ -3,6 +3,7 @@ const agents = require('../agents');
 const accounts = require('./accounts');
 const limits = require('./limits');
 const memory = require('./memory');
+const memoryTidy = require('./memory-tidy');
 const prompt = require('./prompt');
 const catalog = require('./tools');
 const secrets = require('./secrets');
@@ -1533,23 +1534,29 @@ function ensureProvider(conversation) {
         return Promise.reject(new Error(`No provider named "${current.provider}" is available`));
     }
 
-    const context = () => ({
-        scope: conversation.scope,
-        boundSessionId: conversation.boundSessionId,
-        sessionIds: conversation.sessionIds,
-        hostIds: conversation.hostIds,
-        commandMode: current.commandMode,
-        blockedCommands: current.blockedCommands,
-        instructions: current.instructions,
-        // What the agent may touch on this computer, so the prompt can say so
-        // before the tools have to refuse.
-        sandbox: agents.sandbox(conversation.agentId),
-        // As it stands when the query starts; notes written mid-conversation
-        // are reached with recall until the next one. Nothing while the
-        // agent's memory is switched off.
-        memory: current.memory === false ? '' : memory.summary(conversation.agentId),
-        memoryOff: current.memory === false,
-    });
+    const context = () => {
+        // The core of the notebook (its rules and the topics of the rest) as
+        // it stands when the query starts; a rule written mid-conversation
+        // reaches the model by meaning until the next one. What it carries is
+        // kept, so the notes sent with each message leave those out. Nothing
+        // while the agent's memory is switched off.
+        const core = current.memory === false ? null : memory.core(conversation.agentId);
+        conversation.memoryPinned = core ? core.ids : [];
+        return {
+            scope: conversation.scope,
+            boundSessionId: conversation.boundSessionId,
+            sessionIds: conversation.sessionIds,
+            hostIds: conversation.hostIds,
+            commandMode: current.commandMode,
+            blockedCommands: current.blockedCommands,
+            instructions: current.instructions,
+            // What the agent may touch on this computer, so the prompt can say so
+            // before the tools have to refuse.
+            sandbox: agents.sandbox(conversation.agentId),
+            memory: core?.text || '',
+            memoryOff: current.memory === false,
+        };
+    };
 
     // A session id belongs to the agent that issued it. Switching agents
     // mid-conversation, or coming back to a stored one after the setting
@@ -1883,9 +1890,26 @@ const runWaiters = new Map();
  * The follow-up that asks the agent to keep what it learned, when the
  * setting is on and the turn did real work. Off by default; see settings.
  */
-const REMEMBER_PROMPT = 'Before we move on: if this turn taught you anything worth keeping for next time '
-    + '(a fact about a machine or a project, how the user likes things done, what a fix turned out to be), '
-    + 'save it with remember, one fact per note. If there is nothing worth keeping, reply with exactly: nothing to keep.';
+const REMEMBER_PROMPT = 'Before we move on: if this turn taught you anything worth keeping for next time, '
+    + 'save it with remember, one subject per note: a rule for how the user wants things done in every task, '
+    + 'a fact about a machine or a project, or what a fix turned out to be. Keep the lasting lesson, not the '
+    + 'steps, and if a note you were shown is now out of date, rewrite it with replaces instead of adding '
+    + 'another. If there is nothing worth keeping, reply with exactly: nothing to keep.';
+
+/**
+ * What the user said before the message being sent (which is already in the
+ * log), for the memory search: "ok, commit it" is about what came before.
+ */
+function previousMessage(conversation) {
+    let seen = 0;
+    for (let index = conversation.events.length - 1; index >= 0; index -= 1) {
+        const event = conversation.events[index];
+        if (event.type !== 'user-message' || !event.text) continue;
+        seen += 1;
+        if (seen === 2) return String(event.text).slice(0, 1000);
+    }
+    return '';
+}
 
 /** The agent's last reply in a conversation, for a run's result. */
 function lastReply(conversation) {
@@ -1922,6 +1946,10 @@ function endRun(conversation, status, detail = {}) {
     }
 
     runHooks(conversation, 'run-end', { status, title: conversation.title || '', summary: lastReply(conversation).slice(0, 2000) }).catch(() => {});
+
+    // A finished turn is when the notebook may have grown; whether it is
+    // worth tidying, and when, is scheduleMemoryTidy's to say.
+    if (status === 'done') scheduleMemoryTidy(conversation.agentId);
 
     // A parent waiting on this run is told, whichever way it went.
     const waiting = runWaiters.get(conversation.id);
@@ -1971,6 +1999,118 @@ function endRun(conversation, status, detail = {}) {
         }
     }
     conversation.remembering = false;
+}
+
+/* ------------------------------------------------------------------ *
+ * Tidying the memory
+ * ------------------------------------------------------------------ */
+
+/**
+ * How long an agent has to be quiet before its notebook is tidied: long
+ * enough that a tidy does not land between two turns of the same task, and
+ * so does not change a note the agent is about to be shown.
+ */
+const TIDY_QUIET = 3 * 60 * 1000;
+const tidyTimers = new Map();
+const tidying = new Set();
+
+/** Whether a conversation of this agent is mid-turn, so a tidy waits for it. */
+function agentBusy(agentId) {
+    for (const conversation of conversations.values()) {
+        if (conversation.agentId === agentId && conversation.busy) return true;
+    }
+    return false;
+}
+
+/**
+ * Tidy this agent's notes once it has been quiet a while, if they are due
+ * (see `tidyState` in memory.js: about once a day, and only once enough has
+ * changed). Off with the agent's memory, or with `memoryTidy`.
+ */
+function scheduleMemoryTidy(agentId) {
+    if (!agentId) return;
+    let current;
+    try {
+        current = resolved(agentId);
+    } catch {
+        return;
+    }
+    if (current.memory === false || current.memoryTidy === false) return;
+    if (!memory.tidyState(agentId).due) return;
+    clearTimeout(tidyTimers.get(agentId));
+    const timer = setTimeout(() => {
+        tidyTimers.delete(agentId);
+        if (agentBusy(agentId)) {
+            scheduleMemoryTidy(agentId);
+            return;
+        }
+        tidyMemory(agentId).catch(() => {});
+    }, TIDY_QUIET);
+    timer.unref?.();
+    tidyTimers.set(agentId, timer);
+}
+
+/**
+ * Tidy one agent's notes now: the runtime it runs on is asked what to merge,
+ * rewrite, refile and put away (see memory-tidy.js), and memory.js applies
+ * what it is allowed to. Asked from the Memory page, every note is shown;
+ * on a schedule, a big notebook is tidied where it changed.
+ */
+async function tidyMemory(agentId, { manual = false } = {}) {
+    const id = String(agentId || agents.activeId());
+    if (tidying.has(id)) return { success: false, message: 'These notes are being tidied already.' };
+    const current = resolved(id);
+    if (current.memory === false) return { success: false, message: 'This agent\'s memory is switched off.' };
+    const provider = PROVIDERS[current.provider];
+    if (typeof provider?.title !== 'function') {
+        return { success: false, message: 'This agent\'s runtime cannot be asked to tidy its notes.' };
+    }
+    const batches = memory.tidyBatches(id, { full: manual });
+    if (batches.reduce((sum, batch) => sum + batch.length, 0) < 2) return { success: true, applied: false, counts: {}, changes: 0 };
+
+    const core = memory.core(id);
+    tidying.add(id);
+    notify('memory-tidy', { agentId: id, running: true });
+    try {
+        // One question a batch, one after the other, and what they decided
+        // applied together, so the tidy is one change to review and undo. A
+        // batch that fails costs only its own notes.
+        const ops = [];
+        let failure = '';
+        let answered = 0;
+        for (const notes of batches) {
+            const plan = await memoryTidy.ask(provider, {
+                settings: current,
+                notes,
+                ruleChars: core.ruleChars,
+                ruleBudget: core.ruleBudget,
+            });
+            if (plan.ok) {
+                answered += 1;
+                ops.push(...plan.ops);
+            } else {
+                failure = plan.error;
+            }
+        }
+        if (answered === 0) {
+            memory.tidyFailed(id, failure);
+            return { success: false, message: failure };
+        }
+        const result = memory.applyTidy(id, ops, { by: current.provider });
+        if (!result.applied) return { success: false, message: result.message };
+        return { success: true, ...result };
+    } catch (error) {
+        memory.tidyFailed(id, error.message);
+        return { success: false, message: error.message };
+    } finally {
+        tidying.delete(id);
+        notify('memory-tidy', { agentId: id, running: false });
+    }
+}
+
+/** Whether a tidy of this agent's notes is under way, for the page's button. */
+function memoryTidyRunning(agentId) {
+    return tidying.has(String(agentId || agents.activeId()));
 }
 
 /* ------------------------------------------------------------------ *
@@ -3291,17 +3431,26 @@ async function send(conversationId, text, attachments = [], tagged = [], attache
         timer.mark('context');
 
         // What the agent remembers that bears on this message, found by
-        // meaning. The newest notes are in the system prompt already; this is
-        // how the rest of a notebook too big for a prompt still reaches it.
-        // Given a moment and no more: see `relevant` in memory.js.
-        const remembered = body && resolved(conversation.agentId).memory !== false
-            ? await memory.relevant(conversation.agentId, body)
+        // meaning. The rules are in the system prompt already; this is how the
+        // rest of the notebook reaches it, a few notes at a time, each once a
+        // conversation. A short follow-up is searched with the message before
+        // it. Given a moment and no more: see `relevant` in memory.js. A bare
+        // runtime has no prompt of ours, so its rules are found like the rest.
+        // Not for the note-taking turn after a real one: its words are ours,
+        // and about remembering in general, not about anything in the notes.
+        const remembered = body && !conversation.remembering && resolved(conversation.agentId).memory !== false
+            ? await memory.relevant(conversation.agentId, body, {
+                previous: previousMessage(conversation),
+                conversationId: conversation.id,
+                session: conversation.providerSessionId || '',
+                exclude: bare ? [] : conversation.memoryPinned,
+            })
             : [];
         timer.mark('memory');
         if (remembered.length > 0) {
             parts.push(
                 '<memory>\nNotes from your memory that may bear on this message:\n'
-                + `${remembered.map(entry => `- (${entry.id}) ${entry.text}`).join('\n')}\n</memory>`,
+                + `${remembered.map(memory.line).join('\n')}\n</memory>`,
             );
         }
 
@@ -3487,6 +3636,8 @@ async function close(conversationId) {
     conversations.delete(conversationId);
     checkpoints.forget(conversationId);
     computer.forget(conversationId);
+    // Which notes it was shown, which no later message will ask about.
+    memory.forgetConversation(conversationId);
     // Its live charts have nowhere to be drawn, and their commands no reader.
     liveMetrics.stopAll({ conversationId, reason: 'The conversation was closed.' });
     // Thrown away for good, so its file goes too. Suspended during a
@@ -3842,6 +3993,8 @@ module.exports = {
     startPick,
     startOnPick,
     rememberUsed,
+    tidyMemory,
+    memoryTidyRunning,
     secrets,
     resolveModel,
     reconfigure,

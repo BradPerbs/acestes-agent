@@ -551,7 +551,7 @@ async function listModels({ settings = {} } = {}) {
  * sessions: it is the cheap one, and a title is a few words. No tools, one
  * turn, and no session written to disk for a history to list. See titles.js.
  */
-async function title({ settings = {}, instruction, prompt, signal } = {}) {
+async function title({ settings = {}, instruction, prompt, signal, think = 'default' } = {}) {
     const executable = findClaude();
     if (!executable) return '';
 
@@ -574,6 +574,12 @@ async function title({ settings = {}, instruction, prompt, signal } = {}) {
             permissionMode: 'default',
             maxTurns: 1,
             persistSession: false,
+            // How much the model thinks first: as it likes by default, not at
+            // all (false), or up to a number of tokens. A long question with
+            // its steps spelled out (tidying the memory, see memory-tidy.js)
+            // is answered minutes sooner with a cap and barely worse.
+            ...(think === false ? { thinking: { type: 'disabled' } } : {}),
+            ...(Number.isFinite(think) ? { thinking: { type: 'enabled', budgetTokens: think } } : {}),
             abortController,
             env,
             cwd: app.getPath('userData'),

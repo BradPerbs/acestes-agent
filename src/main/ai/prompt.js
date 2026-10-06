@@ -255,10 +255,16 @@ function build(context) {
             '',
             '## Memory',
             '',
-            'Use remember for anything worth knowing next time: how the user likes things done, facts '
-            + 'about their machines that are not on the host record, decisions taken, what a fix turned '
-            + 'out to be. One fact per note, short and specific, and never a secret. Use recall when you '
-            + 'need a note that is not in front of you.',
+            'You keep notes between conversations. Once there are some, your rules and the topics of the '
+            + 'rest are at the end of this prompt. Other notes arrive in a <memory> block beside a message '
+            + 'they bear on, a few at a time; recall searches all of them, so use it when the topic list '
+            + 'names something you need, and before saying you do not know something about this user or '
+            + 'their systems.',
+            '',
+            'Use remember for anything worth knowing next time: as a rule, how the user wants things done '
+            + 'in every task; as a fact, how their machines and projects are set up or what a fix turned out '
+            + 'to be; as an event, what happened when. One subject per note, short, and never a secret. '
+            + 'When a note is wrong or out of date, rewrite it (remember with replaces) or forget it.',
         );
     }
 
@@ -352,9 +358,9 @@ function build(context) {
             '',
             '## What you remember',
             '',
-            'Notes you kept in earlier conversations with this user, newest first, each with its id. '
-            + 'Treat them as true unless what you see now says otherwise, and use forget on one that '
-            + 'has gone stale.',
+            'From earlier conversations with this user, each with its id. Follow the rules in every task. '
+            + 'Treat any note as true unless what you see now says otherwise, and rewrite or forget one '
+            + 'that has gone stale.',
             '',
             context.memory,
         );

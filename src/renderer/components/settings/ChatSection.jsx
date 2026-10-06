@@ -175,6 +175,20 @@ export default function ChatSection() {
 
                 <SettingRow
                     className={DIVIDED}
+                    title={t('settings.assistant.memoryTidy')}
+                    description={t('settings.assistant.memoryTidyDesc')}
+                    control={
+                        <Toggle
+                            ariaLabel={t('settings.assistant.memoryTidy')}
+                            checked={memoryOn && settings.memoryTidy !== false}
+                            disabled={!memoryOn}
+                            onChange={(value) => update({ memoryTidy: value })}
+                        />
+                    }
+                />
+
+                <SettingRow
+                    className={DIVIDED}
                     align="center"
                     title={t('settings.assistant.groupToolCalls')}
                     description={t('settings.assistant.groupToolCallsDesc')}

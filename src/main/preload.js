@@ -844,6 +844,15 @@ contextBridge.exposeInMainWorld('api', {
         exportFile: (agentId) => ipcRenderer.invoke('memory-export', agentId),
         importFile: (agentId) => ipcRenderer.invoke('memory-import', agentId),
         onChange: (callback) => subscribe('memory-changed', callback),
+        // A deleted note back out of the bin.
+        restore: (agentId, id) => ipcRenderer.invoke('memory-restore', { agentId, id }),
+        // Tidying (see ai/memory-tidy.js): where it stands and what the last
+        // one changed, one now, the last one undone. `onTidy` hears
+        // `{ agentId, running }` as one starts and ends.
+        tidyState: (agentId) => ipcRenderer.invoke('memory-tidy-state', agentId),
+        tidy: (agentId) => ipcRenderer.invoke('memory-tidy', agentId),
+        undoTidy: (agentId) => ipcRenderer.invoke('memory-tidy-undo', agentId),
+        onTidy: (callback) => subscribe('memory-tidy', callback),
     },
 
     /**

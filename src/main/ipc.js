@@ -2051,18 +2051,31 @@ function register(getWindow) {
     // What an agent remembers, for the page that shows it. An entry saved
     // from here is the user's own note; the agent's arrive through its tools.
     handle('memory-list', (event, agentId) => memory.list(String(agentId || agents.activeId())));
-    handle('memory-save', (event, { agentId, id, text, tags } = {}) => {
+    handle('memory-save', (event, { agentId, id, text, tags, kind } = {}) => {
         const owner = String(agentId || agents.activeId());
         return id
-            ? memory.update(owner, id, { text, tags })
-            : memory.add(owner, { text, tags, source: 'user' });
+            ? memory.update(owner, id, { text, tags, kind })
+            : memory.add(owner, { text, tags, kind, source: 'user' });
     });
     handle('memory-remove', (event, { agentId, id } = {}) =>
-        memory.remove(String(agentId || agents.activeId()), String(id || '')));
+        memory.remove(String(agentId || agents.activeId()), String(id || ''), { reason: 'Deleted on the Memory page' }));
+    // Out of the bin, where a deleted or tidied-away note waits a month.
+    handle('memory-restore', (event, { agentId, id } = {}) =>
+        memory.restore(String(agentId || agents.activeId()), String(id || '')));
     // By meaning as well as by word, the same search the agent's recall runs.
     handle('memory-search', (event, { agentId, query, limit } = {}) =>
         memory.search(String(agentId || agents.activeId()), String(query || ''), limit || 20));
     handle('memory-status', (event, agentId) => memory.status(String(agentId || agents.activeId())));
+
+    // Tidying: where it stands (and what the last one changed), one now, and
+    // the last one taken back. See memory-tidy.js.
+    handle('memory-tidy-state', (event, agentId) => {
+        const owner = String(agentId || agents.activeId());
+        return { ...memory.tidyState(owner), running: assistant.memoryTidyRunning(owner) };
+    });
+    handle('memory-tidy', (event, agentId) =>
+        assistant.tidyMemory(String(agentId || agents.activeId()), { manual: true }));
+    handle('memory-tidy-undo', (event, agentId) => memory.undoTidy(String(agentId || agents.activeId())));
 
     // One agent's notebook as a JSON file, and a file like it read into
     // another. The file is plain text on purpose: the notes are what the
