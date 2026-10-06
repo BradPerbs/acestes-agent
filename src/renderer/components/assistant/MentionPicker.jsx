@@ -2,6 +2,7 @@ import { memo, useEffect, useMemo, useRef } from 'react';
 import {
     BrainIcon,
     CommandLineIcon,
+    File01Icon,
     FlashIcon,
     Key01Icon,
     Note01Icon,
@@ -15,8 +16,8 @@ import { HEADING } from '../../lib/text-styles';
 import { useT } from '../../i18n';
 
 /**
- * What `@` opens: everything in the agent's inventory, filtered by what has
- * been typed after it.
+ * What `@` opens: everything in the agent's inventory plus the files in its
+ * granted folders, filtered by what has been typed after it.
  *
  * A list rather than a menu, and drawn over the composer rather than in it,
  * because it is answering a question the user is halfway through asking. The
@@ -37,9 +38,13 @@ export const KIND_META = {
     key: { icon: Key01Icon, tint: 'text-amber-600 dark:text-amber-300', label: 'nav.keychain' },
     mcp: { icon: PlugSocketIcon, tint: 'text-orange-600 dark:text-orange-300', label: 'nav.mcp' },
     skill: { icon: CommandLineIcon, tint: 'text-violet-600 dark:text-violet-300', label: 'skills.title' },
+    file: { icon: File01Icon, tint: 'text-gray-500 dark:text-neutral-400', label: 'nav.files' },
 };
 
-const ORDER = ['host', 'snippet', 'memory', 'proxy', 'key', 'mcp', 'skill'];
+// Files close the list: the inventory reads first on a bare `@`, and typing
+// narrows to the work path. The other way round would bury the inventory
+// under hundreds of files before a single letter is typed.
+const ORDER = ['host', 'snippet', 'memory', 'proxy', 'key', 'mcp', 'skill', 'file'];
 
 /**
  * One item's mark. A host wears its own OS icon, since that is how it is drawn

@@ -34,6 +34,10 @@ const inventory = {
     proxies: [{ id: 'proxy-1', name: 'Office', type: 'socks5', host: '10.9.9.9', port: 1080, password: 'secret' }],
     keys: [{ id: 'key-1', name: 'work', type: 'ED25519', fingerprint: 'SHA256:abc', privateKey: 'PRIVATE KEY', passphrase: 'letmein' }],
     servers: [{ id: 'mcp-1', name: 'filesystem', transport: 'stdio', command: 'npx', args: ['-y', 'server'] }],
+    workspaceFiles: [
+        { id: '/srv/site/app.js', name: 'app.js', text: 'console.log("hi");\n' },
+        { id: '/srv/site/empty.txt', name: 'empty.txt', text: '   ' },
+    ],
 };
 
 console.log('\nreading mentions');
@@ -177,6 +181,28 @@ check('a quote or newline in a name cannot break the tag', () => {
 check('stripping keeps the kind, the id and the name only', () => {
     const { mentions: found } = mentions.readMentions([{ kind: 'host', id: 'host-1' }], inventory);
     assert.deepStrictEqual(mentions.stripMentions(found), [{ kind: 'host', id: 'host-1', name: 'web-01' }]);
+});
+
+check('a tagged file resolves with its path and content', () => {
+    const { mentions: found, error } = mentions.readMentions([{ kind: 'file', id: '/srv/site/app.js' }], inventory);
+    assert.strictEqual(error, '');
+    assert.strictEqual(found.length, 1);
+    assert.strictEqual(found[0].name, 'app.js');
+    const block = mentions.mentionBlock(found);
+    assert.ok(block.includes('<file name="app.js">'));
+    assert.ok(block.includes('path: /srv/site/app.js'));
+    assert.ok(block.includes('console.log'));
+});
+
+check('a tagged file that is gone refuses the whole message', () => {
+    const { mentions: found, error } = mentions.readMentions([{ kind: 'file', id: '/srv/site/gone.js' }], inventory);
+    assert.deepStrictEqual(found, []);
+    assert.match(error, /no longer exists/);
+});
+
+check('an empty tagged file says so', () => {
+    const { error } = mentions.readMentions([{ kind: 'file', id: '/srv/site/empty.txt' }], inventory);
+    assert.match(error, /empty/);
 });
 
 console.log(`\n${passed} checks passed${process.exitCode ? ', with failures above' : ''}\n`);

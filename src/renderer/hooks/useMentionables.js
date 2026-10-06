@@ -4,13 +4,16 @@ import { useSnippets } from './useSnippets';
 
 /**
  * Everything in the selected agent's inventory that a message can tag with
- * `@`: its hosts, keys, proxies, snippets, notes and MCP servers, as one flat
- * list the picker can filter.
+ * `@`: its hosts, keys, proxies, snippets, notes and MCP servers, plus the
+ * files in the folders granted to it, as one flat list the picker can filter.
  *
  * The classes that are already kept live for the whole app come from their own
  * hooks; the two that are not, the keychain and the memory, are read here and
- * followed. Nothing carries the text of anything: a mention is a kind and an
- * id, and the main process resolves it when the message is sent.
+ * followed. The workspace files are listed server-side, so the walk stays
+ * inside the agent's envelope, and read again when the agents change, which
+ * is also when a folder is granted or taken away. Nothing carries the text
+ * of anything: a mention is a kind and an id, and the main process resolves
+ * it when the message is sent.
  */
 
 const inAgent = (agentId) => (record) => !record.agentId || !agentId || record.agentId === agentId;
@@ -21,6 +24,7 @@ export function useMentionables({ agentId = '', hosts = [] } = {}) {
     const [keys, setKeys] = useState([]);
     const [notes, setNotes] = useState([]);
     const [servers, setServers] = useState([]);
+    const [workspaceFiles, setWorkspaceFiles] = useState([]);
 
     useEffect(() => {
         let cancelled = false;
@@ -64,6 +68,27 @@ export function useMentionables({ agentId = '', hosts = [] } = {}) {
         return window.api.memory.onChange?.((change) => {
             if (!change?.agentId || change.agentId === agentId) read();
         }) || (() => { cancelled = true; });
+    }, [agentId]);
+
+    // The files in the folders granted to this agent. An agent with no
+    // folders simply offers none, which is also what `@` showed before.
+    useEffect(() => {
+        let cancelled = false;
+        const read = () => {
+            if (!agentId || typeof window.api.ssh?.workspaceFiles !== 'function') {
+                if (!cancelled) setWorkspaceFiles([]);
+                return;
+            }
+            window.api.ssh.workspaceFiles(agentId)
+                .then(list => { if (!cancelled) setWorkspaceFiles(list || []); })
+                .catch(() => { if (!cancelled) setWorkspaceFiles([]); });
+        };
+        read();
+        const off = window.api.agents.onChange?.(() => read());
+        return () => {
+            cancelled = true;
+            off?.();
+        };
     }, [agentId]);
 
     return useMemo(() => {
@@ -133,8 +158,18 @@ export function useMentionables({ agentId = '', hosts = [] } = {}) {
             });
         }
 
+        for (const file of workspaceFiles) {
+            if (!file?.id || !file?.name) continue;
+            items.push({
+                kind: 'file',
+                id: file.id,
+                name: file.name,
+                hint: file.hint || file.id,
+            });
+        }
+
         return items;
-    }, [agentId, hosts, allSnippets, allProxies, keys, notes, servers]);
+    }, [agentId, hosts, allSnippets, allProxies, keys, notes, servers, workspaceFiles]);
 }
 
 export default useMentionables;

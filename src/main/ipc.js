@@ -36,6 +36,7 @@ const updates = require('./updates');
 const startup = require('./startup');
 const resources = require('./resources');
 const agents = require('./agents');
+const workspaceFiles = require('./ai/workspace-files');
 const memory = require('./ai/memory');
 const assistantSettings = require('./ai/settings');
 const aiSkills = require('./ai/skills');
@@ -876,6 +877,11 @@ function register(getWindow) {
         (await localTerminal.listShells({ fresh: Boolean(options?.fresh) }))
             .map(shell => ({ id: shell.id, label: shell.label, path: shell.file })));
     handle('local-terminal-folders', (event, agentId) => localTerminal.listFolders(String(agentId || '')));
+    // The files in the folders granted to one agent, for the `@` picker.
+    // Listed server-side so the renderer never learns a path it was not
+    // granted: the walk itself stays inside the agent's envelope.
+    handle('workspace-files', (event, agentId) =>
+        workspaceFiles.listWorkspaceFiles(agents.sandbox(String(agentId || ''))));
     handle('local-terminal-open', (event, payload) =>
         localTerminal.open(payload || {}, { window: BrowserWindow.fromWebContents(event.sender) || getWindow() }));
     handle('local-terminal-close', (event, id) => localTerminal.destroy(String(id || '')));

@@ -255,6 +255,9 @@ contextBridge.exposeInMainWorld('api', {
         localShells: (options) => ipcRenderer.invoke('local-terminal-shells', options || {}),
         // The agent's folders a terminal can start in, for the picker.
         localFolders: (agentId) => ipcRenderer.invoke('local-terminal-folders', agentId),
+        // The files inside those folders, for the `@` picker. Listed
+        // server-side, so the walk stays inside the agent's envelope.
+        workspaceFiles: (agentId) => ipcRenderer.invoke('workspace-files', agentId),
         openLocal: ({ id, agentId, shellId, cwd, cols, rows }) =>
             ipcRenderer.invoke('local-terminal-open', { id, agentId, shellId, cwd, cols, rows }),
         closeLocal: (id) => ipcRenderer.invoke('local-terminal-close', id),

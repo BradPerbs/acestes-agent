@@ -12,7 +12,7 @@
  * This replaces the spec attachment, which was the same idea for one kind of
  * thing. A spec is now a mention of a snippet that happens to be a document,
  * and the same gesture reaches a host, a proxy, a key, a note the agent kept,
- * or an MCP server.
+ * an MCP server, or a file in the agent's workspace.
  *
  * Kept free of Electron so it can be tested on its own: the caller hands in
  * the inventory to resolve against.
@@ -25,7 +25,7 @@ const MAX_MENTIONS = 20;
 const MAX_TEXT = 60000;
 
 /** The kinds that can be tagged, and where each is looked up. */
-const KINDS = ['host', 'snippet', 'memory', 'proxy', 'key', 'mcp', 'skill'];
+const KINDS = ['host', 'snippet', 'memory', 'proxy', 'key', 'mcp', 'skill', 'file'];
 
 const clean = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
 
@@ -103,6 +103,13 @@ const RESOLVE = {
         lines: record.description ? [`description: ${record.description}`] : [],
         note: 'The user invoked this skill with `/`. Treat it as the instructions for this request.',
     }),
+    file: (record) => ({
+        name: record.name,
+        detail: 'file',
+        text: String(record.text || '').slice(0, MAX_TEXT),
+        lines: [`path: ${record.id}`],
+        note: 'The user tagged this file from the agent\'s workspace. It is what the message refers to.',
+    }),
 };
 
 /** Where each kind is found in the inventory the caller hands in. */
@@ -114,6 +121,7 @@ const SOURCE = {
     key: 'keys',
     mcp: 'servers',
     skill: 'skills',
+    file: 'workspaceFiles',
 };
 
 /**
@@ -174,6 +182,7 @@ const LABEL = {
     key: 'key',
     mcp: 'mcp-server',
     skill: 'skill',
+    file: 'file',
 };
 
 /**

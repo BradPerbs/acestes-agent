@@ -323,10 +323,10 @@ export default function AssistantConversation({
 
     /**
      * What this message points at, tagged with `@` or invoked with `/`:
-     * hosts, snippets, notes, proxies, keys, MCP servers, skills. Held as
-     * `{ kind, id, name }` and sent as the first two, so the main process
-     * reads the record as it stands rather than from a copy the panel took
-     * when it was tagged.
+     * hosts, snippets, notes, proxies, keys, MCP servers, skills, and files
+     * in the agent's granted folders. Held as `{ kind, id, name }` and sent
+     * as the first two, so the main process reads the record as it stands
+     * rather than from a copy the panel took when it was tagged.
      */
     const [mentions, setMentions] = useState([]);
     const mentionables = useMentionables({ agentId, hosts });

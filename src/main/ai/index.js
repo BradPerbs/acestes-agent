@@ -26,6 +26,7 @@ const jobs = require('../runs/jobs');
 const scheduler = require('../runs/scheduler');
 const headless = require('./headless');
 const local = require('./local');
+const workspaceFiles = require('./workspace-files');
 const modelMatch = require('./model-match');
 const ssh = require('../ssh');
 const localTerminal = require('../local-terminal');
@@ -2986,6 +2987,30 @@ async function send(conversationId, text, attachments = [], tagged = [], attache
         .filter(entry => entry?.kind === 'skill' && entry?.id)
         .map(entry => skills.get(String(entry.id)))
         .filter(Boolean);
+    // A tagged file is resolved here and not in `mentions.js`: the content
+    // lives on disk (or in the agent's container), behind the same grant the
+    // local tools check, and the mention carries only the path. Outside the
+    // granted folders, or gone since it was tagged, the message is refused
+    // rather than answered against half of what it named.
+    const sandbox = agents.sandbox(conversation.agentId);
+    const seenFile = new Set();
+    const taggedWorkspaceFiles = [];
+    let workspaceError = '';
+    for (const entry of Array.isArray(tagged) ? tagged : []) {
+        if (entry?.kind !== 'file' || !entry?.id) continue;
+        const id = String(entry.id);
+        if (seenFile.has(id)) continue;
+        seenFile.add(id);
+        const target = workspaceFiles.toAgentPath(sandbox, id);
+        if (target.error) { workspaceError = target.error; break; }
+        const read = await local.read({ agentId: conversation.agentId, sandbox }, target.path);
+        if (read.error) { workspaceError = read.error; break; }
+        const text = String(read.content || '');
+        const name = workspaceFiles.displayRel(sandbox, id);
+        if (!text.trim()) { workspaceError = `"${name}" is empty`; break; }
+        taggedWorkspaceFiles.push({ id, name, text });
+    }
+    if (workspaceError) return { success: false, message: workspaceError };
     const attached = readMentions(tagged, {
         hosts: store.getHosts(),
         snippets: store.getSnippets(),
@@ -2994,6 +3019,7 @@ async function send(conversationId, text, attachments = [], tagged = [], attache
         notes: memory.list(conversation.agentId),
         servers: agents.get(conversation.agentId)?.mcpServers || [],
         skills: taggedSkills,
+        workspaceFiles: taggedWorkspaceFiles,
     });
     if (attached.error) return { success: false, message: attached.error };
     const { mentions } = attached;
