@@ -6,7 +6,21 @@ import SettingRow, { DIVIDED } from '../ui/SettingRow';
 import Toggle from '../ui/Toggle';
 import Select from '../../ui/Select';
 import { toastOptions } from '../../../lib/toast';
+import { formatDateTime } from '../../../lib/format';
 import { LANGUAGES, setLanguage, translate, useLanguage, useT } from '../../../i18n';
+
+/** Failover's last recovery, in a line, or '' when there has not been one. */
+function recoveryLine(t, recovery) {
+    if (!recovery?.at) return '';
+    const when = formatDateTime(recovery.at);
+    switch (recovery.reason) {
+        case 'crash': return t('settings.general.failoverLastCrash', { when });
+        case 'hang': return t('settings.general.failoverLastHang', { when });
+        case 'shutdown': return t('settings.general.failoverLastShutdown', { when });
+        case 'gave-up': return t('settings.general.failoverLastGaveUp', { when });
+        default: return t('settings.general.failoverLastUnclean', { when });
+    }
+}
 
 /**
  * Owns the restore flag: App reads it straight from localStorage at startup, so
@@ -24,9 +38,21 @@ export default function GeneralPage() {
     // Null until main has answered; there is nothing honest to draw before then.
     const [startup, setStartup] = useState(null);
     const [saving, setSaving] = useState(false);
+    // Failover is main's to keep (it is read before any window exists), so,
+    // like the login item, the switch draws what main reports.
+    const [failover, setFailover] = useState(null);
+    const [savingFailover, setSavingFailover] = useState(false);
 
     useEffect(() => {
         let alive = true;
+
+        window.api.failover.status()
+            .then((status) => {
+                if (alive) setFailover(status);
+            })
+            .catch(() => {
+                if (alive) setFailover({ supported: false, enabled: false, lastRecovery: null });
+            });
 
         window.api.startup.status()
             .then((status) => {
@@ -96,6 +122,47 @@ export default function GeneralPage() {
         }
     };
 
+    /**
+     * Turning failover on turns on starting at login too, where the system
+     * allows it: after the computer itself goes down, the login item is the
+     * only thing that brings the app back to resume anything. It stays an
+     * ordinary switch above, for anyone who wants one without the other.
+     */
+    const toggleFailover = async (next) => {
+        setSavingFailover(true);
+        try {
+            const result = await window.api.failover.setEnabled(next);
+            setFailover(result);
+            if (!result.success) {
+                toast.error(t('settings.general.failoverFailed'), toastOptions());
+                return;
+            }
+            if (!next) {
+                toast.success(t('settings.general.failoverOff'), toastOptions());
+                return;
+            }
+            if (startup?.supported && !startup.enabled) {
+                const boot = await window.api.startup.setEnabled(true);
+                setStartup({ supported: boot.supported, reason: boot.reason, enabled: boot.enabled });
+                if (boot.success) {
+                    toast.success(t('settings.general.failoverOnWithStartup'), toastOptions());
+                } else {
+                    toast.success(t('settings.general.failoverOn'), toastOptions());
+                    toast.error(boot.message || t('settings.general.startupFailed'), toastOptions());
+                }
+                return;
+            }
+            toast.success(t('settings.general.failoverOn'), toastOptions());
+        } catch (error) {
+            toast.error(error?.message || t('settings.general.failoverFailed'), toastOptions());
+        } finally {
+            setSavingFailover(false);
+        }
+    };
+
+    const lastRecovery = recoveryLine(t, failover?.lastRecovery);
+    const noBootReturn = failover?.enabled && startup && !startup.enabled;
+
     return (
         <SettingsPage title={t('settings.general.title')} description={t('settings.general.desc')}>
             <SettingCard>
@@ -155,6 +222,37 @@ export default function GeneralPage() {
                             onChange={toggleStartup}
                             disabled={!startup?.supported || saving}
                             ariaLabel={t('settings.general.startup')}
+                        />
+                    }
+                />
+
+                <SettingRow
+                    align="center"
+                    className={DIVIDED}
+                    title={t('settings.general.failover')}
+                    description={
+                        <>
+                            {t('settings.general.failoverDesc')}
+                            {noBootReturn && (
+                                <span className="block mt-1.5 text-xs text-gray-400 dark:text-neutral-500">
+                                    {startup.supported
+                                        ? t('settings.general.failoverNoStartup')
+                                        : t('settings.general.failoverNoStartupHere')}
+                                </span>
+                            )}
+                            {lastRecovery && (
+                                <span className="block mt-1.5 text-xs text-gray-400 dark:text-neutral-500">
+                                    {lastRecovery}
+                                </span>
+                            )}
+                        </>
+                    }
+                    control={
+                        <Toggle
+                            checked={Boolean(failover?.enabled)}
+                            onChange={toggleFailover}
+                            disabled={!failover?.supported || savingFailover}
+                            ariaLabel={t('settings.general.failover')}
                         />
                     }
                 />

@@ -17,6 +17,7 @@ const transport = require('./transport');
 const cloudSnapshot = require('./cloud-snapshot');
 const scheduler = require('./runs/scheduler');
 const tray = require('./tray');
+const failover = require('./failover');
 
 let mainWindow = null;
 // Set by the tray's Quit and by before-quit: the one way out once jobs
@@ -110,6 +111,10 @@ function createWindow() {
 
     if (state?.maximized) mainWindow.maximize();
 
+    // With failover on: reloaded when its process dies or hangs, and the
+    // system's shutdown heard through it on Windows. See failover.js.
+    failover.watchWindow(mainWindow);
+
     // 'close' fires while the window is still alive, so its bounds are
     // still readable; 'closed' is too late.
     mainWindow.on('close', () => saveWindowState(mainWindow));
@@ -152,6 +157,11 @@ app.whenReady().then(() => {
      */
     app.setAppUserModelId('com.acestes.agent');
 
+    // Before anything can read the run log: whether this launch follows a
+    // crash decides what the log keeps open to resume. Starts the watchdog
+    // when failover is on.
+    failover.init();
+
     ipc.register(getWindow);
     createWindow();
 
@@ -164,6 +174,13 @@ app.whenReady().then(() => {
     mainWindow.webContents.once('did-finish-load', () => {
         const timer = setTimeout(() => require('./ai').warmUp(), 5000);
         timer.unref?.();
+
+        // Work the last process left cut short, sent on once there is a
+        // window for its approvals to land in. Nothing at all after a launch
+        // that does not follow a crash.
+        setTimeout(() => {
+            failover.afterLaunch(() => require('./ai').resumeInterrupted()).catch(() => {});
+        }, 3000);
     });
 
     // The icon is there from the start, so the way to quit an app that

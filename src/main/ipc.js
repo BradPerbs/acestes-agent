@@ -34,6 +34,7 @@ const speech = require('./ai/speech');
 const browserUse = require('./ai/browser-use');
 const updates = require('./updates');
 const startup = require('./startup');
+const failover = require('./failover');
 const resources = require('./resources');
 const agents = require('./agents');
 const workspaceFiles = require('./ai/workspace-files');
@@ -2229,6 +2230,12 @@ function register(getWindow) {
     // can turn this off somewhere that is not this app.
     handle('startup-status', () => startup.status());
     handle('startup-set-enabled', (event, enabled) => startup.setEnabled(enabled));
+
+    /* ---------------- Failover ---------------- */
+
+    // Restart after a crash or hang, and resume the work cut short. See failover.js.
+    handle('failover-status', () => failover.status());
+    handle('failover-set-enabled', (event, enabled) => failover.setEnabled(enabled));
 
     /* ---------------- Resources ---------------- */
 

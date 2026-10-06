@@ -27,6 +27,7 @@ const activity = require('../activity');
 const runs = require('../runs');
 const jobs = require('../runs/jobs');
 const scheduler = require('../runs/scheduler');
+const failover = require('../failover');
 const headless = require('./headless');
 const local = require('./local');
 const workspaceFiles = require('./workspace-files');
@@ -267,8 +268,13 @@ function hydrate() {
     // Scheduled runs will be picked up here instead once there are any.
     try {
         // A job's run is worth resuming as long as its job still exists; the
-        // scheduler hands the re-queued ones back to `resumeJobRun`.
-        runs.recover({ resumable: run => run.kind !== 'interactive' && Boolean(run.jobId && jobs.get(run.jobId)) });
+        // scheduler hands the re-queued ones back to `resumeJobRun`. With
+        // failover on, a conversation's turn cut short by the app dying is
+        // kept too, and sent on by `resumeInterrupted`.
+        runs.recover({
+            resumable: run => (run.kind !== 'interactive' && Boolean(run.jobId && jobs.get(run.jobId)))
+                || failover.resumable(run),
+        });
     } catch (error) {
         console.error('Could not recover the run log:', error.message);
     }
@@ -2891,6 +2897,136 @@ function resumeJobRun(run) {
     return startJobRun(job, { source: 'resume', resumeRun: run });
 }
 
+/* ------------------------------------------------------------------ *
+ * Failover
+ *
+ * A conversation's turn cut short by the app dying, sent on again once the
+ * app is back. The run log kept it open (see `hydrate` and failover.js);
+ * this is the half that sends. Not replayed: the agent is told what
+ * happened and which of its calls never reported back, and carries on from
+ * its own memory of the turn, which its runtime kept as it went.
+ * ------------------------------------------------------------------ */
+
+/** What the transcript shows as the message that sent it on. */
+const RESUME_MESSAGE = 'Failover restarted the app after it stopped unexpectedly. Carry on from where you were cut off.';
+
+/** What the agent is told with it, out of the bubble. */
+function resumeNote(unknown = []) {
+    const parts = [
+        'The app stopped unexpectedly (a crash, a hang, or the computer going down) in the middle of your last turn, '
+        + 'and failover has started it again. Pick the work up where it stopped rather than starting over. If it was '
+        + 'already finished, say so briefly instead of redoing it.',
+        'Terminal sessions you had open before are gone or were reopened under new ids: look with list_sessions, or '
+        + 'connect again, before running anything on a server.',
+    ];
+    if (unknown.length) {
+        parts.push(
+            'These tool calls never reported back, so they may or may not have happened. Check their effect before '
+            + `repeating any of them:\n${unknown.map(step => `- ${step.name}: ${String(step.input || '').slice(0, 500)}`).join('\n')}`,
+        );
+    }
+    return parts.join('\n\n');
+}
+
+/**
+ * One cut-short turn, sent on. Resolves the conversation when it went, or
+ * null with the run closed and the reason on it.
+ */
+async function resumeCutShort(run, queuedIds) {
+    const close = (reason) => {
+        runs.fail(run.id, reason);
+        return null;
+    };
+
+    // Started by another conversation that is being resumed as well: that
+    // one decides whether it is still needed (it is told its call never
+    // reported back), rather than two copies of the same work running.
+    const parentRunId = run.trigger?.parentRunId;
+    if (parentRunId && queuedIds.has(parentRunId)) {
+        return close('Left to the conversation that started it, which failover resumed.');
+    }
+    const conversation = conversations.get(run.conversationId);
+    if (!conversation) return close('The conversation this run belonged to is gone.');
+    // Somebody got there first: a message typed into it since the launch.
+    if (conversation.busy || conversation.runId) {
+        return close('Its conversation had moved on by the time failover came to resume it.');
+    }
+
+    const { count, allowed } = failover.noteResume(run.id);
+    if (!allowed) {
+        emit(conversation, {
+            type: 'notice',
+            tone: 'warn',
+            text: `Failover did not pick this turn up again: the app stopped during it ${count} times.`,
+        });
+        archive.save(conversation.id);
+        return close(`Failover stopped resuming it after the app stopped during it ${count} times.`);
+    }
+
+    // Read back from disk, a conversation carries no run kind, and one with
+    // none is put down after its turn as if it were a job's.
+    conversation.runKind = 'interactive';
+    emit(conversation, {
+        type: 'notice',
+        tone: 'info',
+        text: 'The app stopped unexpectedly during this turn. Failover restarted it and is carrying on.',
+    });
+    const noteBefore = conversation.pendingNote || '';
+    conversation.pendingNote = [noteBefore, resumeNote(runs.unknownSteps(run.id))].filter(Boolean).join('\n\n');
+    beginRun(conversation, { kind: 'interactive', resumeRunId: run.id });
+
+    const sent = await send(conversation.id, RESUME_MESSAGE);
+    if (!sent.success) {
+        // Not left waiting for the user's next message, which is not a resume.
+        conversation.pendingNote = noteBefore;
+        // `send` closes a run it got as far as starting; an early refusal is ours.
+        if (conversation.runId === run.id) endRun(conversation, 'failed', { reason: sent.message || 'It could not be sent.' });
+        return null;
+    }
+    return conversation;
+}
+
+/**
+ * Every conversation turn the last process left cut short, sent on, oldest
+ * first. Called once the window is up after a launch failover says follows
+ * a crash; a launch that does not has nothing queued, and this does nothing.
+ */
+async function resumeInterrupted() {
+    hydrate();
+    let queued;
+    try {
+        queued = runs.list({ status: 'queued', limit: 100 }).filter(run => run.kind === 'interactive' && !run.jobId);
+    } catch (error) {
+        console.error('Could not read the runs to resume:', error.message);
+        return { resumed: 0 };
+    }
+    if (queued.length === 0) return { resumed: 0 };
+
+    const queuedIds = new Set(queued.map(run => run.id));
+    const resumed = [];
+    for (const run of queued.reverse()) {
+        try {
+            const conversation = await resumeCutShort(run, queuedIds);
+            if (conversation) resumed.push(conversation);
+        } catch (error) {
+            console.error(`Could not resume run ${run.id}:`, error.message);
+            try { runs.fail(run.id, `Failover could not resume it: ${error.message}`); } catch { /* left for the next launch */ }
+        }
+    }
+
+    if (resumed.length > 0) {
+        const first = resumed[0];
+        toast({
+            title: 'Acestes restarted and carried on',
+            body: resumed.length === 1
+                ? `Picked "${first.title || 'a conversation'}" up where it was cut short.`
+                : `Picked ${resumed.length} conversations up where they were cut short.`,
+            conversationId: tabFor(first),
+        });
+    }
+    return { resumed: resumed.length };
+}
+
 /** A heartbeat's probe: a local command inside the agent's own folders. */
 function probeForJob(job, probe) {
     const ctx = { agentId: job.agentId, sandbox: agents.sandbox(job.agentId) };
@@ -3951,6 +4087,21 @@ function status(agentId = '') {
  * the only honest answer is the one already on disk.
  */
 async function shutdown() {
+    // With failover on, a turn ended by closing the window or locking the app
+    // is over, not cut short, and is closed as such: left open, a crash later
+    // in the same process would bring it back. The system going down is the
+    // other case, and stays open to be resumed after the restart.
+    if (failover.isEnabled() && !failover.isSystemEnding()) {
+        for (const conversation of conversations.values()) {
+            if (!conversation.runId || (conversation.runKind || 'interactive') !== 'interactive') continue;
+            try {
+                runs.cancel(conversation.runId, 'The window was closed during this turn.');
+            } catch {
+                // Left open, it is closed out at the next launch instead.
+            }
+        }
+    }
+
     // Before the flush, so each chart's last points are in its
     // conversation's log and it reads back as it was when the app went.
     liveMetrics.stopAll({ reason: 'Stopped when the app closed.' });
@@ -3984,6 +4135,7 @@ module.exports = {
     cancelRun,
     startJobRun,
     resumeJobRun,
+    resumeInterrupted,
     probeForJob,
     publicJob,
     exportMarkdown,

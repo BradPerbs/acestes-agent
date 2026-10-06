@@ -491,6 +491,16 @@ contextBridge.exposeInMainWorld('api', {
         setEnabled: (enabled) => ipcRenderer.invoke('startup-set-enabled', enabled),
     },
 
+    /**
+     * Failover: the app restarting itself after a crash or a hang, and the
+     * conversations cut short sent on. Kept by main in a file of its own,
+     * since it has to be read before any window exists. See failover.js.
+     */
+    failover: {
+        status: () => ipcRenderer.invoke('failover-status'),
+        setEnabled: (enabled) => ipcRenderer.invoke('failover-set-enabled', enabled),
+    },
+
     dialog: {
         save: (options) => ipcRenderer.invoke('show-save-dialog', options || {}),
         open: (options) => ipcRenderer.invoke('show-open-dialog', options || {}),

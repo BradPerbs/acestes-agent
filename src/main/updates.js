@@ -818,6 +818,9 @@ function install() {
 
     setImmediate(() => {
         try {
+            // Failover's watchdog must not start the old build again while the
+            // installer is replacing it. See failover.js.
+            require('./failover').standDown('installing an update');
             api().quitAndInstall(true, true);
         } catch (error) {
             lastError = describe(error);

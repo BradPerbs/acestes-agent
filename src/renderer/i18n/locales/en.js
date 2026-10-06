@@ -923,6 +923,26 @@ export default {
         + 'with your agents, and the terminal sessions, reconnected to their hosts. Off, the app '
         + 'starts with one fresh conversation. Nothing is lost either way; closed conversations '
         + 'stay in the agent\'s history.',
+    'settings.general.failover': 'Failover',
+    'settings.general.failoverDesc': 'If Acestes crashes or stops responding, it restarts itself and '
+        + 'carries on with the conversations that were in the middle of a turn, after checking any '
+        + 'command whose result was lost. When the computer itself restarts, Acestes comes back with '
+        + 'Start at login and picks up the same way. Gives up after 3 restarts in 10 minutes.',
+    'settings.general.failoverNoStartup': 'Start at login is off, so after the computer restarts '
+        + 'the work resumes only once you open Acestes.',
+    'settings.general.failoverNoStartupHere': 'This copy cannot start at login, so after the computer '
+        + 'restarts the work resumes only once you open Acestes.',
+    'settings.general.failoverOn': 'Failover is on',
+    'settings.general.failoverOnWithStartup': 'Failover is on, and Acestes now starts at login so it '
+        + 'can come back after the computer restarts',
+    'settings.general.failoverOff': 'Failover is off',
+    'settings.general.failoverFailed': 'Failover could not be changed',
+    'settings.general.failoverLastCrash': 'Last recovery: restarted after a crash, {when}',
+    'settings.general.failoverLastHang': 'Last recovery: restarted after it stopped responding, {when}',
+    'settings.general.failoverLastShutdown': 'Last recovery: resumed after the computer shut down, {when}',
+    'settings.general.failoverLastUnclean': 'Last recovery: resumed after the app was cut off, {when}',
+    'settings.general.failoverLastGaveUp': 'Gave up restarting after repeated crashes, {when}. '
+        + 'See logs/failover.log in the app\'s data folder.',
 
     /* ---------------------------------------------------------------- *
      * Settings: Appearance
