@@ -33,6 +33,7 @@ const modelMatch = require('./model-match');
 const startModel = require('./start-model');
 const ssh = require('../ssh');
 const localTerminal = require('../local-terminal');
+const liveMetrics = require('./live-metrics');
 
 /**
  * The assistant, from the app's point of view.
@@ -1612,6 +1613,8 @@ function ensureProvider(conversation) {
             // This computer's apps, with the real mouse and keyboard. See
             // computerApiFor.
             computer: computerApiFor(conversation),
+            // Live charts in this conversation. See metricsApiFor.
+            metrics: metricsApiFor(conversation),
             // The envelope, read fresh too: a folder granted or a container
             // switched on mid-run applies to the next call.
             sandbox: agents.sandbox(conversation.agentId),
@@ -2209,6 +2212,86 @@ function computerApiFor(conversation) {
     });
 }
 
+/**
+ * Live charts, for one conversation. See live-metrics.js.
+ *
+ * A watch's start and end are events in the conversation's log, so the chart
+ * is in the transcript where the call made it and is still there when the
+ * conversation is read back. The samples in between are not: they go to the
+ * windows on `ai-metric`, a few times a second, and a window that opens the
+ * conversation mid-watch asks for the points so far (`metricSnapshot`). The
+ * end event carries the last window of points, which is what a conversation
+ * read back later draws.
+ *
+ * Looked up by id rather than held, so a watch outliving its conversation
+ * (deleted mid-watch) writes nowhere.
+ */
+function metricsApiFor(conversation) {
+    const id = conversation.id;
+    const owned = watchId => liveMetrics.ownerOf(watchId) === id;
+    const hooks = {
+        onStart: (watch) => {
+            const owner = conversations.get(id);
+            if (!owner) return;
+            emit(owner, {
+                type: 'metric-started',
+                watchId: watch.id,
+                spec: {
+                    title: watch.title,
+                    unit: watch.unit,
+                    series: watch.names,
+                    where: watch.where,
+                    command: watch.command,
+                    mode: watch.mode,
+                    every: watch.every || 0,
+                    window: watch.window,
+                    startedAt: watch.startedAt,
+                    endsAt: watch.endsAt,
+                    ...watch.chart,
+                },
+            });
+        },
+        onSamples: (watch, batch) => notify('ai-metric', { conversationId: id, watchId: watch.id, ...batch }),
+        onEnd: (watch, final) => {
+            notify('ai-metric', {
+                conversationId: id,
+                watchId: watch.id,
+                points: [],
+                stats: final.stats,
+                ended: { status: final.status, reason: final.reason },
+            });
+            const owner = conversations.get(id);
+            if (!owner) return;
+            emit(owner, {
+                type: 'metric-ended',
+                watchId: watch.id,
+                status: final.status,
+                reason: final.reason,
+                points: final.points,
+                stats: final.stats,
+            });
+        },
+    };
+    return {
+        canExec: sessionId => liveMetrics.canExec(sessionId),
+        start: (spec, target) => liveMetrics.start({ ...spec, conversationId: id }, target, hooks),
+        stop: watchId => owned(watchId) && liveMetrics.stop(watchId, 'Stopped by the agent.'),
+        stopAll: () => liveMetrics.stopAll({ conversationId: id, reason: 'Stopped by the agent.' }),
+        read: (watchId, options) => (owned(watchId) ? liveMetrics.read(watchId, options) : null),
+        list: () => liveMetrics.list(id),
+    };
+}
+
+/** The points so far of one watch, for a window opening its chart mid-watch. */
+function metricSnapshot(watchId) {
+    return liveMetrics.snapshot(String(watchId || ''));
+}
+
+/** The chart's stop button. */
+function stopMetric(watchId) {
+    return { stopped: liveMetrics.stop(String(watchId || ''), 'Stopped by the user.') };
+}
+
 // The desktop is held by one conversation while it works, and Esc stops that
 // conversation's turn.
 computer.configure({
@@ -2541,6 +2624,14 @@ function exportMarkdown(conversationId, { full = false, messagesOnly = false } =
                 break;
             case 'notice':
                 lines.push(`_${event.text}_`, '');
+                break;
+            // A live chart: what it watched, and how it ended. The points
+            // are a picture's worth of numbers, not a document's.
+            case 'metric-started':
+                lines.push(`> **Live chart:** ${event.spec?.title || ''} (\`${String(event.spec?.command || '').replace(/`/g, '\'')}\` on ${event.spec?.where || 'unknown'})`, '');
+                break;
+            case 'metric-ended':
+                lines.push(`_Live chart ${event.status || 'ended'}: ${event.reason || ''} ${event.stats?.samples ?? 0} samples._`, '');
                 break;
             default:
                 break;
@@ -3396,6 +3487,8 @@ async function close(conversationId) {
     conversations.delete(conversationId);
     checkpoints.forget(conversationId);
     computer.forget(conversationId);
+    // Its live charts have nowhere to be drawn, and their commands no reader.
+    liveMetrics.stopAll({ conversationId, reason: 'The conversation was closed.' });
     // Thrown away for good, so its file goes too. Suspended during a
     // shutdown, which closes every conversation without meaning to forget any
     // of them.
@@ -3707,6 +3800,9 @@ function status(agentId = '') {
  * the only honest answer is the one already on disk.
  */
 async function shutdown() {
+    // Before the flush, so each chart's last points are in its
+    // conversation's log and it reads back as it was when the app went.
+    liveMetrics.stopAll({ reason: 'Stopped when the app closed.' });
     archive.flush();
     archive.suspend();
 
@@ -3728,6 +3824,8 @@ async function shutdown() {
 }
 
 module.exports = {
+    metricSnapshot,
+    stopMetric,
     setNotifier,
     setWindowProbe,
     setToaster,

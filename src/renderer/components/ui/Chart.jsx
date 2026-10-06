@@ -282,6 +282,10 @@ function LineChart({ chart, width, onTip, tip }) {
     const gradient = useId().replace(/:/g, '');
     const count = chart.labels.length;
     const stacked = Boolean(chart.stacked);
+    // A live chart is drawn again with every sample, and a line that drew
+    // itself in each time a gap moved would never sit still.
+    const draw = chart.live ? undefined : 'chart-draw';
+    const fade = chart.live ? undefined : 'chart-fade';
 
     // What is plotted: the values, or for a stack each band's running top.
     const plotted = useMemo(() => {
@@ -408,7 +412,7 @@ function LineChart({ chart, width, onTip, tip }) {
                         d={`${upper}${lower}Z`}
                         fill={seriesColor(index)}
                         fillOpacity={0.22}
-                        className="chart-fade"
+                        className={fade}
                     />
                 );
             })}
@@ -416,7 +420,7 @@ function LineChart({ chart, width, onTip, tip }) {
             {washed && chart.series.map((entry, index) => runsOf(entry.values).map((run) => {
                 if (run.length < 2) return null;
                 const d = `${line(entry.values, run)}L${x(run[run.length - 1]).toFixed(1)},${foot}L${x(run[0]).toFixed(1)},${foot}Z`;
-                return <path key={`a${index}-${run[0]}`} d={d} fill={`url(#${gradient}-${index})`} className="chart-fade" />;
+                return <path key={`a${index}-${run[0]}`} d={d} fill={`url(#${gradient}-${index})`} className={fade} />;
             }))}
 
             {plotted.map((values, index) => runsOf(stacked ? values : chart.series[index].values).map(run => (
@@ -429,7 +433,7 @@ function LineChart({ chart, width, onTip, tip }) {
                     strokeWidth={stacked ? 1.5 : 2}
                     strokeLinejoin="round"
                     strokeLinecap="round"
-                    className="chart-draw"
+                    className={draw}
                 />
             )))}
 
@@ -467,7 +471,7 @@ function LineChart({ chart, width, onTip, tip }) {
                 const runs = runsOf(entry.values);
                 const end = runs.length ? runs[runs.length - 1].at(-1) : -1;
                 return end === count - 1 && runs[runs.length - 1].length > 1
-                    ? <g key={`e${index}`} className="chart-fade"><Dot cx={x(end)} cy={y(entry.values[end])} index={index} /></g>
+                    ? <g key={`e${index}`} className={fade}><Dot cx={x(end)} cy={y(entry.values[end])} index={index} /></g>
                     : null;
             })}
 
@@ -667,7 +671,12 @@ function Toolbar({ csv, table, onView }) {
     );
 }
 
-function Chart({ chart }) {
+/**
+ * `badge` sits beside the title and `footer` under the plot: a live chart's
+ * state and its stop button, and its running figures. A chart from a fence
+ * has neither.
+ */
+function Chart({ chart, badge = null, footer = null }) {
     const [table, setTable] = useState(false);
     const [tip, setTip] = useState(null);
     const figure = useRef(null);
@@ -705,6 +714,7 @@ function Chart({ chart }) {
                         </div>
                     )}
                 </div>
+                {badge}
                 <Toolbar csv={csv} table={table} onView={(next) => { setTable(next); setTip(null); }} />
             </figcaption>
 
@@ -719,6 +729,8 @@ function Chart({ chart }) {
                     </div>
                 </>
             )}
+
+            {footer}
 
             <DataTip
                 tip={table ? null : placed}

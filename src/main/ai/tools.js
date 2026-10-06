@@ -13,6 +13,7 @@ const fileTools = require('./file-tools');
 const jobTools = require('./job-tools');
 const delegationTools = require('./delegation-tools');
 const computerTools = require('./computer-tools');
+const metricTools = require('./metric-tools');
 const path = require('path');
 const sandbox = require('./sandbox');
 const { DEFAULTS } = require('./settings');
@@ -1201,6 +1202,22 @@ const TOOLS = [
      * keyboard. See computer-tools.js and computer.js.
      * -------------------------------------------------------------- */
     ...computerTools.build({ z, ok, fail }),
+
+    /* -------------------------------------------------------------- *
+     * Live charts: a command watched, a number pulled from each line
+     * with the agent's own pattern. See metric-tools.js.
+     * -------------------------------------------------------------- */
+    ...metricTools.build({
+        z,
+        ok,
+        fail,
+        resolveSession,
+        // Read at call time: blockedMessage is defined further down.
+        blocked: (name, input, settings) => {
+            const rule = blockedReason(name, input, settings);
+            return rule ? blockedMessage(rule) : '';
+        },
+    }),
 ];
 
 const BY_NAME = new Map(TOOLS.map(tool => [tool.name, tool]));
@@ -1585,6 +1602,8 @@ function commandTextFor(toolName, input) {
     // A shell on this computer is still a shell. What is blocked on a server
     // is blocked here too, container or not.
     if (toolName === 'run_local_command') return String(input?.command ?? '');
+    // A watched command runs again and again, wherever it runs.
+    if (toolName === 'watch_metric') return String(input?.command ?? '');
     // Opening an app is starting a program, which is a command by any name.
     if (toolName === 'open_app') return [input?.app, input?.args].filter(Boolean).join(' ');
     return '';
@@ -1875,6 +1894,17 @@ function isAutoApproved(toolName, input, settings) {
         // above: this branch can free a command that changes things.
         if (!settings.readOnlyRun && allowlistIntact(settings) && workspaceAllows(settings, input?.cwd, 'read')) return true;
         return false;
+    }
+
+    // A watched command is judged as the command it is, by the rule for
+    // where it runs: what the allow list waves through once it waves
+    // through on repeat (`cat /proc/loadavg`), and `ping` asks, as it would.
+    if (toolName === 'watch_metric') {
+        return isAutoApproved(
+            input?.local ? 'run_local_command' : 'run_command',
+            { command: input?.command ?? '', cwd: input?.cwd },
+            settings,
+        );
     }
 
     // A local write, under "Workspace only": inside a folder granted for

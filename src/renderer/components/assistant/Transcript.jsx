@@ -7,6 +7,7 @@ import ToolGroup, { Thought } from './ToolGroup';
 import { groupRows } from '../../lib/group-rows';
 import ApprovalRequest from './ApprovalRequest';
 import QuestionRequest from './QuestionRequest';
+import LiveMetric from './LiveMetric';
 import { TurnActions, TurnChanges } from './TurnFooter';
 import { useT } from '../../i18n';
 
@@ -198,6 +199,7 @@ function RowContent({ item, conversationId, onRespond, onAnswer, onRevert, onOpe
         );
     }
     if (item.kind === 'divider') return <Divider key={item.id} item={item} />;
+    if (item.kind === 'metric') return <LiveMetric key={item.id} item={item} />;
     return <Notice key={item.id} item={item} />;
 }
 

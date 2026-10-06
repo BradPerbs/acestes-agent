@@ -1821,6 +1821,10 @@ function register(getWindow) {
     handle('ai-action-response', (event, payload) => assistant.respondToAction(payload || {}));
     // And a third: the answer to a question the agent asked with ask_user.
     handle('ai-question-response', (event, payload) => assistant.respondToQuestion(payload || {}));
+    // A live chart: the points so far for a window opening it mid-watch, and
+    // its stop button. The samples themselves arrive on `ai-metric`.
+    handle('ai-metric-snapshot', (event, watchId) => assistant.metricSnapshot(watchId));
+    handle('ai-metric-stop', (event, watchId) => assistant.stopMetric(watchId));
 
     /* ---------------- Runs ---------------- */
 

@@ -374,6 +374,39 @@ function step(state, event, owned) {
             break;
         }
 
+        // A live chart (watch_metric), where the call that started it is. Its
+        // samples are not events: they arrive on a channel of their own while
+        // it runs, and the chart holds them. The end carries the last window
+        // of points, which is what a conversation read back draws.
+        case 'metric-started':
+            edit().push({
+                kind: 'metric',
+                id: `m-${event.watchId}`,
+                watchId: event.watchId,
+                spec: event.spec || {},
+                status: 'running',
+                reason: '',
+                points: [],
+                stats: null,
+                startedAt: event.at,
+            });
+            break;
+
+        case 'metric-ended': {
+            const index = lastIndexWhere(items, item => item.kind === 'metric' && item.watchId === event.watchId);
+            if (index >= 0) {
+                edit()[index] = {
+                    ...items[index],
+                    status: event.status || 'done',
+                    reason: event.reason || '',
+                    points: Array.isArray(event.points) ? event.points : [],
+                    stats: event.stats || null,
+                    endedAt: event.at,
+                };
+            }
+            break;
+        }
+
         // What the turn did to files, as the card at its foot. `from` is set
         // on a branch's copy: the card is there to read, and undoing it
         // belongs to the conversation that made the change.

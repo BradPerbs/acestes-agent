@@ -684,13 +684,19 @@ async function run(ctx, command, { cwd = '', timeout = DEFAULT_TIMEOUT, stdin = 
     return new Promise((resolve) => {
         const windows = process.platform === 'win32';
         const shell = windows ? (process.env.ComSpec || 'cmd.exe') : '/bin/sh';
-        const args = windows ? ['/d', '/s', '/c', text] : ['-c', text];
+        // On Windows the command is quoted whole and passed as it is, the way
+        // Node's own `shell` option does it: cmd strips the outer pair under
+        // /s and reads the rest untouched. Left to Node's quoting, every quote
+        // inside reached cmd as \" and a command starting with a quoted path
+        // was "not recognized as an internal or external command".
+        const args = windows ? ['/d', '/s', '/c', `"${text}"`] : ['-c', text];
         let child;
         try {
             child = spawner(shell, args, {
                 cwd: grant.path,
                 env: env ? { ...process.env, ...env } : process.env,
                 windowsHide: true,
+                windowsVerbatimArguments: windows,
                 stdio: [stdin === null ? 'ignore' : 'pipe', 'pipe', 'pipe'],
             });
         } catch (error) {

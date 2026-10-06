@@ -671,6 +671,15 @@ contextBridge.exposeInMainWorld('api', {
         answer: (requestId, answer, chosen = false) =>
             ipcRenderer.invoke('ai-question-response', { requestId, answer, chosen }),
 
+        // Live charts (watch_metric). `onMetric` hears `{ conversationId,
+        // watchId, points, stats, unmatched, lastError, ended }` a few times a
+        // second while one runs; `metricSnapshot` is the points so far, for a
+        // chart opened mid-watch (`{ found: false }` once it is gone);
+        // `stopMetric` is its stop button.
+        onMetric: (callback) => subscribe('ai-metric', callback),
+        metricSnapshot: (watchId) => ipcRenderer.invoke('ai-metric-snapshot', watchId),
+        stopMetric: (watchId) => ipcRenderer.invoke('ai-metric-stop', watchId),
+
         // Main asking the window to open or close a session, which only the
         // window can do because that means touching the tab tree.
         onAction: (callback) => subscribe('ai-action', callback),

@@ -90,6 +90,9 @@ const TITLES = {
     screenshot: 'assistant.didScreenshot',
     zoom: 'assistant.didZoom',
     solve_captcha: 'assistant.didSolveCaptcha',
+    watch_metric: 'assistant.didWatchMetric',
+    read_metric: 'assistant.didReadMetric',
+    stop_metric: 'assistant.didStopMetric',
     // Claude Code's subagents, under the name each version gives the tool.
     Agent: 'assistant.didSubagent',
     Task: 'assistant.didSubagent',
@@ -189,6 +192,22 @@ export function describeCall(name, input = {}) {
             return { mono: true, text: input.command || input.cmd || '' };
         case 'send_input':
             return { mono: true, text: input.text || '' };
+        case 'watch_metric':
+            // The command on the row; on the approval card, under it, the
+            // pattern and how long and how often it will run.
+            return {
+                mono: true,
+                text: input.command || '',
+                detail: [
+                    input.pattern ? `pattern: ${input.pattern}` : '',
+                    input.local ? 'on this computer' : '',
+                    input.every ? `every ${input.every}s` : 'read as it prints',
+                    `for ${input.durationMinutes || 10} min`,
+                ].filter(Boolean).join(' · '),
+            };
+        case 'read_metric':
+        case 'stop_metric':
+            return { mono: true, text: input.watchId || '' };
         case 'read_file':
         case 'write_file':
         case 'list_directory':
