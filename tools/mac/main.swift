@@ -101,6 +101,7 @@ private func work(_ request: Json) {
     let command = text(request, "cmd")
     cancelled = false
     acting = actions.contains(command)
+    if acting { anchor() }
     openBook(text(request, "owner"))
     var answer: Json
     do {
@@ -176,6 +177,33 @@ var lastX: CGFloat = 0
 var lastY: CGFloat = 0
 
 private let actions: Set<String> = ["focus", "launch", "target", "click", "type", "keys", "scroll", "drag", "place"]
+
+// How long after the person answers in Acestes (a click or a key there)
+// their hand is still settling: moving the mouse then is the tail of that
+// answer, not a reach to take over.
+private let graceSeconds: TimeInterval = 1.5
+private let graceLock = NSLock()
+private var graceUntil: TimeInterval = 0
+
+private func inGrace() -> Bool {
+    graceLock.lock(); defer { graceLock.unlock() }
+    return ProcessInfo.processInfo.systemUptime < graceUntil
+}
+
+private func startGrace() {
+    graceLock.lock(); defer { graceLock.unlock() }
+    graceUntil = ProcessInfo.processInfo.systemUptime + graceSeconds
+}
+
+/// Where the person's hand is now is where a move is measured from. Set as
+/// each action starts, so a hand that went off to answer a card and rests
+/// somewhere else is not read, a pixel later, as a leap away from wherever
+/// the agent last left the cursor.
+private func anchor() {
+    let here = cursor()
+    lastX = here.x
+    lastY = here.y
+}
 
 private var labelDriving = "The agent is using your computer · Esc to stop"
 private var labelPaused = "Paused · you have control"
@@ -259,14 +287,22 @@ private func tapped(_ type: CGEventType, _ event: CGEvent) -> Unmanaged<CGEvent>
             return nil
         }
         let front = NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0
-        if type == .keyDown && !protected.contains(front) { takeOver("keyboard") }
+        if type == .keyDown {
+            if protected.contains(front) { startGrace() } else { takeOver("keyboard") }
+        }
     case .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
-        // A hand resting on a mouse drifts a pixel or two; a hand reaching
-        // for it does not stop there.
         let at = event.location
-        if acting && abs(at.x - lastX) + abs(at.y - lastY) > 8 { takeOver("mouse") }
+        if inGrace() {
+            // Settling, not reaching: measure from where it settles.
+            lastX = at.x
+            lastY = at.y
+        } else if acting && abs(at.x - lastX) + abs(at.y - lastY) > 8 {
+            // A hand resting on a mouse drifts a pixel or two; a hand
+            // reaching for it does not stop there.
+            takeOver("mouse")
+        }
     default:
-        if !protected.contains(ownerAt(event.location)) { takeOver("mouse") }
+        if protected.contains(ownerAt(event.location)) { startGrace() } else { takeOver("mouse") }
     }
     return pass
 }

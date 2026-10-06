@@ -189,6 +189,7 @@ static class DesktopHelper
             object id = request.ContainsKey("id") ? request["id"] : null;
             cancelled = false;
             acting = Actions.Contains(Text(request, "cmd"));
+            if (acting) Anchor();
             Open(Text(request, "owner"));
             Dictionary<string, object> answer;
             try
@@ -344,12 +345,45 @@ static class DesktopHelper
 
     static readonly HashSet<string> Actions = new HashSet<string> { "focus", "launch", "target", "click", "type", "keys", "scroll", "drag", "place" };
 
+    // How long after the person answers in Acestes (a click or a key there)
+    // their hand is still settling: moving the mouse then is the tail of
+    // that answer, not a reach to take over.
+    const long GraceMs = 1500;
+    static readonly Stopwatch Clock = Stopwatch.StartNew();
+    static long graceUntil;
+
+    static bool InGrace()
+    {
+        return Clock.ElapsedMilliseconds < Interlocked.Read(ref graceUntil);
+    }
+
+    static void StartGrace()
+    {
+        Interlocked.Exchange(ref graceUntil, Clock.ElapsedMilliseconds + GraceMs);
+    }
+
+    /// <summary>
+    /// Where the person's hand is now is where a move is measured from. Set
+    /// as each action starts, so a hand that went off to answer a card and
+    /// rests somewhere else is not read, a pixel later, as a leap away from
+    /// wherever the agent last left the cursor.
+    /// </summary>
+    static void Anchor()
+    {
+        Native.POINT point;
+        if (!Native.GetCursorPos(out point)) return;
+        lastX = point.X;
+        lastY = point.Y;
+    }
+
     /// <summary>
     /// The person's input, by the rule the badge promises. Clicking or typing
     /// into Acestes is the person answering the agent (a card, a question, a
     /// message), not taking over. Anywhere else it is. Moving the mouse only
     /// counts while an action is under way; between actions it is someone
-    /// reaching for the Acestes window.
+    /// reaching for the Acestes window. For a moment after an answer in
+    /// Acestes, moving does not count either: the hand that clicked Allow is
+    /// still coming off the button.
     /// </summary>
     static IntPtr OnMouse(int code, IntPtr message, IntPtr data)
     {
@@ -360,11 +394,21 @@ static class DesktopHelper
             {
                 if (message.ToInt32() == 0x0200)
                 {
+                    if (InGrace())
+                    {
+                        // Settling, not reaching: measure from where it settles.
+                        lastX = info.pt.X;
+                        lastY = info.pt.Y;
+                    }
                     // A hand resting on a mouse drifts a pixel or two; a hand
                     // reaching for it does not stop there.
-                    if (acting && Math.Abs(info.pt.X - lastX) + Math.Abs(info.pt.Y - lastY) > 8) TakeOver("mouse");
+                    else if (acting && Math.Abs(info.pt.X - lastX) + Math.Abs(info.pt.Y - lastY) > 8) TakeOver("mouse");
                 }
-                else if (!Protected.Contains(PidOf(RootAt(info.pt.X, info.pt.Y))))
+                else if (Protected.Contains(PidOf(RootAt(info.pt.X, info.pt.Y))))
+                {
+                    StartGrace();
+                }
+                else
                 {
                     TakeOver("mouse");
                 }
@@ -389,7 +433,11 @@ static class DesktopHelper
                     // so nothing on screen can use it to dismiss a dialog.
                     return new IntPtr(1);
                 }
-                if (down && !Protected.Contains(PidOf(Native.GetForegroundWindow()))) TakeOver("keyboard");
+                if (down)
+                {
+                    if (Protected.Contains(PidOf(Native.GetForegroundWindow()))) StartGrace();
+                    else TakeOver("keyboard");
+                }
             }
         }
         return Native.CallNextHookEx(IntPtr.Zero, code, message, data);
