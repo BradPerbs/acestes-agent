@@ -248,23 +248,6 @@ function build(context) {
         blocks.push('', '## Instructions from the user', '', context.instructions);
     }
 
-    // The notebook, ahead of the situation for the same reason: it is what the
-    // agent knows going in, and the moment is what it finds there.
-    // Neither section while the agent's memory is switched off: no notes, and
-    // no invitation to use tools that would only refuse.
-    if (context.memory && !context.memoryOff) {
-        blocks.push(
-            '',
-            '## What you remember',
-            '',
-            'Notes you kept in earlier conversations with this user, newest first, each with its id. '
-            + 'Treat them as true unless what you see now says otherwise, and use forget on one that '
-            + 'has gone stale.',
-            '',
-            context.memory,
-        );
-    }
-
     if (!context.memoryOff) {
         blocks.push(
             '',
@@ -321,19 +304,10 @@ function build(context) {
         );
     }
 
-    blocks.push('', '## Right now', '', situation(context));
-
-    // Keyed on the default rather than the mode: a pinned set holding one
-    // session has one, and reads exactly like a single pin. Two of anything
-    // does not, whichever mode put them there.
-    if (!context.boundSessionId) {
-        blocks.push(
-            '',
-            'Because no single session is pinned, be explicit in your reply about which host each '
-            + 'finding came from.'
-        );
-    }
-
+    // Cache-prefix order: static first, volatile last. Provider CLIs
+    // (Claude Code, Pi, Opencode, Codex, ...) cache the prompt prefix natively,
+    // so the open-session list and the memory notes sit at the end: a terminal
+    // opened mid-conversation busts only the tail, not the whole prompt.
     // Said in advance so a refusal is not the way this is discovered. The list
     // is enforced on every call whatever this block says, so a change made
     // mid-conversation still bites; what it would not do is update the wording
@@ -350,6 +324,37 @@ function build(context) {
             '',
             'If a task genuinely needs one, stop and say what you wanted to run and why, so the user can '
             + 'do it themselves or change the list in Settings.'
+        );
+    }
+
+
+    blocks.push('', '## Right now', '', situation(context));
+
+    // Keyed on the default rather than the mode: a pinned set holding one
+    // session has one, and reads exactly like a single pin. Two of anything
+    // does not, whichever mode put them there.
+    if (!context.boundSessionId) {
+        blocks.push(
+            '',
+            'Because no single session is pinned, be explicit in your reply about which host each '
+            + 'finding came from.'
+        );
+    }
+
+
+    // Memory notes last: they change whenever remember/forget runs, so they
+    // must not shift the static sections above out of the cached prefix.
+    // Skipped while the memory is switched off: no notes.
+    if (context.memory && !context.memoryOff) {
+        blocks.push(
+            '',
+            '## What you remember',
+            '',
+            'Notes you kept in earlier conversations with this user, newest first, each with its id. '
+            + 'Treat them as true unless what you see now says otherwise, and use forget on one that '
+            + 'has gone stale.',
+            '',
+            context.memory,
         );
     }
 

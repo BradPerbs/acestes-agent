@@ -194,6 +194,28 @@ const DEFAULTS = {
     // keyboard. Off until someone switches it on: it is the one tool that acts
     // where the person is working. See computer.js.
     computerUse: false,
+    // Tool bundles: groups of tools switched on or off together, not one by
+    // one. All on by default, so upgrading changes nothing; switching a bundle
+    // off leaves those definitions out of what the model is offered, saving
+    // ~2-6k tokens per bundle per turn. See BUNDLES in tools.js.
+    toolBundles: {
+        workspace: true,
+        desktop: true,
+        memory: true,
+        inventory: true,
+        automation: true,
+        collaboration: true,
+        integrations: true,
+    },
+    // Bare provider CLI: the runtime runs as it does in a terminal, with no
+    // Acestes system prompt, no per-message session briefing, and none of
+    // the app's tools attached. What you type plus the CLI's own tools is
+    // the whole context, so a "Hi" costs
+    // the CLI's baseline instead of ~12k. Servers, inventory and memory are
+    // unreachable while on (their tools are what reaches them), and the
+    // CLI's own permission model answers for its native tools. Only CLI
+    // runtimes honour it; direct-API modes are unchanged. Off by default.
+    bareProvider: false,
     // How fast the cursor travels and the typing goes, so it can be followed.
     computerPace: 'normal',
     // Whether the agent is handed its browser: the Playwright MCP servers on
@@ -326,6 +348,7 @@ function sanitize(raw) {
         autoApproveCommands: [...DEFAULTS.autoApproveCommands],
         blockedCommands: [...DEFAULTS.blockedCommands],
         quickPrompts: [...DEFAULTS.quickPrompts],
+        toolBundles: { ...DEFAULTS.toolBundles },
         accounts: {},
         menuAccounts: {},
         hiddenModels: {},
@@ -362,6 +385,18 @@ function sanitize(raw) {
         if ('memory' in raw) next.memory = Boolean(raw.memory);
         if ('autoRemember' in raw) next.autoRemember = Boolean(raw.autoRemember);
         if ('computerUse' in raw) next.computerUse = Boolean(raw.computerUse);
+        if ('bareProvider' in raw) next.bareProvider = Boolean(raw.bareProvider);
+        if (raw.toolBundles && typeof raw.toolBundles === 'object' && !Array.isArray(raw.toolBundles)) {
+            // Known bundles only; unknown keys are dropped. Missing reads as
+            // on, so an older config keeps everything it always had.
+            const known = ['workspace', 'desktop', 'memory', 'inventory', 'automation', 'collaboration', 'integrations'];
+            next.toolBundles = {};
+            for (const id of known) {
+                next.toolBundles[id] = id in raw.toolBundles ? raw.toolBundles[id] !== false : true;
+            }
+        } else {
+            next.toolBundles = { ...DEFAULTS.toolBundles };
+        }
         if (COMPUTER_PACES.has(raw.computerPace)) next.computerPace = raw.computerPace;
         if ('browserUse' in raw) next.browserUse = Boolean(raw.browserUse);
         if ('voiceInput' in raw) next.voiceInput = Boolean(raw.voiceInput);
@@ -488,6 +523,7 @@ const PER_AGENT = [
     'transcriptLines', 'allowLocalTools', 'autoApproveCommands',
     'blockedCommands', 'quickPrompts', 'instructions', 'memory', 'autoRemember',
     'accounts', 'menuAccounts', 'computerUse', 'computerPace', 'browserUse',
+    'toolBundles', 'bareProvider',
 ];
 
 const pick = (source, keys) => Object.fromEntries(
@@ -575,6 +611,7 @@ function setApiKey(provider, value) {
 }
 
 function set(patch, agentId) {
+    const oldBase = load();
     const { id, settings: before } = effective(agentId);
     const source = patch && typeof patch === 'object' ? patch : {};
     const own = pick(source, PER_AGENT);
@@ -610,7 +647,121 @@ function set(patch, agentId) {
     if (merged.provider !== before.provider && !('model' in own)) merged.model = '';
 
     agents.setOverrides(id, pick(merged, PER_AGENT));
+
+    // The Acestes agent carries no project of its own, so a setting changed
+    // there is meant for every agent: it is written to the shared base and
+    // fanned out to agents that never deliberately diverged. An agent whose
+    // value differs from both the old base and the old Acestes value chose
+    // its own and keeps it. Sign-ins (accounts, menuAccounts) are identity
+    // and always stay per-agent.
+    drainPropagation();
+    if (isGlobalSource(id)) {
+        const globalPatch = {};
+        for (const key of Object.keys(own)) {
+            if (GLOBAL_EXCEPT.has(key)) continue;
+            globalPatch[key] = merged[key];
+        }
+        if (Object.keys(globalPatch).length) {
+            config = sanitize({ ...config, ...globalPatch });
+            persist();
+            for (const agent of agents.snapshot().agents || []) {
+                if (agent.id === id) continue;
+                const other = agents.overrides(agent.id);
+                const beforeOther = sanitize({ ...oldBase, ...pick(other, PER_AGENT) });
+                let touched = false;
+                for (const key of Object.keys(globalPatch)) {
+                    if (!(key in other)) continue; // inherits the (new) base already
+                    const aligned = alignValue(other[key], oldBase[key], before[key], globalPatch[key]);
+                    if (aligned.changed) {
+                        other[key] = aligned.value;
+                        touched = true;
+                    }
+                }
+                if (touched) {
+                    agents.setOverrides(agent.id, other);
+                    propagation.push({
+                        agentId: agent.id,
+                        before: beforeOther,
+                        after: sanitize({ ...config, ...pick(other, PER_AGENT) }),
+                    });
+                }
+            }
+        }
+    }
     return get(id);
+}
+
+/**
+ * The Acestes agent is the global source: the default agent with no project
+ * of its own. Matched by prefix (Acestes, acestes-agent, ...) so the project
+ * folder agent counts too; renaming away from the prefix ends the behaviour.
+ */
+function isGlobalSource(id) {
+    const name = (agents.get(id)?.name || '').trim().toLowerCase();
+    return name === 'acestes' || name.startsWith('acestes-') || name.startsWith('acestes ');
+}
+
+/** Identity never propagates: a sign-in belongs to the agent that chose it. */
+const GLOBAL_EXCEPT = new Set(['accounts', 'menuAccounts']);
+
+/** Order-insensitive equality for JSON-safe setting values. */
+function stable(value) {
+    if (Array.isArray(value)) return `[${value.map(stable).join(',')}]`;
+    if (value && typeof value === 'object') {
+        return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${stable(value[key])}`).join(',')}}`;
+    }
+    return JSON.stringify(value) ?? 'undefined';
+}
+const stableEqual = (a, b) => stable(a) === stable(b);
+
+/** Plain `{}` maps only: arrays are replaced wholesale, never merged. */
+const isPlainMap = (value) => Boolean(value)
+    && typeof value === 'object'
+    && !Array.isArray(value)
+    && Object.getPrototypeOf(value) === Object.prototype;
+
+/**
+ * Merge one changed value over another agent's, key by key for maps (so one
+ * untouched bundle follows while a deliberately switched-off bundle stays).
+ * Missing keys inherit the new base and need no write. Returns whether the
+ * agent's value changed.
+ */
+function alignValue(current, baseValue, acestesValue, nextValue) {
+    if (isPlainMap(nextValue)) {
+        const cur = isPlainMap(current) ? current : {};
+        const out = { ...cur };
+        let changed = false;
+        for (const sub of Object.keys(nextValue)) {
+            if (sub in cur) {
+                const diverged = !stableEqual(cur[sub], baseValue?.[sub])
+                    && !stableEqual(cur[sub], acestesValue?.[sub]);
+                if (diverged) continue;
+                if (!stableEqual(cur[sub], nextValue[sub])) {
+                    out[sub] = nextValue[sub];
+                    changed = true;
+                }
+            }
+        }
+        return { value: out, changed };
+    }
+    if (current === undefined) return { value: current, changed: false };
+    const diverged = !stableEqual(current, baseValue) && !stableEqual(current, acestesValue);
+    if (diverged) return { value: current, changed: false };
+    if (stableEqual(current, nextValue)) return { value: current, changed: false };
+    return { value: nextValue, changed: true };
+}
+
+/**
+ * Other agents touched by the last global propagation, with their settings
+ * before and after, for live conversations to restart on. Drained by the
+ * caller (ipc), so one change restarts each affected agent once.
+ */
+let propagation = [];
+function drainPropagation() { propagation = []; }
+function takePropagation() {
+    const taken = propagation;
+    propagation = [];
+    return taken;
 }
 
 /**
@@ -700,6 +851,7 @@ function importAll(payload, { overwrite = false } = {}) {
 module.exports = {
     get,
     set,
+    takePropagation,
     setApiKey,
     readApiKey,
     exportAll,

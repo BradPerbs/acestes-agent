@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const sandboxModule = require('./sandbox');
 const container = require('./container');
 
@@ -277,6 +277,187 @@ const MAX_SEARCH_FILES = 5000;
 const MAX_SEARCH_FILE_BYTES = 2 * 1024 * 1024;
 const SKIP_DIRS = new Set(['.git', 'node_modules', '.hg', '.svn', '__pycache__', '.venv', 'venv', 'dist', 'build', '.next', 'target']);
 
+/**
+ * Native search, provider-agnostic speed fix.
+ *
+ * The old host road walked the tree in Node (readdirSync + readFileSync per
+ * file): ~seconds on a few hundred files vs ~15-30ms for rg on the same tree.
+ * Every provider (opencode, claude, codex, grok, ...) goes through this one
+ * search(), so fixing it here fixes all of them.
+ *
+ * Order: rg (ripgrep, parallel, gitignore-aware) -> grep -> Node walk.
+ * rg/grep run via spawnSync so one tool call is one subprocess, not N reads.
+ * Context lines (-C) are parsed so one search returns definition + callers +
+ * surrounding code, avoiding N follow-up reads (the LLM round-trip killer).
+ */
+
+let rgAvailable = null;
+let grepAvailable = null;
+
+const hasRg = () => {
+    if (rgAvailable !== null) return rgAvailable;
+    try {
+        const result = spawnSync('rg', ['--version'], { timeout: 3000, stdio: 'ignore' });
+        rgAvailable = result.status === 0;
+    } catch {
+        rgAvailable = false;
+    }
+    return rgAvailable;
+};
+const hasGrep = () => {
+    if (grepAvailable !== null) return grepAvailable;
+    try {
+        const result = spawnSync('grep', ['--version'], { timeout: 3000, stdio: 'ignore' });
+        // BSD grep exits 0 too; busybox may not have --version but still works.
+        grepAvailable = result.status === 0 || result.error === undefined;
+    } catch {
+        grepAvailable = false;
+    }
+    return grepAvailable;
+};
+
+/** Parse `rg/grep -n -C` output: `file:line:text` = hit, `file-line-text` = context, `--` = gap. */
+function parseNativeWithContext(stdout, cap) {
+    const matches = [];
+    let current = null;
+    let pendingBefore = [];
+    const flush = () => {
+        if (current && matches.length < cap) matches.push(current);
+        current = null;
+        pendingBefore = [];
+    };
+    for (const raw of stdout.split('\n')) {
+        if (!raw || raw === '--') {
+            flush();
+            continue;
+        }
+        // Match line: path:line:text
+        let found = /^(.*?):(\d+):(.*)$/.exec(raw);
+        if (found) {
+            if (current && matches.length < cap) matches.push(current);
+            current = {
+                path: found[1],
+                line: Number(found[2]),
+                text: found[3].slice(0, 400),
+                contextBefore: pendingBefore,
+                contextAfter: [],
+            };
+            pendingBefore = [];
+            continue;
+        }
+        // Context line: path-line-text (rg/grep -C with --no-heading)
+        found = /^(.*?)[-:](\d+)[-:](.*)$/.exec(raw);
+        if (found) {
+            if (current) current.contextAfter.push(found[3]);
+            else pendingBefore.push(found[3]);
+        } else if (current) {
+            // Fallback: append raw context without line parse.
+            if (current.text.length < 400) current.contextAfter.push(raw);
+            else pendingBefore.push(raw);
+        } else {
+            pendingBefore.push(raw);
+        }
+    }
+    if (current && matches.length < cap) matches.push(current);
+    // Trim context arrays to requested window (caller slices anyway).
+    return matches.slice(0, cap);
+}
+
+/**
+ * One subprocess per root with rg (preferred) or grep. Returns null when
+ * neither binary is usable so the caller falls through to the Node walk.
+ * Synchronous via spawnSync: 15-30ms on a ~800-file tree vs seconds in Node.
+ */
+function tryNativeSearch({ roots, needle, regex, loose, glob, cap, contextLines }) {
+    const useRg = hasRg();
+    const useGrep = !useRg && hasGrep();
+    if (!useRg && !useGrep) return null;
+
+    const allMatches = [];
+    let scanned = 0;
+    let truncated = false;
+
+    for (const root of roots) {
+        if (allMatches.length >= cap) {
+            truncated = true;
+            break;
+        }
+        let stat;
+        try {
+            stat = fs.statSync(root.path);
+        } catch {
+            continue;
+        }
+        // Single-file target: grep/rg handle it directly.
+        const searchPath = root.path;
+        try {
+            let args;
+            let bin;
+            if (useRg) {
+                bin = 'rg';
+                args = ['--no-heading', '--line-number', '--with-filename', '--color=never', '--hidden'];
+                // User glob first: rg lets the last matching glob win, so the
+                // skip-list below stays excluded even when it also matches.
+                if (glob) args.push('--glob', glob);
+                // Same skip list as the Node walk, as rg globs (last wins).
+                for (const dir of SKIP_DIRS) args.push('--glob', `!**/${dir}/**`);
+                args.push('--glob', '!**/.git/**');
+                if (!regex) args.push('--fixed-strings');
+                if (loose) args.push('--ignore-case');
+                if (contextLines > 0) args.push('--context', String(contextLines));
+                args.push('--max-count', String(Math.max(cap * 2, cap + 5)));
+                args.push('-e', needle, '--', searchPath);
+            } else {
+                bin = 'grep';
+                args = ['-rnI'];
+                for (const dir of SKIP_DIRS) args.push(`--exclude-dir=${dir}`);
+                args.push('--exclude-dir=.git');
+                if (regex) args.push('-E');
+                else args.push('-F');
+                if (loose) args.push('-i');
+                if (glob) args.push(`--include=${glob}`);
+                if (contextLines > 0) args.push('-C', String(contextLines));
+                args.push('-e', needle, '--', searchPath);
+            }
+            const result = spawnSync(bin, args, { timeout: 15000, maxBuffer: 16 * 1024 * 1024, encoding: 'utf8' });
+            // rg/grep exit 1 = no matches (an answer). Anything else non-zero
+            // with no stdout is a real failure -> fall through per-root.
+            const out = (result.stdout || '').toString();
+            if (result.error) continue;
+            if (!out.trim()) continue;
+            scanned += out.split('\n').filter(Boolean).length;
+            const parsed = contextLines > 0
+                ? parseNativeWithContext(out, cap - allMatches.length)
+                : out.split('\n').filter(Boolean).slice(0, (cap - allMatches.length) + 1).map((line) => {
+                    const found = /^(.*?):(\d+):(.*)$/.exec(line);
+                    return found
+                        ? { path: found[1], line: Number(found[2]), text: found[3].slice(0, 400) }
+                        : { path: '', line: 0, text: line.slice(0, 400) };
+                }).slice(0, cap - allMatches.length);
+            for (const match of parsed) {
+                if (allMatches.length >= cap) {
+                    truncated = true;
+                    break;
+                }
+                allMatches.push(match);
+            }
+        } catch {
+            continue;
+        }
+    }
+
+    // If every root failed (no stdout at all and no matches), signal fallback
+    // only when we never even tried: here we tried, so return what we have.
+    // Empty matches is a valid answer — same contract as the Node walk.
+    return {
+        searched: roots.map(root => root.path),
+        filesScanned: scanned || undefined,
+        matches: allMatches.slice(0, cap),
+        truncated: truncated || undefined,
+        engine: useRg ? 'rg' : 'grep',
+    };
+}
+
 /** Files that are not text: a NUL in the first 8 KB is the usual tell. */
 function looksBinary(buffer) {
     const head = buffer.subarray(0, Math.min(buffer.length, 8192));
@@ -294,12 +475,16 @@ function globToRegExp(glob) {
 }
 
 async function search(ctx, {
-    query, path: target = '', regex = false, ignoreCase = false, glob = '', limit = MAX_MATCHES,
+    query, path: target = '', regex = false, ignoreCase = false, glob = '', limit = MAX_MATCHES, context = 0,
 } = {}) {
     const needle = String(query || '');
     if (!needle) return { error: 'Say what to search for.' };
     const cap = Math.max(1, Math.min(Number(limit) || MAX_MATCHES, MAX_MATCHES));
     const loose = Boolean(ignoreCase);
+    // 0-10 lines of surrounding code per hit: one search returns definition +
+    // callers + context, so the agent skips N follow-up reads (each a full
+    // LLM round-trip). Capped — full bodies come from read_local_file.
+    const contextLines = Math.max(0, Math.min(Number(context) || 0, 10));
 
     let pattern;
     try {
@@ -340,19 +525,21 @@ async function search(ctx, {
         const flags = ['-rnI', '--exclude-dir=.git', '--exclude-dir=node_modules', regex ? '-E' : '-F'];
         if (loose) flags.push('-i');
         if (glob) flags.push(`--include=${shellQuote(glob)}`);
-        const command = `grep ${flags.join(' ')} -e ${shellQuote(needle)} -- ${shellQuote(checked.path)} | head -n ${cap + 1}`;
+        if (contextLines > 0) flags.push(`-C ${contextLines}`);
+        const command = `grep ${flags.join(' ')} -e ${shellQuote(needle)} -- ${shellQuote(checked.path)} | head -n ${(cap * (contextLines * 2 + 1)) + 1}`;
         const result = await container.exec(ctx.agentId, command);
         if (!result.success) return { error: result.message };
         // grep exits 1 for "nothing found", which is an answer, not an error.
         if (result.exitCode > 1) return { error: result.stderr.trim() || `grep exited with ${result.exitCode}` };
-        const lines = result.stdout.split('\n').filter(Boolean);
-        const matches = lines.slice(0, cap).map((line) => {
-            const found = /^(.*?):(\d+):(.*)$/.exec(line);
-            return found
-                ? { path: found[1], line: Number(found[2]), text: found[3].slice(0, 400) }
-                : { path: '', line: 0, text: line.slice(0, 400) };
-        });
-        return withHint({ path: checked.path, matches, truncated: lines.length > cap });
+        const matches = contextLines > 0
+            ? parseNativeWithContext(result.stdout, cap)
+            : result.stdout.split('\n').filter(Boolean).slice(0, cap + 1).slice(0, cap).map((line) => {
+                const found = /^(.*?):(\d+):(.*)$/.exec(line);
+                return found
+                    ? { path: found[1], line: Number(found[2]), text: found[3].slice(0, 400) }
+                    : { path: '', line: 0, text: line.slice(0, 400) };
+            });
+        return withHint({ path: checked.path, matches, truncated: result.stdout.split('\n').filter(Boolean).length > cap });
     }
 
     const folders = ctx?.sandbox?.folders || [];
@@ -362,6 +549,12 @@ async function search(ctx, {
         : folders.map(folder => ({ path: folder.path }));
     const bad = roots.find(root => root.error);
     if (bad) return { error: bad.error };
+
+    // Fast road: rg, then grep, one subprocess per root. Provider-agnostic:
+    // all providers share this search(), so all get native speed.
+    // Falls through to the Node walk only when neither binary exists.
+    const nativeResult = tryNativeSearch({ roots, needle, regex, loose, glob, cap, contextLines });
+    if (nativeResult) return withHint(nativeResult);
 
     const fileFilter = glob ? globToRegExp(glob) : null;
     const matches = [];
@@ -412,7 +605,12 @@ async function search(ctx, {
                     truncated = true;
                     return;
                 }
-                matches.push({ path: full, line: index + 1, text: line.trimEnd().slice(0, 400) });
+                const hit = { path: full, line: index + 1, text: line.trimEnd().slice(0, 400) };
+                if (contextLines > 0) {
+                    hit.contextBefore = lines.slice(Math.max(0, index - contextLines), index);
+                    hit.contextAfter = lines.slice(index + 1, index + 1 + contextLines);
+                }
+                matches.push(hit);
             }
         }
     };

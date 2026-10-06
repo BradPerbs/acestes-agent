@@ -96,6 +96,28 @@ function harness(overrides = {}) {
         assert.strictEqual(result.costUsd, 0.0046);
     });
 
+    await test('each reply reports context usage with cache hits for the composer ring', async () => {
+        await until(() => h.events.some(event => event.type === 'models'), 'the model catalogue');
+        h.events.length = 0;
+        session.send('hello');
+        await until(() => h.events.some(event => event.type === 'result'), 'the context result');
+        assert.deepStrictEqual(h.events.filter(event => event.type === 'context'), [
+            { type: 'context', used: 130, limit: 200000, percent: 0, model: 'anthropic/claude-sonnet-5', cached: 10 },
+            { type: 'context', used: 400, limit: 200000, percent: 0, model: 'anthropic/claude-sonnet-5', cached: 40 },
+        ]);
+    });
+
+    await test('bare mode runs without the extension or the app tools', async () => {
+        const bare = harness({ bareProvider: true });
+        const bareSession = await pi.start(bare.options);
+        bareSession.send('hello');
+        await until(() => bare.events.some(event => event.type === 'result'), 'the bare result');
+        const reply = bare.events.filter(event => event.type === 'assistant-text').pop().text;
+        assert.ok(reply.includes('extension=false'), `no extension loaded: ${reply}`);
+        assert.ok(reply.includes('mcp=false'), `no MCP url passed: ${reply}`);
+        await bareSession.close();
+    });
+
     await test('a blocked command is refused without a card', async () => {
         h.events.length = 0;
         h.approvals.length = 0;

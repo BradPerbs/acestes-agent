@@ -43,11 +43,23 @@ const STEPS_UNLIMITED = STEPS_MAX + 5;
 
 export default function AgenticSection() {
     const t = useT();
-    const { settings, tools, update } = useAssistantSettings();
+    const { settings, tools, toolBundles, update } = useAssistantSettings();
 
     if (!settings) return <LoadingCard />;
 
     const readOnlyTools = tools.filter(tool => tool.readOnly).length;
+
+    // Extra tool bundles with their own switch (core stays always on;
+    // workspace/desktop/memory keep their existing switches above).
+    const extraBundles = (toolBundles || []).filter(bundle => (
+        ['inventory', 'automation', 'collaboration', 'integrations'].includes(bundle.id)
+    ));
+
+    const bundleOn = (id) => settings.toolBundles?.[id] !== false;
+
+    const setBundle = (id, value) => update({
+        toolBundles: { ...(settings.toolBundles || {}), [id]: value },
+    });
 
     // The desktop itself: Windows and macOS, the systems there is a helper for
     // (tools/DesktopHelper.cs, tools/mac/).
@@ -145,6 +157,50 @@ export default function AgenticSection() {
 
                 <BrowserUse className={DIVIDED} settings={settings} update={update} />
             </SettingCard>
+
+            <SettingCard>
+                <SettingRow
+                    title={t('settings.agentic.bare')}
+                    description={t('settings.agentic.bareDesc')}
+                    control={(
+                        <Toggle
+                            ariaLabel={t('settings.agentic.bare')}
+                            checked={Boolean(settings.bareProvider)}
+                            onChange={(value) => update({ bareProvider: value })}
+                        />
+                    )}
+                />
+            </SettingCard>
+
+            {extraBundles.length > 0 && (
+                <SettingCard>
+                    <SettingRow
+                        title={t('settings.agentic.bundles')}
+                        description={t('settings.agentic.bundlesDesc')}
+                    >
+                        <ul className="space-y-3">
+                            {extraBundles.map(bundle => (
+                                <li key={bundle.id} className="flex items-center justify-between gap-4">
+                                    <div className="min-w-0">
+                                        <p className="text-sm text-gray-900 dark:text-gray-100">
+                                            {t(`settings.agentic.bundle.${bundle.id}`)}
+                                        </p>
+                                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                                            {t('settings.agentic.bundleTools', { count: bundle.tools })}
+                                        </p>
+                                    </div>
+                                    <Toggle
+                                        ariaLabel={t(`settings.agentic.bundle.${bundle.id}`)}
+                                        checked={bundleOn(bundle.id)}
+                                        disabled={Boolean(settings.bareProvider)}
+                                        onChange={(value) => setBundle(bundle.id, value)}
+                                    />
+                                </li>
+                            ))}
+                        </ul>
+                    </SettingRow>
+                </SettingCard>
+            )}
 
             <SettingCard>
                 <SettingRow

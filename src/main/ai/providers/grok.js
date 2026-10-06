@@ -335,17 +335,18 @@ function writeMcpConfig(directory, url, { servers = [], sandbox = null, agentId 
     // The agent's own servers go in beside ours, spawned through the same
     // launcher Claude Code uses for them. One named like ours would be two
     // tables with one name, which TOML refuses whole, so it is left out.
+    // Bare (no URL): own servers only, none of the app's tools.
     const own = (Array.isArray(servers) ? servers : []).filter(entry => entry?.name && entry.name !== SERVER_NAME);
     const json = JSON.stringify({
         mcpServers: {
             ...mcpConfig.agentServers(own, sandbox, agentId),
-            [SERVER_NAME]: { type: 'http', url },
+            ...(url ? { [SERVER_NAME]: { type: 'http', url } } : {}),
         },
     }, null, 2);
 
     // The CLI's own spelling of an http server is the address alone; the
     // `type` key belongs to the JSON format and is not in its TOML.
-    const toml = `${mcpConfig.toml(own, sandbox, agentId)}[mcp_servers.${SERVER_NAME}]\nurl = "${url}"\n`;
+    const toml = `${mcpConfig.toml(own, sandbox, agentId)}${url ? `[mcp_servers.${SERVER_NAME}]\nurl = "${url}"\n` : ''}`;
 
     fs.mkdirSync(path.join(directory, '.grok'), { recursive: true });
     fs.writeFileSync(path.join(directory, '.grok', 'config.toml'), toml, 'utf8');
@@ -806,12 +807,16 @@ async function start(options) {
     }
 
     const directory = workspace();
-    const { tokenUrl, token } = await mcpHost.acquire({ toolContext, requestApproval, onEvent });
+    // Bare provider CLI: none of the app's tools attached; the config keeps
+    // the agent's own servers only.
+    const { tokenUrl, token } = settings?.bareProvider
+        ? { tokenUrl: null, token: null }
+        : await mcpHost.acquire({ toolContext, requestApproval, onEvent });
 
     try {
         writeMcpConfig(directory, tokenUrl, { servers: settings.mcpServers, sandbox: settings.sandbox, agentId: settings.agentId });
     } catch (error) {
-        await mcpHost.release(token);
+        if (token) await mcpHost.release(token);
         throw new Error(`The Grok Build configuration could not be written: ${error.message}`);
     }
     // Without this the file above is read and ignored. Not fatal on its
@@ -849,6 +854,7 @@ async function start(options) {
 
     // The system prompt is not a flag on a headless run, so it leads the first
     // turn. Grok Build carries it forward with the rest of the session.
+    // Bare: no Acestes prompt at all (index already passes an empty one).
     let preamble = systemPrompt;
     let running = Promise.resolve();
     let closed = false;
@@ -875,7 +881,7 @@ async function start(options) {
         preamble = '';
         stopped = false;
 
-        const waiting = () => mcpHost.pending(token) > 0;
+        const waiting = () => (token ? mcpHost.pending(token) : 0) > 0;
         try {
         let outcome = await runTurn({
             binary,
@@ -948,7 +954,7 @@ async function start(options) {
             stopped = true;
             stopProcess(child);
             await running.catch(() => {});
-            await mcpHost.release(token);
+            if (token) await mcpHost.release(token);
         },
     };
 }

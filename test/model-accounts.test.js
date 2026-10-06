@@ -142,6 +142,21 @@ const play = accounts.add({ provider: 'claude-code', label: 'Play' }).account;
         conversation.needsRestart = false;
     });
 
+    await check('flipping bare mode drops the CLI-side session so the new offering applies', () => {
+        conversation.session = { setModel: () => {}, setEffort: () => {}, close: async () => {} };
+        conversation.providerSessionId = 'sess-123';
+        conversation.needsRestart = false;
+        const before = settings.get();
+        const after = settings.set({ bareProvider: true });
+        assistant.reconfigure(before, after, after.agentId);
+        assert.strictEqual(conversation.providerSessionId, '', 'resuming would keep the old prompt and tools');
+        assert.strictEqual(conversation.needsRestart, true);
+        conversation.session = null;
+        conversation.needsRestart = false;
+        conversation.providerSessionId = '';
+        settings.set({ bareProvider: false });
+    });
+
     await check('an empty account goes back to the agent\'s own choice', () => {
         const { pinned } = assistant.setConversationModel(conversationId, { provider: 'claude-code', model: 'opus', account: '' });
         assert.strictEqual(pinned.account, undefined);

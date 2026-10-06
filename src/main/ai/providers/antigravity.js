@@ -299,7 +299,9 @@ async function start({
     if (!commandFor([])) {
         throw new Error('Antigravity is not installed on this machine. Install the Antigravity CLI, then try again.');
     }
-    const host = await mcpHost.acquire({ toolContext, requestApproval, onEvent });
+    // Bare provider CLI: none of the app tools attached (writeMcpConfig
+    // already skips ours without a host). The agent's own servers stay.
+    const host = settings?.bareProvider ? null : await mcpHost.acquire({ toolContext, requestApproval, onEvent });
     let conversationId = resumeSessionId;
     let preamble = systemPrompt || '';
     let running = null;
@@ -369,7 +371,7 @@ async function start({
             child.stdin.end();
 
             const watchdog = setInterval(() => {
-                if (mcpHost.pending(host.token) > 0) return;
+                if (host && mcpHost.pending(host.token) > 0) return;
                 if (Date.now() - lastActivity > IDLE_TIMEOUT) acp.stopProcess(child);
             }, 30 * 1000);
             watchdog.unref?.();
@@ -436,7 +438,7 @@ async function start({
             cancelled = true;
             acp.stopProcess(child);
             await running?.catch(() => {});
-            await mcpHost.release(host.token);
+            if (host) await mcpHost.release(host.token);
         },
     };
 }

@@ -16,6 +16,7 @@ export default function useAssistantSettings() {
     const [settings, setSettings] = useState(null);
     const [providers, setProviders] = useState([]);
     const [tools, setTools] = useState([]);
+    const [toolBundles, setToolBundles] = useState([]);
 
     useEffect(() => {
         let cancelled = false;
@@ -24,6 +25,7 @@ export default function useAssistantSettings() {
             setSettings(status.settings);
             setProviders(status.providers || []);
             setTools(status.tools || []);
+            setToolBundles(status.toolBundles || []);
         }).catch(() => {});
 
         const off = window.api.ai.onSettings(setSettings);
@@ -39,7 +41,7 @@ export default function useAssistantSettings() {
         return next;
     }, []);
 
-    return { settings, providers, tools, update };
+    return { settings, providers, tools, toolBundles, update };
 }
 
 /** The field look the agent's pages use: text areas and address boxes. */

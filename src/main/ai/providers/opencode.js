@@ -532,7 +532,8 @@ function createTranslator(sessionId, onEvent, { contextLimit = () => 0 } = {}) {
         const used = contextTokens(info);
         if (used <= 0) return;
         const limit = Number(contextLimit(info.providerID, info.modelID)) || 0;
-        const key = `${used}/${limit}`;
+        const cached = Number(info?.tokens?.cache?.read) || 0;
+        const key = `${used}/${limit}/${cached}`;
         if (key === lastContext) return;
         lastContext = key;
         onEvent({
@@ -541,6 +542,9 @@ function createTranslator(sessionId, onEvent, { contextLimit = () => 0 } = {}) {
             limit,
             percent: limit ? Math.round((used / limit) * 100) : null,
             model: info.providerID && info.modelID ? `${info.providerID}/${info.modelID}` : '',
+            // Cache-read tokens behind this reading, when the runtime reports
+            // any: the composer's tooltip shows the hit rate from it.
+            ...(cached > 0 ? { cached } : {}),
         });
     };
 
@@ -685,7 +689,12 @@ async function start({
     }
 
     const directory = app.getPath('userData');
-    const { url: mcpUrl, token } = await mcpHost.acquire({ toolContext, requestApproval, onEvent });
+    // Bare provider CLI: none of the app's tools attached (serverConfig
+    // leaves the MCP block out when there is no URL). Release/pending stay
+    // safe: mcp-host treats a null token as nothing outstanding.
+    const { url: mcpUrl, token } = settings?.bareProvider
+        ? { url: null, token: null }
+        : await mcpHost.acquire({ toolContext, requestApproval, onEvent });
     let server;
 
     try {
@@ -962,7 +971,8 @@ async function start({
                 path: { id: session.id },
                 body: {
                     agent: 'cloudblast',
-                    system: systemPrompt,
+                    // Bare: no Acestes prompt; empty string would still send.
+                    ...(systemPrompt ? { system: systemPrompt } : {}),
                     ...(model ? { model: { ...model, ...(variant ? { variant } : {}) } } : {}),
                     parts: [{ type: 'text', text }],
                 },

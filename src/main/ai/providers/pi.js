@@ -236,13 +236,16 @@ async function start({
     onEvent,
     resumeSessionId = '',
 }) {
-    const host = await mcpHost.acquire({ toolContext, requestApproval, onEvent });
+    // Bare provider CLI: no app tools attached, so no extension and no MCP
+    // URL either — Pi runs exactly as it does in a terminal, and its own
+    // permission model answers for its native tools.
+    const host = settings?.bareProvider ? null : await mcpHost.acquire({ toolContext, requestApproval, onEvent });
     const sessionId = resumeSessionId || crypto.randomUUID();
     let proc;
     try {
         proc = launch(settings, { sessionId, host });
     } catch (error) {
-        await mcpHost.release(host.token);
+        if (host) await mcpHost.release(host.token);
         throw error;
     }
     const { child } = proc;
@@ -317,7 +320,7 @@ async function start({
     } catch (error) {
         const message = describeFailure(error, proc.stderr());
         acp.stopProcess(child);
-        await mcpHost.release(host.token);
+        if (host) await mcpHost.release(host.token);
         throw new Error(message);
     }
 
@@ -325,11 +328,24 @@ async function start({
     // The rows behind the composer's menu, kept so a saved bare id (from
     // another agent, or an older pin) can be resolved to its provider/id.
     let knownModels = [];
+    // Context windows by `provider/id`, for the composer's ring: Pi reports
+    // usage per reply but no window, so the window comes from the catalogue.
+    const windows = new Map();
+    const noteWindows = (data) => {
+        const list = Array.isArray(data?.models) ? data.models : Array.isArray(data) ? data : [];
+        for (const model of list) {
+            const window = Number(model?.contextWindow) || 0;
+            if (model?.provider && model?.id && window > 0) {
+                windows.set(`${model.provider}/${model.id}`, window);
+            }
+        }
+    };
     rpc.send('get_available_models', {}, { timeout: START_TIMEOUT })
         .then((data) => {
             const rows = describeModels(data);
             if (rows.length) {
                 knownModels = rows;
+                noteWindows(data);
                 onEvent({ type: 'models', models: rows });
             }
         })
@@ -342,6 +358,7 @@ async function start({
             const rows = describeModels(data);
             if (rows.length) {
                 knownModels = rows;
+                noteWindows(data);
                 onEvent({ type: 'models', models: rows });
             }
         } catch {
@@ -399,6 +416,7 @@ async function start({
         const total = { input: 0, output: 0, cacheRead: 0, cost: 0, seen: false };
         let failure = '';
         let aborted = false;
+        let lastContext = '';
 
         return {
             finished,
@@ -427,6 +445,23 @@ async function start({
                             total.output += Number(done.usage.output) || 0;
                             total.cacheRead += Number(done.usage.cacheRead) || 0;
                             total.cost += Number(done.usage.cost?.total) || 0;
+                            // The composer's ring: this turn's tokens so far
+                            // over the model's window, with cache reads for
+                            // the hit rate. Said per reply, like Opencode.
+                            const used = total.input + total.output + total.cacheRead;
+                            const limit = windows.get(currentModel) || 0;
+                            const key = `${used}/${limit}/${total.cacheRead}`;
+                            if (used > 0 && key !== lastContext) {
+                                lastContext = key;
+                                onEvent({
+                                    type: 'context',
+                                    used,
+                                    limit,
+                                    percent: limit ? Math.round((used / limit) * 100) : null,
+                                    model: currentModel,
+                                    ...(total.cacheRead > 0 ? { cached: total.cacheRead } : {}),
+                                });
+                            }
                         }
                         if (done.stopReason === 'error') failure = done.errorMessage || 'Pi reported an error.';
                         if (done.stopReason === 'aborted') aborted = true;
@@ -471,7 +506,7 @@ async function start({
         cancelling = false;
         lastActivity = Date.now();
         const watchdog = setInterval(() => {
-            const busy = mcpHost.pending(host.token) > 0 || cards.size > 0;
+            const busy = (host && mcpHost.pending(host.token) > 0) || cards.size > 0;
             if (!busy && Date.now() - lastActivity > IDLE_TIMEOUT) rpc.write({ type: 'abort' });
         }, 30 * 1000);
         watchdog.unref?.();
@@ -523,7 +558,7 @@ async function start({
         async close() {
             cancel();
             acp.stopProcess(child);
-            await mcpHost.release(host.token);
+            if (host) await mcpHost.release(host.token);
         },
     };
 }

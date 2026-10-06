@@ -311,11 +311,15 @@ async function start({
             + 'or install the CLI and make sure its executable is on PATH.');
     }
 
-    const { url, token } = await mcpHost.acquire({ toolContext, requestApproval, onEvent });
+    // Bare provider CLI: none of the app's tools attached (the SERVER_NAME
+    // entry is left out below). The agent's own servers stay: user config.
+    const { url, token } = settings?.bareProvider
+        ? { url: null, token: null }
+        : await mcpHost.acquire({ toolContext, requestApproval, onEvent });
 
     // Pointed at the account's CODEX_HOME when one other than the machine's
     // own is chosen, which is the whole of what an account is to Codex.
-    const env = { ...accountEnv(settings), CLOUDBLAST_MCP_TOKEN: token };
+    const env = { ...accountEnv(settings), ...(token ? { CLOUDBLAST_MCP_TOKEN: token } : {}) };
     if (settings.apiKey) env.OPENAI_API_KEY = settings.apiKey;
 
     const codex = new sdk.Codex({
@@ -330,9 +334,10 @@ async function start({
                     settings.sandbox,
                     settings.agentId,
                 ),
-                [SERVER_NAME]: {
-                    url,
-                    bearer_token_env_var: 'CLOUDBLAST_MCP_TOKEN',
+                ...(url ? {
+                    [SERVER_NAME]: {
+                        url,
+                        bearer_token_env_var: 'CLOUDBLAST_MCP_TOKEN',
                     // Codex asks its own caller before every MCP tool call,
                     // as an elicitation. Nothing can answer that here: the
                     // SDK exposes no hook for it, so it resolves itself with
@@ -347,14 +352,16 @@ async function start({
                     // asking as well would be a second dialog for the same
                     // call, on a channel with nobody on the other end.
                     default_tools_approval_mode: 'approve',
-                },
+                    },
+                } : {}),
             },
         },
     });
 
     // The system prompt is not a thread option, so it leads the first turn.
-    // Codex carries it forward with the rest of the thread from there.
-    let preamble = systemPrompt;
+    // Codex carries it forward with the rest of the thread from there. Bare:
+    // no Acestes prompt at all.
+    let preamble = settings?.bareProvider ? '' : systemPrompt;
 
     let thread = resumeSessionId
         ? codex.resumeThread(resumeSessionId, threadOptions(settings, undefined))

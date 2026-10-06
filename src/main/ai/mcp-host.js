@@ -119,7 +119,12 @@ function readBody(request) {
 function buildServer(McpServer, { toolContext, requestApproval, onEvent, onOpen = () => {} }) {
     const mcp = new McpServer({ name: 'remote', version: '1.0.0' });
 
-    for (const definition of catalog.TOOLS) {
+    // Bundle toggles: only the tools this agent's settings switch on are
+    // offered, so one toggle saves the tokens on every provider served here
+    // (Grok, Kimi, Codex, Pi, ACP). A session restart applies a change.
+    const settings = toolContext?.()?.settings;
+    const definitions = settings ? catalog.visibleTools(settings) : catalog.TOOLS;
+    for (const definition of definitions) {
         const handler = callHandler(definition, { toolContext, requestApproval, onEvent });
         mcp.registerTool(
             definition.name,

@@ -76,7 +76,7 @@ const openCodeMessage = (tokens, extra = {}) => ({
         });
         await translator.event(openCodeMessage({ input: 30000, output: 1500, reasoning: 500, cache: { read: 18000, write: 0 } }));
         assert.deepStrictEqual(events, [{
-            type: 'context', used: 50000, limit: 200000, percent: 25, model: 'opencode/muse-spark',
+            type: 'context', used: 50000, limit: 200000, percent: 25, model: 'opencode/muse-spark', cached: 18000,
         }]);
     });
 
@@ -127,7 +127,15 @@ const openCodeMessage = (tokens, extra = {}) => ({
         meter.see(assistantMessage({ input_tokens: 4, cache_read_input_tokens: 38000, cache_creation_input_tokens: 2000, output_tokens: 996 }));
         assert.strictEqual(events.length, 0, 'the window is not known yet');
         meter.see({ type: 'result', modelUsage: { 'claude-opus-5-5[1m]': { inputTokens: 90000, contextWindow: 1000000 } } });
-        assert.deepStrictEqual(events, [{ type: 'context', used: 41000, limit: 1000000, percent: 4, model: 'claude-opus-5-5' }]);
+        assert.deepStrictEqual(events, [{ type: 'context', used: 41000, limit: 1000000, percent: 4, model: 'claude-opus-5-5', cached: 38000 }]);
+    });
+
+    await check('no cache fields in usage means no cached figure on the reading', () => {
+        const events = [];
+        const meter = claude.createContextMeter(event => events.push(event));
+        meter.see(assistantMessage({ input_tokens: 10000, output_tokens: 500 }));
+        meter.see({ type: 'result', modelUsage: { 'claude-opus-5-5': { inputTokens: 10000, contextWindow: 200000 } } });
+        assert.deepStrictEqual(events, [{ type: 'context', used: 10500, limit: 200000, percent: 5, model: 'claude-opus-5-5' }]);
     });
 
     await check('after that every main-thread reply moves it, and a subagent\'s does not', () => {

@@ -237,12 +237,14 @@ async function start({
     onEvent,
     resumeSessionId = '',
 }) {
-    const host = await mcpHost.acquire({ toolContext, requestApproval, onEvent });
+    // Bare provider CLI: none of the app tools attached (sessionServers
+    // already skips ours without a host). The agent's own servers stay.
+    const host = settings?.bareProvider ? null : await mcpHost.acquire({ toolContext, requestApproval, onEvent });
     let proc;
     try {
         proc = launch(settings);
     } catch (error) {
-        await mcpHost.release(host.token);
+        if (host) await mcpHost.release(host.token);
         throw error;
     }
     const { child } = proc;
@@ -290,7 +292,7 @@ async function start({
 
     const cleanup = async () => {
         acp.stopProcess(child);
-        await mcpHost.release(host.token);
+        if (host) await mcpHost.release(host.token);
     };
 
     const cwd = workspace();
@@ -524,7 +526,7 @@ async function start({
         cancelling = false;
         lastActivity = Date.now();
         const watchdog = setInterval(() => {
-            const busy = mcpHost.pending(host.token) > 0 || cards.size > 0;
+            const busy = (host ? mcpHost.pending(host.token) : 0) > 0 || cards.size > 0;
             if (!busy && Date.now() - lastActivity > IDLE_TIMEOUT && turn?.id) {
                 rpc.request('turn/cancel', { commandId: uuid7(), sessionId, turnId: turn.id }).catch(() => {});
             }

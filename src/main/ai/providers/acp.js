@@ -493,12 +493,14 @@ function createAcpProvider(spec) {
         onEvent,
         resumeSessionId = '',
     }) {
-        const host = await mcpHost.acquire({ toolContext, requestApproval, onEvent });
+        // Bare provider CLI: none of the app tools attached (sessionServers
+        // already skips ours without a host). The agent's own servers stay.
+        const host = settings?.bareProvider ? null : await mcpHost.acquire({ toolContext, requestApproval, onEvent });
         let proc;
         try {
             proc = launch(settings);
         } catch (error) {
-            await mcpHost.release(host.token);
+            if (host) await mcpHost.release(host.token);
             throw error;
         }
         const { child } = proc;
@@ -524,7 +526,7 @@ function createAcpProvider(spec) {
 
         const cleanup = async () => {
             stopProcess(child);
-            await mcpHost.release(host.token);
+            if (host) await mcpHost.release(host.token);
         };
 
         let init;
@@ -809,7 +811,7 @@ function createAcpProvider(spec) {
             // Given up on only after a long silence with nothing open: no tool
             // call in mcp-host and no card waiting on the user.
             const watchdog = setInterval(() => {
-                const busy = mcpHost.pending(host.token) > 0 || permissions.size > 0;
+                const busy = (host ? mcpHost.pending(host.token) : 0) > 0 || permissions.size > 0;
                 if (!busy && Date.now() - lastActivity > IDLE_TIMEOUT) {
                     rpc.notify('session/cancel', { sessionId });
                 }

@@ -412,7 +412,10 @@ function buildToolServer(sdk, toolContext, onEvent) {
     // once per session.
     const computerUse = Boolean(toolContext()?.settings?.computerUse);
     const extras = definition => (definition.group === 'computer' && computerUse ? { alwaysLoad: true } : undefined);
-    const tools = catalog.TOOLS.map(definition => sdk.tool(
+    // Bundle toggles: only offered tools cost tokens.
+    const settings = toolContext()?.settings;
+    const definitions = settings ? catalog.visibleTools(settings) : catalog.TOOLS;
+    const tools = definitions.map(definition => sdk.tool(
         definition.name,
         definition.description,
         definition.shape,
@@ -616,7 +619,11 @@ async function start({
 
     const input = createInputStream();
     const abortController = new AbortController();
-    const server = buildToolServer(sdk, toolContext, onEvent);
+    // Bare provider CLI: none of the app's tools attached. The agent's own
+    // MCP servers stay (they are the user's config, not Acestes additions),
+    // and canUseTool below keeps gating the CLI's native tools.
+    const bare = Boolean(settings.bareProvider);
+    const server = bare ? null : buildToolServer(sdk, toolContext, onEvent);
 
     // Pointed at the account's CLAUDE_CONFIG_DIR when one other than the
     // machine's own is chosen: see accounts.js. Its sessions live there too,
@@ -640,12 +647,13 @@ async function start({
     };
 
     const options = {
-        systemPrompt,
+        ...(systemPrompt ? { systemPrompt } : {}),
         // The agent's own MCP servers first and the app's tools last, so a
-        // server that happens to share the name cannot shadow them.
+        // server that happens to share the name cannot shadow them. Bare:
+        // own servers only, none of the app's tools.
         mcpServers: {
             ...agentServers(settings.mcpServers, settings.sandbox, settings.agentId),
-            [SERVER_NAME]: server,
+            ...(server ? { [SERVER_NAME]: server } : {}),
         },
         // Nothing is pre-approved. Every call goes through canUseTool below,
         // which is what puts the approval policy in one place instead of
@@ -892,6 +900,7 @@ function contextWindowOf(modelUsage, model = '') {
  */
 function createContextMeter(onEvent) {
     let used = 0;
+    let cached = 0;
     let model = '';
     const windows = new Map();
     let last = '';
@@ -899,10 +908,15 @@ function createContextMeter(onEvent) {
     const report = () => {
         const limit = windows.get(model) || 0;
         if (!used || !limit) return;
-        const key = `${used}/${limit}`;
+        const key = `${used}/${limit}/${cached}`;
         if (key === last) return;
         last = key;
-        onEvent({ type: 'context', used, limit, percent: Math.round((used / limit) * 100), model });
+        onEvent({
+            type: 'context', used, limit, percent: Math.round((used / limit) * 100), model,
+            // Cache-read tokens behind this reading, when reported: the
+            // composer's tooltip shows the hit rate from it.
+            ...(cached > 0 ? { cached } : {}),
+        });
     };
 
     return {
@@ -911,6 +925,7 @@ function createContextMeter(onEvent) {
                 const tokens = usageTokens(message.message.usage);
                 if (tokens > 0) {
                     used = tokens;
+                    cached = Number(message.message.usage.cache_read_input_tokens) || 0;
                     model = message.message.model || model;
                     report();
                 }

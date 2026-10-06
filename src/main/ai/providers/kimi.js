@@ -509,7 +509,7 @@ function writeConfig({ home, base = '', url, current, effort = '' }) {
         // Ours are allowed outright. The approval gate they pass is the one in
         // `mcp-host`, and a second question from the agent would only be asked
         // where nobody can answer it.
-        rule('allow', `mcp__${SERVER_NAME}__*`),
+        ...(url ? [rule('allow', `mcp__${SERVER_NAME}__*`)] : []),
         ...denied.map(name => rule('deny', name)),
         // Only ever a level the model in play said it takes: see `start`. A dial
         // set to something the model does not have is a run that fails on an
@@ -535,7 +535,7 @@ function writeConfig({ home, base = '', url, current, effort = '' }) {
             // The address carries the token in its path rather than in a header,
             // which is what `mcp-host` grew a second way in for: a config file
             // is the only channel here.
-            [SERVER_NAME]: { url },
+            ...(url ? { [SERVER_NAME]: { url } } : {}),
         },
     }, null, 2);
 
@@ -933,14 +933,17 @@ async function start(options) {
     }
 
     const { home, workspace } = directories();
-    const { tokenUrl, token } = await mcpHost.acquire({ toolContext, requestApproval, onEvent });
+    // Bare provider CLI: none of the app tools attached.
+    const { tokenUrl, token } = settings?.bareProvider
+        ? { tokenUrl: null, token: null }
+        : await mcpHost.acquire({ toolContext, requestApproval, onEvent });
 
     try {
         // Once per query. What it points at is a directory, not a copy, so it
         // stays right for as long as their login does.
         borrowLogin({ home, source });
     } catch (error) {
-        await mcpHost.release(token);
+        if (token) await mcpHost.release(token);
         throw new Error('The Kimi Code login on this machine could not be reached from the '
             + `directory these runs use: ${error.message}`);
     }
@@ -994,7 +997,7 @@ async function start(options) {
         preamble = '';
         stopped = false;
 
-        const waiting = () => mcpHost.pending(token) > 0;
+        const waiting = () => (token ? mcpHost.pending(token) : 0) > 0;
         let outcome = await runTurn({
             binary,
             args: runArguments({ sessionId, prompt, model }),
@@ -1073,7 +1076,7 @@ async function start(options) {
             stopped = true;
             stopProcess(child);
             await running.catch(() => {});
-            await mcpHost.release(token);
+            if (token) await mcpHost.release(token);
         },
     };
 }

@@ -1123,7 +1123,16 @@ function resolved(agentId) {
 // whether the browser's MCP server is in the set the query was started with.
 // memory as well: the notes and the memory section are in the system prompt,
 // which is only written when a query starts.
-const RESTART_ON = ['provider', 'maxTurns', 'allowLocalTools', 'computerUse', 'browserUse', 'memory'];
+const RESTART_ON = ['provider', 'maxTurns', 'allowLocalTools', 'computerUse', 'browserUse', 'memory', 'toolBundles', 'bareProvider'];
+
+/** Bundle toggles compared by value: a fresh object per sanitize. */
+function bundlesChanged(before, after) {
+    const ids = new Set([...Object.keys(before || {}), ...Object.keys(after || {})]);
+    for (const id of ids) {
+        if ((before?.[id] !== false) !== (after?.[id] !== false)) return true;
+    }
+    return false;
+}
 
 /**
  * Whether a change of settings moved the runtime a conversation is on to
@@ -1204,8 +1213,18 @@ function reconfigure(before, after, agentId = '') {
         const provider = conversation.provider || after.provider;
         const accountChanged = conversationAccount(before, provider, own.account)
             !== conversationAccount(after, provider, own.account);
-        if (RESTART_ON.some(field => before[field] !== after[field]) || accountChanged) {
+        const toolBundlesChanged = bundlesChanged(before.toolBundles, after.toolBundles);
+        if (RESTART_ON.some(field => field === 'toolBundles' ? toolBundlesChanged : before[field] !== after[field]) || accountChanged) {
             if (session || conversation.starting) conversation.needsRestart = true;
+        }
+        // What the model is offered changed (bare mode or bundles): resuming
+        // the CLI-side session would silently keep the old prompt and tools,
+        // so the next query starts a fresh provider session instead. The
+        // transcript carries on via movedOver, as with an account move.
+        const offeringChanged = before.bareProvider !== after.bareProvider || toolBundlesChanged;
+        if (offeringChanged && conversation.providerSessionId) {
+            conversation.movedOver = saidBefore(conversation);
+            conversation.providerSessionId = '';
         }
     }
 }
@@ -1563,7 +1582,8 @@ function ensureProvider(conversation) {
         // conversation. The snapshot above is only for the options the SDK
         // fixes when the query starts.
         getSettings: () => effectiveSettings(conversation),
-        systemPrompt: prompt.build(context()),
+        // Bare provider CLI: no Acestes prompt at all. Providers also skip the app tools (see bareProvider in settings).
+        systemPrompt: current.bareProvider ? '' : prompt.build(context()),
         toolContext: () => ({
             scope: conversation.scope,
             boundSessionId: conversation.boundSessionId,
@@ -3040,7 +3060,10 @@ async function send(conversationId, text, attachments = [], tagged = [], attache
 
         const session = await ensureProvider(conversation);
 
-        const context = prompt.situation({
+        // Bare provider CLI: this briefing is Acestes context too (which
+        // session is pinned, what is open). The message goes as typed.
+        const bare = effectiveSettings(conversation).bareProvider;
+        const context = bare ? '' : prompt.situation({
             scope: conversation.scope,
             boundSessionId: conversation.boundSessionId,
             sessionIds: conversation.sessionIds,
@@ -3075,7 +3098,7 @@ async function send(conversationId, text, attachments = [], tagged = [], attache
             parts.push(`<app-note>\n${conversation.pendingNote}\n</app-note>`);
             conversation.pendingNote = '';
         }
-        if (context !== conversation.lastContext) {
+        if (!bare && context !== conversation.lastContext) {
             conversation.lastContext = context;
             parts.push(`<app-context>\n${context}\n</app-context>`);
         }
@@ -3505,6 +3528,13 @@ function status(agentId = '') {
             name: tool.name,
             title: tool.title,
             readOnly: tool.readOnly,
+            bundle: catalog.bundleOf(tool.name),
+        })),
+        toolBundles: catalog.BUNDLES.map(bundle => ({
+            id: bundle.id,
+            title: bundle.title,
+            always: bundle.always || undefined,
+            tools: catalog.TOOLS.filter(tool => catalog.bundleOf(tool.name) === bundle.id).length,
         })),
     };
 }

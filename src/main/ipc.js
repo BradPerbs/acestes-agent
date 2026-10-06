@@ -1668,6 +1668,12 @@ function register(getWindow) {
         // The model chip in the composer is expected to change the answer to
         // the next question, not to the next conversation.
         assistant.reconfigure(before, next, next.agentId);
+        // A change on the Acestes agent may have fanned out to other agents
+        // (global propagation in settings): their conversations restart too,
+        // deferred to the next message like any other settings change.
+        for (const moved of assistant.settings.takePropagation()) {
+            if (moved.agentId !== next.agentId) assistant.reconfigure(moved.before, moved.after, moved.agentId);
+        }
 
         // Only the settings that widen what the assistant may do are logged. The model and the effort are changed from a chip in the
         // composer several times an hour, and a security log that fills up

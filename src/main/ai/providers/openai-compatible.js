@@ -64,7 +64,18 @@ function nextSessionId(prefix) {
  * The tools, as this API wants them
  * ------------------------------------------------------------------ */
 
-let toolCache = null;
+const toolCaches = new Map();
+
+/** Bundle signature for the function-tool cache: one entry per toggle set. */
+function bundleKey(settings) {
+    if (!settings) return 'all';
+    const bundles = settings.toolBundles;
+    if (!bundles || typeof bundles !== 'object') return 'all';
+    return catalog.BUNDLES.map(bundle => (bundles[bundle.id] !== false ? '1' : '0')).join('')
+        + (settings.allowLocalTools === false ? '0' : '1')
+        + (settings.computerUse ? '1' : '0')
+        + (settings.memory === false ? '0' : '1');
+}
 
 /**
  * The catalog as OpenAI function definitions.
@@ -74,11 +85,16 @@ let toolCache = null;
  * writes it, so the shapes are converted once rather than maintained twice.
  * The `$schema` line goes: it says which dialect the document is in, which is
  * true and which several servers reject as an unknown key.
+ *
+ * Cached per bundle-toggle set: bundle switches change what is offered.
  */
-function functionTools() {
-    if (toolCache) return toolCache;
+function functionTools(settings) {
+    const key = bundleKey(settings);
+    const cached = toolCaches.get(key);
+    if (cached) return cached;
 
-    toolCache = catalog.TOOLS.map((definition) => {
+    const definitions = settings ? catalog.visibleTools(settings) : catalog.TOOLS;
+    const built = definitions.map((definition) => {
         const { $schema, ...parameters } = z.toJSONSchema(z.object(definition.shape), {
             target: 'draft-7',
             io: 'input',
@@ -93,7 +109,10 @@ function functionTools() {
         };
     });
 
-    return toolCache;
+    toolCaches.set(key, built);
+    // A handful of toggle sets at most; cap paranoia against unbounded growth.
+    if (toolCaches.size > 16) toolCaches.delete(toolCaches.keys().next().value);
+    return built;
 }
 
 /* ------------------------------------------------------------------ *
@@ -562,7 +581,7 @@ async function start({
 
     onEvent({ type: 'session', sessionId, model: settings.model || '' });
 
-    const tools = functionTools();
+    const tools = functionTools(toolContext?.()?.settings);
     let abort = null;
     let running = Promise.resolve();
     let closed = false;

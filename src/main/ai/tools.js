@@ -962,7 +962,8 @@ const TOOLS = [
             + 'binary files. Omit `path` to search every granted folder. The query is matched as '
             + 'literal text and case-sensitively unless you say otherwise: set `regex` to use '
             + 'alternation or wildcards, and `ignoreCase` when the spelling may differ. Searching '
-            + '"a|b" without `regex` looks for those three characters and finds nothing.',
+            + '"a|b" without `regex` looks for those three characters and finds nothing. '
+            + 'Pass context: 2 to also get surrounding lines per hit and skip follow-up reads.',
         shape: {
             query: z.string().min(1).describe('The text to look for, matched literally, or a regular expression when `regex` is set.'),
             path: z.string().optional().describe('A granted folder, or a file or folder inside one. Omit for all of them.'),
@@ -970,6 +971,7 @@ const TOOLS = [
             ignoreCase: z.boolean().optional().describe('Match whatever the case. Use it for a name you may be spelling differently.'),
             glob: z.string().optional().describe('Only files whose name matches, e.g. "*.conf" or "*.js".'),
             limit: z.number().int().min(1).max(local.MAX_MATCHES).optional().describe('Most matches to return. Defaults to 200.'),
+            context: z.number().int().min(0).max(10).optional().describe('Surrounding lines per hit (0-10). Use 2 to get definition + callers + context in one call instead of N follow-up reads.'),
         },
         handler: async (input, ctx) => {
             const result = await local.search(ctx, input);
@@ -1203,6 +1205,151 @@ const TOOLS = [
 
 const BY_NAME = new Map(TOOLS.map(tool => [tool.name, tool]));
 
+/* ------------------------------------------------------------------ *
+ * Tool bundles
+ *
+ * The 72 tools in one catalog cost ~30k tokens before the user types.
+ * Bundles let the settings switch off whole groups at once (not tool by
+ * tool); all are on by default so upgrading changes nothing, and switching
+ * one off simply leaves those definitions out of what the model is offered.
+ * Provider-agnostic: every provider builds from visibleTools(), so one
+ * toggle helps Claude, Codex, Pi, Grok, Kimi and the rest alike.
+ *
+ * `core` is always on (servers, sessions, basic reads, ask_user). The rest
+ * are toggleable via settings.toolBundles.<id>. Workspace/desktop/memory
+ * bundles additionally respect their existing switches (allowLocalTools,
+ * computerUse, memory): both have to be on.
+ * -------------------------------------------------------------- */
+
+const BUNDLES = [
+    { id: 'core', title: 'Servers and basics', always: true },
+    { id: 'workspace', title: 'Write and run locally' },
+    { id: 'desktop', title: 'Desktop apps' },
+    { id: 'memory', title: 'Memory' },
+    { id: 'inventory', title: 'Inventory' },
+    { id: 'automation', title: 'Tasks and schedules' },
+    { id: 'collaboration', title: 'Conversations and agents' },
+    { id: 'integrations', title: 'Secrets and MCP' },
+];
+
+const BUNDLE_IDS = new Set(BUNDLES.map(bundle => bundle.id));
+
+/** Which bundle each tool belongs to. Core is the default for unnamed. */
+const BUNDLE_OF = {
+    // Core: servers, sessions, basic reads, asking. Always on.
+    list_sessions: 'core',
+    read_terminal: 'core',
+    run_command: 'core',
+    send_input: 'core',
+    list_directory: 'core',
+    read_file: 'core',
+    connect_host: 'core',
+    disconnect_session: 'core',
+    ask_user: 'core',
+    list_local_directory: 'core',
+    read_local_file: 'core',
+    search_local_files: 'core',
+    list_models: 'core',
+    // Workspace: writes and local execution.
+    write_file: 'workspace',
+    edit_file: 'workspace',
+    write_local_file: 'workspace',
+    run_local_command: 'workspace',
+    edit_local_file: 'workspace',
+    // Memory.
+    remember: 'memory',
+    recall: 'memory',
+    forget: 'memory',
+    // Desktop: real mouse/keyboard on this computer's apps.
+    list_windows: 'desktop',
+    open_app: 'desktop',
+    read_screen: 'desktop',
+    screenshot: 'desktop',
+    zoom: 'desktop',
+    read_text: 'desktop',
+    click: 'desktop',
+    type_text: 'desktop',
+    press_keys: 'desktop',
+    scroll: 'desktop',
+    drag: 'desktop',
+    arrange_windows: 'desktop',
+    do_steps: 'desktop',
+    wait_for: 'desktop',
+    solve_captcha: 'desktop',
+    // Inventory: hosts, keys, proxies, snippets, files, folders, agents.
+    list_hosts: 'inventory',
+    list_snippets: 'inventory',
+    read_snippet: 'inventory',
+    list_inventory: 'inventory',
+    save_snippet: 'inventory',
+    save_host: 'inventory',
+    save_proxy: 'inventory',
+    save_key: 'inventory',
+    save_folder: 'inventory',
+    delete_inventory_item: 'inventory',
+    list_files: 'inventory',
+    read_inventory_file: 'inventory',
+    save_inventory_file: 'inventory',
+    update_inventory_file: 'inventory',
+    send_inventory_file: 'inventory',
+    delete_inventory_file: 'inventory',
+    list_agents: 'inventory',
+    // Automation: background tasks and scheduled jobs.
+    start_task: 'automation',
+    list_job_templates: 'automation',
+    schedule_job: 'automation',
+    list_jobs: 'automation',
+    update_job: 'automation',
+    // Collaboration: other conversations, subagents, history search.
+    delegate: 'collaboration',
+    fan_out: 'collaboration',
+    new_conversation: 'collaboration',
+    branch_conversation: 'collaboration',
+    open_conversation: 'collaboration',
+    message_conversation: 'collaboration',
+    check_conversations: 'collaboration',
+    search_conversations: 'collaboration',
+    read_conversation: 'collaboration',
+    // Integrations: secrets and MCP servers.
+    save_secret: 'integrations',
+    list_secrets: 'integrations',
+    delete_secret: 'integrations',
+    list_mcp_library: 'integrations',
+    save_mcp_server: 'integrations',
+};
+
+const bundleOf = (toolName) => BUNDLE_OF[toolName] || 'core';
+
+/**
+ * Whether one bundle's toggle is on. Missing or malformed reads as on, so
+ * an older config without toolBundles keeps everything it always had.
+ */
+const bundleOn = (settings, bundleId) => {
+    if (bundleId === 'core') return true;
+    const bundles = settings?.toolBundles;
+    if (!bundles || typeof bundles !== 'object') return true;
+    if (!(bundleId in bundles)) return true;
+    return bundles[bundleId] !== false;
+};
+
+/**
+ * The tools one settings object offers the model. Applies bundle toggles
+ * first, then the existing per-area switches (allowLocalTools, computerUse,
+ * memory) where they overlap.
+ */
+function visibleTools(settings) {
+    return TOOLS.filter((tool) => {
+        const bundle = bundleOf(tool.name);
+        if (!bundleOn(settings, bundle)) return false;
+        if (bundle === 'workspace' && settings?.allowLocalTools === false) return false;
+        if (bundle === 'memory' && settings?.memory === false) return false;
+        // Desktop bundle is computer tools; computerUse gates them in
+        // computer.js too, but leaving the definitions out saves the tokens.
+        if (bundle === 'desktop' && settings && 'computerUse' in settings && !settings.computerUse) return false;
+        return true;
+    });
+}
+
 /**
  * Run a tool, with the hooks around it.
  *
@@ -1213,6 +1360,13 @@ const BY_NAME = new Map(TOOLS.map(tool => [tool.name, tool]));
  * context without them (a test, a tool run from the page) is the plain call.
  */
 async function invoke(definition, input, ctx) {
+    // A bundle switched off after the session started: the model may still
+    // hold the definition from an earlier turn. Refuse plainly rather than
+    // running, so every provider stays consistent with what it was offered.
+    const bundle = bundleOf(definition.name);
+    if (bundle !== 'core' && !bundleOn(ctx?.settings, bundle)) {
+        return { text: `The ${bundle} tool bundle is switched off in Settings, so ${definition.name} is not available. Switch it on to use it.`, isError: true };
+    }
     const hooks = typeof ctx?.hooks === 'function' ? ctx.hooks : null;
     if (hooks) {
         const before = await hooks('pre-tool', { tool: definition.name, input });
@@ -1738,6 +1892,11 @@ function isAutoApproved(toolName, input, settings) {
 module.exports = {
     TOOLS,
     BY_NAME,
+    BUNDLES,
+    BUNDLE_OF,
+    bundleOf,
+    bundleOn,
+    visibleTools,
     invoke,
     contentOf,
     SECRET_FIELDS,

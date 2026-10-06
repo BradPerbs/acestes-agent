@@ -47,6 +47,10 @@ export default function ContextRing({ context, provider }) {
     const tokens = context.limit
         ? t('assistant.context.tokensOf', { used: number.format(context.used), limit: number.format(context.limit) })
         : number.format(context.used);
+    // Cache-read tokens behind the reading, when the runtime reports them:
+    // hits over what went in, as tokens and as a share of the reading.
+    const cached = Number(context.cached) > 0 ? Number(context.cached) : 0;
+    const hitRate = cached > 0 && context.used > 0 ? Math.max(0, Math.min(100, Math.round((cached / context.used) * 100))) : null;
     const spoken = percent === null
         ? t('assistant.context.unknownLimit', { tokens })
         : t('assistant.context.label', { percent, tokens });
@@ -55,6 +59,12 @@ export default function ContextRing({ context, provider }) {
         <span className="flex flex-col gap-0.5 min-w-[11rem]">
             <Row name={t('assistant.context.usage')} value={percent === null ? '—' : `${percent}%`} />
             <Row name={t('assistant.context.tokens')} value={tokens} />
+            {cached > 0 && (
+                <Row
+                    name={t('assistant.context.cached')}
+                    value={hitRate === null ? number.format(cached) : `${number.format(cached)} · ${hitRate}%`}
+                />
+            )}
         </span>
     );
 
