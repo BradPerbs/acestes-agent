@@ -103,7 +103,7 @@ function harness(overrides = {}) {
         await until(() => h.events.some(event => event.type === 'result'), 'the context result');
         assert.deepStrictEqual(h.events.filter(event => event.type === 'context'), [
             { type: 'context', used: 130, limit: 200000, percent: 0, model: 'anthropic/claude-sonnet-5', cached: 10 },
-            { type: 'context', used: 400, limit: 200000, percent: 0, model: 'anthropic/claude-sonnet-5', cached: 40 },
+            { type: 'context', used: 270, limit: 200000, percent: 0, model: 'anthropic/claude-sonnet-5', cached: 30 },
         ]);
     });
 

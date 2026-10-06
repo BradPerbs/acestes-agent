@@ -440,17 +440,23 @@ async function start({
                         const text = (done.content || []).filter(block => block?.type === 'text').map(block => block.text).join('');
                         if (text.trim()) onEvent({ type: 'assistant-text', text });
                         if (done.usage) {
+                            const input = Number(done.usage.input) || 0;
+                            const output = Number(done.usage.output) || 0;
+                            const cacheRead = Number(done.usage.cacheRead) || 0;
                             total.seen = true;
-                            total.input += Number(done.usage.input) || 0;
-                            total.output += Number(done.usage.output) || 0;
-                            total.cacheRead += Number(done.usage.cacheRead) || 0;
+                            total.input += input;
+                            total.output += output;
+                            total.cacheRead += cacheRead;
                             total.cost += Number(done.usage.cost?.total) || 0;
-                            // The composer's ring: this turn's tokens so far
-                            // over the model's window, with cache reads for
-                            // the hit rate. Said per reply, like Opencode.
-                            const used = total.input + total.output + total.cacheRead;
+                            // The composer's ring: this reply's tokens over
+                            // the model's window, with its cache reads for
+                            // the hit rate. Per reply like Opencode, not the
+                            // turn's running total: every step re-sends the
+                            // transcript, so a sum reads past the window on
+                            // any long turn.
+                            const used = input + output + cacheRead;
                             const limit = windows.get(currentModel) || 0;
-                            const key = `${used}/${limit}/${total.cacheRead}`;
+                            const key = `${used}/${limit}/${cacheRead}`;
                             if (used > 0 && key !== lastContext) {
                                 lastContext = key;
                                 onEvent({
@@ -459,7 +465,7 @@ async function start({
                                     limit,
                                     percent: limit ? Math.round((used / limit) * 100) : null,
                                     model: currentModel,
-                                    ...(total.cacheRead > 0 ? { cached: total.cacheRead } : {}),
+                                    ...(cacheRead > 0 ? { cached: cacheRead } : {}),
                                 });
                             }
                         }
