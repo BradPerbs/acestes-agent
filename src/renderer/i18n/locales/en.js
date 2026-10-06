@@ -692,6 +692,7 @@ export default {
     'titleBar.newSession': 'New session',
     'titleBar.hideSidebar': 'Hide sidebar',
     'titleBar.showSidebar': 'Show sidebar',
+    'sidebar.resize': 'Resize sidebar',
     'titleBar.deleteConversation': 'Delete conversation',
 
     /* ---------------------------------------------------------------- *

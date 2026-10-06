@@ -130,6 +130,7 @@ export default {
     /* ---- Title bar ---- */
     'titleBar.hideSidebar': 'Скрыть боковую панель',
     'titleBar.showSidebar': 'Показать боковую панель',
+    'sidebar.resize': 'Изменить ширину боковой панели',
     'titleBar.reload': 'Перезагрузить',
     'titleBar.devTools': 'Инструменты разработчика',
     'titleBar.minimize': 'Свернуть',

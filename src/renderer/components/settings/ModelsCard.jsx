@@ -140,9 +140,10 @@ function ModelsDialog({ provider, settings, onSettings, onKnown, onClose }) {
  * This writes the agent's own `provider` and `model`, which nothing else in
  * the UI could reach: the composer's chip pins one conversation and never
  * moves the agent's settings, so without this the default was stuck on
- * whatever the runtime itself uses. An explicitly chosen default wins over
- * the remembered last pick (see last-model.js); clearing it puts the
- * previous behaviour back, remembered pick first, runtime default after.
+ * whatever the runtime itself uses. It is what the agent runs on when nothing
+ * else is chosen: its jobs, and new chats before any model has been used. A
+ * chat someone opens starts on the starred model, else the one last used in
+ * any tab (see main's start-model.js), and only then on this.
  */
 function DefaultModelDialog({ activated, settings, onSettings, onClose }) {
     const t = useT();

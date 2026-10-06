@@ -121,6 +121,7 @@ export default {
     /* ---- Title bar ---- */
     'titleBar.hideSidebar': 'Ocultar barra lateral',
     'titleBar.showSidebar': 'Mostrar barra lateral',
+    'sidebar.resize': 'Redimensionar barra lateral',
     'titleBar.reload': 'Recarregar',
     'titleBar.devTools': 'Ferramentas de programador',
     'titleBar.minimize': 'Minimizar',

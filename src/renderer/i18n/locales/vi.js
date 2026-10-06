@@ -115,6 +115,7 @@ export default {
     /* ---- Title bar ---- */
     'titleBar.hideSidebar': 'Ẩn thanh bên',
     'titleBar.showSidebar': 'Hiện thanh bên',
+    'sidebar.resize': 'Đổi kích thước thanh bên',
     'titleBar.reload': 'Tải lại',
     'titleBar.devTools': 'Công cụ nhà phát triển',
     'titleBar.minimize': 'Thu nhỏ',

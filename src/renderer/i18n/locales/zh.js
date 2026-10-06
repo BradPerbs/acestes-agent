@@ -113,6 +113,7 @@ export default {
     /* ---- Title bar ---- */
     'titleBar.hideSidebar': '隐藏侧边栏',
     'titleBar.showSidebar': '显示侧边栏',
+    'sidebar.resize': '调整侧边栏宽度',
     'titleBar.reload': '重新加载',
     'titleBar.devTools': '开发者工具',
     'titleBar.minimize': '最小化',

@@ -107,6 +107,10 @@ export default function useAssistant({
         clearTimeout(scheduled.current.timeout);
     }, []);
     const [pinned, setPinned] = useState(null);
+    // A pick made in this tab before it had a conversation; main puts a new
+    // one on the start model by itself, so only this has to be sent after.
+    const pickedRef = useRef(null);
+    pickedRef.current = pinned;
     const startPinRef = useRef(null);
     startPinRef.current = startPin;
     // A tab with no conversation yet shows the pick it will start on.
@@ -334,12 +338,14 @@ export default function useAssistant({
                 const id = created.conversationId;
                 conversationRef.current = id;
                 adopt(id);
-                // A model picked, or remembered, before there was a
-                // conversation to pin it to.
-                const pin = pinnedRef.current;
-                if (pin) {
-                    setPinned(pin);
-                    await window.api.ai.setModel?.(id, pin);
+                // Main has put it on the start model already. A model picked
+                // here before there was a conversation goes over that.
+                const picked = pickedRef.current;
+                if (picked) {
+                    const result = await window.api.ai.setModel?.(id, picked);
+                    setPinned(result && !result.error ? result.pinned || null : picked);
+                } else {
+                    setPinned(created.pinned || null);
                 }
                 return id;
             })().finally(() => { creating.current = null; });
@@ -429,14 +435,6 @@ export default function useAssistant({
         if (enabled && conversationId) refreshConversations();
     }, [enabled, conversationId, refreshConversations]);
 
-    /** Pin a conversation just made to the pick new ones start on, if any. */
-    const startOn = useCallback(async (id) => {
-        const pin = startPinRef.current;
-        if (!pin) return null;
-        const result = await window.api.ai.setModel?.(id, pin);
-        return result && !result.error ? result.pinned || null : null;
-    }, []);
-
     /**
      * Start a new conversation, parking the one on screen.
      *
@@ -451,10 +449,11 @@ export default function useAssistant({
         const created = await window.api.ai.start(targetRef.current);
         adopt(created.conversationId);
         replaceState(INITIAL);
-        setPinned(await startOn(created.conversationId));
+        // Already on the start model: main pins a conversation it makes.
+        setPinned(created.pinned || null);
         setRunPolicy(null);
         setSubagent(null);
-    }, [conversationId, adopt, startOn]);
+    }, [conversationId, adopt]);
 
     /** Go back to an earlier conversation, replaying it through the reducer. */
     const open = useCallback(async (id) => {
@@ -506,12 +505,12 @@ export default function useAssistant({
             const created = await window.api.ai.start(targetRef.current);
             adopt(created.conversationId);
             replaceState(INITIAL);
-            setPinned(await startOn(created.conversationId));
+            setPinned(created.pinned || null);
             setRunPolicy(null);
             setSubagent(null);
         }
         await refreshConversations();
-    }, [conversationId, refreshConversations, adopt, startOn]);
+    }, [conversationId, refreshConversations, adopt]);
 
     /**
      * Put back the files a turn changed. The card follows the event main

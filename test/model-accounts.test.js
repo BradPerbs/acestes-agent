@@ -88,7 +88,6 @@ const play = accounts.add({ provider: 'claude-code', label: 'Play' }).account;
     const importRenderer = file => import(pathToFileURL(path.join(RENDERER, 'lib', file)).href);
     const catalog = await importRenderer('ai-catalog.js');
     const usage = await importRenderer('usage-limits.js');
-    const lastModel = await importRenderer('last-model.js');
     const reducer = await importRenderer('transcript-reducer.js');
 
     console.log('\nthe setting');
@@ -354,13 +353,14 @@ const play = accounts.add({ provider: 'claude-code', label: 'Play' }).account;
     });
 
     await check('a new conversation starts on the last account only while it is still offered', () => {
-        const agent = { provider: 'claude-code', model: '', providers: ['claude-code'], accounts: {}, menuAccounts: { 'claude-code': [work.id] } };
-        lastModel.rememberModel('agent-1', agent, { provider: 'claude-code', model: 'opus', account: work.id });
-        assert.strictEqual(lastModel.lastModel('agent-1', agent).account, work.id);
-        const untick = { ...agent, menuAccounts: {} };
-        assert.deepStrictEqual(lastModel.lastModel('agent-1', untick), { provider: 'claude-code', model: 'opus' });
-        lastModel.rememberModel('agent-1', agent, { provider: 'claude-code', model: 'opus', account: 'default' });
-        assert.strictEqual(lastModel.lastModel('agent-1', untick).account, 'default', 'the machine\'s own is in use when none is chosen');
+        const agentId = assistant.settings.get().agentId;
+        settings.set({ provider: 'claude-code', model: '', accounts: { 'claude-code': 'default' }, menuAccounts: { 'claude-code': [work.id] } });
+        assistant.startModel.remember({ provider: 'claude-code', model: 'opus', account: work.id });
+        assert.strictEqual(assistant.startPick(agentId).account, work.id);
+        settings.set({ menuAccounts: { 'claude-code': [] } });
+        assert.deepStrictEqual(assistant.startPick(agentId), { provider: 'claude-code', model: 'opus' });
+        assistant.startModel.remember({ provider: 'claude-code', model: 'opus', account: 'default' });
+        assert.strictEqual(assistant.startPick(agentId).account, 'default', 'the machine\'s own is in use when none is chosen');
     });
 
     console.log(`\n${passed} passed, ${failed} failed`);

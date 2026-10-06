@@ -1,5 +1,5 @@
 import { gsap } from 'gsap';
-import { APP_GUTTER, SIDEBAR_WIDTH } from './layout';
+import { APP_GUTTER, SIDEBAR_DEFAULT_WIDTH } from './layout';
 import { cubicBezier, seconds } from './motion';
 
 /**
@@ -49,25 +49,33 @@ const EASE_SHEET_OUT = cubicBezier(0.5, 0, 0.75, 0);
  * The shell supplies the left gutter, so the nav items line up with the burger
  * button above them. The sidebar only owns the gap to the content panel, which
  * goes with it, keeping the terminal flush with the bar.
+ *
+ * `width` is the column's own width, as dragged to, without the gutter.
  */
-const sidebarState = (open) => ({
-    width: open ? SIDEBAR_WIDTH : 0,
+const sidebarState = (open, width) => ({
+    width: open ? width + APP_GUTTER : 0,
     paddingRight: open ? APP_GUTTER : 0,
     opacity: open ? 1 : 0,
 });
 
-/** The sidebar as it stands, with nothing to animate from. */
-export function setSidebar(node, open) {
+/**
+ * The sidebar as it stands, with nothing to animate from. Also what a drag on
+ * its edge writes on every move, so the column follows the pointer exactly.
+ */
+export function setSidebar(node, open, width = SIDEBAR_DEFAULT_WIDTH) {
     if (!node) return;
-    gsap.set(node, sidebarState(open));
+    gsap.set(node, sidebarState(open, width));
 }
 
-/** The sidebar arriving or getting out of the way. */
-export function slideSidebar(node, open) {
+/**
+ * The sidebar arriving or getting out of the way, or, open to open, settling
+ * at a new width.
+ */
+export function slideSidebar(node, open, width = SIDEBAR_DEFAULT_WIDTH) {
     if (!node) return null;
 
     return gsap.to(node, {
-        ...sidebarState(open),
+        ...sidebarState(open, width),
         duration: seconds(SIDEBAR_MS),
         ease: EASE_REVEAL,
         overwrite: 'auto',

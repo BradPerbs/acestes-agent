@@ -18,8 +18,16 @@ export const TITLE_BAR_HEIGHT = 48;
 // Y coordinate where the title bar ends. Drawers open flush against it.
 export const TITLE_BAR_BOTTOM = APP_GUTTER + TITLE_BAR_HEIGHT;
 
-// Total sidebar width, including the gutter it holds to the content panel.
-export const SIDEBAR_WIDTH = 220 + APP_GUTTER;
+/**
+ * The sidebar's own width, not counting the gutter it holds to the content
+ * panel. Its edge can be dragged anywhere between the two bounds: narrow enough
+ * that the agent's name and a chat title still read, wide enough for long
+ * titles without the column becoming the page. The default is where it starts
+ * and where a double-click on the edge puts it back.
+ */
+export const SIDEBAR_DEFAULT_WIDTH = 220;
+export const SIDEBAR_MIN_WIDTH = 180;
+export const SIDEBAR_MAX_WIDTH = 420;
 
 // Height of a terminal pane's own header row.
 export const PANE_HEADER_HEIGHT = 44;

@@ -1,4 +1,4 @@
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { gsap } from 'gsap';
 import {
     ArrowRight01Icon,
@@ -15,6 +15,7 @@ import {
     UnfoldMoreIcon,
 } from 'hugeicons-react';
 import { setSidebar, slideSidebar } from '../lib/panelMotion';
+import { APP_GUTTER, SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH } from '../lib/layout';
 import { agentGlow, agentInk } from '../lib/agent-colors';
 import { agentLook } from '../lib/agent-look';
 import { cubicBezier, prefersReducedMotion, seconds } from '../lib/motion';
@@ -49,6 +50,143 @@ const FOCUS = 'outline-none focus-visible:ring-2 focus-visible:ring-gray-900/20 
 
 /** How many chats the column lists before it is a page's job. */
 const LIST_LIMIT = 40;
+
+/**
+ * How tall the fade at the foot of the list is, in pixels, while there is more
+ * of the list below it. It gives way as the end is scrolled into view, so the
+ * last chat is never left half see-through with nothing under it.
+ */
+const LIST_FADE = 72;
+
+/** The width the column was last dragged to, kept across launches. */
+const WIDTH_KEY = 'sidebar.width';
+
+/** How far one arrow key moves the column's edge. */
+const WIDTH_STEP = 16;
+
+const clampWidth = (width) => Math.round(Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, width)));
+
+function storedWidth() {
+    try {
+        const stored = Number(window.localStorage.getItem(WIDTH_KEY));
+        return stored > 0 ? clampWidth(stored) : SIDEBAR_DEFAULT_WIDTH;
+    } catch {
+        return SIDEBAR_DEFAULT_WIDTH;
+    }
+}
+
+/**
+ * The column's right edge, which can be dragged to make it wider or narrower.
+ *
+ * It sits in the gutter between the column and the content panel, so it takes
+ * no room from either, and draws the same grip the split panes do: nothing
+ * until the pointer finds it, then a short bar. Double-click, or Enter, puts
+ * the column back to its default width; the arrow keys move it a step.
+ *
+ * The drag writes the width straight onto the column through GSAP, which owns
+ * it (see `lib/panelMotion`), and tells React only where it ended, so the
+ * column follows the pointer without the list re-rendering on every move.
+ *
+ * Rendered as a zero-width item after the column in the shell's row, with the
+ * handle hung back over the gutter: inside the column it would be clipped by
+ * the column's own overflow, which is what hides its contents as it shuts.
+ */
+function SidebarEdge({ navRef, width, onWidth }) {
+    const t = useT();
+    const drag = useRef(null);
+    const [dragging, setDragging] = useState(false);
+
+    // A drag cut short by the column shutting must not leave the whole window
+    // with a resize cursor and no text selection.
+    useEffect(() => () => document.body.classList.remove('pane-resizing-x'), []);
+
+    const handlePointerDown = (event) => {
+        const node = navRef.current;
+        if (event.button !== 0 || !node) return;
+
+        // Mid-slide, the slide gives way to the hand.
+        gsap.killTweensOf(node);
+        setSidebar(node, true, width);
+
+        drag.current = { origin: event.clientX, from: width, live: width };
+        setDragging(true);
+        event.currentTarget.setPointerCapture(event.pointerId);
+        event.preventDefault();
+        document.body.classList.add('pane-resizing-x');
+    };
+
+    const handlePointerMove = (event) => {
+        const live = drag.current;
+        if (!live) return;
+        const next = clampWidth(live.from + event.clientX - live.origin);
+        if (next === live.live) return;
+        live.live = next;
+        setSidebar(navRef.current, true, next);
+    };
+
+    const endDrag = (event) => {
+        const live = drag.current;
+        if (!live) return;
+        drag.current = null;
+        setDragging(false);
+        document.body.classList.remove('pane-resizing-x');
+        try {
+            event.currentTarget.releasePointerCapture(event.pointerId);
+        } catch {
+            // The capture is already gone; nothing left to release.
+        }
+        onWidth(live.live);
+    };
+
+    /** A width chosen in one go rather than dragged to, eased there. */
+    const settle = (next) => {
+        const target = clampWidth(next);
+        if (target === width) return;
+        slideSidebar(navRef.current, true, target);
+        onWidth(target);
+    };
+
+    const handleKeyDown = (event) => {
+        const moves = {
+            ArrowLeft: width - WIDTH_STEP,
+            ArrowRight: width + WIDTH_STEP,
+            Home: SIDEBAR_MIN_WIDTH,
+            End: SIDEBAR_MAX_WIDTH,
+            Enter: SIDEBAR_DEFAULT_WIDTH,
+            ' ': SIDEBAR_DEFAULT_WIDTH,
+        };
+        if (!(event.key in moves)) return;
+        event.preventDefault();
+        settle(moves[event.key]);
+    };
+
+    return (
+        <div className="relative shrink-0 w-0 z-20">
+            <div
+                role="separator"
+                aria-orientation="vertical"
+                aria-controls="sidebar"
+                aria-label={t('sidebar.resize')}
+                aria-valuenow={width}
+                aria-valuemin={SIDEBAR_MIN_WIDTH}
+                aria-valuemax={SIDEBAR_MAX_WIDTH}
+                tabIndex={0}
+                data-dragging={dragging ? 'true' : 'false'}
+                className="pane-divider pane-divider-x absolute inset-y-0"
+                style={{ left: -APP_GUTTER, width: APP_GUTTER }}
+                onPointerDown={handlePointerDown}
+                onPointerMove={handlePointerMove}
+                onPointerUp={endDrag}
+                onPointerCancel={endDrag}
+                onLostPointerCapture={endDrag}
+                onDoubleClick={() => settle(SIDEBAR_DEFAULT_WIDTH)}
+                onKeyDown={handleKeyDown}
+            >
+                <span className="pane-grip" aria-hidden="true" />
+            </div>
+        </div>
+    );
+}
 
 function NavItem({ label, icon, active, onClick }) {
     return (
@@ -128,7 +266,7 @@ function ConversationsHeading({
         // without playing anything.
         if (shown.current === open && !timeline.current) {
             gsap.set(pill, open
-                ? { visibility: 'visible', left: 0, width: row.clientWidth }
+                ? { visibility: 'visible', left: 0, width: '100%' }
                 : { visibility: 'hidden', left: magnifierRef.current?.offsetLeft || 0, width: PILL_START });
             gsap.set(insideRef.current, { opacity: open ? 1 : 0 });
             gsap.set([titleRef.current, plusRef.current, magnifierRef.current], { opacity: open ? 0 : 1, x: 0 });
@@ -158,6 +296,9 @@ function ConversationsHeading({
                 { opacity: 0, x: 6 },
                 { opacity: 1, x: 0, duration: seconds(140), ease: EASE_OUT }, 0.07);
             tl.call(() => inputRef.current?.focus({ preventScroll: true }), null, 0.05);
+            // Grown, it is as wide as the row rather than as wide as the row
+            // was, so it follows the column's edge being dragged while open.
+            tl.set(pill, { width: '100%' });
         } else {
             tl.to(insideRef.current, { opacity: 0, x: 6, duration: seconds(80), ease: EASE_OUT }, 0);
             tl.to(pill, { left: from, width: PILL_START, duration: seconds(200), ease: EASE_SOFT }, 0.02);
@@ -411,10 +552,25 @@ function Sidebar({
     const shown = useRef(!collapsed);
 
     /**
-     * Opening and shutting is GSAP's, from `lib/panelMotion`, which also holds
-     * the width the sidebar opens to. Nothing is set here in a `style` prop:
-     * a re-render mid-slide would write the far end of the movement straight
-     * onto the element and the column would jump there.
+     * The width the column opens to, as last dragged. The edge writes the
+     * width onto the column itself while it is being moved; this is only where
+     * it came to rest, for the next time the column opens and the next launch.
+     */
+    const [width, setWidth] = useState(storedWidth);
+    const widthRef = useRef(width);
+    widthRef.current = width;
+
+    const commitWidth = useCallback((next) => {
+        setWidth(next);
+        try { window.localStorage.setItem(WIDTH_KEY, String(next)); } catch { /* no storage */ }
+    }, []);
+
+    /**
+     * Opening and shutting is GSAP's, from `lib/panelMotion`. Nothing is set
+     * here in a `style` prop: a re-render mid-slide would write the far end of
+     * the movement straight onto the element and the column would jump there.
+     * The width is read rather than depended on, since a change of width has
+     * already been drawn by the edge that made it.
      */
     useLayoutEffect(() => {
         const node = navRef.current;
@@ -422,12 +578,39 @@ function Sidebar({
 
         const open = !collapsed;
         if (shown.current === open) {
-            setSidebar(node, open);
+            setSidebar(node, open, widthRef.current);
             return;
         }
         shown.current = open;
-        slideSidebar(node, open);
+        slideSidebar(node, open, widthRef.current);
     }, [collapsed]);
+
+    /**
+     * The list's foot fading out while there is more of it below. The fade's
+     * height is the scroll left to go, up to `LIST_FADE`, so it gives way as
+     * the end comes into view and is not there at all for a list that fits.
+     * Written straight onto the element: it changes on every scroll frame.
+     */
+    const listRef = useRef(null);
+    const updateFade = useCallback(() => {
+        const list = listRef.current;
+        if (!list) return;
+        const below = list.scrollHeight - list.clientHeight - list.scrollTop;
+        list.style.setProperty('--list-fade', `${Math.max(0, Math.min(LIST_FADE, Math.round(below)))}px`);
+    }, []);
+
+    // Every render, since the rows the list holds may be what changed.
+    useLayoutEffect(updateFade);
+
+    // And whenever the list's own box changes: the window, or the column's
+    // other contents, growing or shrinking.
+    useEffect(() => {
+        const list = listRef.current;
+        if (!list || typeof ResizeObserver === 'undefined') return undefined;
+        const observer = new ResizeObserver(updateFade);
+        observer.observe(list);
+        return () => observer.disconnect();
+    }, [updateFade]);
 
     /**
      * The agent menu: every agent, the one selected ticked, and under them
@@ -509,109 +692,118 @@ function Sidebar({
         : undefined;
 
     return (
-        <nav
-            id="sidebar"
-            ref={navRef}
-            // No background of its own: the window's ground, and the agent's
-            // wash on it, is the column's background.
-            className="flex flex-col shrink-0 overflow-hidden"
-        >
-            <div className="flex flex-col gap-0.5 flex-1 min-h-0" style={accent}>
-                {/* Who this column is about. Drawn as a menu rather than a
-                    page, since choosing an agent is a switch, not a place to
-                    go. Portalled: the column clips, and a list of agents
-                    hanging off its foot would be cut off at the first row.
+        <>
+            <nav
+                id="sidebar"
+                ref={navRef}
+                // No background of its own: the window's ground, and the agent's
+                // wash on it, is the column's background.
+                className="flex flex-col shrink-0 overflow-hidden"
+            >
+                <div className="flex flex-col gap-0.5 flex-1 min-h-0" style={accent}>
+                    {/* Who this column is about. Drawn as a menu rather than a
+                        page, since choosing an agent is a switch, not a place to
+                        go. Portalled: the column clips, and a list of agents
+                        hanging off its foot would be cut off at the first row.
 
-                    The mark sits 6px in, so its middle lines up with the
-                    icons under it. */}
-                <PanelMenu
-                    portal
-                    menuClassName="w-64"
-                    sections={agentSections}
-                    trigger={({ open, toggle }) => (
-                        <button
-                            type="button"
-                            aria-haspopup="menu"
-                            aria-expanded={open}
-                            onClick={toggle}
-                            className={`group/agent w-full flex items-center gap-2.5 pl-1.5 pr-2.5 py-1.5 rounded-xl
-                                text-left transition-colors ${FOCUS} ${open ? ACTIVE : HOVER}`}
-                        >
-                            <AgentMark size={28} look={activeAgent} />
-                            <span className="min-w-0 flex-1">
-                                <span className="block text-[13px] leading-5 font-semibold tracking-[-0.01em]
-                                    truncate text-gray-900 dark:text-white">
-                                    {activeAgent?.name || t('agents.agent')}
+                        The mark sits 6px in, so its middle lines up with the
+                        icons under it. */}
+                    <PanelMenu
+                        portal
+                        menuClassName="w-64"
+                        sections={agentSections}
+                        trigger={({ open, toggle }) => (
+                            <button
+                                type="button"
+                                aria-haspopup="menu"
+                                aria-expanded={open}
+                                onClick={toggle}
+                                className={`group/agent w-full flex items-center gap-2.5 pl-1.5 pr-2.5 py-1.5 rounded-xl
+                                    text-left transition-colors ${FOCUS} ${open ? ACTIVE : HOVER}`}
+                            >
+                                <AgentMark size={28} look={activeAgent} />
+                                <span className="min-w-0 flex-1">
+                                    <span className="block text-[13px] leading-5 font-semibold tracking-[-0.01em]
+                                        truncate text-gray-900 dark:text-white">
+                                        {activeAgent?.name || t('agents.agent')}
+                                    </span>
+                                    <span className="block text-[11px] leading-4 truncate text-gray-500 dark:text-neutral-500">
+                                        {t('agents.agent')}
+                                    </span>
                                 </span>
-                                <span className="block text-[11px] leading-4 truncate text-gray-500 dark:text-neutral-500">
-                                    {t('agents.agent')}
-                                </span>
-                            </span>
-                            {/* Up and down rather than down: this opens a
-                                list to switch between, not a section. */}
-                            <UnfoldMoreIcon
-                                size={14}
-                                strokeWidth={2}
-                                className="shrink-0 transition-colors text-gray-400 dark:text-neutral-500
-                                    group-hover/agent:text-gray-700 dark:group-hover/agent:text-gray-300"
-                            />
-                        </button>
-                    )}
-                />
-
-                {/* The agent's two places, straight under it with a breath of
-                    space between rather than a rule or a box. */}
-                <div className="mt-1.5 flex flex-col gap-0.5">
-                    <NavItem
-                        label={t('nav.inventory')}
-                        icon={<Layers01Icon size={17} strokeWidth={1.6} />}
-                        active={activeNav === 'inventory'}
-                        onClick={() => onNavChange('inventory')}
+                                {/* Up and down rather than down: this opens a
+                                    list to switch between, not a section. */}
+                                <UnfoldMoreIcon
+                                    size={14}
+                                    strokeWidth={2}
+                                    className="shrink-0 transition-colors text-gray-400 dark:text-neutral-500
+                                        group-hover/agent:text-gray-700 dark:group-hover/agent:text-gray-300"
+                                />
+                            </button>
+                        )}
                     />
-                    <NavItem
-                        label={t('nav.settings')}
-                        icon={<Settings01Icon size={17} strokeWidth={1.6} />}
-                        active={activeNav === 'settings'}
-                        onClick={() => onNavChange('settings')}
-                    />
-                </div>
 
-                {/* The conversations: a heading that is also the way to the
-                    page listing all of them, the plus beside it, and the
-                    newest underneath. */}
-                <ConversationsHeading
-                    active={activeNav === 'conversations'}
-                    open={searchOpen}
-                    onOpen={() => setSearchOpen(true)}
-                    onClose={() => setSearchOpen(false)}
-                    onOpenPage={() => onNavChange('conversations')}
-                    onNew={onNewConversation}
-                    query={query}
-                    onQuery={setQuery}
-                    onSubmit={searchEverything}
-                />
-
-                <div className="sidebar-list-fade flex-1 min-h-0 overflow-y-auto flex flex-col gap-0.5 pb-4">
-                    {listed.length === 0 ? (
-                        <p className="px-3 py-1.5 text-xs text-gray-500 dark:text-neutral-500">
-                            {t('conversations.empty')}
-                        </p>
-                    ) : listed.map(conversation => (
-                        <ConversationRow
-                            key={conversation.conversationId}
-                            conversation={conversation}
-                            active={conversation.conversationId === activeConversationId}
-                            onOpen={() => onOpenConversation?.(conversation.conversationId)}
-                            onDelete={() => onDeleteConversation?.(conversation.conversationId, conversation.title)}
-                            onPin={() => onPinConversation?.(conversation.conversationId, !conversation.pinned)}
-                            deleteLabel={t('common.deleteNamed', {
-                                name: conversation.title || t('assistant.newConversation'),
-                            })}
+                    {/* The agent's two places, straight under it with a breath of
+                        space between rather than a rule or a box. */}
+                    <div className="mt-1.5 flex flex-col gap-0.5">
+                        <NavItem
+                            label={t('nav.inventory')}
+                            icon={<Layers01Icon size={17} strokeWidth={1.6} />}
+                            active={activeNav === 'inventory'}
+                            onClick={() => onNavChange('inventory')}
                         />
-                    ))}
+                        <NavItem
+                            label={t('nav.settings')}
+                            icon={<Settings01Icon size={17} strokeWidth={1.6} />}
+                            active={activeNav === 'settings'}
+                            onClick={() => onNavChange('settings')}
+                        />
+                    </div>
+
+                    {/* The conversations: a heading that is also the way to the
+                        page listing all of them, the plus beside it, and the
+                        newest underneath. */}
+                    <ConversationsHeading
+                        active={activeNav === 'conversations'}
+                        open={searchOpen}
+                        onOpen={() => setSearchOpen(true)}
+                        onClose={() => setSearchOpen(false)}
+                        onOpenPage={() => onNavChange('conversations')}
+                        onNew={onNewConversation}
+                        query={query}
+                        onQuery={setQuery}
+                        onSubmit={searchEverything}
+                    />
+
+                    <div
+                        ref={listRef}
+                        onScroll={updateFade}
+                        className="sidebar-list-fade flex-1 min-h-0 overflow-y-auto flex flex-col gap-0.5 pb-4"
+                    >
+                        {listed.length === 0 ? (
+                            <p className="px-3 py-1.5 text-xs text-gray-500 dark:text-neutral-500">
+                                {t('conversations.empty')}
+                            </p>
+                        ) : listed.map(conversation => (
+                            <ConversationRow
+                                key={conversation.conversationId}
+                                conversation={conversation}
+                                active={conversation.conversationId === activeConversationId}
+                                onOpen={() => onOpenConversation?.(conversation.conversationId)}
+                                onDelete={() => onDeleteConversation?.(conversation.conversationId, conversation.title)}
+                                onPin={() => onPinConversation?.(conversation.conversationId, !conversation.pinned)}
+                                deleteLabel={t('common.deleteNamed', {
+                                    name: conversation.title || t('assistant.newConversation'),
+                                })}
+                            />
+                        ))}
+                    </div>
                 </div>
-            </div>
-        </nav>
+            </nav>
+            {/* Only while the column is out: there is no edge to a column that
+                has been put away. */}
+            {!collapsed && <SidebarEdge navRef={navRef} width={width} onWidth={commitWidth} />}
+        </>
     );
 }
 

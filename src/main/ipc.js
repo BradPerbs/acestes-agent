@@ -1737,7 +1737,27 @@ function register(getWindow) {
 
         return next;
     });
-    handle('ai-conversation-start', (event, payload) => assistant.create(payload || {}));
+    // A conversation a person opens starts on the starred model, else the last
+    // one used anywhere in the app. Done here rather than left to the tab, so
+    // a message typed before the tab has heard what that is still goes on it.
+    handle('ai-conversation-start', (event, payload) => {
+        const created = assistant.create(payload || {});
+        if (!created?.conversationId) return created;
+        const pinned = assistant.startOnPick(created.conversationId);
+        return pinned ? { ...created, pinned } : created;
+    });
+    // The starred and last-used models, and what this agent's next
+    // conversation starts on given them.
+    handle('ai-start-model', (event, agentId) => ({
+        ...assistant.startModel.get(),
+        pick: assistant.startPick(typeof agentId === 'string' ? agentId.slice(0, 80) : ''),
+    }));
+    // A model picked in a composer, before or after there is a conversation.
+    handle('ai-start-model-remember', (event, pin) => assistant.startModel.remember(pin));
+    // The star in the model menu: a pin, or null to let go of it.
+    handle('ai-start-model-star', (event, pin) => assistant.startModel.star(pin || null));
+    // Every window: a detached chat's menu shows the star too.
+    assistant.startModel.onChange(held => broadcast('ai-start-model', held));
     handle('ai-conversation-list', (event, filter) => assistant.list(filter || {}));
     handle('ai-conversation-history', (event, conversationId) => assistant.history(conversationId));
     handle('ai-conversation-park', (event, conversationId) => assistant.park(conversationId));
@@ -1755,9 +1775,13 @@ function register(getWindow) {
         assistant.turnChanges(String(conversationId || ''), turnId));
     handle('ai-turn-revert', (event, { conversationId, turnId } = {}) =>
         assistant.revertTurn(String(conversationId || ''), turnId));
-    // A new conversation holding this one up to the end of a turn.
-    handle('ai-conversation-branch', (event, { conversationId, turnId } = {}) =>
-        assistant.branch(String(conversationId || ''), turnId));
+    // A new conversation holding this one up to the end of a turn, on the
+    // model new conversations start on, like any other a person opens.
+    handle('ai-conversation-branch', (event, { conversationId, turnId } = {}) => {
+        const result = assistant.branch(String(conversationId || ''), turnId);
+        if (result?.success) assistant.startOnPick(result.conversationId);
+        return result;
+    });
     // A conversation as Markdown text, for the clipboard. `full` is the
     // debugging cut: settings, every tool input, results untruncated.
     handle('ai-conversation-markdown', (event, { conversationId, full } = {}) =>
@@ -1781,8 +1805,13 @@ function register(getWindow) {
         }
     });
     handle('ai-scope', (event, payload) => assistant.setScope(payload?.conversationId, payload || {}));
-    handle('ai-send', (event, payload) =>
-        assistant.send(payload?.conversationId, payload?.text, payload?.images, payload?.mentions, payload?.files));
+    handle('ai-send', async (event, payload) => {
+        const result = await assistant.send(payload?.conversationId, payload?.text, payload?.images, payload?.mentions, payload?.files);
+        // What a person sends with is what they are using: the next
+        // conversation they open starts there, unless a model is starred.
+        if (result?.success) assistant.rememberUsed(payload?.conversationId);
+        return result;
+    });
     handle('ai-interrupt', (event, conversationId) => assistant.interrupt(conversationId));
 
     // The two answers the window owes the main process: whether a tool call may

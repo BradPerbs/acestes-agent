@@ -1638,10 +1638,30 @@ body.tab-dragging .session-tab {
 
 /* The sidebar's list fading out at its foot rather than being cut off there.
    A mask rather than a gradient painted over it, so it works on any ground,
-   the agent's wash included. */
+   the agent's wash included.
+
+   `--list-fade` is how tall the fade is. Sidebar.jsx writes it from the scroll
+   left to go, so it is at its full height while there is more list below and
+   gives way as the end comes into view. Eased rather than linear: a straight
+   ramp shows a hard line where it starts, this one melts in. */
 .sidebar-list-fade {
-    -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 20px), transparent);
-    mask-image: linear-gradient(to bottom, #000 calc(100% - 20px), transparent);
+    --list-fade: 0px;
+    -webkit-mask-image: linear-gradient(
+        to bottom,
+        #000 calc(100% - var(--list-fade)),
+        rgb(0 0 0 / 0.9) calc(100% - var(--list-fade) * 0.75),
+        rgb(0 0 0 / 0.6) calc(100% - var(--list-fade) * 0.5),
+        rgb(0 0 0 / 0.25) calc(100% - var(--list-fade) * 0.25),
+        transparent
+    );
+    mask-image: linear-gradient(
+        to bottom,
+        #000 calc(100% - var(--list-fade)),
+        rgb(0 0 0 / 0.9) calc(100% - var(--list-fade) * 0.75),
+        rgb(0 0 0 / 0.6) calc(100% - var(--list-fade) * 0.5),
+        rgb(0 0 0 / 0.25) calc(100% - var(--list-fade) * 0.25),
+        transparent
+    );
 }
 
 /* Inset content card. Spacing comes from the app shell's gutter, so the panel

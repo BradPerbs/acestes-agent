@@ -30,6 +30,7 @@ const headless = require('./headless');
 const local = require('./local');
 const workspaceFiles = require('./workspace-files');
 const modelMatch = require('./model-match');
+const startModel = require('./start-model');
 const ssh = require('../ssh');
 const localTerminal = require('../local-terminal');
 
@@ -2310,9 +2311,12 @@ function conversationsApiFor(conversation) {
             });
             const child = conversations.get(created.conversationId);
             adopt(child, title);
-            // On this chat's model when it is the same agent's.
+            // On this chat's model when it is the same agent's; otherwise on
+            // the model new conversations start on, like a tab opened by hand.
             if (target.id === conversation.agentId && conversation.settingsPatch) {
                 child.settingsPatch = { ...conversation.settingsPatch };
+            } else {
+                startOnPick(child.id);
             }
             return launch(child, { message, open, focus, wait });
         },
@@ -2760,7 +2764,50 @@ function setConversationModel(conversationId, patch = {}) {
     return { pinned: conversation.settingsPatch };
 }
 
-const EFFORT_NAMES = { low: 'low', medium: 'medium', high: 'high', xhigh: 'extra high', max: 'max', ultra: 'ultra' };
+/**
+ * What a new conversation of this agent starts on: the starred model, else
+ * the last one used, anywhere in the app (see start-model.js). Null leaves
+ * it on the agent's own default.
+ */
+function startPick(agentId) {
+    const current = settings.get(agentId);
+    return startModel.pickFor(current, (provider, account) => Boolean(pinnedAccountFor(current, provider, account)));
+}
+
+/**
+ * Put a conversation someone just opened on the model new ones start on.
+ * For the conversations a person opens (a tab, a fork); the ones an agent
+ * or a job makes keep the model they were made with.
+ */
+function startOnPick(conversationId) {
+    hydrate();
+    const conversation = conversations.get(conversationId);
+    if (!conversation) return null;
+    const pick = startPick(conversation.agentId);
+    if (!pick) return conversation.settingsPatch || null;
+    return setConversationModel(conversationId, pick).pinned || null;
+}
+
+/** The model a person just sent a message with is the one the next tab starts on. */
+function rememberUsed(conversationId) {
+    const conversation = conversations.get(conversationId);
+    if (!conversation) return;
+    const patch = conversation.settingsPatch || {};
+    const own = settings.get(conversation.agentId);
+    const current = effectiveSettings(conversation);
+    // The agent's default model counts only on the agent's own runtime: a
+    // conversation moved to another runtime without naming a model runs on
+    // that runtime's default, which has no name to keep.
+    const model = patch.model || (!patch.provider || patch.provider === own.provider ? own.model : '');
+    startModel.remember({
+        provider: current.provider,
+        model,
+        effort: current.effort,
+        account: patch.account || '',
+    });
+}
+
+const EFFORT_NAMES ={ low: 'low', medium: 'medium', high: 'high', xhigh: 'extra high', max: 'max', ultra: 'ultra' };
 
 /**
  * What a pick in the composer changed, as one short line for the chat:
@@ -3693,6 +3740,10 @@ module.exports = {
     exportMarkdown,
     readConversation,
     setConversationModel,
+    startModel,
+    startPick,
+    startOnPick,
+    rememberUsed,
     secrets,
     resolveModel,
     reconfigure,

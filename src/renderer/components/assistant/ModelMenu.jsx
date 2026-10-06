@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDown01Icon, Loading03Icon, Refresh01Icon, Search01Icon, Tick02Icon } from 'hugeicons-react';
+import { ArrowDown01Icon, Loading03Icon, Refresh01Icon, Search01Icon, StarIcon, Tick02Icon } from 'hugeicons-react';
 import EffortSlider from './EffortSlider';
 import ProviderMark from '../../lib/provider-marks';
 import {
@@ -46,9 +46,31 @@ import { useT } from '../../i18n';
  * the menu in the usage panel: then each account is a group of its own under
  * the agent's name, the same models in each, and picking a row picks the
  * account the conversation runs on as well as the model.
+ *
+ * A new conversation, in any tab of any agent, starts on the model last
+ * picked or sent with. The star beside a row pins one instead: every new
+ * conversation starts on the starred model until the star is taken off it.
  */
 
 const WIDTH = 'w-[21rem]';
+
+/**
+ * Whether a row is the starred model. Where the menu lists the runtime once,
+ * the row names no account, and the star it carries is still this one: the
+ * account goes with it where the agent has it ticked, and falls away where not.
+ */
+const isStarred = (row, starred) => Boolean(starred)
+    && starred.provider === row.provider
+    && starred.model === row.value
+    && (!row.account || (starred.account || '') === row.account);
+
+/** What a star pins: the row, at the effort being used where the row takes it. */
+const starOf = (row, effort) => ({
+    provider: row.provider,
+    model: row.value,
+    effort: nearestEffort(effortStops(row), effort) || '',
+    account: row.account || '',
+});
 
 /** Every word typed has to appear somewhere in the row, in any order. */
 function matches(row, words) {
@@ -85,7 +107,7 @@ function Pending({ loading, onRefresh }) {
     );
 }
 
-function MenuBody({ rows, model, settings, providers, catalogs, offered, loading, onRefresh, onPick, onEffort, onClose, accent }) {
+function MenuBody({ rows, model, settings, providers, catalogs, offered, loading, onRefresh, onPick, onEffort, onClose, accent, starred, onStar }) {
     const t = useT();
     const [query, setQuery] = useState('');
     const [active, setActive] = useState(-1);
@@ -237,37 +259,63 @@ function MenuBody({ rows, model, settings, providers, catalogs, offered, loading
                             const selected = row.key === model?.key;
                             const highlighted = position === active;
                             const tag = qualifier(row);
+                            const star = isStarred(row, starred);
                             return (
-                                <button
+                                <div
                                     key={row.key}
-                                    type="button"
-                                    role="option"
-                                    aria-selected={selected}
-                                    data-index={position}
                                     onMouseEnter={() => { if (active !== position) { followKeyboard.current = false; setActive(position); } }}
-                                    onClick={() => onPick(row)}
-                                    className={`w-full h-8 px-2.5 flex items-center gap-2 rounded-lg text-left transition-colors
+                                    className={`group/row flex items-center rounded-lg transition-colors
                                         ${highlighted ? 'bg-gray-100 dark:bg-white/[0.06]' : ''}`}
                                 >
-                                    <span className={`min-w-0 truncate text-[13px] ${selected
-                                        ? 'font-semibold text-gray-900 dark:text-white'
-                                        : 'font-medium text-gray-700 dark:text-gray-200'}`}
+                                    <button
+                                        type="button"
+                                        role="option"
+                                        aria-selected={selected}
+                                        data-index={position}
+                                        onClick={() => onPick(row)}
+                                        className="flex-1 min-w-0 h-8 pl-2.5 pr-1 flex items-center gap-2 text-left"
                                     >
-                                        {row.short || row.label}
-                                    </span>
-                                    {tag && (
-                                        <span className="shrink-0 px-1.5 py-px rounded-[5px] text-[9.5px] font-semibold tracking-wide
-                                            bg-gray-100 dark:bg-white/[0.07] text-gray-500 dark:text-gray-400"
+                                        <span className={`min-w-0 truncate text-[13px] ${selected
+                                            ? 'font-semibold text-gray-900 dark:text-white'
+                                            : 'font-medium text-gray-700 dark:text-gray-200'}`}
                                         >
-                                            {tag}
+                                            {row.short || row.label}
                                         </span>
+                                        {tag && (
+                                            <span className="shrink-0 px-1.5 py-px rounded-[5px] text-[9.5px] font-semibold tracking-wide
+                                                bg-gray-100 dark:bg-white/[0.07] text-gray-500 dark:text-gray-400"
+                                            >
+                                                {tag}
+                                            </span>
+                                        )}
+                                        {row.preferred && !tag && (
+                                            <span className="shrink-0 text-[10px] text-gray-400 dark:text-neutral-500">{t('assistant.defaultModel')}</span>
+                                        )}
+                                        <span className="flex-1" />
+                                        {selected && <Tick02Icon size={13} strokeWidth={2.5} className="shrink-0 text-gray-900 dark:text-white" />}
+                                    </button>
+                                    {onStar && (
+                                        <button
+                                            type="button"
+                                            aria-pressed={star}
+                                            aria-label={star ? t('assistant.unstarModel') : t('assistant.starModel')}
+                                            title={star ? t('assistant.unstarModel') : t('assistant.starModel')}
+                                            onClick={(event) => {
+                                                event.stopPropagation();
+                                                onStar(star ? null : starOf(row, settings.effort));
+                                            }}
+                                            className={`shrink-0 w-7 h-8 mr-0.5 flex items-center justify-center rounded-lg transition-[opacity,color]
+                                                outline-none focus-visible:opacity-100 focus-visible:ring-2
+                                                focus-visible:ring-gray-900/20 dark:focus-visible:ring-white/25
+                                                ${star
+                                                    ? 'opacity-100 text-gray-900 dark:text-white'
+                                                    : `${highlighted ? 'opacity-100' : 'opacity-0'} group-hover/row:opacity-100
+                                                        text-gray-400 dark:text-neutral-500 hover:text-gray-900 dark:hover:text-white`}`}
+                                        >
+                                            <StarIcon size={13} strokeWidth={2} fill={star ? 'currentColor' : 'none'} />
+                                        </button>
                                     )}
-                                    {row.preferred && !tag && (
-                                        <span className="shrink-0 text-[10px] text-gray-400 dark:text-neutral-500">{t('assistant.defaultModel')}</span>
-                                    )}
-                                    <span className="flex-1" />
-                                    {selected && <Tick02Icon size={13} strokeWidth={2.5} className="shrink-0 text-gray-900 dark:text-white" />}
-                                </button>
+                                </div>
                             );
                         })}
 
@@ -305,7 +353,7 @@ function MenuBody({ rows, model, settings, providers, catalogs, offered, loading
     );
 }
 
-export default function ModelMenu({ settings, catalogs, providers, loading, onRefresh, onChange, accent }) {
+export default function ModelMenu({ settings, catalogs, providers, loading, onRefresh, onChange, accent, starred = null, onStar }) {
     const t = useT();
     const [open, setOpen] = useState(false);
     const wrapperRef = useRef(null);
@@ -462,6 +510,8 @@ export default function ModelMenu({ settings, catalogs, providers, loading, onRe
                         onEffort={(value) => onChange({ effort: value })}
                         onClose={() => setOpen(false)}
                         accent={accent}
+                        starred={starred}
+                        onStar={onStar}
                     />
                 </div>
             )}

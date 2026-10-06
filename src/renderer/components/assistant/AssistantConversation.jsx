@@ -34,7 +34,6 @@ import { IMAGE_TYPES, imageFiles, readImage } from '../../lib/images';
 import { isAttachableFile, readTextFile } from '../../lib/files';
 import { describe, toWire } from '../../lib/assistant-scope';
 import { pickLine } from '../../lib/aeneid';
-import { lastModel, rememberModel } from '../../lib/last-model';
 import { agentColor } from '../../lib/agent-colors';
 import { TRANSCRIPT_HOLD } from '../../lib/transcript-find';
 
@@ -426,15 +425,47 @@ export default function AssistantConversation({
     // not picked runs on, are this tab's agent's, not the selected agent's.
     // Picking an account only the selected agent had ticked used to pin a
     // conversation that main then ran on its own agent's account regardless.
+    // The default runtime, model and effort too: an unpinned conversation
+    // runs on its own agent's, which is what the chip has to show.
     const accountSettings = useMemo(() => {
         if (!settings) return settings;
         const own = agentSettings && (!agentId || agentSettings.agentId === agentId) ? agentSettings : null;
-        return own ? { ...settings, accounts: own.accounts, menuAccounts: own.menuAccounts } : settings;
+        return own
+            ? {
+                ...settings,
+                provider: own.provider,
+                model: own.model,
+                effort: own.effort,
+                accounts: own.accounts,
+                menuAccounts: own.menuAccounts,
+            }
+            : settings;
     }, [settings, agentSettings, agentId]);
 
-    // A new conversation starts on the model the chip was last left on.
+    // What a new conversation starts on, for the whole app rather than per
+    // agent: the starred model, else the last one picked or sent with, in
+    // any tab of any agent (see main's start-model.js). Main works out
+    // `pick` for this tab's agent and puts a conversation it makes on it;
+    // here it is what an empty tab shows, and the star in the menu.
     const modelAgent = agentId || settings?.agentId || '';
-    const startPin = useMemo(() => lastModel(modelAgent, accountSettings), [modelAgent, accountSettings]);
+    const [startModel, setStartModel] = useState(null);
+    useEffect(() => {
+        if (!window.api.ai.startModel) return undefined;
+        let live = true;
+        const read = () => window.api.ai.startModel(modelAgent)
+            .then((answer) => { if (live) setStartModel(answer || null); })
+            .catch(() => {});
+        read();
+        const stopModel = window.api.ai.onStartModel?.(read);
+        // Switching a runtime off on the settings page can rule a pick out.
+        const stopSettings = window.api.ai.onSettings(read);
+        return () => {
+            live = false;
+            stopModel?.();
+            stopSettings?.();
+        };
+    }, [modelAgent]);
+    const startPin = startModel?.pick || null;
 
     const assistant = useAssistant({ ...target, agentId, conversationId, onConversationChange, startPin });
 
@@ -558,10 +589,18 @@ export default function AssistantConversation({
         [accountSettings, pinned],
     );
     const pinModel = assistant.pinModel;
+    // A pick is also what the next conversation, in any tab, starts on.
     const changeModel = useCallback((patch) => {
-        rememberModel(modelAgent, accountSettings, { ...shownSettings, ...patch });
+        const next = { ...shownSettings, ...patch };
+        window.api.ai.rememberModel?.({
+            provider: next.provider,
+            model: next.model,
+            effort: next.effort,
+            account: next.account || '',
+        });
         return pinModel(patch);
-    }, [modelAgent, accountSettings, shownSettings, pinModel]);
+    }, [shownSettings, pinModel]);
+    const starModel = useCallback((pin) => window.api.ai.starModel?.(pin), []);
 
     // The effort dial wears this chat's project colour. White and black have
     // no hue to wear, so they get slate; everything else wears its `from`.
@@ -1622,6 +1661,8 @@ export default function AssistantConversation({
                                     loading={readingModels}
                                     onRefresh={refreshModels}
                                     onChange={changeModel}
+                                    starred={startModel?.starred || null}
+                                    onStar={starModel}
                                     accent={sliderAccent}
                                 />
                             )}
