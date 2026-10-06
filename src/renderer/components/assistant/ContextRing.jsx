@@ -11,9 +11,11 @@ import { localeTag, useT } from '../../i18n';
  * Usage chip beside it, which shows it only when the account is billed per
  * token: on a plan the runtime's figure is not a real bill.
  *
- * Nothing is drawn until a runtime has reported a reading, and nothing for a
- * reading from another runtime than the one now answering: after a switch it
- * describes a model that is no longer in the conversation.
+ * Before any runtime has reported a reading the ring still shows, empty, so
+ * the meter sits where the eye looks for it whether a turn is running or
+ * not. Nothing is drawn for a reading from another runtime than the one now
+ * answering: after a switch it describes a model that is no longer in the
+ * conversation.
  */
 
 const SIZE = 16;
@@ -39,21 +41,30 @@ function Row({ name, value }) {
 
 export default function ContextRing({ context, provider }) {
     const t = useT();
-    if (!context || !context.used || (context.provider && provider && context.provider !== provider)) return null;
+    // A reading from another runtime than the one now answering describes a
+    // model that is no longer in the conversation, so nothing is drawn for it.
+    if (context?.provider && provider && context.provider !== provider) return null;
 
     const number = new Intl.NumberFormat(localeTag());
-    const percent = Number.isFinite(context.percent) ? Math.max(0, Math.min(100, context.percent)) : null;
+    // No reading yet (nothing generated in this conversation): the ring still
+    // shows, empty, rather than popping in the first time a reply streams in.
+    const empty = !context || !context.used;
+    const percent = !empty && Number.isFinite(context.percent) ? Math.max(0, Math.min(100, context.percent)) : null;
     const filled = percent === null ? 0 : (percent / 100) * CIRCUMFERENCE;
-    const tokens = context.limit
-        ? t('assistant.context.tokensOf', { used: number.format(context.used), limit: number.format(context.limit) })
-        : number.format(context.used);
+    const tokens = empty
+        ? '—'
+        : context.limit
+            ? t('assistant.context.tokensOf', { used: number.format(context.used), limit: number.format(context.limit) })
+            : number.format(context.used);
     // Cache-read tokens behind the reading, when the runtime reports them:
     // hits over what went in, as tokens and as a share of the reading.
-    const cached = Number(context.cached) > 0 ? Number(context.cached) : 0;
+    const cached = !empty && Number(context.cached) > 0 ? Number(context.cached) : 0;
     const hitRate = cached > 0 && context.used > 0 ? Math.max(0, Math.min(100, Math.round((cached / context.used) * 100))) : null;
-    const spoken = percent === null
-        ? t('assistant.context.unknownLimit', { tokens })
-        : t('assistant.context.label', { percent, tokens });
+    const spoken = empty
+        ? t('assistant.context.empty')
+        : percent === null
+            ? t('assistant.context.unknownLimit', { tokens })
+            : t('assistant.context.label', { percent, tokens });
 
     const label = (
         <span className="flex flex-col gap-0.5 min-w-[11rem]">

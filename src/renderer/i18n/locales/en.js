@@ -2119,6 +2119,7 @@ export default {
     'assistant.context.tokensOf': '{used} of {limit}',
     'assistant.context.label': 'Context {percent}% full, {tokens} tokens',
     'assistant.context.unknownLimit': 'Context: {tokens} tokens',
+    'assistant.context.empty': 'Context: no reading yet',
 
     'assistant.currentSession': 'Current session',
     'assistant.nothingConnected': 'Nothing connected',
