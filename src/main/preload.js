@@ -602,6 +602,9 @@ contextBridge.exposeInMainWorld('api', {
         // Releases the running query and keeps the transcript, so the
         // conversation can be picked up again from the history menu.
         park: (conversationId) => ipcRenderer.invoke('ai-conversation-park', conversationId),
+        // Starts the runtime while a message is being typed, so the send
+        // does not wait for it. Sends nothing to a model.
+        warm: (conversationId) => ipcRenderer.invoke('ai-conversation-warm', conversationId),
         // Keep a conversation at the top of the list, or let it go.
         pin: (conversationId, pinned) => ipcRenderer.invoke('ai-conversation-pin', { conversationId, pinned }),
         close: (conversationId) => ipcRenderer.invoke('ai-conversation-close', conversationId),

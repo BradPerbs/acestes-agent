@@ -403,15 +403,40 @@ function userContent(text, images = []) {
     return blocks;
 }
 
+/**
+ * Our tools the model reaches for in most conversations, loaded up front.
+ *
+ * Claude Code keeps MCP tools behind ToolSearch, and every lookup is a whole
+ * model round trip, four seconds or so, before the tool can be called. A
+ * week of this app's sessions had a lookup in a quarter of all prompts (the
+ * editor extension, with its own tools loaded, in one in fourteen), and
+ * these were what was being looked up, most often first. Loaded, they cost
+ * about four thousand tokens of the cached prefix instead. The rest of the
+ * catalog stays deferred: it is large, and most of it is rarely needed.
+ */
+const ALWAYS_LOADED = new Set([
+    'remember', 'recall', 'forget',
+    'ask_user',
+    'search_conversations', 'read_conversation',
+    'run_command', 'read_terminal', 'send_input', 'list_sessions', 'list_hosts', 'connect_host',
+    'run_local_command', 'read_local_file', 'write_local_file', 'edit_local_file',
+    'list_local_directory', 'search_local_files',
+    'list_secrets', 'list_snippets',
+]);
+
+/** Whether one of our tools is loaded up front rather than found by ToolSearch. */
+function alwaysLoaded(definition, { computerUse = false } = {}) {
+    // With computer use on, those tools are the point of the conversation.
+    // Switching it on or off restarts the session, so this is read once per
+    // session.
+    if (definition.group === 'computer') return computerUse;
+    return ALWAYS_LOADED.has(definition.name);
+}
+
 /** Our catalog, as the in-process MCP server the SDK expects. */
 function buildToolServer(sdk, toolContext, onEvent) {
-    // Claude Code keeps most MCP tools behind a search the model has to run
-    // first, which is a whole turn before the first click. With computer use
-    // on, those tools are the point of the conversation, so they are loaded
-    // up front; switching it on or off restarts the session, so this is read
-    // once per session.
     const computerUse = Boolean(toolContext()?.settings?.computerUse);
-    const extras = definition => (definition.group === 'computer' && computerUse ? { alwaysLoad: true } : undefined);
+    const extras = definition => (alwaysLoaded(definition, { computerUse }) ? { alwaysLoad: true } : undefined);
     // Bundle toggles: only offered tools cost tokens.
     const settings = toolContext()?.settings;
     const definitions = settings ? catalog.visibleTools(settings) : catalog.TOOLS;
@@ -1523,6 +1548,8 @@ module.exports = {
     createTurnTracker,
     createContextMeter,
     contextWindowOf,
+    alwaysLoaded,
+    ALWAYS_LOADED,
     LOCAL_TOOLS,
     WEB_TOOLS,
     AGENT_TOOLS,

@@ -1741,6 +1741,7 @@ function register(getWindow) {
     handle('ai-conversation-list', (event, filter) => assistant.list(filter || {}));
     handle('ai-conversation-history', (event, conversationId) => assistant.history(conversationId));
     handle('ai-conversation-park', (event, conversationId) => assistant.park(conversationId));
+    handle('ai-conversation-warm', (event, conversationId) => assistant.warm(String(conversationId || '')));
     handle('ai-conversation-search', (event, filter) => assistant.search(filter || {}));
     handle('ai-conversation-pin', (event, { conversationId, pinned } = {}) =>
         assistant.pin(String(conversationId || ''), Boolean(pinned)));

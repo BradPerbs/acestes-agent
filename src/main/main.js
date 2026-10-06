@@ -155,6 +155,17 @@ app.whenReady().then(() => {
     ipc.register(getWindow);
     createWindow();
 
+    // The memory model, loaded a moment after the window has drawn rather
+    // than on the first message, which otherwise waits two seconds for it.
+    // Not sooner: the require behind it holds this process for a second and
+    // a half, which belongs after the window's own first reads. A message
+    // sent before then is not held for it either (see memory.relevant).
+    // See warmUp in ai/index.js.
+    mainWindow.webContents.once('did-finish-load', () => {
+        const timer = setTimeout(() => require('./ai').warmUp(), 5000);
+        timer.unref?.();
+    });
+
     // The icon is there from the start, so the way to quit an app that
     // stays up for its jobs is learned before it is needed.
     tray.show({

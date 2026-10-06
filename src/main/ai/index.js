@@ -9,6 +9,8 @@ const secrets = require('./secrets');
 const diff = require('./diff');
 const checkpoints = require('./checkpoints');
 const turnRate = require('./turn-rate');
+const sendTiming = require('./send-timing');
+const embeddings = require('./embeddings');
 const archive = require('./archive');
 const searchModule = require('./search');
 const titles = require('./titles');
@@ -1780,6 +1782,17 @@ function handleProviderEvent(conversation, event) {
         const window = limits.fromClaudeEvent(event);
         if (window) limits.recordWindows(conversation.provider, conversation.accountId, [window]);
     }
+    // Started early for a draft nobody has sent yet (see `warm`). What the
+    // runtime says on the way up is kept above as state, and none of it
+    // reaches the transcript before a message does: an event would make an
+    // empty conversation one with content, listed and saved, for a draft the
+    // person may well delete.
+    if (conversation.warmOnly) {
+        // Gone before the message: the send starts it again rather than
+        // writing into a query that is no longer there.
+        if (event.type === 'closed' || event.type === 'error') conversation.session = null;
+        return;
+    }
     if (event.type === 'result') {
         conversation.busy = false;
         conversation.costUsd += event.costUsd || 0;
@@ -3047,6 +3060,13 @@ async function send(conversationId, text, attachments = [], tagged = [], attache
         conversation.titleSource = 'draft';
     }
 
+    // A message is going, so a runtime started early for the draft is this
+    // conversation's in the open from here (see `warm`).
+    conversation.warmOnly = false;
+    // From the click to the runtime, stage by stage. See send-timing.js.
+    const timer = sendTiming.createTimer();
+    const cold = !conversation.session;
+
     // The transcript keeps what was tagged and not what it said: the records
     // are in the inventory, and a chip is what the bubble draws for them.
     emit(conversation, {
@@ -3073,6 +3093,7 @@ async function send(conversationId, text, attachments = [], tagged = [], attache
             title: conversation.title,
         });
     }
+    timer.mark('record');
 
     try {
         // A model or effort change since the last message. Restarting here,
@@ -3085,6 +3106,7 @@ async function send(conversationId, text, attachments = [], tagged = [], attache
         else if (conversation.session?.stopped) await restart(conversation);
 
         const session = await ensureProvider(conversation);
+        timer.mark('runtime');
 
         // Bare provider CLI: this briefing is Acestes context too (which
         // session is pinned, what is open). The message goes as typed.
@@ -3128,13 +3150,16 @@ async function send(conversationId, text, attachments = [], tagged = [], attache
             conversation.lastContext = context;
             parts.push(`<app-context>\n${context}\n</app-context>`);
         }
+        timer.mark('context');
 
         // What the agent remembers that bears on this message, found by
         // meaning. The newest notes are in the system prompt already; this is
         // how the rest of a notebook too big for a prompt still reaches it.
+        // Given a moment and no more: see `relevant` in memory.js.
         const remembered = body && resolved(conversation.agentId).memory !== false
             ? await memory.relevant(conversation.agentId, body)
             : [];
+        timer.mark('memory');
         if (remembered.length > 0) {
             parts.push(
                 '<memory>\nNotes from your memory that may bear on this message:\n'
@@ -3147,6 +3172,8 @@ async function send(conversationId, text, attachments = [], tagged = [], attache
         if (body) parts.push(body);
 
         session.send(parts.join('\n\n'), images);
+        timer.mark('handoff');
+        sendTiming.record(timer.entry({ provider: conversation.provider || '', cold, chars: body.length }));
         return { success: true };
     } catch (error) {
         conversation.busy = false;
@@ -3231,6 +3258,63 @@ async function interrupt(conversationId) {
     emit(conversation, { type: 'interrupted' });
     endRun(conversation, 'cancelled', { reason: 'The user stopped the run.' });
     return { success: true };
+}
+
+/**
+ * Bring a conversation's runtime up while its message is still being typed.
+ *
+ * Starting one is the slowest thing a message waits for: the CLI starts, its
+ * MCP servers answer, and only then is the message read. A week of sends had
+ * a third of them waiting on that, a second and a half typically and five
+ * at worst; Claude Code started four seconds before its first message read
+ * that message in fifty milliseconds instead of two thousand. So the
+ * composer asks for this on the first keystroke, and the start happens while
+ * the person is still writing.
+ *
+ * Only what `send` would do anyway, a little earlier. Nothing goes to a
+ * model; a conversation already running or in the middle of a turn is left
+ * alone; a model or account change waiting for the next message is applied
+ * now, which is still between turns. A conversation with nothing in it yet
+ * keeps what its runtime reports on the way up out of the transcript until
+ * a message goes (`warmOnly`), so a draft typed and deleted leaves nothing
+ * behind in the history. The memory model is started too, when the agent
+ * has memory on, so the first message after launch does not wait for it.
+ *
+ * Resolves `{ success }` and never rejects: a runtime that fails to start
+ * here is tried again by the send, which is where the reason belongs.
+ */
+async function warm(conversationId) {
+    hydrate();
+    if (parseSubagentId(conversationId)) return { success: false };
+    const conversation = conversations.get(conversationId);
+    if (!conversation || conversation.busy) return { success: false };
+
+    if (resolved(conversation.agentId).memory !== false) embeddings.warm();
+
+    try {
+        if (conversation.needsRestart || conversation.session?.stopped) await restart(conversation);
+        if (conversation.busy) return { success: false };
+        if (!conversation.session && !conversation.starting && conversation.events.length === 0) {
+            conversation.warmOnly = true;
+        }
+        await ensureProvider(conversation);
+        return { success: true };
+    } catch {
+        return { success: false };
+    }
+}
+
+/**
+ * What is worth loading before anyone asks, once the window is up: the
+ * memory model, whose load is two seconds of the first message after launch
+ * otherwise. Only for an agent with memory on.
+ */
+function warmUp() {
+    try {
+        if (resolved(agents.activeId()).memory !== false) embeddings.warm();
+    } catch (error) {
+        console.error('Could not warm up the assistant:', error.message);
+    }
 }
 
 /**
@@ -3617,6 +3701,8 @@ module.exports = {
     conversationIds,
     importConversations,
     send,
+    warm,
+    warmUp,
     interrupt,
     park,
     close,

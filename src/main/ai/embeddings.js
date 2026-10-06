@@ -24,6 +24,7 @@ const DIMS = 384;
 const RETRY_AFTER = 60 * 1000;
 
 let loading = null;
+let ready = false;
 let failedAt = 0;
 let failure = '';
 
@@ -40,7 +41,9 @@ function load() {
         const { pipeline, env } = require('@huggingface/transformers');
         env.cacheDir = path.join(app.getPath('userData'), 'models');
         env.allowLocalModels = true;
-        return pipeline('feature-extraction', MODEL, { dtype: 'q8' });
+        const extractor = await pipeline('feature-extraction', MODEL, { dtype: 'q8' });
+        ready = true;
+        return extractor;
     })().catch((error) => {
         loading = null;
         failedAt = Date.now();
@@ -49,6 +52,27 @@ function load() {
     });
 
     return loading;
+}
+
+/** Whether the model is loaded, so a caller in a hurry can tell an embed will be quick. */
+function isReady() {
+    return ready;
+}
+
+/**
+ * Start loading the model, after whatever called this has finished.
+ *
+ * The require behind it is synchronous and takes a second and a half, and
+ * loading the model is most of another second: on the tick of a send, that
+ * is the whole of a first message after launch held up. Deferred to a timer
+ * it lands after the message has gone. Called once the window is up, and by
+ * anything that wanted the model and found it not loaded.
+ */
+function warm() {
+    if (ready || loading) return;
+    if (failedAt && Date.now() - failedAt < RETRY_AFTER) return;
+    const timer = setTimeout(() => { load().catch(() => {}); }, 0);
+    timer.unref?.();
 }
 
 /** One unit-length vector per text, in order. Rejects if the model cannot load. */
@@ -63,4 +87,4 @@ function status() {
     return { model: MODEL, dims: DIMS, loading: Boolean(loading), failure };
 }
 
-module.exports = { MODEL, DIMS, embed, load, status };
+module.exports = { MODEL, DIMS, embed, load, warm, isReady, status };

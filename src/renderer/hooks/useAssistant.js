@@ -26,6 +26,9 @@ import { INITIAL, applyEvent, applyBatch, replay } from '../lib/transcript-reduc
  */
 const ENDS_TURN = new Set(['result', 'error', 'interrupted', 'closed', 'user-message']);
 
+/** How often typing in one conversation asks main to have its runtime up. See `warm`. */
+const WARM_EVERY = 5000;
+
 /**
  * A conversation read back, named the way the list names it. The log is
  * capped, so a long chat has lost its first message and the event that
@@ -313,16 +316,22 @@ export default function useAssistant({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [conversationId, targetKey]);
 
-    /** `mentions` are `{ kind, id }`; main reads each record itself. Files are `{ name, mediaType, text }`. */
-    const send = useCallback(async (text, images = [], mentions = [], files = []) => {
-        // Made on the first message rather than when the tab opened. The ref is
-        // set here as well as through state, so an event arriving on the heels
-        // of the send is not filtered out by a render that has not happened.
-        let id = conversationId;
-        if (!id) {
-            try {
+    /**
+     * The conversation this tab is on, made now if it has none yet.
+     *
+     * Made when there is something to say rather than when the tab opened:
+     * the first keystroke (see `warm`) or the send. The ref is set here as
+     * well as through state, so an event arriving on the heels of the send is
+     * not filtered out by a render that has not happened. One at a time, so a
+     * warm-up and a quick send share the one being made.
+     */
+    const creating = useRef(null);
+    const ensureConversation = useCallback(async () => {
+        if (conversationRef.current) return conversationRef.current;
+        if (!creating.current) {
+            creating.current = (async () => {
                 const created = await window.api.ai.start(targetRef.current);
-                id = created.conversationId;
+                const id = created.conversationId;
                 conversationRef.current = id;
                 adopt(id);
                 // A model picked, or remembered, before there was a
@@ -332,10 +341,20 @@ export default function useAssistant({
                     setPinned(pin);
                     await window.api.ai.setModel?.(id, pin);
                 }
-            } catch (error) {
-                setFailure(error.message || 'The assistant could not be started');
-                return;
-            }
+                return id;
+            })().finally(() => { creating.current = null; });
+        }
+        return creating.current;
+    }, [adopt]);
+
+    /** `mentions` are `{ kind, id }`; main reads each record itself. Files are `{ name, mediaType, text }`. */
+    const send = useCallback(async (text, images = [], mentions = [], files = []) => {
+        let id;
+        try {
+            id = await ensureConversation();
+        } catch (error) {
+            setFailure(error.message || 'The assistant could not be started');
+            return;
         }
         const result = await window.api.ai.send(id, text, images, mentions, files);
         if (!result?.success && result?.message) {
@@ -343,7 +362,32 @@ export default function useAssistant({
                 type: 'error', message: result.message, at: Date.now(),
             });
         }
-    }, [conversationId, adopt, dispatch]);
+    }, [ensureConversation, dispatch]);
+
+    /**
+     * Start the runtime while the message is still being written.
+     *
+     * The composer calls this as the person types. Bringing a runtime up is
+     * most of what a first message waits for (the CLI, then its MCP servers),
+     * and typing the message takes longer than that, so by the send it is
+     * done. Nothing goes to a model; main leaves a running or busy
+     * conversation alone. Once per conversation every few seconds: the rest
+     * of the keystrokes stop here rather than crossing to main for nothing.
+     */
+    const lastWarm = useRef({ id: '', at: 0 });
+    const warm = useCallback(async () => {
+        if (!enabled || subagent || !window.api.ai.warm) return;
+        const at = Date.now();
+        if (lastWarm.current.id === (conversationRef.current || '') && at - lastWarm.current.at < WARM_EVERY) return;
+        lastWarm.current = { id: conversationRef.current || '', at };
+        try {
+            const id = await ensureConversation();
+            lastWarm.current = { id, at };
+            await window.api.ai.warm(id);
+        } catch {
+            // The send starts it and says what is wrong.
+        }
+    }, [enabled, subagent, ensureConversation]);
 
     const interrupt = useCallback(() => {
         if (conversationId) window.api.ai.interrupt(conversationId);
@@ -512,6 +556,7 @@ export default function useAssistant({
         starting,
         failure,
         send,
+        warm,
         interrupt,
         respond,
         answer,

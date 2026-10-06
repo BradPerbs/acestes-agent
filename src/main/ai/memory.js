@@ -372,14 +372,14 @@ function cosine(a, b) {
  * the time a message spends waiting on a model; an approximate index would
  * be a dependency spent on a problem this app does not have.
  */
-async function search(agentId, query, limit = 10, { floor = 0 } = {}) {
+async function search(agentId, query, limit = 10, { floor = 0, budget = Infinity } = {}) {
     const store = load(agentId);
     const wanted = [...new Set(tokens(query))];
     if (wanted.length === 0) return list(agentId).slice(0, limit);
 
     let probe = null;
     try {
-        [probe] = await embeddings.embed([String(query)]);
+        probe = await probeFor(String(query), budget);
     } catch {
         // By words alone until the model is back.
     }
@@ -399,19 +399,60 @@ async function search(agentId, query, limit = 10, { floor = 0 } = {}) {
         .map(({ entry, score }) => ({ ...copy(entry), score: Number(score.toFixed(3)) }));
 }
 
+/**
+ * The query's vector, or null when there is none in time.
+ *
+ * With no budget this waits for the model, loading it if it must: what a
+ * search the agent asked for wants. With one, a model that is not loaded yet
+ * is started in the background and the search goes by words, and a loaded
+ * one gets that long to answer before the search goes by words anyway. The
+ * embed is not cancelled; it finishes on its own and is simply not waited for.
+ */
+async function probeFor(query, budget = Infinity) {
+    if (!Number.isFinite(budget)) {
+        const [vector] = await embeddings.embed([query]);
+        return vector;
+    }
+    if (!embeddings.isReady?.()) {
+        embeddings.warm?.();
+        return null;
+    }
+    let timer = null;
+    const late = new Promise((resolve) => {
+        timer = setTimeout(() => resolve(null), Math.max(0, budget));
+        timer.unref?.();
+    });
+    const embedded = embeddings.embed([query]).then(([vector]) => vector);
+    embedded.catch(() => {});
+    try {
+        return await Promise.race([embedded, late]);
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
 /** The ids the system prompt already carries, so a turn does not repeat them. */
 function pinnedIds(agentId) {
     return new Set(list(agentId).slice(0, PROMPT_ENTRIES).map(entry => entry.id));
 }
 
 /**
+ * How long a message waits for its notes to be found by meaning. The search
+ * is on the way to the model, so it is the user's wait: a loaded model takes
+ * a few milliseconds for a short message and a tenth of a second for a long
+ * one, and past this the notes are found by words instead.
+ */
+const RELEVANT_BUDGET = 150;
+
+/**
  * The notes that bear on one message, for the turn that carries it. Held to
  * a higher bar than a search the agent asked for, since nobody asked, and
- * without the newest notes, which the prompt has already.
+ * without the newest notes, which the prompt has already. Never held up by
+ * the model: see `probeFor`.
  */
-async function relevant(agentId, text, limit = 6) {
+async function relevant(agentId, text, limit = 6, { budget = RELEVANT_BUDGET } = {}) {
     const pinned = pinnedIds(agentId);
-    const found = await search(agentId, text, limit + pinned.size, { floor: 0.3 });
+    const found = await search(agentId, text, limit + pinned.size, { floor: 0.3, budget });
     return found.filter(entry => !pinned.has(entry.id)).slice(0, limit);
 }
 

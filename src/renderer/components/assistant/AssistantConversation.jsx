@@ -792,9 +792,13 @@ export default function AssistantConversation({
         return { query: found[1] };
     }, []);
 
+    const { warm } = assistant;
     const onText = useCallback((event) => {
         const { value, selectionStart } = event.target;
         setText(value);
+        // The runtime starts while this is being written, so the send does
+        // not wait for it. Throttled in the hook.
+        if (value.trim()) warm();
         const slashed = readSlash(value, selectionStart);
         setSlash(slashed);
         setSlashRow(0);
@@ -805,7 +809,7 @@ export default function AssistantConversation({
         const next = readMention(value, selectionStart);
         setMention(next);
         setActiveRow(0);
-    }, [readMention, readSlash]);
+    }, [readMention, readSlash, warm]);
 
     /**
      * Take the highlighted row: the `@query` in the text becomes the thing's

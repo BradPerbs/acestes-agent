@@ -329,6 +329,29 @@ async function run() {
         assert.deepStrictEqual(events.map(event => event.type), ['result']);
     }
 
+    // The tools a conversation reaches for are loaded up front, so the model
+    // does not spend a round trip on ToolSearch before using them. Every
+    // name on the list is a real tool: a rename would otherwise quietly put
+    // it back behind the search.
+    {
+        const catalog = require('../src/main/ai/tools');
+        const names = new Set(catalog.TOOLS.map(tool => tool.name));
+        for (const name of provider.ALWAYS_LOADED) assert(names.has(name), `${name} is in the catalog`);
+        const tool = name => catalog.TOOLS.find(entry => entry.name === name);
+        assert.strictEqual(provider.alwaysLoaded(tool('run_command')), true);
+        assert.strictEqual(provider.alwaysLoaded(tool('remember')), true);
+        assert.strictEqual(provider.alwaysLoaded(tool('ask_user')), true);
+        // The rest stays deferred.
+        const deferred = catalog.TOOLS.filter(entry => entry.group !== 'computer' && !provider.ALWAYS_LOADED.has(entry.name));
+        assert(deferred.length > 0);
+        for (const entry of deferred) assert.strictEqual(provider.alwaysLoaded(entry), false, entry.name);
+        // Computer use: up front when it is on, deferred when it is off.
+        const computer = catalog.TOOLS.find(entry => entry.group === 'computer');
+        assert(computer, 'the catalog has computer tools');
+        assert.strictEqual(provider.alwaysLoaded(computer, { computerUse: true }), true);
+        assert.strictEqual(provider.alwaysLoaded(computer, { computerUse: false }), false);
+    }
+
     console.log('claude-provider tests passed');
 }
 
