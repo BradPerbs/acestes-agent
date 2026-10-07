@@ -127,6 +127,32 @@ async function run() {
         assert.ok(/no folders/.test(sandbox.grantFor(sandbox.normalize(), other).error));
     });
 
+    /* ---------------- Provider working directory ---------------- */
+
+    await check('the working directory is the first folder granted for writing', () => {
+        const envelope = sandbox.normalize({ folders: [{ path: root, mode: 'read' }, { path: inside('site'), mode: 'write' }, { path: inside('docs'), mode: 'write' }] });
+        assert.deepStrictEqual(sandbox.writableFolders(envelope), [inside('site'), inside('docs')]);
+        assert.strictEqual(sandbox.projectDirectory(envelope), inside('site'));
+        assert.strictEqual(sandbox.workingDirectoryFor({ allowLocalTools: true, sandbox: envelope }, other), inside('site'));
+    });
+
+    await check('a read-only grant is never the working directory', () => {
+        const envelope = sandbox.normalize({ folders: [{ path: root, mode: 'read' }] });
+        assert.deepStrictEqual(sandbox.writableFolders(envelope), []);
+        assert.strictEqual(sandbox.projectDirectory(envelope), '');
+        assert.strictEqual(sandbox.workingDirectoryFor({ allowLocalTools: true, sandbox: envelope }, other), other, 'the provider keeps its fallback');
+    });
+
+    await check('with no writable grant the provider keeps its fallback', () => {
+        assert.strictEqual(sandbox.workingDirectoryFor({ allowLocalTools: true }, other), other);
+        assert.strictEqual(sandbox.workingDirectoryFor({}, other), other);
+    });
+
+    await check('with local tools off the project is not the working directory', () => {
+        const envelope = sandbox.normalize({ folders: [{ path: root, mode: 'write' }] });
+        assert.strictEqual(sandbox.workingDirectoryFor({ allowLocalTools: false, sandbox: envelope }, other), other);
+    });
+
     await check('the local tools refuse outside the grant before touching the disk', async () => {
         const ctx = { agentId: 'a', sandbox: granted };
         const listed = await local.list(ctx, other);

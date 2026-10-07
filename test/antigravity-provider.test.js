@@ -125,6 +125,40 @@ async function test(name, fn) {
         assert.ok(events.filter(event => event.type === 'assistant-text').pop().text.includes('skip=true'));
     });
 
+    await test('a write grant is --add-dir, and the process stays in the app workspace', async () => {
+        events.length = 0;
+        const grant = path.join(os.tmpdir(), 'agy-grant');
+        const extra = path.join(os.tmpdir(), 'agy-grant-2');
+        const readOnly = path.join(os.tmpdir(), 'agy-ro');
+        current = {
+            ...current,
+            approval: 'writes',
+            allowLocalTools: true,
+            sandbox: { folders: [
+                { path: grant, mode: 'write' },
+                { path: extra, mode: 'write' },
+                { path: readOnly, mode: 'read' },
+            ] },
+        };
+        session.send('hello');
+        await until(() => events.some(event => event.type === 'result'), 'the granted result');
+        const reply = events.filter(event => event.type === 'assistant-text').pop().text;
+        const workspace = path.join(userData, 'agent-workspaces', 'antigravity');
+        assert.ok(reply.includes(`cwd=${fs.realpathSync(workspace)}`), reply);
+        assert.ok(reply.includes(`dirs=${grant}|${extra}`), reply);
+        assert.ok(!reply.includes(readOnly), 'a read-only grant is not added');
+        assert.ok(fs.existsSync(path.join(workspace, '.agents', 'mcp_config.json')));
+        assert.ok(!fs.existsSync(path.join(grant, '.agents', 'mcp_config.json')));
+        assert.ok(!events.some(event => event.type === 'error'));
+    });
+
+    await test('local tools off adds no project directory', () => {
+        const grant = path.join(os.tmpdir(), 'agy-grant');
+        const settings = { allowLocalTools: false, sandbox: { folders: [{ path: grant, mode: 'write' }] } };
+        assert.deepStrictEqual(agy._test.addedDirectories(settings), []);
+        assert.ok(!agy._test.runArguments({ directories: agy._test.addedDirectories(settings) }).includes('--add-dir'));
+    });
+
     await test('a failed run is an error with its reason', async () => {
         events.length = 0;
         session.send('this will fail');

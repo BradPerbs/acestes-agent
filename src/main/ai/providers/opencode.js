@@ -10,6 +10,7 @@ const { app } = require('electron');
 
 const catalog = require('../tools');
 const mcpHost = require('../mcp-host');
+const sandboxLib = require('../sandbox');
 
 /**
  * The OpenCode provider.
@@ -688,7 +689,15 @@ async function start({
         throw new Error('OpenCode is not installed on this machine: neither its CLI nor OpenCode Desktop could be found');
     }
 
-    const directory = app.getPath('userData');
+    // Split where the server works from where the conversation works. The
+    // server stays rooted in our own data directory: its launch directory
+    // may receive server config, and none of that belongs in the user's
+    // project. The client is scoped to the granted project instead, so the
+    // session (looked up there, created there when the stored id is stale)
+    // and every `?directory=` call act where the user said they may. No
+    // session files are migrated: a stale id simply starts fresh.
+    const serverDir = app.getPath('userData');
+    const directory = sandboxLib.workingDirectoryFor(settings, serverDir);
     // Bare provider CLI: none of the app's tools attached (serverConfig
     // leaves the MCP block out when there is no URL). Release/pending stay
     // safe: mcp-host treats a null token as nothing outstanding.
@@ -703,7 +712,7 @@ async function start({
             token,
             allowLocalTools: settings.allowLocalTools,
             maxTurns: settings.maxTurns,
-        }), directory);
+        }), serverDir);
     } catch (error) {
         await mcpHost.release(token);
         throw error;

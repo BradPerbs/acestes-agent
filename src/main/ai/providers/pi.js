@@ -7,6 +7,7 @@ const { app } = require('electron');
 
 const mcpHost = require('../mcp-host');
 const catalog = require('../tools');
+const sandboxLib = require('../sandbox');
 const acp = require('./acp');
 
 /**
@@ -70,6 +71,18 @@ function workspace() {
     const directory = path.join(root, 'agent-workspaces', 'pi');
     try { fs.mkdirSync(directory, { recursive: true }); } catch { /* the spawn says so */ }
     return directory;
+}
+
+/**
+ * Where the process starts: the agent's granted project when it may write
+ * there, else the empty workspace above. Pi takes no directory flag and
+ * reads no config file from it, so nothing else needs splitting: our tools
+ * travel in the extension and the environment, and the session id is ours
+ * (`--session-id` opens that session or creates it, so a cwd change starts
+ * old conversations fresh rather than bricking them).
+ */
+function workingDirectory(settings) {
+    return sandboxLib.workingDirectoryFor(settings, workspace());
 }
 
 /**
@@ -216,7 +229,7 @@ function launch(settings, { sessionId = '', host = null, rpcArgs = [] } = {}) {
     const command = commandFor(args);
     if (!command) throw new Error('Pi is not installed on this machine. Install it with "npm install -g @earendil-works/pi-coding-agent", then try again.');
     const child = spawn(command.command, command.args, {
-        cwd: workspace(),
+        cwd: workingDirectory(current),
         env: { ...process.env, ...(current.accountEnv || {}), ...(host ? { ACESTES_MCP_URL: host.tokenUrl } : {}) },
         stdio: ['pipe', 'pipe', 'pipe'],
         windowsHide: true,
@@ -647,5 +660,5 @@ module.exports = {
     detect,
     findPi,
     supportsImages: true,
-    _test: { describeModels, formatContextWindow, extensionPath, useCommand: (command) => { override = command; } },
+    _test: { describeModels, formatContextWindow, extensionPath, workingDirectory, useCommand: (command) => { override = command; } },
 };

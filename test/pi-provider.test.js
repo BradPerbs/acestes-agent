@@ -118,6 +118,45 @@ function harness(overrides = {}) {
         await bareSession.close();
     });
 
+    await test('the process starts in the granted project, or the empty workspace without one', async () => {
+        // Resolved: the spawned process reports its directory with symlinks
+        // (e.g. /var) expanded, which the mkdtemp path still carries.
+        const project = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cb-test-pi-project-')));
+        try {
+            const fallback = fs.realpathSync(pi._test.workingDirectory({ allowLocalTools: true, sandbox: { folders: [] } }));
+            const spawnedCwd = async (overrides) => {
+                const probe = harness({ allowLocalTools: true, ...overrides });
+                const probeSession = await pi.start(probe.options);
+                probe.events.length = 0;
+                probeSession.send('hello');
+                await until(() => probe.events.some(event => event.type === 'result'), 'the probe result');
+                const reply = probe.events.filter(event => event.type === 'assistant-text').pop().text;
+                await probeSession.close();
+                const match = /cwd=(\S+)/.exec(reply);
+                assert.ok(match, `the scripted run reports its directory: ${reply}`);
+                return match[1];
+            };
+            assert.strictEqual(
+                await spawnedCwd({ sandbox: { folders: [{ path: project, mode: 'write' }] } }),
+                project,
+                'a writable grant is the spawn directory'
+            );
+            assert.strictEqual(
+                await spawnedCwd({ sandbox: { folders: [{ path: project, mode: 'read' }] } }),
+                fallback,
+                'a read-only grant is never the spawn directory'
+            );
+            assert.strictEqual(await spawnedCwd({}), fallback, 'no grant keeps the empty workspace');
+            assert.strictEqual(
+                await spawnedCwd({ allowLocalTools: false, sandbox: { folders: [{ path: project, mode: 'write' }] } }),
+                fallback,
+                'local tools off keeps the empty workspace'
+            );
+        } finally {
+            fs.rmSync(project, { recursive: true, force: true });
+        }
+    });
+
     await test('a blocked command is refused without a card', async () => {
         h.events.length = 0;
         h.approvals.length = 0;

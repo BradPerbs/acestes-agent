@@ -1,7 +1,18 @@
+const Module = require('module');
 const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+
+const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'cb-test-grok-'));
+const electronStub = {
+    app: { getPath: () => userData, getVersion: () => '1.0.0', on: () => {}, whenReady: () => new Promise(() => {}) },
+};
+const originalLoad = Module._load;
+Module._load = function patched(request, ...rest) {
+    if (request === 'electron') return electronStub;
+    return originalLoad.call(this, request, ...rest);
+};
 
 const provider = require('../src/main/ai/providers/grok');
 const mcpHost = require('../src/main/ai/mcp-host');
@@ -137,6 +148,43 @@ async function run() {
     assert.strictEqual(provider.effortFor({ effort: 'medium' }), 'medium');
     assert.strictEqual(provider.effortFor({ effort: 'ultra' }), 'max');
     assert.strictEqual(provider.effortFor({ effort: '' }), '', 'no setting means no flag');
+
+    /* ---------------- The working directory ---------------- */
+
+    // A writable grant is where the run works; `--cwd` and the spawn carry
+    // the same folder, so proving the one proves the other.
+    const grant = path.join(os.tmpdir(), 'grok-grant-site');
+    const readOnly = path.join(os.tmpdir(), 'grok-grant-docs');
+    const fallback = provider._test.workspace();
+    const grantedSettings = {
+        allowLocalTools: true,
+        sandbox: { folders: [{ path: readOnly, mode: 'read' }, { path: grant, mode: 'write' }] },
+    };
+    assert.strictEqual(provider._test.directoryFor(grantedSettings), grant, 'the first writable grant');
+    assert.strictEqual(
+        provider._test.directoryFor({ allowLocalTools: true, sandbox: { folders: [{ path: readOnly, mode: 'read' }] } }),
+        fallback,
+        'a read-only grant is never the working directory'
+    );
+    assert.strictEqual(provider._test.directoryFor({ allowLocalTools: true }), fallback, 'no grant keeps the old fallback');
+    assert.strictEqual(
+        provider._test.directoryFor({ allowLocalTools: false, sandbox: { folders: [{ path: grant, mode: 'write' }] } }),
+        fallback,
+        'local tools off keeps the old fallback'
+    );
+
+    const grantedArgs = provider.runArguments({
+        current: { ...base, allowLocalTools: true },
+        sessionId: 'abc-123',
+        resume: false,
+        directory: provider._test.directoryFor(grantedSettings),
+        prompt: 'do the thing',
+    });
+    assert.strictEqual(grantedArgs[grantedArgs.indexOf('--cwd') + 1], grant, 'a writable grant becomes --cwd');
+
+    // No servers to publish: a bare run writes nothing into the user config.
+    assert.strictEqual(provider._test.mcpFragment(null), '');
+    assert.strictEqual(provider._test.mcpFragment(''), '');
 
     /* ---------------- Naming our tools apart from its own ---------------- */
 
@@ -424,6 +472,48 @@ async function run() {
         fs.rmSync(directory, { recursive: true, force: true });
     }
 
+    /* ---------------- Publishing servers into the user config ---------------- */
+
+    // The run starts in the repo, so the servers go in ~/.grok/config.toml,
+    // which Grok loads for every directory. Only our tables move.
+    const userHome = fs.mkdtempSync(path.join(os.tmpdir(), 'grok-user-'));
+    try {
+        const file = path.join(userHome, 'config.toml');
+        const prior = '[cli]\ninstaller = "internal"\n\n[mcp_servers.runpod]\nurl = "https://mcp.getrunpod.io/"\n\n[mcp_servers.remote]\nurl = "https://old.example/mcp"\n';
+        fs.writeFileSync(file, prior, 'utf8');
+        const fragment = provider._test.mcpFragment('http://127.0.0.1:9/mcp/token', {
+            servers: [{ name: 'Playwright', transport: 'stdio', command: 'npx', args: ['-y', '@playwright/mcp@latest'], env: {} }],
+        });
+        const restore = provider.publishUserMcp(fragment, { source: userHome });
+        const published = fs.readFileSync(file, 'utf8');
+        assert.match(published, /\[cli\]/);
+        assert.match(published, /\[mcp_servers\.runpod\]/);
+        assert.match(published, /\[mcp_servers\.remote\]/);
+        assert.ok(published.includes('http://127.0.0.1:9/mcp/token'), 'our address replaces the one that was there');
+        assert.ok(!published.includes('https://old.example/mcp'));
+        assert.match(published, /\[mcp_servers\.Playwright\]/);
+
+        // An edit made while the session is open survives the restore.
+        fs.appendFileSync(file, '\n[ui]\ntheme = "groknight"\n');
+        restore();
+        restore();
+        const after = fs.readFileSync(file, 'utf8');
+        assert.match(after, /\[cli\]/);
+        assert.match(after, /\[mcp_servers\.runpod\]/);
+        assert.match(after, /\[ui\]/);
+        assert.ok(after.includes('https://old.example/mcp'), 'the user\'s own remote server comes back');
+        assert.ok(!after.includes('127.0.0.1:9'), 'our address is gone');
+        assert.ok(!after.includes('[mcp_servers.Playwright]'), 'a server we added is gone');
+
+        const absent = path.join(userHome, 'missing');
+        fs.mkdirSync(absent);
+        const empty = provider.publishUserMcp('', { source: absent });
+        empty();
+        assert.ok(!fs.existsSync(path.join(absent, 'config.toml')), 'nothing to publish writes no file');
+    } finally {
+        fs.rmSync(userHome, { recursive: true, force: true });
+    }
+
     /* ---------------- Trusting the workspace ---------------- */
 
     // The CLI ignores a folder's config until the folder is trusted, and in
@@ -601,6 +691,7 @@ async function run() {
     }
 
     console.log('grok provider tests passed');
+    fs.rmSync(userData, { recursive: true, force: true });
 }
 
 run().catch((error) => {

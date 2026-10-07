@@ -5,6 +5,7 @@ const { spawn } = require('child_process');
 
 const mcpHost = require('../mcp-host');
 const mcpConfig = require('../mcp-config');
+const sandboxLib = require('../sandbox');
 
 /**
  * The Codex provider.
@@ -243,13 +244,14 @@ function effortFor(settings) {
  *
  * This used to be the temp directory every time, so an agent granted a
  * repository for writing had every Codex edit to it refused, and tested a
- * copy in %TEMP% instead.
+ * copy in %TEMP% instead. The first-writable-grant rule lives in
+ * `sandbox.js` (`writableFolders`) and is shared with every provider; this
+ * only adds what Codex alone takes: the rest of the writable grants, and
+ * the temp directory, as additional directories.
  */
 function workspaceFor(sandbox) {
     const temp = os.tmpdir();
-    const writable = (Array.isArray(sandbox?.folders) ? sandbox.folders : [])
-        .filter(folder => folder?.mode === 'write' && folder.path)
-        .map(folder => folder.path);
+    const writable = sandboxLib.writableFolders(sandbox);
     if (writable.length === 0) return { workingDirectory: temp, additionalDirectories: [] };
     return { workingDirectory: writable[0], additionalDirectories: [...writable.slice(1), temp] };
 }

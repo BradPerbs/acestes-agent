@@ -6,6 +6,7 @@ const { app } = require('electron');
 
 const mcpHost = require('../mcp-host');
 const mcpConfig = require('../mcp-config');
+const sandboxLib = require('../sandbox');
 const acp = require('./acp');
 // Pictures staged for the turn, as files the CLI is pointed at. Shared with
 // the Codex provider, whose headless run takes them the same way (see Grok).
@@ -25,9 +26,12 @@ const { stageImages } = require('./codex');
  * Two things differ from the other agents here, and both come from the CLI.
  *
  * Tools reach it through a workspace MCP config. There is no flag for an MCP
- * server, so `.agents/mcp_config.json` is written into our own empty working
- * directory at the top of every turn, pointing at `mcp-host`. The user's own
- * `~/.gemini` is never written to.
+ * server, so `.agents/mcp_config.json` is written into our own working
+ * directory at the top of every turn, pointing at `mcp-host`. The process
+ * stays in that directory: agy only reads the file from the directory it runs
+ * in, and the file is not written into a repository. A folder the agent may
+ * write is handed over with `--add-dir` instead. The user's own `~/.gemini`
+ * is never written to.
  *
  * It cannot be asked. A headless run has no channel for approvals: anything
  * that needs one is soft-denied and listed in the result's `denied_actions`.
@@ -103,6 +107,21 @@ function workspace() {
     return directory;
 }
 
+/**
+ * Writable grants to pass as `--add-dir`.
+ *
+ * The process cwd stays `workspace()`, because that is the only place agy
+ * reads `.agents/mcp_config.json` from. Adding the grant makes it part of
+ * the workspace without writing that file into the repository. A read-only
+ * grant is left out: `--add-dir` makes the folder writable. Local tools off
+ * adds nothing, so the switch that says this machine is not to be written
+ * still holds.
+ */
+function addedDirectories(settings) {
+    if (settings?.allowLocalTools === false) return [];
+    return sandboxLib.writableFolders(settings?.sandbox);
+}
+
 /** The workspace MCP config: the agent's own servers, then ours. */
 function writeMcpConfig(directory, settings, host) {
     const servers = {};
@@ -120,7 +139,7 @@ function writeMcpConfig(directory, settings, host) {
     fs.writeFileSync(path.join(directory, '.agents', 'mcp_config.json'), JSON.stringify({ mcpServers: servers }, null, 2));
 }
 
-function runArguments({ model, effort, conversationId, skipPermissions }) {
+function runArguments({ model, effort, conversationId, skipPermissions, directories = [] }) {
     // The tier rides as `--effort` on the base model, never as a suffixed slug:
     // an old stored `claude-opus-5-5-medium` still normalises to its base, so
     // `--model` and `--effort` can never name two different tiers the way
@@ -134,6 +153,7 @@ function runArguments({ model, effort, conversationId, skipPermissions }) {
         ...(EFFORT_MAP[effort] ? ['--effort', EFFORT_MAP[effort]] : []),
         ...(conversationId ? ['--conversation', conversationId] : []),
         ...(skipPermissions ? ['--dangerously-skip-permissions'] : []),
+        ...directories.flatMap(directory => ['--add-dir', directory]),
     ];
 }
 
@@ -312,6 +332,8 @@ async function start({
 
     async function turn(text, images = []) {
         const current = getSettings();
+        // Config stays in the app directory even when a grant appears
+        // mid-conversation. The grant rides as `--add-dir` below.
         const directory = workspace();
         writeMcpConfig(directory, current, host);
 
@@ -330,6 +352,7 @@ async function start({
             effort: current.effort,
             conversationId,
             skipPermissions: current.approval === 'never',
+            directories: addedDirectories(current),
         }));
         const translator = createTranslator(onEvent);
         let stderr = '';
@@ -676,6 +699,7 @@ module.exports = {
         describeModels,
         writeMcpConfig,
         promptWithImages,
+        addedDirectories,
         useCommand: (command) => { override = command; },
     },
 };

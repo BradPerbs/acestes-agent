@@ -6,6 +6,7 @@ const { app } = require('electron');
 
 const mcpHost = require('../mcp-host');
 const mcpConfig = require('../mcp-config');
+const sandboxLib = require('../sandbox');
 
 /**
  * The Kimi Code provider.
@@ -335,19 +336,25 @@ function findKimi(options = {}) {
  * declaration and the sessions all land there rather than in the user's own
  * `~/.kimi-code`, which is left exactly as they set it up.
  *
- * `workspace` is where the agent is started. Not the user's project, and not
- * their home. A terminal agent reads the directory it is started in, and this
- * one has no business in either: the work is on the servers, reached through
- * tools, and an empty folder is the honest description of what it has local
- * access to. It sits beside the data directory rather than inside it, so a
- * session's own files and the folder the agent can see are never the same tree.
+ * `workspace` is where the agent is started. The granted project when the
+ * agent may write there, else an empty folder of ours beside the data
+ * directory (so a session's own files and the folder the agent can see are
+ * never the same tree). KIMI_CODE_HOME stays the app-owned home either way:
+ * the config, the MCP declaration and the sessions all land there rather
+ * than in the project or in the user's own `~/.kimi-code`.
+ *
+ * Sessions live under that home, so resuming (`--session`) survives the cwd
+ * change; a stored id this machine no longer has starts a fresh session
+ * rather than failing. This CLI takes no flag for extra directories, so
+ * only the first writable grant becomes the working directory and the rest
+ * are left to the sandbox envelope.
  */
-function directories() {
+function directories(settings = {}) {
     const root = app.getPath('userData');
     const home = path.join(root, 'kimi-code');
-    const workspace = path.join(root, 'kimi-code-workspace');
+    const fallback = path.join(root, 'kimi-code-workspace');
 
-    for (const directory of [home, workspace]) {
+    for (const directory of [home, fallback]) {
         try {
             fs.mkdirSync(directory, { recursive: true });
         } catch {
@@ -356,7 +363,7 @@ function directories() {
         }
     }
 
-    return { home, workspace };
+    return { home, workspace: sandboxLib.workingDirectoryFor(settings, fallback) };
 }
 
 /**
@@ -932,7 +939,7 @@ async function start(options) {
             + 'its own.');
     }
 
-    const { home, workspace } = directories();
+    const { home, workspace } = directories(settings);
     // Bare provider CLI: none of the app tools attached.
     const { tokenUrl, token } = settings?.bareProvider
         ? { tokenUrl: null, token: null }

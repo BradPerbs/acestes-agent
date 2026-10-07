@@ -7,6 +7,7 @@ const path = require('path');
 
 const args = process.argv.slice(2);
 const flag = (name) => { const index = args.indexOf(name); return index >= 0 ? args[index + 1] : ''; };
+const repeated = (name) => args.flatMap((arg, index) => (arg === name ? [args[index + 1] || ''] : []));
 const out = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
 
 if (args[0] === 'models') {
@@ -41,7 +42,7 @@ process.stdin.on('end', () => {
     out({ event: 'step_update', step_update: { step_index: 0, state: 'ACTIVE', step_type: 'agent_response', text_delta: 'Looking. ' } });
     out({ event: 'step_update', step_update: { step_index: 1, state: 'ACTIVE', step_type: 'tool', tool_info: { name: 'mcp_remote_list_hosts', parameters: {} } } });
     out({ event: 'step_update', step_update: { step_index: 1, state: 'DONE', step_type: 'tool', tool_info: { name: 'mcp_remote_list_hosts', parameters: {}, output: 'two hosts' } } });
-    const reply = `Found them. conversation=${conversation} model=${flag('--model')} effort=${flag('--effort')} skip=${args.includes('--dangerously-skip-permissions')} servers=${servers.join(',')} prompt=${text.startsWith('SYSTEM') ? 'with-system' : 'plain'}`;
+    const reply = `Found them. conversation=${conversation} model=${flag('--model')} effort=${flag('--effort')} skip=${args.includes('--dangerously-skip-permissions')} servers=${servers.join(',')} prompt=${text.startsWith('SYSTEM') ? 'with-system' : 'plain'} cwd=${process.cwd()} dirs=${repeated('--add-dir').join('|')}`;
     out({ event: 'step_update', step_update: { step_index: 2, state: 'ACTIVE', step_type: 'agent_response', text_delta: reply } });
     out({ event: 'step_update', step_update: { step_index: 2, state: 'DONE', step_type: 'agent_response' } });
     out({ event: 'result', result: {

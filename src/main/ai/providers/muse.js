@@ -8,6 +8,7 @@ const { app } = require('electron');
 const mcpHost = require('../mcp-host');
 const mcpConfig = require('../mcp-config');
 const catalog = require('../tools');
+const sandboxLib = require('../sandbox');
 const acp = require('./acp');
 
 /**
@@ -100,11 +101,22 @@ function workspace() {
 
 const envFor = (settings = {}) => ({ ...process.env, ...(settings.accountEnv || {}) });
 
-function launch(settings) {
+/**
+ * Where the conversation runs: the granted project, else the empty workspace
+ * above. The process starts there and the session is rooted there
+ * (`workspaceRoot`), so the agent's own tools act where the user said they
+ * may. A resumed session is loaded with the new root when the host allows
+ * it and otherwise starts fresh (see `start`); nothing is migrated.
+ */
+function cwdFor(settings) {
+    return sandboxLib.workingDirectoryFor(settings, workspace());
+}
+
+function launch(settings, cwd = '') {
     const command = commandFor(['serve']);
     if (!command) throw new Error('Muse Code is not installed on this machine. Install it from dev.meta.ai, then try again.');
     const child = spawn(command.command, command.args, {
-        cwd: workspace(),
+        cwd: cwd || cwdFor(settings),
         env: envFor(settings),
         stdio: ['pipe', 'pipe', 'pipe'],
         windowsHide: true,
@@ -295,7 +307,7 @@ async function start({
         if (host) await mcpHost.release(host.token);
     };
 
-    const cwd = workspace();
+    const cwd = cwdFor(settings);
     try {
         await handshake(rpc);
         const mcpServers = sessionServers(settings, host);
@@ -304,6 +316,7 @@ async function start({
                 const resumed = await rpc.request('session/resume', {
                     commandId: uuid7(),
                     sessionId: resumeSessionId,
+                    workspaceRoot: cwd,
                     config: { mcpServers },
                     excludeItems: true,
                 }, { timeout: START_TIMEOUT });
@@ -604,7 +617,8 @@ async function start({
 async function listModels({ settings = {} } = {}) {
     if (!commandFor([])) return null;
     let proc;
-    try { proc = launch(settings); } catch { return null; }
+    // No conversation and no session: the empty workspace, whatever is granted.
+    try { proc = launch(settings, workspace()); } catch { return null; }
     const rpc = acp.connect(proc.child);
     try {
         await handshake(rpc);
@@ -626,7 +640,8 @@ async function listModels({ settings = {} } = {}) {
 async function readLimits({ settings = {} } = {}) {
     if (!commandFor([])) return { identity: null, windows: [], error: 'Muse Code is not installed on this machine.' };
     let proc;
-    try { proc = launch(settings); } catch (error) { return { identity: null, windows: [], error: error.message }; }
+    // As above: no conversation, so the empty workspace rather than the project.
+    try { proc = launch(settings, workspace()); } catch (error) { return { identity: null, windows: [], error: error.message }; }
     const rpc = acp.connect(proc.child);
     try {
         await handshake(rpc, { experimental: true });
@@ -736,6 +751,7 @@ module.exports = {
         windowsFrom,
         usageOf,
         sessionServers,
+        cwdFor,
         useCommand: (command) => { override = command; },
     },
 };

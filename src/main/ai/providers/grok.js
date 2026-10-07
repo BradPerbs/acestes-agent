@@ -7,6 +7,7 @@ const { app } = require('electron');
 
 const mcpHost = require('../mcp-host');
 const mcpConfig = require('../mcp-config');
+const sandboxLib = require('../sandbox');
 const engine = require('./openai-compatible');
 // Pictures staged for the turn, as files the CLI is pointed at. Shared with
 // the Codex provider, whose headless run takes them the same way.
@@ -193,8 +194,9 @@ function findGrok(options = {}) {
  *
  * `~/.grok` is the CLI's default, and `GROK_HOME` wins if one is set, because
  * that is the answer the CLI itself would give. What is in there belongs to
- * the CLI: this app reads it, and writes exactly one line of its own, the
- * trust entry for its workspace (see `trustWorkspace`).
+ * the CLI. This app reads it, trusts the folder it runs in (see
+ * `trustWorkspace`), and, while a session is open, merges its own
+ * `[mcp_servers.*]` tables into `config.toml` and takes them out again.
  */
 function grokHome({ env = process.env, home = os.homedir() } = {}) {
     return envValue(env, 'GROK_HOME') || path.join(home, '.grok');
@@ -307,6 +309,10 @@ function cachedModels({ source = grokHome() } = {}) {
  * directory it is started in, and this one has no business in either: the work
  * is on the servers, reached through tools, and an empty folder is the honest
  * description of what it has local access to.
+ *
+ * That is the fallback. With a folder granted for writing the run starts
+ * there instead (see `directoryFor`): the model must work where the user
+ * said it may, not in an empty folder it then abandons for $HOME.
  */
 function workspace() {
     const directory = path.join(app.getPath('userData'), 'grok-build');
@@ -320,22 +326,133 @@ function workspace() {
 }
 
 /**
- * Point the agent at our tools, in the directory it is about to run in.
+ * Where one headless run starts: the granted project, else the workspace
+ * above. Both the `--cwd` argument and the spawn's own directory, which are
+ * the same folder today.
  *
- * The address carries the token in its path rather than in a header, which is
- * what `mcp-host` grew a second way in for: a config file is the only channel
- * here, and an address is the one thing every MCP client can be given.
+ * A resumed session restores its conversation only (no `--restore-code` is
+ * passed and no session files are migrated), so a cwd change carries the
+ * chat into the new folder; a stored id the CLI no longer has starts fresh
+ * under the same id instead of failing.
+ */
+function directoryFor(settings) {
+    return sandboxLib.workingDirectoryFor(settings, workspace());
+}
+
+/**
+ * The MCP tables for one session, in the CLI's TOML spelling.
  *
- * Written in both spellings on purpose. Grok Build reads its own TOML, and
- * takes the `.mcp.json` that this generation of agents share; which of the two
- * a given release prefers is not worth pinning a provider's behaviour to, and
- * the one it ignores costs a few hundred bytes in a folder we own.
+ * Bare (no URL) and no servers of the agent's own: nothing. The user's
+ * `~/.grok/config.toml` is already loaded for every directory, so an empty
+ * fragment means the run adds no server and writes no file.
+ */
+function mcpFragment(url, { servers = [], sandbox = null, agentId = '' } = {}) {
+    const own = (Array.isArray(servers) ? servers : []).filter(entry => entry?.name && entry.name !== SERVER_NAME);
+    return `${mcpConfig.toml(own, sandbox, agentId)}${url ? `[mcp_servers.${SERVER_NAME}]\nurl = "${url}"\n` : ''}`;
+}
+
+/** Server names this fragment publishes. A `.headers` or `.env` subtable belongs to its parent. */
+function mcpTableNames(toml) {
+    const names = [];
+    const re = /^\[mcp_servers\.((?:"(?:\\.|[^"\\])*")|[A-Za-z0-9_-]+)\]\s*$/gm;
+    for (const match of String(toml).matchAll(re)) {
+        let name = match[1];
+        if (name.startsWith('"')) {
+            try { name = JSON.parse(name); } catch { continue; }
+        }
+        if (!names.includes(name)) names.push(name);
+    }
+    return names;
+}
+
+/** Whether a TOML header is one of our servers or a subtable of one. */
+function ownsMcpTable(header, names) {
+    for (const name of names) {
+        const key = `mcp_servers.${mcpConfig.tomlKey(name)}`;
+        if (header === key || header.startsWith(`${key}.`)) return true;
+    }
+    return false;
+}
+
+/**
+ * Drop our `[mcp_servers.*]` tables from a config, including a `.headers`
+ * or `.env` subtable. Every other line stays, in order.
+ */
+function withoutMcpTables(text, names) {
+    const lines = String(text).split('\n');
+    const out = [];
+    let skipping = false;
+    for (const line of lines) {
+        const header = /^\[([^\]]+)\]\s*$/.exec(line);
+        if (header) skipping = ownsMcpTable(header[1], names);
+        if (!skipping) out.push(line);
+    }
+    return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+/** The text of our tables as they stand in a config, or ''. */
+function extractMcpTables(text, names) {
+    const lines = String(text).split('\n');
+    const out = [];
+    let skipping = true;
+    for (const line of lines) {
+        const header = /^\[([^\]]+)\]\s*$/.exec(line);
+        if (header) skipping = !ownsMcpTable(header[1], names);
+        if (!skipping) out.push(line);
+    }
+    return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+/**
+ * Merge our servers into the user config Grok reads for every directory.
+ *
+ * The run's cwd is the granted repo, and this CLI has no flag that points
+ * MCP discovery at another folder, so the tables go in `~/.grok/config.toml`
+ * rather than into the repo. Only those tables are touched: a server the
+ * user already had under the same name is put back when the session ends,
+ * and anything else they edit meanwhile stays. An empty fragment writes
+ * nothing. The returned function is safe to call twice.
+ */
+function publishUserMcp(fragment, { source = grokHome() } = {}) {
+    const block = String(fragment || '').trim();
+    const names = mcpTableNames(block);
+    if (names.length === 0) return () => {};
+
+    const file = path.join(source, 'config.toml');
+    let original = null;
+    try { original = fs.readFileSync(file, 'utf8'); } catch { original = null; }
+    const saved = original == null ? '' : extractMcpTables(original, names);
+    const base = original == null ? '' : withoutMcpTables(original, names);
+    fs.mkdirSync(source, { recursive: true });
+    fs.writeFileSync(file, base ? `${base}\n\n${block}\n` : `${block}\n`, 'utf8');
+
+    let done = false;
+    return () => {
+        if (done) return;
+        done = true;
+        let current = '';
+        try { current = fs.readFileSync(file, 'utf8'); } catch { current = ''; }
+        const without = withoutMcpTables(current, names);
+        const putBack = saved.trim();
+        const next = putBack
+            ? (without ? `${without}\n\n${putBack}\n` : `${putBack}\n`)
+            : (without ? `${without}\n` : '');
+        if (!next && original == null) {
+            try { fs.unlinkSync(file); } catch { /* already gone */ }
+            return;
+        }
+        fs.writeFileSync(file, next, 'utf8');
+    };
+}
+
+/**
+ * The same servers, as files in a directory this app owns.
+ *
+ * Kept for the spelling tests. A real run does not call it: writing these
+ * into the working directory would drop them in the user's repository, and
+ * Grok reads the user config wherever it was started (see `publishUserMcp`).
  */
 function writeMcpConfig(directory, url, { servers = [], sandbox = null, agentId = '' } = {}) {
-    // The agent's own servers go in beside ours, spawned through the same
-    // launcher Claude Code uses for them. One named like ours would be two
-    // tables with one name, which TOML refuses whole, so it is left out.
-    // Bare (no URL): own servers only, none of the app's tools.
     const own = (Array.isArray(servers) ? servers : []).filter(entry => entry?.name && entry.name !== SERVER_NAME);
     const json = JSON.stringify({
         mcpServers: {
@@ -343,10 +460,7 @@ function writeMcpConfig(directory, url, { servers = [], sandbox = null, agentId 
             ...(url ? { [SERVER_NAME]: { type: 'http', url } } : {}),
         },
     }, null, 2);
-
-    // The CLI's own spelling of an http server is the address alone; the
-    // `type` key belongs to the JSON format and is not in its TOML.
-    const toml = `${mcpConfig.toml(own, sandbox, agentId)}${url ? `[mcp_servers.${SERVER_NAME}]\nurl = "${url}"\n` : ''}`;
+    const toml = mcpFragment(url, { servers, sandbox, agentId });
 
     fs.mkdirSync(path.join(directory, '.grok'), { recursive: true });
     fs.writeFileSync(path.join(directory, '.grok', 'config.toml'), toml, 'utf8');
@@ -884,22 +998,28 @@ async function start(options) {
             + 'and sign in with "grok" in a terminal, then switch it on again.');
     }
 
-    const directory = workspace();
+    const directory = directoryFor(settings);
     // Bare provider CLI: none of the app's tools attached; the config keeps
-    // the agent's own servers only.
+    // the agent's own servers only. Either way the tables go in the user
+    // config, which Grok loads for every cwd, so the process can start in
+    // the granted repo without a config file landing there.
     const { tokenUrl, token } = settings?.bareProvider
         ? { tokenUrl: null, token: null }
         : await mcpHost.acquire({ toolContext, requestApproval, onEvent });
 
+    let restoreMcp = () => {};
     try {
-        writeMcpConfig(directory, tokenUrl, { servers: settings.mcpServers, sandbox: settings.sandbox, agentId: settings.agentId });
+        restoreMcp = publishUserMcp(mcpFragment(tokenUrl, {
+            servers: settings.mcpServers,
+            sandbox: settings.sandbox,
+            agentId: settings.agentId,
+        }));
     } catch (error) {
         if (token) await mcpHost.release(token);
         throw new Error(`The Grok Build configuration could not be written: ${error.message}`);
     }
-    // Without this the file above is read and ignored. Not fatal on its
-    // own: a run with the CLI's tools alone is still a run, and the agent
-    // will say what it is missing.
+    // A project folder still has to be trusted or headless mode ignores what
+    // it finds there. An entry that already says `false` is left alone.
     try {
         trustWorkspace(directory);
     } catch (error) {
@@ -1040,6 +1160,7 @@ async function start(options) {
             stopped = true;
             stopProcess(child);
             await running.catch(() => {});
+            try { restoreMcp(); } catch { /* the next session replaces the same tables */ }
             if (token) await mcpHost.release(token);
         },
     };
@@ -1136,6 +1257,7 @@ module.exports = {
     createTranslator,
     runArguments,
     writeMcpConfig,
+    publishUserMcp,
     trustWorkspace,
     stripServer,
     effortFor,
@@ -1146,5 +1268,5 @@ module.exports = {
     API_URL,
     // Pictures go in as files on the turn's prompt: see `promptWithImages`.
     supportsImages: true,
-    _test: { runTurn, stopProcess, workspace },
+    _test: { runTurn, stopProcess, workspace, directoryFor, mcpFragment },
 };

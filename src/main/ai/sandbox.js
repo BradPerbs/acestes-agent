@@ -276,6 +276,65 @@ function describe(sandbox) {
     ].join('\n');
 }
 
+/* ------------------------------------------------------------------ *
+ * Provider working directory
+ * ------------------------------------------------------------------ */
+
+/**
+ * Where a provider CLI starts: the first folder granted for writing.
+ *
+ * A terminal agent reads the directory it is started in, and with the app's
+ * tools unattached (bare provider CLI) nothing else tells it where the
+ * agent's project is. So every provider starts in the first grant with mode
+ * "write" rather than in an empty directory of ours, and the model works
+ * where the user said it may.
+ *
+ * The rules every provider follows, in one place so they cannot drift:
+ *
+ *   - the working directory is the first writable grant with an absolute
+ *     path. A folder granted read-only is never it: these CLIs treat their
+ *     working directory as writable, and starting there would make it so.
+ *   - the rest of the writable grants are extra directories, passed only
+ *     through a flag the CLI actually has. Nothing is invented for one that
+ *     has none, and nothing is stuffed into a prompt preamble.
+ *   - with no writable grant the provider keeps its own fallback directory.
+ *     That is the server-ops case (no local project), and it stays.
+ *   - with local tools off the project is not the working directory. The
+ *     CLI must not take the repo as its write root for a switch that says
+ *     it writes nowhere local, so the fallback is used instead.
+ *   - the CLI runs on the host even when the envelope says "container", so
+ *     this is the host grant path, never /workspace.
+ */
+function writableFolders(sandbox) {
+    const folders = Array.isArray(sandbox?.folders) ? sandbox.folders : [];
+    const out = [];
+    for (const folder of folders) {
+        if (folder?.mode !== 'write') continue;
+        // Either platform's absolute spelling: the envelope normalises grants
+        // for the machine they were stored on, but a relative grant is never
+        // a working directory on any of them.
+        if (typeof folder.path !== 'string' || (!path.isAbsolute(folder.path) && !path.win32.isAbsolute(folder.path))) continue;
+        out.push(folder.path);
+    }
+    return out;
+}
+
+/** The first folder the agent may write, or '' when none was granted. */
+function projectDirectory(sandbox) {
+    return writableFolders(sandbox)[0] || '';
+}
+
+/**
+ * Where one provider CLI starts: the project when there is one to work in,
+ * else the fallback directory it already used. `settings` is what the
+ * providers receive (the grants live on `settings.sandbox`); `fallback` is
+ * that provider's current directory for the server-ops case.
+ */
+function workingDirectoryFor(settings, fallback) {
+    if (settings?.allowLocalTools === false) return fallback;
+    return projectDirectory(settings?.sandbox) || fallback;
+}
+
 module.exports = {
     DEFAULTS,
     DEFAULT_IMAGE,
@@ -287,4 +346,7 @@ module.exports = {
     containerPath,
     safeEnv,
     describe,
+    writableFolders,
+    projectDirectory,
+    workingDirectoryFor,
 };

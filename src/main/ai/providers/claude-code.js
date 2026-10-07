@@ -4,6 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const catalog = require('../tools');
+const sandboxLib = require('../sandbox');
 
 /**
  * The Claude Code provider.
@@ -613,6 +614,34 @@ async function title({ settings = {}, instruction, prompt, signal, think = 'defa
 }
 
 /**
+ * Where the conversation query runs: the first folder granted for writing,
+ * else our own data directory.
+ *
+ * The rest of the writable grants ride as `additionalDirectories`, the SDK's
+ * own flag for them (Codex takes the same two the same way). With local
+ * tools off there is no project root at all: the repo must not become the
+ * CLI's write root, so the query stays home with no extra directories.
+ *
+ * `settingSources` is `['project']` in the granted folder and `[]` at home.
+ * Per the SDK, 'project' must be included to load CLAUDE.md files, and
+ * leaving 'user' out keeps the machine-global Claude settings out: the
+ * project's own instructions apply, nothing else's.
+ */
+function conversationRoot(settings) {
+    const writable = settings?.allowLocalTools === false
+        ? []
+        : sandboxLib.writableFolders(settings?.sandbox);
+    if (writable.length === 0) {
+        return { cwd: app.getPath('userData'), additionalDirectories: undefined, settingSources: [] };
+    }
+    return {
+        cwd: writable[0],
+        additionalDirectories: writable.length > 1 ? writable.slice(1) : undefined,
+        settingSources: ['project'],
+    };
+}
+
+/**
  * Start a conversation.
  *
  *   settings         the resolved settings, as they are at this moment. Only
@@ -676,6 +705,8 @@ async function start({
         const missing = store.unresolvedDeep(toolInput);
         return { input: missing.length > 0 ? toolInput : store.resolveDeep(toolInput), missing };
     };
+
+    const root = conversationRoot(settings);
 
     const options = {
         ...(systemPrompt ? { systemPrompt } : {}),
@@ -762,12 +793,20 @@ async function start({
         maxTurns: settings.maxTurns > 0 ? settings.maxTurns : undefined,
         abortController,
         env,
-        // Our own directory, and none of the user's Claude Code project files.
-        // A CLAUDE.md written for some repository has nothing to say about
-        // operating servers, and silently importing their global settings
-        // would mean this panel behaved differently on every machine.
-        cwd: app.getPath('userData'),
-        settingSources: [],
+        // Where the conversation works: the first folder granted for
+        // writing, else our own directory. A resumed session carries on
+        // there (the stored id with no session behind it starts fresh, and
+        // nothing is migrated). The rest of the writable grants ride as
+        // additional directories, which is the SDK's own flag for them.
+        //
+        // Project instruction files in that folder (CLAUDE.md) apply, so the
+        // model hears the project it works in; that needs the 'project'
+        // source, which the SDK requires for CLAUDE.md. The machine-global
+        // user settings stay out, which is what excluding 'user' is there
+        // for. With no project the query keeps the old isolation whole.
+        cwd: root.cwd,
+        additionalDirectories: root.additionalDirectories,
+        settingSources: root.settingSources,
     };
 
     options.pathToClaudeCodeExecutable = executable;
@@ -1565,4 +1604,5 @@ module.exports = {
     // provider); the agents driven through a text prompt have no slot at all,
     // and the composer only offers the button where main says it works.
     supportsImages: true,
+    conversationRoot,
 };

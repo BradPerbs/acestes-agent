@@ -8,6 +8,7 @@ const mcpHost = require('../mcp-host');
 const mcpConfig = require('../mcp-config');
 const catalog = require('../tools');
 const diff = require('../diff');
+const sandboxLib = require('../sandbox');
 
 /**
  * Agents that speak the Agent Client Protocol.
@@ -23,7 +24,8 @@ const diff = require('../diff');
  * What an agent gets is what every other runtime here gets:
  *
  *   - its own harness and its own login, since it is the user's install that
- *     runs, started in an empty directory of ours
+ *     runs, started in the granted project (or an empty directory of ours
+ *     with nothing granted)
  *   - our tools, over loopback from `mcp-host`, gated there by the approval
  *     policy like every runtime's; handed over as an HTTP server when the agent
  *     says it can take one, and through `mcp-bridge.js` over stdio when not
@@ -402,6 +404,18 @@ function workspace(id) {
     return directory;
 }
 
+/**
+ * Where one conversation runs: the granted project, else the empty workspace
+ * above. The process starts there and the session (`session/new`, or
+ * `session/load` with the new cwd when the agent allows it) is rooted
+ * there; a stored session the agent no longer has starts fresh rather than
+ * failing, and nothing is migrated. The servers travel in the RPC rather
+ * than in files, so no config of ours lands in the project.
+ */
+function cwdFor(spec, settings) {
+    return sandboxLib.workingDirectoryFor(settings, workspace(spec.id));
+}
+
 /* ------------------------------------------------------------------ *
  * The provider
  * ------------------------------------------------------------------ */
@@ -435,7 +449,7 @@ function createAcpProvider(spec) {
             : (spec.find() ? { command: spec.find(), args: spec.args ? spec.args(settings || {}) : [] } : null);
         if (!command) throw new Error(spec.notInstalled || `${spec.label} is not installed on this machine.`);
         const child = spawn(command.command, command.args, {
-            cwd: workspace(spec.id),
+            cwd: cwdFor(spec, settings),
             env: envFor(settings),
             stdio: ['pipe', 'pipe', 'pipe'],
             windowsHide: true,
@@ -532,7 +546,7 @@ function createAcpProvider(spec) {
         let init;
         let sessionId = '';
         let state;
-        const cwd = workspace(spec.id);
+        const cwd = cwdFor(spec, settings);
         try {
             init = await handshake(rpc);
             const capabilities = init?.agentCapabilities || {};
@@ -906,6 +920,9 @@ function createAcpProvider(spec) {
         const rpc = connect(proc.child);
         try {
             const init = await handshake(rpc);
+            // A throwaway for the catalogue, not a conversation: rooted in
+            // our own workspace whatever is granted, so no session of it
+            // ever lands in the user's project.
             const created = await openSession(rpc, { cwd: workspace(spec.id), mcpServers: [] }, init);
             const rows = describeModels(readSession(created));
             return rows.length ? rows : null;
@@ -1024,5 +1041,5 @@ module.exports = {
     commonRoots,
     stopProcess,
     connect,
-    _test: { sessionServers, readSession, describeModels, agentEffortFor, appEffortFor, ourTool, usageOf, flattenContent },
+    _test: { sessionServers, readSession, describeModels, agentEffortFor, appEffortFor, ourTool, usageOf, flattenContent, cwdFor },
 };

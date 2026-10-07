@@ -54,7 +54,7 @@ async function prompt(message) {
     send({ type: 'tool_execution_start', toolCallId: 'c2', toolName: 'list_hosts', args: {} });
     send({ type: 'tool_execution_end', toolCallId: 'c2', toolName: 'list_hosts', result: { content: [{ type: 'text', text: 'hosts' }] }, isError: false });
 
-    const reply = `Done. model=${state.model} thinking=${state.thinking} session=${state.sessionId} builtins=${state.builtins} extension=${Boolean(state.extension)} mcp=${Boolean(process.env.ACESTES_MCP_URL)}`;
+    const reply = `Done. model=${state.model} thinking=${state.thinking} session=${state.sessionId} builtins=${state.builtins} extension=${Boolean(state.extension)} mcp=${Boolean(process.env.ACESTES_MCP_URL)} cwd=${process.cwd()}`;
     send({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: reply } });
     send({ type: 'message_end', message: { role: 'assistant', content: [{ type: 'text', text: reply }], stopReason: 'stop', usage: { input: 200, output: 40, cacheRead: 30, cost: { total: 0.0034 } } } });
     send({ type: 'agent_end', messages: [] });
