@@ -368,17 +368,19 @@ async function run() {
     meter.event({ type: 'usage', usage: { input_tokens: 8455, output_tokens: 67 } });
     meter.event({
         type: 'end',
+        num_turns: 2,
         usage: { input_tokens: 11256, output_tokens: 111, total_tokens: 28647 },
         total_cost_usd: 0.00540906,
     });
     meter.finish();
 
     const readings = metered.events.filter(event => event.type === 'context');
-    assert.strictEqual(readings.length, 2, 'each step moves the ring, like Pi');
-    assert.deepStrictEqual(
-        readings.map(reading => reading.used),
-        [8522, 28647],
-        'per call the fields as stated; at the end the fuller total wins, since the total counts the cached tokens the fields omit'
+    assert.strictEqual(readings.length, 1, 'the closing sum of every call is the bill, not the window');
+    assert.strictEqual(readings[0].used, 8522, 'the ring stays on the last model call');
+    assert.strictEqual(
+        metered.events.at(-1).usage.total_tokens,
+        28647,
+        'the result still carries the turn\'s bill'
     );
     assert.strictEqual(readings[0].limit, 256000);
     assert.strictEqual(readings[0].percent, Math.round((8522 / 256000) * 100));
@@ -434,9 +436,112 @@ async function run() {
         'the total wins when it counts more'
     );
     assert.deepStrictEqual(
+        provider.usageTokens({
+            input_tokens: 40000,
+            output_tokens: 4009,
+            cache_read_input_tokens: 45000,
+            cache_creation_input_tokens: 1000,
+        }),
+        { used: 90009, cached: 45000 },
+        'one call is its uncached input, both cache buckets, and its output'
+    );
+    assert.deepStrictEqual(
+        provider.usageTokens({
+            inputTokens: 1304292,
+            outputTokens: 11581,
+            totalTokens: 1315873,
+            cachedReadTokens: 1246976,
+        }),
+        { used: 1315873, cached: 1246976 },
+        'a reading whose input already holds the cache is not charged for it twice'
+    );
+
+    const windowed = collect();
+    const filled = provider.createTranslator(windowed.onEvent, {
+        model: 'grok-4.6',
+        contextLimit: () => 256000,
+    });
+    filled.event({
+        type: 'usage',
+        usage: { input_tokens: 40000, output_tokens: 4009, cache_read_input_tokens: 45000 },
+    });
+    filled.event({
+        type: 'end',
+        num_turns: 21,
+        modelUsage: { 'grok-4.7': { modelCalls: 21 } },
+        usage: {
+            input_tokens: 57316,
+            output_tokens: 11581,
+            cache_read_input_tokens: 1246976,
+            total_tokens: 1315873,
+        },
+    });
+    filled.finish();
+    const live = windowed.events.filter(event => event.type === 'context');
+    assert.deepStrictEqual(
+        live.map(reading => reading.used),
+        [89009],
+        'a long tool loop keeps the last call, not the sum of all 21'
+    );
+    assert.strictEqual(live[0].cached, 45000);
+    assert.strictEqual(live[0].percent, Math.round((89009 / 256000) * 100));
+
+    const lone = collect();
+    const singleRound = provider.createTranslator(lone.onEvent, {
+        model: 'grok-4.6',
+        contextLimit: () => 256000,
+    });
+    singleRound.event({ type: 'usage', usage: { input_tokens: 11256, output_tokens: 111 } });
+    singleRound.event({
+        type: 'end',
+        num_turns: 1,
+        usage: { input_tokens: 11256, output_tokens: 111, total_tokens: 28647 },
+    });
+    singleRound.finish();
+    assert.deepStrictEqual(
+        lone.events.filter(event => event.type === 'context').map(reading => reading.used),
+        [11367, 28647],
+        'one call\'s closing total is the window, cache included where the fields omit it'
+    );
+    assert.deepStrictEqual(
         provider.usageTokens({ type: 'usage', costUsd: 0.02 }),
         { used: 0, cached: 0 },
         'a cost-only line reads as nothing'
+    );
+
+    const allowance = {
+        config: {
+            currentPeriod: {
+                type: 'USAGE_PERIOD_TYPE_WEEKLY',
+                start: '2026-10-05T08:20:39.549668+00:00',
+                end: '2026-10-12T08:20:39.549668+00:00',
+            },
+            creditUsagePercent: 36,
+            productUsage: [{ product: 'GrokBuild', usagePercent: 36 }, { product: 'GrokChat' }],
+        },
+    };
+    assert.deepStrictEqual(
+        provider.windowsFromBilling(allowance),
+        [{
+            id: 'seven_day',
+            label: '',
+            minutes: 10080,
+            used: 36,
+            resetsAt: Date.parse('2026-10-12T08:20:39.549668+00:00'),
+            status: '',
+        }],
+        'the weekly allowance is the plan window the status bar draws'
+    );
+    assert.deepStrictEqual(provider.windowsFromBilling({}), [], 'no figure is no window');
+    assert.strictEqual(
+        provider.windowsFromBilling({ creditUsagePercent: 12, currentPeriod: { type: 'USAGE_PERIOD_TYPE_MONTHLY', end: '2026-11-01T00:00:00Z' } })[0].id,
+        'window_43200',
+        'a monthly period stays a month'
+    );
+    assert.strictEqual(
+        provider.billingUrl(fs.mkdtempSync(path.join(os.tmpdir(), 'grok-bill-'))),
+        'https://cli-chat-proxy.grok.com/v1/billing?format=credits',
+        'with no cache the known host is asked'
     );
 
     /* ---------------- Pointing it at our tools ---------------- */

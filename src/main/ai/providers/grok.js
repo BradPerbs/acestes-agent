@@ -1,4 +1,5 @@
 const fs = require('fs');
+const https = require('https');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
@@ -55,6 +56,14 @@ const SERVER_NAME = 'remote';
 const UNLIMITED_TURNS = 10000;
 
 const API_URL = 'https://api.x.ai/v1';
+
+/**
+ * Where the CLI reads the subscription allowance (`/usage` in its own window).
+ *
+ * `settings_cache.json` names the same host, with `/v1` on the end. A cache
+ * that names anything else is ignored: the login token is not sent elsewhere.
+ */
+const BILLING_ORIGIN = 'https://cli-chat-proxy.grok.com';
 
 const LABEL = 'xAI';
 
@@ -205,6 +214,122 @@ function grokHome({ env = process.env, home = os.homedir() } = {}) {
 /** Whether the CLI has a login in that home to run on. */
 function signedIn({ source = grokHome(), existsSync = fs.existsSync } = {}) {
     return existsSync(path.join(source, 'auth.json'));
+}
+
+/** The login entry the CLI stored, or nothing when the file is not one. */
+function authEntry(source = grokHome()) {
+    const auth = readJson(path.join(source, 'auth.json'));
+    if (!auth || typeof auth !== 'object') return null;
+    return Object.values(auth).find(entry => entry && typeof entry === 'object' && entry.key) || null;
+}
+
+/**
+ * The subscription allowance, as the limits page's windows.
+ *
+ * The CLI's `/usage` modal reads `GET /v1/billing?format=credits`. The figure
+ * is one period, weekly on a SuperGrok plan: `creditUsagePercent` of that
+ * period, resetting at `currentPeriod.end`. A period the answer does not
+ * name is treated as that week. Pay-as-you-go with a zero cap is not a
+ * second window.
+ */
+function windowsFromBilling(body) {
+    const config = body?.config && typeof body.config === 'object' ? body.config : body;
+    if (!config || typeof config !== 'object') return [];
+    const clamp = (value) => {
+        const n = Number(value);
+        return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : null;
+    };
+    let used = clamp(config.creditUsagePercent);
+    if (used === null && Array.isArray(config.productUsage)) {
+        const build = config.productUsage.find(row => /grok.?build/i.test(String(row?.product || '')));
+        used = clamp(build?.usagePercent);
+    }
+    if (used === null) return [];
+    const period = config.currentPeriod && typeof config.currentPeriod === 'object' ? config.currentPeriod : {};
+    const type = String(period.type || '');
+    const monthly = /MONTH/i.test(type);
+    const resetsAt = Date.parse(period.end || config.billingPeriodEnd || '') || null;
+    return [{
+        id: monthly ? 'window_43200' : 'seven_day',
+        label: '',
+        minutes: monthly ? 43200 : 10080,
+        used,
+        resetsAt,
+        status: used >= 100 ? 'rejected' : '',
+    }];
+}
+
+/** The billing URL the CLI itself would call, from its cache when that names this host. */
+function billingUrl(source = grokHome()) {
+    const cache = readJson(path.join(source, 'settings_cache.json'));
+    let origin = `${BILLING_ORIGIN}/v1`;
+    try {
+        const payload = typeof cache?.payload === 'string' ? JSON.parse(cache.payload) : cache?.payload;
+        const named = String(payload?.origin || '').replace(/\/$/, '');
+        if (named === BILLING_ORIGIN || named.startsWith(`${BILLING_ORIGIN}/`)) origin = named;
+    } catch {
+        // The known host.
+    }
+    return `${origin}/billing?format=credits`;
+}
+
+/** One HTTPS GET, as `{ status, body }`. `body` is parsed JSON, or null. */
+function getJson(url, headers) {
+    return new Promise((resolve, reject) => {
+        const req = https.get(url, { headers, timeout: 15000 }, (res) => {
+            const chunks = [];
+            res.on('data', (chunk) => chunks.push(chunk));
+            res.on('end', () => {
+                const text = Buffer.concat(chunks).toString('utf8');
+                let body = null;
+                try { body = JSON.parse(text); } catch { body = null; }
+                resolve({ status: res.statusCode || 0, body });
+            });
+        });
+        req.on('timeout', () => req.destroy(new Error('The billing request timed out.')));
+        req.on('error', reject);
+    });
+}
+
+/**
+ * Who the account is and how much of its weekly allowance is used.
+ *
+ * No turn is sent. The figure is the plan's, so it counts every device on
+ * the login, which is what the status bar is for.
+ */
+async function readLimits() {
+    if (!findGrok()) return { identity: null, windows: [], error: 'Grok Build is not installed on this machine.' };
+    const source = grokHome();
+    const entry = authEntry(source);
+    const identity = {
+        signedIn: Boolean(entry?.key),
+        email: String(entry?.email || ''),
+        plan: '',
+        organization: String(entry?.team_name || ''),
+        method: String(entry?.auth_mode || ''),
+    };
+    if (!identity.signedIn) return { identity, windows: [] };
+    let answer;
+    try {
+        answer = await getJson(billingUrl(source), {
+            Authorization: `Bearer ${entry.key}`,
+            Accept: 'application/json',
+        });
+    } catch (error) {
+        return { identity, windows: [], error: describeFailure(error.message) };
+    }
+    if (answer.status === 401 || answer.status === 403) {
+        return {
+            identity,
+            windows: [],
+            error: 'Grok Build is not signed in on this machine. Run "grok" in a terminal and sign in, then try again here.',
+        };
+    }
+    if (answer.status !== 200 || !answer.body) {
+        return { identity, windows: [], error: 'Grok Build did not answer its usage limits. Try again in a moment.' };
+    }
+    const windows = windowsFromBilling(answer.body);
+    return { identity, windows, unsupported: windows.length === 0 };
 }
 
 /** One of the CLI's own files, parsed, or nothing if it is not there yet. */
@@ -598,22 +723,54 @@ function contextWindows({ source = grokHome() } = {}) {
 }
 
 /**
- * A usage object as tokens for the composer's ring: what went in, cached or
- * not, and what came back.
+ * One model call as tokens for the composer's ring: what that call sent,
+ * cached or not, and what it got back.
  *
- * The CLI's `total_tokens` counts more than the two fields name (cached
- * prompt tokens ride along in it: 11256 in and 111 out reads as 28647 on
- * the wire), so the fuller figure wins rather than the sum understating the
- * reading. Read leniently like the rest of this stream: a shape not listed
- * here reads as nothing rather than as a crash.
+ * Headless `input_tokens` is the uncached portion, and the cache buckets sit
+ * beside it. `total_tokens` is the same call with those buckets included, so
+ * when the fields leave the cache out the total is the window. A reading that
+ * already folds the cache into `input_tokens` adds up to `total_tokens` on its
+ * own: adding the cache bucket again would count it twice. Read leniently, as
+ * the rest of this stream is: a shape not listed here reads as nothing rather
+ * than as a crash.
  */
 function usageTokens(usage) {
     if (!usage || typeof usage !== 'object') return { used: 0, cached: 0 };
     const input = Number(usage.input_tokens ?? usage.inputTokens ?? usage.prompt_tokens) || 0;
     const output = Number(usage.output_tokens ?? usage.outputTokens ?? usage.completion_tokens) || 0;
-    const cached = Number(usage.cache_read_input_tokens ?? usage.cached_tokens ?? usage.cache_read) || 0;
+    const cached = Number(
+        usage.cache_read_input_tokens ?? usage.cachedReadTokens ?? usage.cacheReadInputTokens
+        ?? usage.cached_tokens ?? usage.cache_read
+    ) || 0;
+    const written = Number(
+        usage.cache_creation_input_tokens ?? usage.cacheCreationTokens
+        ?? usage.cache_creation_tokens ?? usage.cache_creation
+    ) || 0;
     const total = Number(usage.total_tokens ?? usage.totalTokens) || 0;
-    return { used: Math.max(input + output + cached, total), cached };
+    const fields = input + output;
+    const withCache = fields + cached + written;
+    const inputHoldsCache = total > 0 && cached + written > 0 && fields >= total;
+    return { used: inputHoldsCache ? Math.max(fields, total) : Math.max(withCache, total), cached };
+}
+
+/**
+ * How many model calls the closing line says it added up.
+ *
+ * `num_turns` is the main agent's rounds. `modelCalls` counts subagents too.
+ * Either one above a single call means `usage` is a sum of calls, which is
+ * the bill for the turn and not the size of the window. Zero means the line
+ * did not say.
+ */
+function roundsOf(payload) {
+    const named = Number(payload?.num_turns ?? payload?.numTurns) || 0;
+    const models = payload?.modelUsage || payload?.model_usage;
+    let calls = 0;
+    if (models && typeof models === 'object') {
+        for (const row of Object.values(models)) {
+            calls += Number(row?.modelCalls ?? row?.model_calls) || 0;
+        }
+    }
+    return Math.max(named, calls);
 }
 
 function createTranslator(onEvent, { model = '', contextLimit = () => 0 } = {}) {
@@ -623,11 +780,12 @@ function createTranslator(onEvent, { model = '', contextLimit = () => 0 } = {}) 
     let sawError = false;
     const announced = new Set();
     let lastContext = '';
+    let reportedContext = false;
 
     /**
-     * How full the context is after the latest reply: its tokens over the
-     * model's window, as Pi draws it beside its composer. Said each time it
-     * moves, which is once per model call. Without a window there is no
+     * How full the context is after the latest model call: that call's tokens
+     * over the model's window, as Pi draws it beside its composer. Said each
+     * time it moves, once per model call. Without a window there is no
      * reading and the ring stays empty, as before: a percentage over a
      * guessed window would be worse than none.
      */
@@ -639,6 +797,7 @@ function createTranslator(onEvent, { model = '', contextLimit = () => 0 } = {}) 
         const key = `${used}/${limit}/${cached}`;
         if (key === lastContext) return;
         lastContext = key;
+        reportedContext = true;
         onEvent({
             type: 'context',
             used,
@@ -732,15 +891,20 @@ function createTranslator(onEvent, { model = '', contextLimit = () => 0 } = {}) 
                     if (payload.usage) reportContext(payload.usage);
                     return;
 
-                // The last line of a run, and the only one that totals it. The
-                // `usage` lines above are per model call, so a turn that called
-                // two would otherwise report the second one's tokens as the
-                // turn's, and the cost is only ever stated here: none of the
-                // usage lines carries one, which is why the chip read zero.
+                // The last line of a run, and the only one that totals it. Its
+                // `usage` adds up every model call in the prompt, which is the
+                // bill (the same prefix counted again on each tool round) and
+                // not how full the window is. The per-call `usage` lines above
+                // already are the window, the last of them the current one.
+                // A single call has nothing to add up, and its `total_tokens`
+                // is the window, cache included where the other fields omit it.
+                // The cost is only ever stated here: none of the usage lines
+                // carries one, which is why the chip read zero.
                 case 'end':
                     if (payload.usage) {
                         usage = payload.usage;
-                        reportContext(payload.usage);
+                        const rounds = roundsOf(payload);
+                        if (rounds <= 1 && (rounds === 1 || !reportedContext)) reportContext(payload.usage);
                     }
                     cost += Number(payload.total_cost_usd ?? payload.totalCostUsd ?? 0) || 0;
                     return;
@@ -1245,6 +1409,7 @@ module.exports = {
     start,
     listModels,
     detect,
+    readLimits,
     findGrok,
     grokHome,
     signedIn,
@@ -1252,6 +1417,9 @@ module.exports = {
     configuredModel,
     contextWindows,
     usageTokens,
+    roundsOf,
+    windowsFromBilling,
+    billingUrl,
     isGrokModel,
     grokRoots,
     createTranslator,

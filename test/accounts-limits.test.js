@@ -51,7 +51,7 @@ const codex = require(path.join(ROOT, 'ai', 'providers', 'codex'));
 // The machine's own login is always there and moves nothing.
 assert.deepStrictEqual(accounts.list('claude-code').map(account => account.id), ['default']);
 assert.deepStrictEqual(accounts.envFor('claude-code', 'default'), {});
-assert.deepStrictEqual(accounts.list('grok'), [], 'a runtime with one login has no account list');
+assert.deepStrictEqual(accounts.list('grok').map(account => account.id), ['default'], 'one login, so the weekly limit has a row');
 
 // A fresh account gets a folder of its own under userData, and the variable.
 const work = accounts.add({ provider: 'claude-code', label: 'Work' }).account;

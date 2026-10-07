@@ -13,7 +13,7 @@ export const STALE_AFTER = 15 * 60 * 1000;
  * The runtimes whose plan reports its own windows. The rest are counted here
  * (turns, tokens) but have no limit of theirs to show.
  */
-export const PLAN_RUNTIMES = new Set(['claude-code', 'codex', 'muse', 'antigravity']);
+export const PLAN_RUNTIMES = new Set(['claude-code', 'codex', 'muse', 'antigravity', 'grok']);
 
 const WINDOW_ORDER = ['five_hour', 'seven_day', 'seven_day_opus', 'seven_day_sonnet', 'seven_day_oauth_apps'];
 

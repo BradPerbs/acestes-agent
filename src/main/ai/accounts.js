@@ -72,11 +72,13 @@ const RUNTIMES = {
     },
     /**
      * One login per machine: Antigravity's lives in the OS keyring and
-     * Vibe's API key in one keyring entry whatever its home says. Listed so
-     * their sign-in and limits have a row, with nothing to add beside it.
+     * Vibe's API key in one keyring entry whatever its home says. Grok
+     * Build's is the one login in `~/.grok`. Listed so their sign-in and
+     * limits have a row, with nothing to add beside it.
      */
     antigravity: { single: true },
     vibe: { single: true },
+    grok: { single: true },
 };
 
 const DEFAULT_ID = 'default';

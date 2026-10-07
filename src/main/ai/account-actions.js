@@ -23,6 +23,7 @@ const RUNNERS = {
     qwen: require('./providers/qwen'),
     vibe: require('./providers/vibe'),
     pi: require('./providers/pi'),
+    grok: require('./providers/grok'),
 };
 
 let notify = () => {};
