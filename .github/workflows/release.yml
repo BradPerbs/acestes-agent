@@ -297,7 +297,13 @@ jobs:
       #
       # Nothing here can touch this repository. The token is only ever used to
       # push a branch to a fork of winget-pkgs and open a pull request from it.
-      - uses: vedantmgoyal9/winget-releaser@v2
+      #
+      # Pinned to a commit, not the moving v2 tag. GitHub loads an action's
+      # manifest before it reads the step's `if:`, so when v2 moved to a commit
+      # whose action.yml does not validate (c4f385a, "Required property is
+      # missing: shell") this job failed the 1.4.0 run even with no token set
+      # and the step skipped. 4ffc788 is what v2 was through 1.3.9.
+      - uses: vedantmgoyal9/winget-releaser@4ffc7888bffd451b357355dc214d43bb9f23917e # v2, 2026-10-06
         if: env.HAS_TOKEN == 'true'
         with:
           identifier: CloudBlast.CloudTerm
