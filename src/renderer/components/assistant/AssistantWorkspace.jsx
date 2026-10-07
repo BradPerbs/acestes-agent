@@ -16,6 +16,7 @@ import PanelMenu from './PanelMenu';
 import ScopeMenu from './ScopeMenu';
 import AssistantConversation, { HAIRLINE } from './AssistantConversation';
 import ConversationFind from './ConversationFind';
+import { Ring } from './WorkingIndicator';
 import { useT } from '../../i18n';
 import { PANE_HEADER_HEIGHT } from '../../lib/layout';
 import {
@@ -190,22 +191,23 @@ function Tab({
             <div className="min-w-0 flex-1 flex">
                 <ScopeMenu compact inert={!active || closing} scope={scope} {...scopeProps} />
             </div>
-            {/* Working, said as a dot: a tab that is answering while another is
-                in front should be visibly doing so. */}
-            {status?.busy && (
-                <span
-                    aria-hidden="true"
-                    className="shrink-0 mr-2 w-1.5 h-1.5 rounded-full bg-current animate-pulse"
-                />
-            )}
-            {/* Done while you were elsewhere, until the tab is picked. */}
-            {status?.finished && !status.busy && (
+            {/* Working, said with the spinner the chat's own working line
+                turns: a tab that is answering while another is in front should
+                be visibly doing so. Done while you were elsewhere, a dot in
+                the same place until the tab is picked. */}
+            {status?.busy ? (
+                <span aria-hidden="true" className="shrink-0 mr-2 w-3 h-3 flex items-center justify-center">
+                    <Ring />
+                </span>
+            ) : status?.finished ? (
                 <span
                     aria-label={t('titleBar.finished')}
                     title={t('titleBar.finished')}
-                    className="shrink-0 mr-2 w-1.5 h-1.5 rounded-full bg-gray-900 dark:bg-white"
-                />
-            )}
+                    className="shrink-0 mr-2 w-3 h-3 flex items-center justify-center"
+                >
+                    <span className="w-1.5 h-1.5 rounded-full bg-gray-900 dark:bg-white" />
+                </span>
+            ) : null}
             <button
                 type="button"
                 aria-label={closeLabel}

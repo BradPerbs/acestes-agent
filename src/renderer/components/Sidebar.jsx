@@ -21,8 +21,12 @@ import { agentLook } from '../lib/agent-look';
 import { cubicBezier, prefersReducedMotion, seconds } from '../lib/motion';
 import AgentMark from './assistant/AgentMark';
 import PanelMenu from './assistant/PanelMenu';
+import { Ring } from './assistant/WorkingIndicator';
 import MarqueeText from './ui/MarqueeText';
 import { useT } from '../i18n';
+
+/** No chat waiting to be looked at: one set, so a list with none is not a new prop each render. */
+const NONE_FINISHED = new Set();
 
 /**
  * The column down the left: which agent, and the agent's own things.
@@ -430,8 +434,8 @@ function ConversationsHeading({
     );
 }
 
-/** One chat in the list: its title, whether it is working, and a bin on hover. */
-function ConversationRow({ conversation, active, onOpen, onDelete, onPin, deleteLabel }) {
+/** One chat in the list: its title, whether it is working or done, and a bin on hover. */
+function ConversationRow({ conversation, active, finished, onOpen, onDelete, onPin, deleteLabel }) {
     const t = useT();
     const title = conversation.title || t('assistant.newConversation');
     const pinLabel = conversation.pinned ? t('conversations.unpin') : t('conversations.pin');
@@ -469,10 +473,23 @@ function ConversationRow({ conversation, active, onOpen, onDelete, onPin, delete
                     ${conversation.pinned ? 'pr-8' : 'pr-3'} group-hover/row:pr-14 group-focus-within/row:pr-14
                     ${active ? ACTIVE : IDLE}`}
             >
-                {/* Working, said as a dot, the way the tab strip says it. */}
-                {conversation.busy && (
-                    <span aria-hidden="true" className="shrink-0 w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
-                )}
+                {/* Working, said with the spinner the chat's own working line
+                    turns; done while you were elsewhere, a dot until it is
+                    opened. The way the tab strip says both, and in one slot,
+                    so the title does not move when one becomes the other. */}
+                {conversation.busy ? (
+                    <span aria-hidden="true" className="shrink-0 w-3 h-3 flex items-center justify-center">
+                        <Ring />
+                    </span>
+                ) : finished ? (
+                    <span
+                        aria-label={t('titleBar.finished')}
+                        title={t('titleBar.finished')}
+                        className="shrink-0 w-3 h-3 flex items-center justify-center"
+                    >
+                        <span className="w-1.5 h-1.5 rounded-full bg-gray-900 dark:bg-white" />
+                    </span>
+                ) : null}
                 <MarqueeText text={title} playing={hovered} />
             </button>
 
@@ -534,6 +551,9 @@ function Sidebar({
     collapsed,
     conversations = [],
     activeConversationId = '',
+    // Chats whose turn ended out of sight and have not been looked at since,
+    // by conversation id. The tab strip keeps the list; see App.
+    finishedConversationIds = NONE_FINISHED,
     onOpenConversation,
     onNewConversation,
     onDeleteConversation,
@@ -789,6 +809,7 @@ function Sidebar({
                                 key={conversation.conversationId}
                                 conversation={conversation}
                                 active={conversation.conversationId === activeConversationId}
+                                finished={finishedConversationIds.has(conversation.conversationId)}
                                 onOpen={() => onOpenConversation?.(conversation.conversationId)}
                                 onDelete={() => onDeleteConversation?.(conversation.conversationId, conversation.title)}
                                 onPin={() => onPinConversation?.(conversation.conversationId, !conversation.pinned)}

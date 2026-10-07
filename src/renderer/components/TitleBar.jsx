@@ -27,6 +27,7 @@ import ContextMenu from './ui/ContextMenu';
 import WindowControls from './ui/WindowControls';
 import NotificationsMenu from './NotificationsMenu';
 import AgentMark from './assistant/AgentMark';
+import { Ring } from './assistant/WorkingIndicator';
 import Tooltip, { useTooltip } from './ui/Tooltip';
 import MarqueeText from './ui/MarqueeText';
 import { TAB_COLORS, segmentStrip, tabColor, withAlpha } from '../lib/tabs';
@@ -433,13 +434,12 @@ function SessionTab({
                             <path d="M12 5v14M5 12h14" />
                         </svg>
                     ) : isConversation ? (
-                        // The agent's mark, pulsing while it is answering: a
-                        // chat working behind another tab should be visibly
-                        // doing so, the way a dialling session is. Larger than
+                        // The agent's mark, standing still: whether it is
+                        // answering is the spinner after the title. Larger than
                         // the 16px slot it shares with the close button, into
                         // the tab's padding, so it is big enough to be drawn
                         // in lines rather than as a solid glyph.
-                        <AgentMark size={20} look={tab.agentLook} className={tab.busy ? 'animate-pulse' : ''} />
+                        <AgentMark size={20} look={tab.agentLook} />
                     ) : (
                         <OsIcon
                             os={hostOs(tab.host)}
@@ -470,15 +470,23 @@ function SessionTab({
                 : <span className="truncate flex-1 text-left min-w-0">{tab.title}</span>}
             {agentTip}
 
-            {/* Done while you were elsewhere: a chat that finished answering
-                behind another tab, until it is looked at. */}
-            {tab.finished && !tab.busy && (
+            {/* Answering: the spinner the chat's own working line turns, so a
+                chat working behind another tab is visibly doing so. Done while
+                you were elsewhere: a dot in the same place, until it is looked
+                at. */}
+            {isConversation && tab.busy ? (
+                <span aria-hidden="true" className="shrink-0 w-3 h-3 flex items-center justify-center">
+                    <Ring />
+                </span>
+            ) : tab.finished ? (
                 <span
                     aria-label={t('titleBar.finished')}
                     title={t('titleBar.finished')}
-                    className="shrink-0 w-1.5 h-1.5 rounded-full bg-gray-900 dark:bg-white"
-                />
-            )}
+                    className="shrink-0 w-3 h-3 flex items-center justify-center"
+                >
+                    <span className="w-1.5 h-1.5 rounded-full bg-gray-900 dark:bg-white" />
+                </span>
+            ) : null}
 
             {/* Which of several sessions on this host it is. Beside the title
                 rather than inside it: appended to the string it would be the

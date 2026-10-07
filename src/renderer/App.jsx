@@ -2057,6 +2057,12 @@ function App() {
         };
     }), [tabs, sessionOrdinals, conversationStatuses, finishedTabIds, lookFor, t]);
 
+    // The same chats by conversation id, for the sidebar's list to mark them
+    // the way the strip does. A chat with no tab has nowhere it was unseen.
+    const finishedConversationIds = useMemo(() => new Set(tabs
+        .filter(tab => tab.type === 'conversation' && tab.conversationId && finishedTabIds.has(tab.id))
+        .map(tab => tab.conversationId)), [tabs, finishedTabIds]);
+
     const activeTab = tabs.find(tab => tab.id === activeTabId);
 
     // A terminal sitting in the conversation split is a pane of it, not a
@@ -2249,6 +2255,7 @@ function App() {
                     onNavChange={handleNavChange}
                     conversations={conversations}
                     activeConversationId={activeTab?.type === 'conversation' ? activeTab.conversationId : ''}
+                    finishedConversationIds={finishedConversationIds}
                     onOpenConversation={handleOpenConversation}
                     onNewConversation={handleNewConversation}
                     onDeleteConversation={confirmDeleteConversation}
