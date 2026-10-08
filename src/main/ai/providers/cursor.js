@@ -177,5 +177,8 @@ module.exports = {
     login,
     logout,
     findCursor: find,
+    // How to start `cursor-agent <args>`: on Windows a node.exe and the
+    // script it runs, so a caller asking for `--version` needs both.
+    cursorLauncher: launcher,
     _test: { launcher, newestVersion },
 };

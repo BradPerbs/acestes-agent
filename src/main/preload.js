@@ -576,6 +576,11 @@ contextBridge.exposeInMainWorld('api', {
         // is switched on. Resolves `{ ok, reason }`; an agent with nothing to
         // find on disk answers yes.
         detect: (provider) => ipcRenderer.invoke('ai-detect', provider),
+        // Each named agent's installed CLI version beside the newest one out:
+        // `[{ provider, status, installed, latest, update }]`, status one of
+        // current, available, unknown, missing or error.
+        agentVersions: ({ providers = [] } = {}) =>
+            ipcRenderer.invoke('ai-agent-versions', { providers }),
 
         // The sign-ins each runtime can run under, and how much of each plan
         // is left. `overview` answers `{ accounts, limits, logins }`: accounts

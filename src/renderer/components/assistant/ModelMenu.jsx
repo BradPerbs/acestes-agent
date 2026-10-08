@@ -42,6 +42,9 @@ import { useT } from '../../i18n';
  * The keyboard works the way a command palette does: type to filter, arrows
  * to move, Enter to pick, Escape to close.
  *
+ * Each list is read once per run of the app. The button beside the search
+ * field asks every agent again, for a model that came out since.
+ *
  * An agent can also be listed under more than one of its sign-ins, ticked for
  * the menu in the usage panel: then each account is a group of its own under
  * the agent's name, the same models in each, and picking a row picks the
@@ -193,8 +196,8 @@ function MenuBody({ rows, model, settings, providers, catalogs, offered, loading
 
     return (
         <>
-            <div className="shrink-0 px-2 pt-2 pb-1.5">
-                <label className="flex items-center gap-2 h-8 px-2.5 rounded-lg bg-gray-100/80 dark:bg-white/[0.05]
+            <div className="shrink-0 px-2 pt-2 pb-1.5 flex items-center gap-1">
+                <label className="flex-1 min-w-0 flex items-center gap-2 h-8 px-2.5 rounded-lg bg-gray-100/80 dark:bg-white/[0.05]
                     focus-within:ring-1 focus-within:ring-gray-900/15 dark:focus-within:ring-white/15 transition-shadow"
                 >
                     <Search01Icon size={13} strokeWidth={2} className="shrink-0 text-gray-400 dark:text-neutral-500" />
@@ -216,6 +219,22 @@ function MenuBody({ rows, model, settings, providers, catalogs, offered, loading
                         <span className="shrink-0 text-[10px] tabular-nums text-gray-400 dark:text-neutral-500">{flat.length}</span>
                     )}
                 </label>
+                {/* Every switched-on agent asked again, for a model released
+                    since the app started. What is listed stays until the new
+                    answer arrives, and main keeps it if the re-read fails. */}
+                <button
+                    type="button"
+                    disabled={loading}
+                    onClick={() => onRefresh(null)}
+                    aria-label={t('assistant.refreshModels')}
+                    title={t('assistant.refreshModels')}
+                    className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg transition-colors
+                        text-gray-400 dark:text-neutral-500 hover:text-gray-900 dark:hover:text-white
+                        hover:bg-gray-100 dark:hover:bg-white/[0.06] disabled:hover:bg-transparent
+                        outline-none focus-visible:ring-2 focus-visible:ring-gray-900/20 dark:focus-visible:ring-white/25"
+                >
+                    <Refresh01Icon size={13} strokeWidth={2} className={loading ? 'animate-spin' : ''} />
+                </button>
             </div>
 
             <div

@@ -1636,6 +1636,9 @@ function register(getWindow) {
     // Asked by the settings page before an agent is switched on, so a tick that
     // could not have worked is refused while the person is still looking at it.
     handle('ai-detect', (event, provider) => assistant.detect(provider));
+    // The installed and newest version of each agent's CLI, for the settings
+    // page's update check. Reads only; nothing is installed.
+    handle('ai-agent-versions', (event, options) => assistant.agentVersions(options || {}));
 
     /* ---------------- Agent accounts and limits ---------------- */
 

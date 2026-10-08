@@ -540,6 +540,8 @@ export default function AssistantConversation({
     // the menu heals a cold-start miss on its own instead of respawning
     // every runtime that already answered. Main answers a recent miss at
     // once rather than starting its runtime again, which keeps this cheap.
+    // Called with no list, from the menu's refresh button, it asks every
+    // switched-on agent again.
     const refreshModels = useCallback((only) => {
         const missing = Array.isArray(only) && only.length > 0 ? only : providers;
         readModels(missing, { refresh: true });

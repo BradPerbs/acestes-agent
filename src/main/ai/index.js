@@ -1,3 +1,5 @@
+const fs = require('fs');
+const path = require('path');
 const settings = require('./settings');
 const agents = require('../agents');
 const accounts = require('./accounts');
@@ -3939,10 +3941,18 @@ function models({ refresh = false, provider: wanted = '' } = {}) {
 
     // A forced ask drops what is held for this agent and starts again. The
     // menu offers it when a read came back with nothing, which is usually a
-    // runtime that was not up yet rather than an agent with no models.
+    // runtime that was not up yet rather than an agent with no models, and
+    // from its refresh button, to pick up a model released since the app
+    // started. The list it had is kept aside: a re-read that fails puts it
+    // back rather than leaving a working menu empty.
+    let previous = null;
     if (refresh) {
+        previous = modelCatalogs.get(asked) || null;
         modelCatalogs.delete(asked);
         modelMisses.delete(asked);
+        // A read already under way answered the old question; this one starts
+        // its own rather than waiting on that.
+        modelsPending.delete(asked);
     }
 
     if (modelCatalogs.has(asked)) return Promise.resolve(modelCatalogs.get(asked));
@@ -3969,6 +3979,11 @@ function models({ refresh = false, provider: wanted = '' } = {}) {
                 notify('ai-models', { provider: asked, models: rows });
                 return rows;
             }
+            if (previous) {
+                modelCatalogs.set(asked, previous);
+                notify('ai-models', { provider: asked, models: previous });
+                return previous;
+            }
             // Asked, and nothing to report: remembered briefly rather than
             // kept, so the next ask past the window tries again instead of
             // inheriting one bad start for the life of the app. Providers
@@ -3985,6 +4000,10 @@ function models({ refresh = false, provider: wanted = '' } = {}) {
             // menu. Not cached either, so the next ask tries again rather than
             // inheriting one bad start for the life of the app.
             console.error(`Could not read the model list from ${asked}:`, error.message);
+            if (previous) {
+                modelCatalogs.set(asked, previous);
+                return previous;
+            }
             modelMisses.set(asked, Date.now());
             return null;
         })
@@ -4011,6 +4030,64 @@ function models({ refresh = false, provider: wanted = '' } = {}) {
  * Never throws. A check that fails is an answer of "no" with a reason on it,
  * not an exception for a settings page to work out what to do with.
  */
+/**
+ * Where each agent's CLI is, for the version check: `{ command, prefix }`, or
+ * null when it is not installed. Most are one executable; Cursor on Windows is
+ * a node.exe and the script it runs, and Vibe's ACP entry point sits beside
+ * the `vibe` command that knows its version. OpenCode with no CLI runs from
+ * its desktop app, whose version is in the package inside its archive (which
+ * `fs` reads into under Electron) and which updates itself.
+ */
+function locateAgent(provider) {
+    const agent = PROVIDERS[provider];
+    if (!agent) return null;
+    if (provider === 'opencode' && !agent.findOpenCode?.()) {
+        const desktop = agent.findOpenCodeDesktop?.();
+        if (!desktop) return null;
+        let version = '';
+        try {
+            version = JSON.parse(fs.readFileSync(path.join(desktop.asar, 'package.json'), 'utf8')).version || '';
+        } catch {
+            // Left unread: the check says so rather than guessing.
+        }
+        return { command: desktop.exe, version, managedBy: 'app' };
+    }
+    if (provider === 'cursor') {
+        const launch = agent.cursorLauncher?.([]);
+        return launch ? { command: launch.command, prefix: launch.args } : null;
+    }
+    if (provider === 'vibe') {
+        const acpEntry = agent.findVibe?.() || '';
+        if (!acpEntry) return null;
+        const sibling = acpEntry.replace(/vibe-acp(\.\w+)?$/i, 'vibe$1');
+        return { command: sibling !== acpEntry && fs.existsSync(sibling) ? sibling : acpEntry };
+    }
+    const finder = {
+        'claude-code': agent.findClaude,
+        codex: agent.findCodex,
+        antigravity: agent.findAgy,
+        muse: agent.findMuse,
+        opencode: agent.findOpenCode,
+        grok: agent.findGrok,
+        kimi: agent.findKimi,
+        qwen: agent.findQwen,
+        pi: agent.findPi,
+    }[provider];
+    const command = finder ? finder() : '';
+    return command ? { command } : null;
+}
+
+const versionChecker = require('./agent-versions').createVersionChecker({ locate: locateAgent });
+
+/**
+ * The installed and newest version of each named agent's CLI, for the
+ * settings page's update check. Reads only: see agent-versions.js.
+ */
+function agentVersions({ providers = [] } = {}) {
+    const wanted = (Array.isArray(providers) ? providers : []).filter(name => PROVIDERS[name]);
+    return versionChecker.check(wanted);
+}
+
 async function detect(provider) {
     const agent = PROVIDERS[provider];
     if (!agent) return { provider, ok: false, reason: 'unknown' };
@@ -4173,6 +4250,7 @@ module.exports = {
     status,
     models,
     detect,
+    agentVersions,
     shutdown,
     // Exported for the approval tests: the policy-to-gate translation is
     // the whole safety story for background runs, and it must stay pinned.

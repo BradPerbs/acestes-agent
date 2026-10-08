@@ -5,6 +5,7 @@ import Button from '../ui/Button';
 import Checkbox from '../ui/Checkbox';
 import SettingCard from './ui/SettingCard';
 import SettingRow, { DIVIDED } from './ui/SettingRow';
+import AgentUpdatesRow from './AgentUpdatesRow';
 import ProviderMark from '../../lib/provider-marks';
 import { PROVIDER_NAMES, PROVIDER_ORDER } from '../../lib/ai-catalog';
 import { useT } from '../../i18n';
@@ -332,6 +333,7 @@ export default function ModelsCard({ settings, onSettings }) {
                         })}
                     </ul>
                 </SettingRow>
+                <AgentUpdatesRow className={DIVIDED} activated={activated} />
             </SettingCard>
 
             {defaultOpen && (
