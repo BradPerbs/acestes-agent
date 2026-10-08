@@ -41,22 +41,18 @@ every Windows build up to now quietly shipped the default Electron logo.
 electron-builder warns about a missing icon rather than failing, which is how
 that went unnoticed.
 
-**The current `build/icon.png` is built from `acestesicon.png` in the repo root**,
-which is 363x363 and so below the minimum every target needs (256 for Linux and
-the Windows ico, 512 for the macOS icns).
+**Every icon is built from `acestesicon.png` in the repo root by
+`npm run build:icons`** (`scripts/build-icons.js`): `build/icon.png` at 1024,
+`build/icon.ico` at 16 to 256, and `build/icon.icon` through the mac script.
+The packaged apps never read `acestesicon.png` itself, so replacing it without
+running the script ships the old icon: that is what happened when the "A" art
+replaced the keys and bow on 2026-10-02, and releases up to 1.4.4 kept the old
+icon on every platform. Replace the art, run the script, commit all of it.
 
-The upscale is not a plain resample. `acestesicon.png` measures as a rounded
-square flush to its canvas with a corner radius of 35.8% of the side over a
-flat `#0E0E10`, so the frame is redrawn analytically at 1024 from that
-geometry and only the artwork is resampled. That keeps the silhouette a
-one-pixel edge instead of feathering it over five, which is the part of an
-icon the eye reads first. The artwork itself is a 2.8x interpolation and is
-soft if you go looking at full size, though it is invisible by the time
-anything downscales it to a taskbar.
-
-Replacing this with a real 1024x1024 export is still worth doing the next time
-the source art is to hand. Dropping that in at the same path is the whole job:
-no configuration changes with it.
+The source is 750x750, a black rounded square flush to its canvas with a
+hairline `#171717` rim, so `build/icon.png` is a lanczos upscale of 1.37x. A
+real 1024x1024 export is still worth dropping in at the same path the next
+time the art is to hand.
 
 The same file is also copied into the package as `icon.png` (see
 `extraResources`) and handed to every BrowserWindow by `src/main/app-icon.js`,
@@ -64,4 +60,4 @@ which is what puts it on a dev run's windows, where nothing else would.
 Windows gets `build/icon.ico` instead, built from the PNG at 16 to 256px:
 handed the 1024px PNG the window accepts it but the taskbar keeps drawing
 Electron's logo, since the shell wants the sizes it paints and refuses an
-oversized bitmap. Regenerate the ico whenever the PNG changes.
+oversized bitmap. `npm run build:icons` writes it with the PNG.

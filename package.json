@@ -14,6 +14,7 @@
         "build:hello": "node scripts/build-hello-helper.js",
         "build:desktop": "node scripts/build-desktop-helper.js",
         "build:mac-icon": "node scripts/build-mac-icon.js",
+        "build:icons": "node scripts/build-icons.js",
         "build:renderer": "vite build",
         "build:electron": "electron-builder --win --x64",
         "build:electron:mac": "electron-builder --mac",

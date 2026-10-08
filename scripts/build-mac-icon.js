@@ -11,7 +11,7 @@
  * `Assets.car`, and makes the `.icns` that older macOS reads from it as well.
  *
  * So this splits the PNG into those two parts. The background is the flat
- * `#0E0E10` the tile is painted in (see resources/README.md), which becomes
+ * black the tile is painted in (see resources/README.md), which becomes
  * the fill. The artwork is lifted off it: each pixel's opacity is how far it
  * rises above the background and its colour is what it would be at full
  * opacity, so over the same fill it comes back exactly as it was, and it stays
@@ -29,10 +29,12 @@ const SOURCE = path.join(ROOT, 'build', 'icon.png');
 const OUTPUT = path.join(ROOT, 'build', 'icon.icon');
 const LAYER = 'acestes.png';
 
-const BACKGROUND = [0x0e, 0x0e, 0x10];
-// The tile is not perfectly flat: it has a few levels of grain above the
-// background, which would otherwise come through as a faint speckle.
-const GRAIN = 0.035;
+const BACKGROUND = [0x00, 0x00, 0x00];
+// Anything this close to the background is background. The tile carries a
+// hairline rim of #171717 around its edge (a lift of 0.09), which macOS
+// replaces with its own edge; kept, it would come through as a faint ring
+// cut off wherever the system's shape and ours differ.
+const GRAIN = 0.12;
 
 async function main() {
     const { data, info } = await sharp(SOURCE).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
