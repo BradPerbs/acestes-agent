@@ -162,6 +162,14 @@ async function run() {
     assert.strictEqual(off.additionalDirectories, undefined);
     assert.strictEqual(off.networkAccessEnabled, false);
 
+    // Full access takes Codex's own sandbox off; Yolo keeps it.
+    const full = provider.threadOptions({ allowLocalTools: true, approval: 'full', sandbox: { execution: 'host', folders: [repo] } });
+    assert.strictEqual(full.sandboxMode, 'danger-full-access');
+    const yolo = provider.threadOptions({ allowLocalTools: true, approval: 'never', sandbox: { execution: 'host', folders: [repo] } });
+    assert.strictEqual(yolo.sandboxMode, 'workspace-write');
+    const fullOff = provider.threadOptions({ allowLocalTools: false, approval: 'full', sandbox: { folders: [repo] } });
+    assert.strictEqual(fullOff.sandboxMode, 'read-only', 'local tools off still writes nowhere');
+
     // Codex's error item is a warning, and the answer follows it. As an error
     // it ended the turn and stood where the answer should have been.
     const said = [];

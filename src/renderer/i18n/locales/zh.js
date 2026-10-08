@@ -420,12 +420,16 @@ export default {
     'settings.assistant.approval.always': '每一步操作',
     'settings.assistant.approval.writes': '仅工作区',
     'settings.assistant.approval.never': '从不',
+    'settings.assistant.approval.full': '完全访问',
     'settings.assistant.approval.always.note': '每一次工具调用都会等你确认，包括读取文件或终端。'
         + '这样很稳妥，但一次长时间的排查会变成大量点击。',
     'settings.assistant.approval.writes.note': '在已授权的文件夹内，读写操作都会自行运行。在这些文件夹之外，'
         + '以及所有网络访问，都会先停下来等你批准。',
     'settings.assistant.approval.never.note': '任何操作都不会停下来等待批准，包括删除数据或重启服务的命令。'
-        + '只有在你能承受把主机弄坏时才适合使用。',
+        + '在这台电脑上，智能体仍然只在已授权的文件夹内工作。只有在你能承受把主机弄坏时才适合使用。',
+    'settings.assistant.approval.full.note': '什么都不会停下，也没有任何围栏：智能体可以在这台电脑的任何位置读写文件和运行命令，'
+        + '包括已授权文件夹之外，各运行时也不再使用自己的沙箱。只有被阻止的命令仍会被拒绝。'
+        + '如果开启了容器，容器依然是那道墙。',
     'settings.assistant.localTools': '允许在这台电脑上使用工具',
     'settings.assistant.localToolsDesc': '允许助手读写本地文件并运行本地命令，每一步都会先停下来等待批准。'
         + '关闭后，面板只操作服务器。无论开关如何，联网查找资料始终可用。',
@@ -1036,6 +1040,8 @@ export default {
     'assistant.approvalWritesHint': '项目内自由运行，外部和网络先询问',
     'assistant.approvalNever': '放手模式',
     'assistant.approvalNeverHint': '什么都不会停下，包括删除',
+    'assistant.approvalFull': '完全访问',
+    'assistant.approvalFullHint': '任何文件夹、任何命令；只有被阻止的会停下',
 
     'assistant.didListHosts': '已列出主机',
     'assistant.didListSessions': '已列出会话',

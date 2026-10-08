@@ -127,6 +127,49 @@ async function run() {
         assert.ok(/no folders/.test(sandbox.grantFor(sandbox.normalize(), other).error));
     });
 
+    /* ---------------- Full access ---------------- */
+
+    await check('Full access lifts the fence: any path, read or write, read-only grants included', () => {
+        const open = sandbox.withApproval(granted, 'full');
+        assert.strictEqual(open.fullAccess, true);
+        assert.ok(!sandbox.grantFor(open, path.join(other, 'x.txt'), 'write').error, 'outside the grants');
+        assert.ok(!sandbox.grantFor(open, inside('a.txt'), 'write').error, 'inside a read-only grant');
+        assert.strictEqual(sandbox.grantFor(open, 'rel.txt').path, path.resolve(inside('out'), 'rel.txt'),
+            'a relative path starts in the first writable grant');
+        assert.strictEqual(sandbox.grantFor(sandbox.withApproval(sandbox.normalize(), 'full'), '').path, os.homedir(),
+            'with nothing granted it starts at home');
+    });
+
+    await check('Yolo keeps the fence, and a container stays a container under Full access', () => {
+        assert.strictEqual(sandbox.withApproval(granted, 'never'), granted);
+        assert.ok(sandbox.grantFor(sandbox.withApproval(granted, 'never'), other).error);
+        const boxed = sandbox.normalize({ execution: 'container', folders: [{ path: root, mode: 'write' }] });
+        assert.strictEqual(sandbox.withApproval(boxed, 'full').fullAccess, undefined);
+        assert.strictEqual(sandbox.fullAccess({ approval: 'full', sandbox: boxed }), false);
+    });
+
+    await check('the prompt says Full access when it is on', () => {
+        assert.ok(/Full access/.test(sandbox.describe(sandbox.withApproval(granted, 'full'))));
+        assert.ok(/only these folders/.test(sandbox.describe(granted)));
+    });
+
+    await check('a local command runs outside the grants under Full access', async () => {
+        const open = { agentId: 'x', sandbox: sandbox.withApproval(sandbox.normalize(), 'full') };
+        const result = await local.run(open, WIN ? 'cd' : 'pwd');
+        assert.strictEqual(result.success, true, result.message);
+        assert.strictEqual(result.stdout.trim().toLowerCase(), os.homedir().toLowerCase(), 'no cwd and no grant is home');
+        const fenced = await local.run({ agentId: 'x', sandbox: sandbox.normalize() }, 'echo hi');
+        assert.strictEqual(fenced.success, false, 'without it nothing granted is still refused');
+    });
+
+    await check('Full access approves everything but the blocked list', () => {
+        const rules = { ...settings.DEFAULTS, blockedCommands: ['rm -rf'], approval: 'full' };
+        assert.strictEqual(tools.isAutoApproved('write_local_file', { path: path.join(other, 'a') }, rules), true);
+        assert.strictEqual(tools.isAutoApproved('run_local_command', { command: 'rm -rf x' }, rules), false);
+        assert.strictEqual(tools.nativeAutoApproved('Write', { file_path: path.join(other, 'a') }, rules), true);
+        assert.ok(settings.APPROVALS.has('full'));
+    });
+
     /* ---------------- Provider working directory ---------------- */
 
     await check('the working directory is the first folder granted for writing', () => {

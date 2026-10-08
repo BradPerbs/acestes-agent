@@ -543,7 +543,11 @@ async function search(ctx, {
     }
 
     const folders = ctx?.sandbox?.folders || [];
-    if (folders.length === 0) return { error: sandboxModule.grantFor(ctx.sandbox, target || '.').error };
+    const open = Boolean(ctx?.sandbox?.fullAccess);
+    if (folders.length === 0 && !open) return { error: sandboxModule.grantFor(ctx.sandbox, target || '.').error };
+    // No path and nothing granted under Full access: a walk of the whole
+    // home directory is never what was meant, so ask for one.
+    if (folders.length === 0 && !target) return { error: 'Say where to search: pass `path`.' };
     const roots = target
         ? [sandboxModule.grantFor(ctx.sandbox, target)]
         : folders.map(folder => ({ path: folder.path }));
@@ -675,10 +679,12 @@ async function run(ctx, command, { cwd = '', timeout = DEFAULT_TIMEOUT, stdin = 
     }
 
     const folders = ctx?.sandbox?.folders || [];
-    if (folders.length === 0) {
+    if (folders.length === 0 && !ctx?.sandbox?.fullAccess) {
         return { success: false, message: sandboxModule.grantFor(ctx.sandbox, cwd || '.').error };
     }
-    const grant = sandboxModule.grantFor(ctx.sandbox, cwd || folders[0].path);
+    // Under Full access with nothing granted, an empty cwd is home (see
+    // sandbox.homeBase), not the directory the app was launched from.
+    const grant = sandboxModule.grantFor(ctx.sandbox, cwd || folders[0]?.path || '');
     if (grant.error) return { success: false, message: grant.error };
 
     return new Promise((resolve) => {

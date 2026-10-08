@@ -1,4 +1,4 @@
-import { ArrowDown01Icon, FlashIcon, SecurityCheckIcon, Shield01Icon } from 'hugeicons-react';
+import { ArrowDown01Icon, FlashIcon, FolderUnlockedIcon, SecurityCheckIcon, Shield01Icon } from 'hugeicons-react';
 import PanelMenu from './PanelMenu';
 import { useT } from '../../i18n';
 
@@ -35,6 +35,14 @@ const APPROVALS = [
         labelKey: 'assistant.approvalNever',
         hintKey: 'assistant.approvalNeverHint',
         icon: <FlashIcon size={14} strokeWidth={1.5} />,
+    },
+    // One step past Yolo: the folder fence and the runtimes' own sandboxes
+    // come off too. Only the blocked list still refuses.
+    {
+        value: 'full',
+        labelKey: 'assistant.approvalFull',
+        hintKey: 'assistant.approvalFullHint',
+        icon: <FolderUnlockedIcon size={14} strokeWidth={1.5} />,
     },
 ];
 
@@ -82,7 +90,7 @@ export default function ApprovalMenu({ settings, onChange, runPolicy }) {
     // The one state worth colouring. Somebody who has turned approvals off and
     // then forgotten deserves to notice before the next destructive command,
     // and the chip is the only place in the panel that can tell them.
-    const loud = current.value === 'never';
+    const loud = current.value === 'never' || current.value === 'full';
 
     return (
         <PanelMenu

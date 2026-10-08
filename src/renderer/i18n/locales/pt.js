@@ -464,14 +464,19 @@ export default {
     'settings.assistant.approval.always': 'Todas as ações',
     'settings.assistant.approval.writes': 'Só o projeto',
     'settings.assistant.approval.never': 'Nunca',
+    'settings.assistant.approval.full': 'Acesso total',
     'settings.assistant.approval.always.note': 'Todas as chamadas a ferramentas esperam por si, '
         + 'incluindo ler um ficheiro ou o terminal. É minucioso, mas uma investigação longa '
         + 'transforma-se em muitos cliques.',
     'settings.assistant.approval.writes.note': 'Dentro das pastas autorizadas, tudo corre por si, '
         + 'leituras e escritas. Fora delas, e na web, cada chamada para primeiro à espera da sua aprovação.',
     'settings.assistant.approval.never.note': 'Nada para à espera de aprovação, incluindo comandos '
-        + 'que apagam dados ou reiniciam serviços. Só faz sentido para anfitriões que pode dar-se '
-        + 'ao luxo de estragar.',
+        + 'que apagam dados ou reiniciam serviços. Neste computador o agente continua dentro das '
+        + 'pastas autorizadas. Só faz sentido para anfitriões que pode dar-se ao luxo de estragar.',
+    'settings.assistant.approval.full.note': 'Nada para e nada fica vedado: o agente lê, escreve e '
+        + 'corre comandos em qualquer sítio deste computador, também fora das pastas autorizadas, e os '
+        + 'runtimes correm sem a sua própria sandbox. Só os comandos bloqueados continuam recusados. '
+        + 'Um contentor, se estiver ligado, continua a ser a barreira.',
     'settings.assistant.localTools': 'Permitir ferramentas neste computador',
     'settings.assistant.localToolsDesc': 'Deixa o assistente ler e escrever ficheiros locais e '
         + 'correr comandos locais, cada um parando primeiro para aprovação. Desligue para limitar o '
@@ -1197,6 +1202,8 @@ export default {
     'assistant.approvalWritesHint': 'No projeto corre à vontade; fora dele e na web, pergunta',
     'assistant.approvalNever': 'Modo Yolo',
     'assistant.approvalNeverHint': 'Nada para, incluindo o que apaga',
+    'assistant.approvalFull': 'Acesso total',
+    'assistant.approvalFullHint': 'Qualquer pasta, qualquer comando; só os bloqueados param',
 
     'assistant.didListHosts': 'Listou os anfitriões',
     'assistant.didListSessions': 'Listou as sessões',

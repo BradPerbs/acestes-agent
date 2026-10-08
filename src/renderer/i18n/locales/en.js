@@ -1267,11 +1267,17 @@ export default {
     'settings.assistant.approval.always': 'Every action',
     'settings.assistant.approval.writes': 'Workspace only',
     'settings.assistant.approval.never': 'Never',
+    'settings.assistant.approval.full': 'Full access',
     'settings.assistant.approval.always.note': 'Every tool call waits for you, including reading a '
         + 'file or the terminal. Thorough, but a long investigation becomes a lot of clicking.',
     'settings.assistant.approval.writes.note': 'Only stop external calls.',
     'settings.assistant.approval.never.note': 'Nothing stops for approval, including commands that '
-        + 'delete data or restart services. Only sensible for hosts you can afford to break.',
+        + 'delete data or restart services. On this computer the agent still stays inside its granted '
+        + 'folders. Only sensible for hosts you can afford to break.',
+    'settings.assistant.approval.full.note': 'Nothing stops and nothing is fenced: the agent reads, writes '
+        + 'and runs commands anywhere on this computer, outside the granted folders too, and the runtimes '
+        + 'run without their own sandbox. Only the blocked commands are still refused. A container, if '
+        + 'switched on, stays the wall.',
     'settings.assistant.memory': 'Memory',
     'settings.assistant.memoryDesc': 'The agent keeps notes between conversations: its rules go into every chat, '
         + 'and other notes are sent with a message they bear on. It can remember, recall and forget.',
@@ -2263,6 +2269,8 @@ export default {
     'assistant.approvalWritesHint': 'Only stop external calls',
     'assistant.approvalNever': 'Yolo Mode',
     'assistant.approvalNeverHint': 'Nothing stops, deletes included',
+    'assistant.approvalFull': 'Full Access',
+    'assistant.approvalFullHint': 'Any folder, any command; only blocked ones stop',
     'assistant.approvalReadOnlyRun': 'Read-only run',
     'assistant.approvalReadOnlyRunHint': 'Set by this run: reads run freely, changes are refused',
 

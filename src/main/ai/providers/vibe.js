@@ -1,6 +1,7 @@
 const os = require('os');
 const path = require('path');
 const acp = require('./acp');
+const sandboxLib = require('../sandbox');
 
 /**
  * The Mistral Vibe provider.
@@ -41,9 +42,9 @@ const provider = acp.createAcpProvider({
     mcpHttp: true,
     cumulativeUsage: true,
     supportsImages: true,
-    // Its agents double as permission modes. "Never ask" is `auto-approve`;
-    // otherwise its default stands.
-    modeFor: (settings) => (settings.approval === 'never' ? 'auto-approve' : ''),
+    // Its agents double as permission modes. "Never ask" (Yolo or Full
+    // access) is `auto-approve`; otherwise its default stands.
+    modeFor: (settings) => (sandboxLib.unattended(settings) ? 'auto-approve' : ''),
 });
 
 /** `_auth/status`, which answers from the machine without a network call. */

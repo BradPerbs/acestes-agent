@@ -772,11 +772,23 @@ async function start({
                 ...(permission.metadata || {}),
                 ...(permission.pattern ? { pattern: permission.pattern } : {}),
             };
+            // The blocked list applies to OpenCode's own shell exactly as to
+            // ours, whatever the approval mode says: Yolo and Full access
+            // wave everything else through below.
+            const shellCommand = String(permission.type || '').toLowerCase() === 'bash'
+                ? String(input.command ?? (Array.isArray(input.pattern) ? input.pattern.join(' ') : input.pattern) ?? '')
+                : '';
+            const blocked = shellCommand
+                ? catalog.blockedReason('run_local_command', { command: shellCommand }, current)
+                : null;
+            if (blocked) {
+                onEvent({ type: 'tool-blocked', name: 'bash', rule: blocked });
+                approved = false;
             // The approval mode applies to OpenCode's own tools as it does to
             // ours: under "never" nothing waits, and a read under the default
             // is not worth a card. Without this every grep and every file read
             // stopped the run, whatever the user had chosen.
-            if (catalog.nativeAutoApproved(permission.type || '', input, current)) {
+            } else if (catalog.nativeAutoApproved(permission.type || '', input, current)) {
                 approved = true;
             } else {
                 const verdict = await requestApproval({

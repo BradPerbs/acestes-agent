@@ -351,7 +351,7 @@ async function start({
             model: current.model,
             effort: current.effort,
             conversationId,
-            skipPermissions: current.approval === 'never',
+            skipPermissions: sandboxLib.unattended(current),
             directories: addedDirectories(current),
         }));
         const translator = createTranslator(onEvent);

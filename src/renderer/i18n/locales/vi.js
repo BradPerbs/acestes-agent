@@ -448,14 +448,19 @@ export default {
     'settings.assistant.approval.always': 'Mọi thao tác',
     'settings.assistant.approval.writes': 'Chỉ trong dự án',
     'settings.assistant.approval.never': 'Không bao giờ',
+    'settings.assistant.approval.full': 'Toàn quyền',
     'settings.assistant.approval.always.note': 'Mọi lần gọi công cụ đều chờ bạn, kể cả khi chỉ đọc '
         + 'một tệp hay đọc terminal. Rất chắc chắn, nhưng một cuộc điều tra dài sẽ thành rất nhiều '
         + 'lần bấm.',
     'settings.assistant.approval.writes.note': 'Bên trong các thư mục đã cấp quyền, mọi thứ tự chạy, '
         + 'cả đọc lẫn ghi. Bên ngoài các thư mục đó và trên web, mỗi lệnh gọi đều dừng lại chờ bạn phê duyệt.',
     'settings.assistant.approval.never.note': 'Không có gì dừng lại chờ phê duyệt, kể cả các lệnh '
-        + 'xoá dữ liệu hay khởi động lại dịch vụ. Chỉ nên dùng với máy chủ mà bạn chấp nhận được '
-        + 'việc nó hỏng.',
+        + 'xoá dữ liệu hay khởi động lại dịch vụ. Trên máy tính này, agent vẫn ở trong các thư mục '
+        + 'đã cấp quyền. Chỉ nên dùng với máy chủ mà bạn chấp nhận được việc nó hỏng.',
+    'settings.assistant.approval.full.note': 'Không gì dừng lại và không gì bị rào: agent đọc, ghi và '
+        + 'chạy lệnh ở bất cứ đâu trên máy tính này, kể cả ngoài các thư mục đã cấp quyền, và các runtime '
+        + 'chạy không có sandbox riêng. Chỉ các lệnh bị chặn vẫn bị từ chối. Nếu bật container, container '
+        + 'vẫn là bức tường.',
     'settings.assistant.localTools': 'Cho phép dùng công cụ trên máy này',
     'settings.assistant.localToolsDesc': 'Cho phép trợ lý đọc ghi tệp cục bộ và chạy lệnh cục bộ, '
         + 'mỗi lệnh đều dừng lại chờ phê duyệt trước. Tắt đi để bảng này chỉ làm việc với máy chủ. '
@@ -1131,6 +1136,8 @@ export default {
     'assistant.approvalWritesHint': 'Trong dự án chạy tự do; bên ngoài và trên web thì hỏi trước',
     'assistant.approvalNever': 'Chế độ thả cửa',
     'assistant.approvalNeverHint': 'Không gì dừng lại, kể cả lệnh xoá',
+    'assistant.approvalFull': 'Toàn quyền',
+    'assistant.approvalFullHint': 'Mọi thư mục, mọi lệnh; chỉ lệnh bị chặn dừng lại',
 
     'assistant.didListHosts': 'Đã liệt kê máy chủ',
     'assistant.didListSessions': 'Đã liệt kê phiên',

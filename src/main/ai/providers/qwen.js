@@ -2,6 +2,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const acp = require('./acp');
+const sandboxLib = require('../sandbox');
 
 /**
  * The Qwen Code provider.
@@ -66,9 +67,9 @@ const provider = acp.createAcpProvider({
     signInHint: 'Run "qwen" in a terminal and choose a provider with /auth, then try again.',
     authMethods: ['openai'],
     supportsImages: true,
-    // "Never ask" is its yolo mode; everything else keeps its default, which
-    // asks before it edits or runs anything.
-    modeFor: (settings) => (settings.approval === 'never' ? 'yolo' : 'default'),
+    // "Never ask" (Yolo or Full access) is its yolo mode; everything else
+    // keeps its default, which asks before it edits or runs anything.
+    modeFor: (settings) => (sandboxLib.unattended(settings) ? 'yolo' : 'default'),
     detect: (options) => (identity(options?.settings).signedIn ? { ok: true, reason: '' } : { ok: false, reason: 'notSignedIn' }),
 });
 

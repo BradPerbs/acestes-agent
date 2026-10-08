@@ -53,17 +53,22 @@ const EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
  *   always   every tool call waits for a person, including reads
  *   writes   "Workspace only": inside the granted folders everything runs
  *            on its own; outside them, and on the web, a call stops for a card
- *   never    nothing asks
+ *   never    nothing asks, but the app's local tools stay inside the
+ *            granted folders and the runtimes keep their own sandboxes
+ *   full     "Full access": nothing asks and nothing is fenced. The local
+ *            tools reach any path on this computer, the runtimes run
+ *            unsandboxed, and only the blocked list still refuses
  *
- * `writes` is the default because it is the only one of the three that is
- * useful and safe at the same time. `always` turns reading a log file into a
- * dialog and trains people to click through; `never` hands a shell on every
- * saved host to a model with no one watching.
+ * `writes` is the default because it is the only one that is useful and safe
+ * at the same time. `always` turns reading a log file into a dialog and
+ * trains people to click through; `never` and `full` hand a shell on every
+ * saved host to a model with no one watching, and `full` this whole machine
+ * as well.
  *
  * The stored value stays `writes` whatever the menu calls it, so nobody's
  * saved choice needs migrating when the label changes.
  */
-const APPROVALS = new Set(['always', 'writes', 'never']);
+const APPROVALS = new Set(['always', 'writes', 'never', 'full']);
 
 /**
  * Where a command runs.

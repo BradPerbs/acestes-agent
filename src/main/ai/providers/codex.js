@@ -278,7 +278,12 @@ function threadOptions(settings, mcp) {
         workingDirectory: workspace.workingDirectory,
         additionalDirectories: workspace.additionalDirectories.length ? workspace.additionalDirectories : undefined,
         skipGitRepoCheck: true,
-        sandboxMode: writes ? 'workspace-write' : 'read-only',
+        // Full access takes Codex's own sandbox off too: the agent was told
+        // it may write anywhere on this machine, and a workspace-write
+        // sandbox would refuse every write outside the grants regardless.
+        sandboxMode: writes
+            ? (sandboxLib.fullAccess(settings) ? 'danger-full-access' : 'workspace-write')
+            : 'read-only',
         networkAccessEnabled: writes,
         // Nothing is waved through on Codex's side. Everything that matters
         // here is a call into our own tools, and those stop at the approval

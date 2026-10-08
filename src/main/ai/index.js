@@ -32,6 +32,7 @@ const scheduler = require('../runs/scheduler');
 const failover = require('../failover');
 const headless = require('./headless');
 const local = require('./local');
+const sandboxModule = require('./sandbox');
 const workspaceFiles = require('./workspace-files');
 const modelMatch = require('./model-match');
 const startModel = require('./start-model');
@@ -554,7 +555,10 @@ async function runHooks(conversation, event, payload = {}) {
  *               stays off there and the containment reads as written)
  *   park        writes ask, and the question waits for a person with no
  *               timeout (see requestApproval)
- *   full        nothing asks; the blocked list still applies
+ *   full        nothing asks; the blocked list still applies. This is the
+ *               job's own word and maps to Yolo (`never`), not to the
+ *               agent's Full access: a scheduled run does not get the whole
+ *               machine because its approvals are off
  *
  * Done here rather than in each provider so all of them get it, and so the
  * existing gate is the only gate.
@@ -1228,7 +1232,12 @@ function reconfigure(before, after, agentId = '') {
         const accountChanged = conversationAccount(before, provider, own.account)
             !== conversationAccount(after, provider, own.account);
         const toolBundlesChanged = bundlesChanged(before.toolBundles, after.toolBundles);
-        if (RESTART_ON.some(field => field === 'toolBundles' ? toolBundlesChanged : before[field] !== after[field]) || accountChanged) {
+        // Into or out of Full access: the prompt says where the fence is and
+        // some runtimes (Codex) fix their sandbox when the query starts. The
+        // other approval moves are read live on every call and need nothing.
+        const fenceChanged = (before.approval === 'full') !== (after.approval === 'full');
+        if (RESTART_ON.some(field => field === 'toolBundles' ? toolBundlesChanged : before[field] !== after[field])
+            || accountChanged || fenceChanged) {
             if (session || conversation.starting) conversation.needsRestart = true;
         }
         // What the model is offered changed (bare mode or bundles): resuming
@@ -1560,7 +1569,7 @@ function ensureProvider(conversation) {
             instructions: current.instructions,
             // What the agent may touch on this computer, so the prompt can say so
             // before the tools have to refuse.
-            sandbox: agents.sandbox(conversation.agentId),
+            sandbox: sandboxModule.withApproval(agents.sandbox(conversation.agentId), current.approval),
             memory: core?.text || '',
             memoryOff: current.memory === false,
         };
@@ -1631,8 +1640,13 @@ function ensureProvider(conversation) {
             // Live charts in this conversation. See metricsApiFor.
             metrics: metricsApiFor(conversation),
             // The envelope, read fresh too: a folder granted or a container
-            // switched on mid-run applies to the next call.
-            sandbox: agents.sandbox(conversation.agentId),
+            // switched on mid-run applies to the next call. So does Full
+            // access, which lifts the folder fence (see sandbox.withApproval),
+            // and a run policy that tightens the mode puts it back.
+            sandbox: sandboxModule.withApproval(
+                agents.sandbox(conversation.agentId),
+                effectiveSettings(conversation).approval,
+            ),
             // The inventory tools write to the store behind the renderer's
             // state, the way an import does, so every window is told which
             // collection to read again.

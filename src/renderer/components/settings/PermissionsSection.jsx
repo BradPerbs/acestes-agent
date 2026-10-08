@@ -19,7 +19,7 @@ import { useT } from '../../i18n';
  * list lived three cards below the voice engine.
  */
 
-const APPROVALS = ['always', 'writes', 'never'];
+const APPROVALS = ['always', 'writes', 'never', 'full'];
 
 const toText = (list) => (list || []).join('\n');
 const toList = (text) => text.split('\n').map(line => line.trim()).filter(Boolean);

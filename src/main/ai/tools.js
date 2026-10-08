@@ -821,7 +821,7 @@ const TOOLS = [
         description:
             'List a directory on the user\'s own computer, inside a folder the user has granted this '
             + 'agent. When the agent runs in a container, paths are as seen inside it, under /workspace. '
-            + 'Refused outside the granted folders.',
+            + 'Refused outside the granted folders, unless the agent is on Full access.',
         shape: {
             path: z.string().optional().describe('Absolute path of the directory. Inside a container, a path under /workspace; omit for /workspace itself.'),
         },
@@ -839,7 +839,7 @@ const TOOLS = [
             'Read a text file on the user\'s own computer, inside a folder the user has granted this '
             + 'agent. Give `offset` and `limit` to read a stretch of it by line rather than the whole '
             + 'thing, which is what you want for a long file: offset is the first line, counting from 1. '
-            + 'Returns at most 120 KB. Refused outside the granted folders.',
+            + 'Returns at most 120 KB. Refused outside the granted folders, unless the agent is on Full access.',
         shape: {
             path: z.string().describe('Absolute path of the file, or a path under /workspace inside a container.'),
             offset: z.number().int().min(1).optional().describe('The first line to return, counting from 1. Omit for the start of the file.'),
@@ -858,7 +858,8 @@ const TOOLS = [
         description:
             'Write a text file on the user\'s own computer, replacing it if it exists, inside a folder '
             + 'the user has granted this agent for writing. Parent directories are created. Refused '
-            + 'outside the granted folders and in folders granted read-only.',
+            + 'outside the granted folders and in folders granted read-only, unless the agent is on '
+            + 'Full access.',
         shape: {
             path: z.string().describe('Absolute path of the file, or a path under /workspace inside a container.'),
             content: z.string().describe('The whole content the file should have.'),
@@ -1832,7 +1833,7 @@ function nativeAbsolutePaths(input) {
  *
  * The approval mode is the user's answer for the whole agent, and it has to
  * mean the same thing whoever is holding the keyboard: their tools or ours,
- * this runtime or the next. Nothing waits under "never", everything waits
+ * this runtime or the next. Nothing waits under "never" or "full", everything waits
  * under "always", and under "Workspace only" the project runs free while
  * the outside asks: a file write whose every named path sits in a granted
  * folder for writing goes ahead, a web call always stops, and the runtime's
@@ -1845,7 +1846,7 @@ function nativeAbsolutePaths(input) {
  * safe answer is the one that puts a card in front of a person.
  */
 function nativeAutoApproved(toolName, input, settings) {
-    if (settings.approval === 'never') return true;
+    if (sandbox.unattended(settings)) return true;
     if (settings.approval === 'always') return false;
 
     const name = String(toolName || '').toLowerCase();
@@ -1895,7 +1896,7 @@ function isAutoApproved(toolName, input, settings) {
     // and `never ask` is exactly the setting under which that would happen.
     if (blockedReason(toolName, input, settings)) return false;
 
-    if (settings.approval === 'never') return true;
+    if (sandbox.unattended(settings)) return true;
     if (settings.approval === 'always') return false;
 
     const tool = BY_NAME.get(toolName);

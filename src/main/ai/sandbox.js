@@ -1,3 +1,4 @@
+const os = require('os');
 const path = require('path');
 
 /**
@@ -127,6 +128,7 @@ function within(root, target) {
  */
 function grantFor(sandbox, target, mode = 'read') {
     const folders = Array.isArray(sandbox?.folders) ? sandbox.folders : [];
+    if (sandbox?.fullAccess) return openGrant(sandbox, target);
     let best = null;
     for (const folder of folders) {
         if (!within(folder.path, target)) continue;
@@ -138,6 +140,52 @@ function grantFor(sandbox, target, mode = 'read') {
     }
     return { folder: best, path: path.resolve(target) };
 }
+
+/* ------------------------------------------------------------------ *
+ * Full access
+ * ------------------------------------------------------------------ */
+
+/**
+ * Where a relative path starts when there is no fence: the first folder
+ * granted for writing, else the first one granted at all, else home. The
+ * process's own directory is never it, since that is wherever the app
+ * happened to be launched from.
+ */
+function homeBase(sandbox) {
+    const folders = Array.isArray(sandbox?.folders) ? sandbox.folders : [];
+    return writableFolders(sandbox)[0] || folders[0]?.path || os.homedir();
+}
+
+/**
+ * The answer `grantFor` gives on "Full access": any path, read or write.
+ *
+ * The grants still matter for where a relative path lands and for what the
+ * prompt points the agent at first; they just stop being a wall. A folder
+ * granted read-only is writable here too, because "everything" was asked for.
+ */
+function openGrant(sandbox, target) {
+    const raw = String(target ?? '').trim();
+    const resolved = path.resolve(homeBase(sandbox), raw || '.');
+    return { folder: { path: resolved, mode: 'write' }, path: resolved };
+}
+
+/**
+ * The envelope as the tools should see it under one approval mode.
+ *
+ * "Full access" (`full`) lifts the folder fence on the host road. A
+ * container stays a container: someone who turned it on asked for a wall
+ * that a menu in the composer should not quietly take down.
+ */
+function withApproval(sandbox, approval) {
+    if (!sandbox || approval !== 'full' || sandbox.execution === 'container') return sandbox;
+    return { ...sandbox, fullAccess: true };
+}
+
+/** Whether nothing stops for a card: Yolo (`never`) and Full access (`full`) both. */
+const unattended = (settings) => settings?.approval === 'never' || settings?.approval === 'full';
+
+/** Whether the runtimes' own sandboxes come off as well: Full access only. */
+const fullAccess = (settings) => settings?.approval === 'full' && settings?.sandbox?.execution !== 'container';
 
 function noGrant(sandbox, target) {
     const folders = Array.isArray(sandbox?.folders) ? sandbox.folders : [];
@@ -267,6 +315,18 @@ function describe(sandbox) {
         }
         return lines.join('\n');
     }
+    if (sandbox?.fullAccess) {
+        const lines = [
+            'The user switched this agent to Full access: on their own computer the local tools reach any path, '
+            + 'read or write, and run any command, except the ones they blocked. Nothing stops for approval. '
+            + 'A relative path starts in ' + homeBase(sandbox) + '.',
+        ];
+        if (folders.length > 0) {
+            lines.push('The folders the user granted are where the work usually is:');
+            lines.push(...folders.map(folder => `- ${folder.path}`));
+        }
+        return lines.join('\n');
+    }
     if (folders.length === 0) {
         return 'You have no access to files or commands on the user\'s own computer. The local tools will refuse until the user grants a folder.';
     }
@@ -342,6 +402,10 @@ module.exports = {
     normalize,
     within,
     grantFor,
+    withApproval,
+    unattended,
+    fullAccess,
+    homeBase,
     mountPlan,
     containerPath,
     safeEnv,
