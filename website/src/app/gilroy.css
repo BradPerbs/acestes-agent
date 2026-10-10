@@ -1,0 +1,51 @@
+/*
+ * Gilroy, PREVIEW ONLY.
+ *
+ * Gilroy is a commercial typeface (Radomir Tinkov) and needs a web licence.
+ * These faces load from fonts.cdnfonts.com so the site can be previewed with
+ * it; they are not licensed for production. Before shipping, buy the web
+ * licence, put the .woff2 files in src/fonts/ and load them with
+ * next/font/local in layout.tsx instead of this file.
+ *
+ * The CDN has no SemiBold, so weight 600 resolves to Bold.
+ */
+
+@font-face {
+  font-family: "Gilroy";
+  font-style: normal;
+  font-weight: 300;
+  font-display: swap;
+  src: url("https://fonts.cdnfonts.com/s/16219/Gilroy-Light.woff") format("woff");
+}
+
+@font-face {
+  font-family: "Gilroy";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("https://fonts.cdnfonts.com/s/16219/Gilroy-Regular.woff") format("woff");
+}
+
+@font-face {
+  font-family: "Gilroy";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("https://fonts.cdnfonts.com/s/16219/Gilroy-Medium.woff") format("woff");
+}
+
+@font-face {
+  font-family: "Gilroy";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("https://fonts.cdnfonts.com/s/16219/Gilroy-Bold.woff") format("woff");
+}
+
+@font-face {
+  font-family: "Gilroy";
+  font-style: normal;
+  font-weight: 900;
+  font-display: swap;
+  src: url("https://fonts.cdnfonts.com/s/16219/Gilroy-Heavy.woff") format("woff");
+}

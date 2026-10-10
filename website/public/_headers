@@ -1,0 +1,4 @@
+# Cloudflare Pages headers. The static export writes the social preview image
+# without a file extension, so Pages would serve it as octet-stream.
+/opengraph-image
+  Content-Type: image/png
