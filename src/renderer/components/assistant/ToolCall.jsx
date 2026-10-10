@@ -89,6 +89,10 @@ const TITLES = {
     arrange_windows: 'assistant.didArrange',
     screenshot: 'assistant.didScreenshot',
     zoom: 'assistant.didZoom',
+    hover: 'assistant.didHover',
+    mouse_button: 'assistant.didMouseButton',
+    hold_key: 'assistant.didHoldKey',
+    read_clipboard: 'assistant.didReadClipboard',
     solve_captcha: 'assistant.didSolveCaptcha',
     watch_metric: 'assistant.didWatchMetric',
     read_metric: 'assistant.didReadMetric',
@@ -266,12 +270,27 @@ export function describeCall(name, input = {}) {
         case 'scroll':
             return { mono: false, text: [input.direction, aimedAt(input.element, input.x, input.y)].filter(Boolean).join(' · ') };
         case 'drag':
+            if (Array.isArray(input.path) && input.path.length) {
+                return { mono: false, text: `${input.path.length} points` };
+            }
             return {
                 mono: false,
                 text: `${aimedAt(input.fromElement, input.fromX, input.fromY)} → ${aimedAt(input.toElement, input.toX, input.toY)}`,
             };
+        case 'hover':
+            return { mono: false, text: aimedAt(input.element, input.x, input.y) };
+        case 'mouse_button':
+            return {
+                mono: false,
+                text: [input.button && input.button !== 'left' ? input.button : '', input.action === 'up' ? 'up' : 'down',
+                    aimedAt(input.element, input.x, input.y)].filter(Boolean).join(' '),
+            };
+        case 'hold_key':
+            return { mono: true, text: `${input.keys || ''}${input.seconds ? ` · ${input.seconds}s` : ''}` };
+        case 'read_clipboard':
+            return { mono: false, text: '' };
         case 'wait_for':
-            return { mono: false, text: input.text || '' };
+            return { mono: false, text: input.gone ? `${input.text || ''} to go` : (input.text || '') };
         case 'read_text':
             return { mono: false, text: input.element ? `element ${input.element}` : (input.window || '') };
         case 'screenshot':
