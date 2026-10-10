@@ -17,6 +17,9 @@ export const site = {
   license: `${repo}/blob/main/LICENSE`,
   notices: `${repo}/blob/main/THIRD-PARTY-NOTICES.md`,
   feed: `${repo}/releases.atom`,
+  // Where "Start a succession" sends people. Points at the section itself
+  // until there is a contact address or a booking page.
+  succession: "#succession",
   cloudterm: "https://github.com/BradPerbs/cloudterm",
 } as const;
 

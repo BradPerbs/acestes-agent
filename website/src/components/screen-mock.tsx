@@ -493,7 +493,10 @@ export function ScreenMock({ className = "" }: { className?: string }) {
         ref={frame}
         aria-hidden="true"
         className="relative w-full overflow-hidden rounded-[10px] bg-[#f3f3f3] ring-1 ring-black/10 dark:ring-white/10"
-        style={{ height: H * scale }}
+        // Sized by CSS rather than by `scale`, so the page below never moves
+        // when the script measures the column: a shift there left every
+        // scroll trigger further down measured against the old layout.
+        style={{ aspectRatio: `${W} / ${H}`, maxHeight: H }}
       >
         <div
           ref={canvas}

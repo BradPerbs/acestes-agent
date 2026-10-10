@@ -540,7 +540,10 @@ export function AppMock() {
       <div
         ref={frame}
         className="relative w-full overflow-hidden rounded-[12px] bg-black shadow-[0_40px_120px_-30px_rgb(0_0_0/0.7)] ring-1 ring-white/[0.12]"
-        style={{ height: H * scale }}
+        // Sized by CSS rather than by `scale`, so the page below never moves
+        // when the script measures the column: a shift there left every
+        // scroll trigger further down measured against the old layout.
+        style={{ aspectRatio: `${W} / ${H}` }}
       >
         <p className="sr-only">
           A replica of the Acestes Agent window: the agent checks its memory, runs the test suite, finds the commit that

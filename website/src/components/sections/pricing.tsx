@@ -7,6 +7,7 @@ import { BrandIcon, Icon } from "../icon";
 import { OSIcon } from "../os-icons";
 import { Reveal } from "../reveal";
 import { runtimes } from "./runtimes";
+import { Succession } from "./succession";
 
 export function Pricing() {
   return (
@@ -106,6 +107,8 @@ export function Pricing() {
           </div>
         </div>
       </div>
+
+      <Succession />
     </Section>
   );
 }
