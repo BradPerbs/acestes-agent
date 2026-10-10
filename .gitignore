@@ -15,4 +15,8 @@ CLAUDE.md
 .claude/
 scripts/helmets/.cache/
 
+# The Playwright MCP server's console logs and page snapshots: tool output,
+# and a snapshot holds whatever the page showed.
+.playwright-mcp/
+
 .DS_Store
