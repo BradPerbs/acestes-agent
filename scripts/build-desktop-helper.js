@@ -3,9 +3,13 @@
  *
  * On Windows, the same recipe as the Windows Hello helper
  * (build-hello-helper.js): the C# compiler that ships inside Windows, against
- * the .NET Framework assemblies that also ship inside Windows. UI Automation is
- * one of them, which is what lets this be a small exe rather than a Python
- * install or a native addon.
+ * the .NET Framework assemblies that also ship inside Windows, which is what
+ * lets this be a small exe rather than a Python install or a native addon.
+ * Native UI Automation has no assembly there, so its bindings are made first,
+ * from the type library inside Windows's own UIAutomationCore.dll, by
+ * tools/UiaInterop.cs; the helper is compiled with /link against them, which
+ * copies what it uses into the exe. They are made in a temporary folder and
+ * never ship.
  *
  * On macOS, tools/mac/*.swift with the swiftc of the Xcode command line tools,
  * against the frameworks inside macOS: one binary holding both an Apple
@@ -20,7 +24,11 @@ const os = require('os');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
-const SOURCE = path.join(ROOT, 'tools', 'DesktopHelper.cs');
+const SOURCES = [
+    path.join(ROOT, 'tools', 'DesktopHelper.cs'),
+    path.join(ROOT, 'tools', 'DesktopTree.cs'),
+];
+const INTEROP_SOURCE = path.join(ROOT, 'tools', 'UiaInterop.cs');
 const OUTPUT_DIR = path.join(ROOT, 'resources');
 const OUTPUT = path.join(OUTPUT_DIR, 'desktop-helper.exe');
 const MAC_SOURCES = path.join(ROOT, 'tools', 'mac');
@@ -32,16 +40,27 @@ const FRAMEWORK = path.join(
     process.env.WINDIR || 'C:\\Windows',
     'Microsoft.NET', 'Framework64', 'v4.0.30319',
 );
-const WPF = path.join(FRAMEWORK, 'WPF');
 
 const REFERENCES = [
-    path.join(WPF, 'UIAutomationClient.dll'),
-    path.join(WPF, 'UIAutomationTypes.dll'),
-    path.join(WPF, 'WindowsBase.dll'),
     path.join(FRAMEWORK, 'System.Drawing.dll'),
     path.join(FRAMEWORK, 'System.Windows.Forms.dll'),
     path.join(FRAMEWORK, 'System.Web.Extensions.dll'),
 ];
+
+/**
+ * The bindings to native UI Automation, made in `folder` from the type
+ * library inside Windows. Returns the path of the assembly made.
+ */
+function makeInterop(compiler, folder) {
+    const maker = path.join(folder, 'UiaInterop.exe');
+    const made = path.join(folder, 'Interop.UIAutomationClient.dll');
+    execFileSync(compiler, ['/nologo', '/target:exe', '/optimize+', `/out:${maker}`, INTEROP_SOURCE], { stdio: 'inherit' });
+    // Run in the folder it writes to: the type library converter saves the
+    // assembly it builds beside the working directory's files.
+    execFileSync(maker, [made], { cwd: folder, stdio: 'inherit' });
+    if (!fs.existsSync(made)) throw new Error('build-desktop-helper: the UI Automation bindings were not made');
+    return made;
+}
 
 /**
  * A running app keeps its helper open, and Windows will not let an open exe
@@ -120,20 +139,27 @@ function main() {
     }
 
     fs.mkdirSync(OUTPUT_DIR, { recursive: true });
-    setAside();
-
-    execFileSync(compiler, [
-        '/nologo',
-        // A Windows program rather than a console one: no console window
-        // flashes up when it starts, and stdin and stdout still work when the
-        // app gives it pipes.
-        '/target:winexe',
-        '/platform:x64',
-        '/optimize+',
-        `/out:${OUTPUT}`,
-        ...REFERENCES.map(file => `/reference:${file}`),
-        SOURCE,
-    ], { stdio: 'inherit' });
+    const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'acestes-uia-'));
+    try {
+        const interop = makeInterop(compiler, folder);
+        setAside();
+        execFileSync(compiler, [
+            '/nologo',
+            // A Windows program rather than a console one: no console window
+            // flashes up when it starts, and stdin and stdout still work when
+            // the app gives it pipes.
+            '/target:winexe',
+            '/platform:x64',
+            '/optimize+',
+            `/out:${OUTPUT}`,
+            ...REFERENCES.map(file => `/reference:${file}`),
+            // Copied into the exe: nothing extra ships beside it.
+            `/link:${interop}`,
+            ...SOURCES,
+        ], { stdio: 'inherit' });
+    } finally {
+        fs.rmSync(folder, { recursive: true, force: true });
+    }
 
     const { size } = fs.statSync(OUTPUT);
     console.log(`build-desktop-helper: wrote ${path.relative(ROOT, OUTPUT)} (${(size / 1024).toFixed(1)} KB)`);

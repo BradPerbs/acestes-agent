@@ -17,7 +17,9 @@
 // Four jobs:
 //
 //   see    the UI Automation tree of a window and its popups, as numbered
-//          elements, and what is under a point
+//          elements, and what is under a point (DesktopTree.cs); pictures of
+//          the screen, numbered like a read when asked; and whether a window
+//          has stopped changing
 //   move   the real cursor, gliding along an eased, slightly bowed path, then
 //          a real click, wheel or keystrokes through SendInput. Typing is
 //          Unicode, so any character arrives, whatever the keyboard layout.
@@ -46,10 +48,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Web.Script.Serialization;
-using System.Windows.Automation;
 using System.Windows.Forms;
-using WinPoint = System.Windows.Point;
-using WinRect = System.Windows.Rect;
 
 /// <summary>An action that stopped on purpose, with a code the caller can act on.</summary>
 class Stop : Exception
@@ -62,9 +61,9 @@ class Stop : Exception
     }
 }
 
-static class DesktopHelper
+static partial class DesktopHelper
 {
-    const string Version = "1";
+    const string Version = "2";
 
     // On every event we send, so the hooks can tell ours from the person's.
     static readonly IntPtr Mark = new IntPtr(0x41434553);
@@ -88,6 +87,8 @@ static class DesktopHelper
     static volatile bool paused;
     static volatile string pauseCode = "";
     static volatile bool cancelled;
+    // The id of the request being handled, 0 between requests.
+    static volatile int current;
     static int lastX;
     static int lastY;
 
@@ -171,9 +172,12 @@ static class DesktopHelper
                 continue;
             }
             // Stopping the action in hand cannot wait behind it in the queue.
+            // A stop that names its request stops that one only: one meant for
+            // an action that has just finished must not stop the next.
             if (Text(request, "cmd") == "cancel")
             {
-                cancelled = true;
+                int target = Number(request, "target", 0);
+                if (target == 0 || target == current) cancelled = true;
                 continue;
             }
             Queue.Add(request);
@@ -187,10 +191,15 @@ static class DesktopHelper
         foreach (var request in Queue.GetConsumingEnumerable())
         {
             object id = request.ContainsKey("id") ? request["id"] : null;
+            string owner = Text(request, "owner");
             cancelled = false;
+            current = Number(request, "id", 0);
             acting = Actions.Contains(Text(request, "cmd"));
             if (acting) Anchor();
-            Open(Text(request, "owner"));
+            // A button one agent holds down would turn another agent's
+            // move into a drag: let go of it before anyone else acts.
+            if (acting && Held() && HeldBy() != owner) LetGo();
+            Open(owner);
             Dictionary<string, object> answer;
             try
             {
@@ -201,16 +210,18 @@ static class DesktopHelper
             {
                 answer = Failure(stop.Code, stop.Message);
             }
-            catch (ElementNotAvailableException)
+            catch (COMException error)
             {
-                answer = Failure("gone", "That element is gone. Read the screen again.");
+                if (Vanished(error)) answer = Failure("gone", "That element is gone. Read the screen again.");
+                else if (error.ErrorCode == TimedOut) answer = Failure("not-answering", "The app did not answer in time: it may be busy or hung. Try again in a moment, or take a screenshot.");
+                else answer = Failure("failed", "UI Automation failed (0x" + error.ErrorCode.ToString("X8") + ").");
             }
             catch (Exception error)
             {
                 answer = Failure("failed", error.Message);
             }
             acting = false;
-            Close();
+            current = 0;
             answer["id"] = id;
             Emit(answer);
         }
@@ -264,6 +275,11 @@ static class DesktopHelper
             case "keys": return PressKeys(request);
             case "scroll": return Scroll(request);
             case "drag": return Drag(request);
+            case "move": return Move(request);
+            case "button": return Button(request);
+            case "letgo": return LetGo(request);
+            case "settle": return Settle(request);
+            case "clipboard": return ReadClipboard();
             case "drive": return Drive(request);
             case "place": return Place(request);
             case "forget": return Forget(Text(request, "whose"));
@@ -312,6 +328,8 @@ static class DesktopHelper
         }
         else
         {
+            // The turn is over: nothing is left held down for the person.
+            LetGo();
             driving = false;
             paused = false;
             pauseCode = "";
@@ -343,7 +361,7 @@ static class DesktopHelper
     // the mouse is a hand fighting the agent's.
     static volatile bool acting;
 
-    static readonly HashSet<string> Actions = new HashSet<string> { "focus", "launch", "target", "click", "type", "keys", "scroll", "drag", "place" };
+    static readonly HashSet<string> Actions = new HashSet<string> { "focus", "launch", "target", "click", "type", "keys", "scroll", "drag", "place", "move", "button" };
 
     // How long after the person answers in Acestes (a click or a key there)
     // their hand is still settling: moving the mouse then is the tail of
@@ -449,6 +467,7 @@ static class DesktopHelper
         paused = true;
         pauseCode = "took-over";
         overlay.Badge(labelPaused, Overlay.Tone.Paused);
+        LetGoLater();
         var message = new Dictionary<string, object>();
         message["event"] = "took-over";
         message["by"] = by;
@@ -461,9 +480,16 @@ static class DesktopHelper
         paused = true;
         pauseCode = "escape";
         overlay.Badge(labelStopped, Overlay.Tone.Stopped);
+        LetGoLater();
         var message = new Dictionary<string, object>();
         message["event"] = "escape";
         EmitLater(message);
+    }
+
+    /// <summary>From a hook: a button the agent held is let go, but not on the thread that has to answer Windows quickly.</summary>
+    static void LetGoLater()
+    {
+        if (Held()) ThreadPool.QueueUserWorkItem(delegate { LetGo(); });
     }
 
     /// <summary>Between every step of every action: has anyone said stop?</summary>
@@ -751,6 +777,39 @@ static class DesktopHelper
         return Screen.FromHandle(window);
     }
 
+    /// <summary>
+    /// A popup that opens over an app and closes as soon as anything else is
+    /// activated: a menu, a dropdown list, a tooltip, a flyout. It is already
+    /// over the window that opened it, and must be left where it is: Windows
+    /// will not activate a menu, and the last resort of BringForward, a tap of
+    /// Alt, is the very key that dismisses one, which made every menu item
+    /// unclickable by number.
+    /// </summary>
+    static bool Transient(IntPtr window)
+    {
+        string type = ClassOf(window);
+        if (type == "#32768" || type == "ComboLBox" || type == "tooltips_class32" || type == "Xaml_WindowedPopupClass") return true;
+        int style = Native.GetWindowLong(window, -16);
+        int extended = Native.GetWindowLong(window, -20);
+        // WS_EX_NOACTIVATE: never meant to be the active window.
+        if ((extended & 0x08000000) != 0) return true;
+        // WS_POPUP with WS_EX_TOPMOST and WS_EX_TOOLWINDOW: how most dropdowns are made.
+        if ((style & unchecked((int)0x80000000)) != 0 && (extended & 0x00000008) != 0 && (extended & 0x00000080) != 0) return true;
+        // While an app has a menu open, nothing of its own is brought forward over it.
+        IntPtr front = Native.GetForegroundWindow();
+        return front != IntPtr.Zero && PidOf(front) == PidOf(window) && InMenu();
+    }
+
+    /// <summary>Whether the thread in front is in a menu: a menu bar's, a popup's or the system menu.</summary>
+    static bool InMenu()
+    {
+        var info = new Native.GUITHREADINFO();
+        info.cbSize = Marshal.SizeOf(typeof(Native.GUITHREADINFO));
+        if (!Native.GetGUIThreadInfo(0, ref info)) return false;
+        // GUI_INMENUMODE, GUI_SYSTEMMENUMODE, GUI_POPUPMENUMODE
+        return (info.flags & 0x1Cu) != 0;
+    }
+
     /// <summary>To the front, by the gentlest way that works. Windows refuses a background process that simply asks.</summary>
     static void BringForward(IntPtr window)
     {
@@ -826,781 +885,6 @@ static class DesktopHelper
     }
 
     /* ---------------------------------------------------------------- *
-     * Seeing: the UI Automation tree
-     * ---------------------------------------------------------------- */
-
-    // The elements of the last read, by the number the agent was given.
-    static Dictionary<int, AutomationElement> elements = new Dictionary<int, AutomationElement>();
-    static Dictionary<int, IntPtr> elementRoots = new Dictionary<int, IntPtr>();
-    static int counter;
-    static CacheRequest cache;
-
-    /// <summary>
-    /// One agent's numbers. Several conversations can share the desktop, each
-    /// working in its own window, and one reading its window must not renumber
-    /// what another is about to click. Every request names its owner, and the
-    /// worker opens that owner's book before handling it; it handles one
-    /// request at a time, so swapping the fields is safe.
-    /// </summary>
-    class Book
-    {
-        public Dictionary<int, AutomationElement> Elements = new Dictionary<int, AutomationElement>();
-        public Dictionary<int, IntPtr> Roots = new Dictionary<int, IntPtr>();
-        public int Counter;
-    }
-
-    static readonly Dictionary<string, Book> Books = new Dictionary<string, Book>();
-    static Book book;
-
-    static void Open(string owner)
-    {
-        if (!Books.TryGetValue(owner, out book))
-        {
-            book = new Book();
-            Books[owner] = book;
-        }
-        elements = book.Elements;
-        elementRoots = book.Roots;
-        counter = book.Counter;
-    }
-
-    static void Close()
-    {
-        if (book == null) return;
-        // A read replaces the dictionaries rather than clearing them.
-        book.Elements = elements;
-        book.Roots = elementRoots;
-        book.Counter = counter;
-    }
-
-    /// <summary>A conversation gone: its numbers go with it.</summary>
-    static Dictionary<string, object> Forget(string owner)
-    {
-        Books.Remove(owner);
-        return new Dictionary<string, object>();
-    }
-
-    const int MaxVisited = 2500;
-    const int MaxChildren = 80;
-    const int MaxDepth = 30;
-
-    static readonly HashSet<string> Interactive = new HashSet<string>
-    {
-        "button", "check box", "combo box", "edit", "link", "list item", "menu item",
-        "radio button", "slider", "spinner", "split button", "tab item", "tree item",
-        "data item", "document", "header item", "calendar",
-    };
-
-    static readonly HashSet<string> Containers = new HashSet<string>
-    {
-        "window", "pane", "group", "tab", "list", "tree", "table", "data grid", "tool bar",
-        "menu bar", "menu", "status bar", "header",
-    };
-
-    // Chrome of the chrome: never what anyone means to click.
-    static readonly HashSet<string> Skipped = new HashSet<string> { "scroll bar", "thumb" };
-
-    static CacheRequest Props()
-    {
-        if (cache != null) return cache;
-        cache = new CacheRequest();
-        cache.TreeScope = TreeScope.Element;
-        cache.AutomationElementMode = AutomationElementMode.Full;
-        cache.Add(AutomationElement.NameProperty);
-        cache.Add(AutomationElement.ControlTypeProperty);
-        cache.Add(AutomationElement.IsEnabledProperty);
-        cache.Add(AutomationElement.IsOffscreenProperty);
-        cache.Add(AutomationElement.HasKeyboardFocusProperty);
-        cache.Add(AutomationElement.IsPasswordProperty);
-        cache.Add(AutomationElement.IsInvokePatternAvailableProperty);
-        cache.Add(AutomationElement.IsValuePatternAvailableProperty);
-        cache.Add(AutomationElement.IsTogglePatternAvailableProperty);
-        cache.Add(AutomationElement.IsExpandCollapsePatternAvailableProperty);
-        cache.Add(AutomationElement.IsSelectionItemPatternAvailableProperty);
-        cache.Add(ValuePattern.ValueProperty);
-        cache.Add(ValuePattern.IsReadOnlyProperty);
-        cache.Add(TogglePattern.ToggleStateProperty);
-        cache.Add(ExpandCollapsePattern.ExpandCollapseStateProperty);
-        cache.Add(SelectionItemPattern.IsSelectedProperty);
-        return cache;
-    }
-
-    static Dictionary<string, object> Tree(Dictionary<string, object> request)
-    {
-        int limit = Math.Max(20, Math.Min(1500, Number(request, "maxNodes", 500)));
-        var roots = new List<KeyValuePair<AutomationElement, IntPtr>>();
-        IntPtr window = Handle(request, "hwnd");
-        int under = Number(request, "under", 0);
-
-        if (under > 0)
-        {
-            AutomationElement start = Lookup(under);
-            roots.Add(new KeyValuePair<AutomationElement, IntPtr>(start, elementRoots[under]));
-            window = elementRoots[under];
-        }
-        else
-        {
-            if (window == IntPtr.Zero || !Native.IsWindow(window)) throw new Stop("gone", "That window is gone. List the windows again.");
-            uint pid = PidOf(window);
-            if (Protected.Contains(pid)) throw new Stop("protected", "That is the Acestes window itself, which the agent may not read.");
-            // The window, and whatever the same program has open over it: a
-            // menu, a dialog, a dropdown. Those are windows of their own, and a
-            // tree of the main window alone would not show the menu just opened.
-            Native.EnumWindows(delegate(IntPtr other, IntPtr unused)
-            {
-                if (other == window || (Native.IsWindowVisible(other) && PidOf(other) == pid && Popup(other, window)))
-                {
-                    AutomationElement element = FromHandle(other);
-                    if (element != null) roots.Add(new KeyValuePair<AutomationElement, IntPtr>(element, other));
-                }
-                return true;
-            }, IntPtr.Zero);
-        }
-
-        var nodes = new List<object>();
-        // What is scrolled away is counted, not listed: most of a long page
-        // is off screen, and listing it made every read several times the
-        // size of what the person can see. A minimised window is all off
-        // screen, so there it is listed after all.
-        var state = new WalkState
-        {
-            Limit = limit,
-            Offscreen = Flag(request, "offscreen") || Native.IsIconic(window),
-            Register = true,
-        };
-
-        // Looking for something is a walk that numbers nothing, so the
-        // numbers the agent holds stay good while it waits.
-        string wanted = Text(request, "find");
-        if (wanted.Length > 0)
-        {
-            state.Register = false;
-            state.Find = wanted;
-            state.FindRole = Text(request, "role").ToLowerInvariant();
-            state.Offscreen = true;
-            foreach (var root in roots)
-            {
-                if (state.Truncated) break;
-                Walk(root.Key, root.Value, 0, 0, nodes, state);
-            }
-            var search = new Dictionary<string, object>();
-            search["window"] = Describe(window);
-            if (state.Found != null) search["found"] = state.Found;
-            return search;
-        }
-
-        elements = new Dictionary<int, AutomationElement>();
-        elementRoots = new Dictionary<int, IntPtr>();
-        counter = 0;
-        foreach (var root in roots)
-        {
-            if (state.Truncated) break;
-            Walk(root.Key, root.Value, 0, 0, nodes, state);
-        }
-
-        var answer = new Dictionary<string, object>();
-        answer["window"] = Describe(window);
-        answer["nodes"] = nodes;
-        answer["truncated"] = state.Truncated;
-        return answer;
-    }
-
-    /// <summary>Another window of the same program that sits over this one.</summary>
-    static bool Popup(IntPtr other, IntPtr window)
-    {
-        if (ClassOf(other) == "#32768") return true;
-        IntPtr owner = Native.GetWindow(other, 4);
-        while (owner != IntPtr.Zero)
-        {
-            if (owner == window) return true;
-            owner = Native.GetWindow(owner, 4);
-        }
-        return false;
-    }
-
-    static AutomationElement FromHandle(IntPtr window)
-    {
-        try
-        {
-            using (Props().Activate()) return AutomationElement.FromHandle(window);
-        }
-        catch (Exception)
-        {
-            return null;
-        }
-    }
-
-    class WalkState
-    {
-        public int Limit;
-        public int Visited;
-        public bool Truncated;
-        public bool Offscreen;
-        public bool Register;
-        public string Find;
-        public string FindRole;
-        public Dictionary<string, object> Found;
-    }
-
-    static void Walk(AutomationElement element, IntPtr root, int depth, int shown, List<object> nodes, WalkState state, string above = "")
-    {
-        if (state.Truncated) return;
-        if (++state.Visited > MaxVisited || nodes.Count >= state.Limit)
-        {
-            state.Truncated = true;
-            return;
-        }
-
-        string role = RoleOf(element);
-        if (Skipped.Contains(role)) return;
-        string name = CachedText(element, AutomationElement.NameProperty);
-
-        if (state.Find != null)
-        {
-            string value = CachedFlag(element, AutomationElement.IsPasswordProperty) ? "" : CachedText(element, ValuePattern.ValueProperty);
-            bool named = name.IndexOf(state.Find, StringComparison.OrdinalIgnoreCase) >= 0
-                || value.IndexOf(state.Find, StringComparison.OrdinalIgnoreCase) >= 0;
-            if (named && (state.FindRole.Length == 0 || state.FindRole == role))
-            {
-                state.Found = new Dictionary<string, object>();
-                state.Found["r"] = role;
-                state.Found["n"] = Clip(name.Length > 0 ? name : value, 120);
-                state.Truncated = true;
-                return;
-            }
-        }
-
-        // An unnamed thing that merely offers an action is usually a wrapper
-        // around the real control, which is kept on its own account.
-        bool keep = Interactive.Contains(role)
-            || (Containers.Contains(role) && (name.Length > 0 || depth == 0))
-            // A label inside a link or a button mostly repeats its name.
-            || (role == "text" && name.Length > 0 && above.IndexOf(name, StringComparison.OrdinalIgnoreCase) < 0)
-            || (role != "title bar" && name.Length > 0 && (CachedFlag(element, AutomationElement.IsInvokePatternAvailableProperty)
-                || CachedFlag(element, AutomationElement.IsTogglePatternAvailableProperty)
-                || CachedFlag(element, AutomationElement.IsExpandCollapsePatternAvailableProperty)
-                || CachedFlag(element, AutomationElement.IsSelectionItemPatternAvailableProperty)));
-
-        int childShown = shown;
-        if (keep && state.Register)
-        {
-            int id = ++counter;
-            elements[id] = element;
-            elementRoots[id] = root;
-            nodes.Add(Node(element, id, shown, role, name));
-            childShown = shown + 1;
-        }
-        if (depth >= MaxDepth) return;
-
-        AutomationElementCollection children;
-        try
-        {
-            using (Props().Activate()) children = element.FindAll(TreeScope.Children, Automation.ControlViewCondition);
-        }
-        catch (Exception)
-        {
-            return;
-        }
-        int count = Math.Min(children.Count, MaxChildren);
-        int hidden = 0;
-        for (int index = 0; index < count && !state.Truncated; index++)
-        {
-            if (!state.Offscreen && CachedFlag(children[index], AutomationElement.IsOffscreenProperty))
-            {
-                hidden++;
-                continue;
-            }
-            Walk(children[index], root, depth + 1, childShown, nodes, state, keep && name.Length > 0 ? name : above);
-        }
-        if (hidden > 0 && !state.Truncated && state.Register)
-        {
-            var away = new Dictionary<string, object>();
-            away["d"] = childShown;
-            away["offscreen"] = hidden;
-            nodes.Add(away);
-        }
-        if (children.Count > count && !state.Truncated && state.Register)
-        {
-            var more = new Dictionary<string, object>();
-            more["d"] = childShown;
-            more["more"] = children.Count - count;
-            nodes.Add(more);
-        }
-    }
-
-    static Dictionary<string, object> Node(AutomationElement element, int id, int depth, string role, string name)
-    {
-        var node = new Dictionary<string, object>();
-        node["id"] = id;
-        node["d"] = depth;
-        node["r"] = role;
-        if (name.Length > 0) node["n"] = Clip(name, 120);
-
-        // The start of a long value, and how long it is: a page or a
-        // document is read whole with the text command, not in every tree.
-        // A link's value is its address, which was most of the value text in
-        // a page's tree and is not what anyone clicks by.
-        bool password = CachedFlag(element, AutomationElement.IsPasswordProperty);
-        if (!password && role != "link" && CachedFlag(element, AutomationElement.IsValuePatternAvailableProperty))
-        {
-            string value = CachedText(element, ValuePattern.ValueProperty);
-            if (value.Length > 0 && value != name)
-            {
-                node["v"] = Clip(value, 150);
-                if (value.Length > 150) node["len"] = value.Length;
-            }
-        }
-
-        var states = new List<string>();
-        if (!CachedFlag(element, AutomationElement.IsEnabledProperty, true)) states.Add("disabled");
-        if (CachedFlag(element, AutomationElement.HasKeyboardFocusProperty)) states.Add("focused");
-        if (CachedFlag(element, AutomationElement.IsOffscreenProperty)) states.Add("offscreen");
-        if (password) states.Add("password");
-        if (CachedFlag(element, AutomationElement.IsTogglePatternAvailableProperty))
-        {
-            object toggle = Cached(element, TogglePattern.ToggleStateProperty);
-            if (toggle is ToggleState)
-            {
-                var value = (ToggleState)toggle;
-                states.Add(value == ToggleState.On ? "checked" : value == ToggleState.Off ? "unchecked" : "mixed");
-            }
-        }
-        if (CachedFlag(element, AutomationElement.IsExpandCollapsePatternAvailableProperty))
-        {
-            object expand = Cached(element, ExpandCollapsePattern.ExpandCollapseStateProperty);
-            if (expand is ExpandCollapseState)
-            {
-                var value = (ExpandCollapseState)expand;
-                if (value == ExpandCollapseState.Expanded) states.Add("expanded");
-                else if (value == ExpandCollapseState.Collapsed) states.Add("collapsed");
-                else if (value == ExpandCollapseState.PartiallyExpanded) states.Add("partly expanded");
-            }
-        }
-        if (CachedFlag(element, AutomationElement.IsSelectionItemPatternAvailableProperty)
-            && CachedFlag(element, SelectionItemPattern.IsSelectedProperty)) states.Add("selected");
-        if (role == "edit" && CachedFlag(element, ValuePattern.IsReadOnlyProperty)) states.Add("read-only");
-        if (states.Count > 0) node["s"] = string.Join(", ", states.ToArray());
-        return node;
-    }
-
-    const int MaxText = 400000;
-
-    /// <summary>
-    /// The whole text of an element, or of a window: what a page, an email or
-    /// a document says, in one answer. The text pattern when the app offers
-    /// one, the value when it offers that, and otherwise every named thing in
-    /// reading order. Never a password field.
-    /// </summary>
-    static Dictionary<string, object> ReadText(Dictionary<string, object> request)
-    {
-        int id = Number(request, "element", 0);
-        AutomationElement element;
-        if (id > 0)
-        {
-            element = Lookup(id);
-        }
-        else
-        {
-            IntPtr window = Handle(request, "hwnd");
-            if (window == IntPtr.Zero || !Native.IsWindow(window)) throw new Stop("gone", "That window is gone. List the windows again.");
-            if (Protected.Contains(PidOf(window))) throw new Stop("protected", "That is the Acestes window itself, which the agent may not read.");
-            element = AutomationElement.FromHandle(window);
-        }
-        object password = element.GetCurrentPropertyValue(AutomationElement.IsPasswordProperty);
-        if (password is bool && (bool)password) throw new Stop("password", "That is a password field. Its text is not read.");
-
-        string text = null;
-        object pattern;
-        if (element.TryGetCurrentPattern(TextPattern.Pattern, out pattern))
-        {
-            try { text = ((TextPattern)pattern).DocumentRange.GetText(MaxText); } catch (Exception) { }
-        }
-        if (string.IsNullOrEmpty(text) && element.TryGetCurrentPattern(ValuePattern.Pattern, out pattern))
-        {
-            try { text = ((ValuePattern)pattern).Current.Value; } catch (Exception) { }
-        }
-        if (string.IsNullOrEmpty(text)) text = Flatten(element);
-
-        var answer = new Dictionary<string, object>();
-        answer["text"] = text ?? "";
-        answer["length"] = (text ?? "").Length;
-        return answer;
-    }
-
-    /// <summary>Every named thing inside, in reading order, one per line, repeats dropped.</summary>
-    static string Flatten(AutomationElement root)
-    {
-        AutomationElementCollection all;
-        using (Props().Activate()) all = root.FindAll(TreeScope.Descendants, Automation.ControlViewCondition);
-        var lines = new List<string>();
-        string last = null;
-        int total = 0;
-        foreach (AutomationElement element in all)
-        {
-            if (CachedFlag(element, AutomationElement.IsPasswordProperty)) continue;
-            string role = RoleOf(element);
-            if (Skipped.Contains(role)) continue;
-            string name = CachedText(element, AutomationElement.NameProperty);
-            string value = role != "link" && CachedFlag(element, AutomationElement.IsValuePatternAvailableProperty)
-                ? CachedText(element, ValuePattern.ValueProperty)
-                : "";
-            string line = value.Length > 0 && value != name ? (name.Length > 0 ? name + ": " + value : value) : name;
-            if (line.Length == 0 || line == last) continue;
-            lines.Add(line);
-            last = line;
-            total += line.Length + 1;
-            if (total > MaxText) break;
-        }
-        return string.Join("\n", lines.ToArray());
-    }
-
-    /* ---------------------------------------------------------------- *
-     * Seeing: captchas
-     * ---------------------------------------------------------------- */
-
-    /// <summary>
-    /// The captcha widgets in a window, found by the address of the frame each
-    /// lives in, which reads the same in every language where the words on it
-    /// do not. Each comes with its checkbox and that box's state, and a
-    /// challenge with its buttons and what it asks. Everything reported is
-    /// numbered on from the last read, so the agent can act on it and the
-    /// numbers it already holds stay good. Also any image named as a captcha,
-    /// for the kind that is a picture of letters beside a field.
-    /// </summary>
-    static Dictionary<string, object> Captchas(Dictionary<string, object> request)
-    {
-        IntPtr window = Handle(request, "hwnd");
-        if (window == IntPtr.Zero || !Native.IsWindow(window)) throw new Stop("gone", "That window is gone. List the windows again.");
-        if (Protected.Contains(PidOf(window))) throw new Stop("protected", "That is the Acestes window itself, which the agent may not read.");
-        AutomationElement root = FromHandle(window);
-        if (root == null) throw new Stop("gone", "That window cannot be read.");
-        object[] box = Bounds(window);
-        var area = new WinRect((int)box[0], (int)box[1], Math.Max(1, (int)box[2]), Math.Max(1, (int)box[3]));
-
-        var condition = new OrCondition(
-            new PropertyCondition(AutomationElement.IsValuePatternAvailableProperty, true),
-            new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Image));
-        AutomationElementCollection all;
-        using (Props().Activate()) all = root.FindAll(TreeScope.Descendants, condition);
-
-        var widgets = new List<object>();
-        var images = new List<object>();
-        foreach (AutomationElement element in all)
-        {
-            string role = RoleOf(element);
-            if (role == "image")
-            {
-                string name = CachedText(element, AutomationElement.NameProperty);
-                // The word on its own: "captcha", "CAPTCHA image", but not a
-                // solver's logo ("2Captcha") on a page about them.
-                if (images.Count >= 5 || !System.Text.RegularExpressions.Regex.IsMatch(name, @"\bcaptcha\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase)) continue;
-                WinRect bounds = element.Current.BoundingRectangle;
-                var image = new Dictionary<string, object>();
-                image["id"] = Register(element, window);
-                image["name"] = Clip(name, 80);
-                image["rect"] = RectOf(bounds);
-                image["visible"] = Shown(element, bounds, area);
-                images.Add(image);
-                continue;
-            }
-            // A link's value is its address, and a field's is whatever was
-            // typed: neither is a frame.
-            if (role == "link" || role == "edit" || role == "combo box") continue;
-            string url = CachedText(element, ValuePattern.ValueProperty);
-            if (!url.StartsWith("http", StringComparison.OrdinalIgnoreCase)) continue;
-            string[] kind = CaptchaKind(url);
-            if (kind == null || widgets.Count >= 8) continue;
-
-            WinRect frame = element.Current.BoundingRectangle;
-            var widget = new Dictionary<string, object>();
-            widget["kind"] = kind[0];
-            widget["part"] = kind[1];
-            widget["url"] = Clip(url, 300);
-            widget["id"] = Register(element, window);
-            widget["rect"] = RectOf(frame);
-            widget["visible"] = Shown(element, frame, area);
-            Inside(element, window, area, widget);
-            widgets.Add(widget);
-        }
-
-        var answer = new Dictionary<string, object>();
-        answer["window"] = Describe(window);
-        answer["widgets"] = widgets;
-        answer["images"] = images;
-        return answer;
-    }
-
-    /// <summary>Which captcha a frame's address belongs to, and which part of it: { kind, part }, or null.</summary>
-    static string[] CaptchaKind(string url)
-    {
-        string address = url.ToLowerInvariant();
-        if (address.Contains("/recaptcha/api2/anchor") || address.Contains("/recaptcha/enterprise/anchor")) return new[] { "recaptcha", "checkbox" };
-        if (address.Contains("/recaptcha/api2/bframe") || address.Contains("/recaptcha/enterprise/bframe")) return new[] { "recaptcha", "challenge" };
-        if (address.Contains("hcaptcha.com") && address.Contains("frame=checkbox")) return new[] { "hcaptcha", "checkbox" };
-        if (address.Contains("hcaptcha.com") && address.Contains("frame=challenge")) return new[] { "hcaptcha", "challenge" };
-        if (address.Contains("challenges.cloudflare.com")) return new[] { "turnstile", "checkbox" };
-        if (address.Contains("arkoselabs.com") || address.Contains("funcaptcha.com")) return new[] { "arkose", "challenge" };
-        return null;
-    }
-
-    /// <summary>What a captcha frame holds: its checkbox, its named buttons, and the words it shows.</summary>
-    static void Inside(AutomationElement frame, IntPtr window, WinRect area, Dictionary<string, object> widget)
-    {
-        AutomationElementCollection inner;
-        try
-        {
-            using (Props().Activate()) inner = frame.FindAll(TreeScope.Descendants, Automation.ControlViewCondition);
-        }
-        catch (Exception)
-        {
-            return;
-        }
-        var buttons = new List<object>();
-        var words = new StringBuilder();
-        string last = null;
-        int seen = 0;
-        foreach (AutomationElement element in inner)
-        {
-            if (++seen > 400) break;
-            string role = RoleOf(element);
-            string name = CachedText(element, AutomationElement.NameProperty);
-            if (role == "check box")
-            {
-                if (widget.ContainsKey("checkbox")) continue;
-                WinRect bounds = element.Current.BoundingRectangle;
-                var check = new Dictionary<string, object>();
-                check["id"] = Register(element, window);
-                check["name"] = Clip(name, 80);
-                check["rect"] = RectOf(bounds);
-                check["state"] = ToggleOf(element);
-                check["visible"] = Shown(element, bounds, area);
-                widget["checkbox"] = check;
-                continue;
-            }
-            if (role == "button" && buttons.Count < 30)
-            {
-                string automationId = "";
-                string className = "";
-                try
-                {
-                    automationId = element.Current.AutomationId ?? "";
-                    className = element.Current.ClassName ?? "";
-                }
-                catch (Exception)
-                {
-                }
-                // An image tile is a button with no name: the solver finds
-                // those by looking, so only the named ones are worth listing.
-                if (name.Length == 0 && automationId.Length == 0) continue;
-                WinRect bounds = element.Current.BoundingRectangle;
-                var button = new Dictionary<string, object>();
-                button["id"] = Register(element, window);
-                button["name"] = Clip(name, 80);
-                if (automationId.Length > 0) button["aid"] = automationId;
-                if (className.Length > 0) button["cls"] = Clip(className, 120);
-                button["rect"] = RectOf(bounds);
-                button["enabled"] = CachedFlag(element, AutomationElement.IsEnabledProperty, true);
-                button["visible"] = Shown(element, bounds, area);
-                buttons.Add(button);
-                continue;
-            }
-            if (role == "text" && name.Length > 0 && name != last && words.Length < 600)
-            {
-                if (words.Length > 0) words.Append(' ');
-                words.Append(name);
-                last = name;
-            }
-        }
-        widget["buttons"] = buttons;
-        widget["text"] = Clip(words.ToString(), 600);
-    }
-
-    static int Register(AutomationElement element, IntPtr root)
-    {
-        int id = ++counter;
-        elements[id] = element;
-        elementRoots[id] = root;
-        return id;
-    }
-
-    static object[] RectOf(WinRect bounds)
-    {
-        if (bounds.IsEmpty) return new object[] { 0, 0, 0, 0 };
-        return new object[] { (int)Math.Round(bounds.X), (int)Math.Round(bounds.Y), (int)Math.Round(bounds.Width), (int)Math.Round(bounds.Height) };
-    }
-
-    /// <summary>On screen for real: not marked off screen, not collapsed to nothing, and inside the window rather than parked far outside it.</summary>
-    static bool Shown(AutomationElement element, WinRect bounds, WinRect area)
-    {
-        if (bounds.IsEmpty || bounds.Width < 8 || bounds.Height < 8) return false;
-        if (CachedFlag(element, AutomationElement.IsOffscreenProperty)) return false;
-        return bounds.IntersectsWith(area);
-    }
-
-    static string ToggleOf(AutomationElement element)
-    {
-        if (!CachedFlag(element, AutomationElement.IsTogglePatternAvailableProperty)) return "";
-        object toggle = Cached(element, TogglePattern.ToggleStateProperty);
-        if (!(toggle is ToggleState)) return "";
-        var value = (ToggleState)toggle;
-        return value == ToggleState.On ? "checked" : value == ToggleState.Off ? "unchecked" : "mixed";
-    }
-
-    static string RoleOf(AutomationElement element)
-    {
-        object type = Cached(element, AutomationElement.ControlTypeProperty);
-        var control = type as ControlType;
-        if (control == null) return "element";
-        // "ControlType.MenuItem" -> "menu item"
-        string raw = control.ProgrammaticName;
-        int dot = raw.LastIndexOf('.');
-        if (dot >= 0) raw = raw.Substring(dot + 1);
-        var words = new StringBuilder();
-        for (int index = 0; index < raw.Length; index++)
-        {
-            char letter = raw[index];
-            if (index > 0 && char.IsUpper(letter)) words.Append(' ');
-            words.Append(char.ToLowerInvariant(letter));
-        }
-        string role = words.ToString();
-        return role == "hyperlink" ? "link" : role;
-    }
-
-    static object Cached(AutomationElement element, AutomationProperty property)
-    {
-        try
-        {
-            return element.GetCachedPropertyValue(property);
-        }
-        catch (Exception)
-        {
-            return null;
-        }
-    }
-
-    static string CachedText(AutomationElement element, AutomationProperty property)
-    {
-        var value = Cached(element, property) as string;
-        return value == null ? "" : value.Replace('\r', ' ').Replace('\n', ' ').Trim();
-    }
-
-    static bool CachedFlag(AutomationElement element, AutomationProperty property, bool fallback = false)
-    {
-        object value = Cached(element, property);
-        return value is bool ? (bool)value : fallback;
-    }
-
-    static string Clip(string text, int length)
-    {
-        return text.Length <= length ? text : text.Substring(0, length) + "…";
-    }
-
-    static AutomationElement Lookup(int id)
-    {
-        AutomationElement element;
-        if (!elements.TryGetValue(id, out element)) throw new Stop("unknown-element", "There is no element " + id + " in the last read. Read the screen again.");
-        return element;
-    }
-
-    /* ---------------------------------------------------------------- *
-     * Aiming
-     * ---------------------------------------------------------------- */
-
-    /// <summary>
-    /// Where an element is to be clicked, checked: its window brought to the
-    /// front, scrolled into view if it has to be, and a hit test at the point
-    /// confirming that the click would land on it and not on something
-    /// covering it. Or a point given outright, with its window.
-    /// </summary>
-    static Dictionary<string, object> Target(Dictionary<string, object> request)
-    {
-        RequireDriving();
-        var answer = new Dictionary<string, object>();
-        int id = Number(request, "element", 0);
-        int x;
-        int y;
-
-        if (id > 0)
-        {
-            AutomationElement element = Lookup(id);
-            IntPtr root = elementRoots[id];
-            Allowed(root);
-            if (Native.IsWindow(root) && Native.GetForegroundWindow() != root) BringForward(root);
-            Guard();
-
-            if (element.Current.IsOffscreen)
-            {
-                object scroll;
-                if (element.TryGetCurrentPattern(ScrollItemPattern.Pattern, out scroll))
-                {
-                    ((ScrollItemPattern)scroll).ScrollIntoView();
-                    Thread.Sleep(200);
-                }
-            }
-
-            WinRect bounds = element.Current.BoundingRectangle;
-            if (bounds.IsEmpty || bounds.Width < 1 || bounds.Height < 1)
-            {
-                throw new Stop("no-place", "Element " + id + " has no place on screen: it is hidden, collapsed or scrolled away.");
-            }
-            WinPoint point;
-            if (!element.TryGetClickablePoint(out point))
-            {
-                point = new WinPoint(bounds.X + bounds.Width / 2, bounds.Y + bounds.Height / 2);
-            }
-            x = (int)Math.Round(point.X);
-            y = (int)Math.Round(point.Y);
-
-            AutomationElement hit = At(x, y);
-            if (hit != null && !Related(hit, element) && !PassesThrough(hit, x, y))
-            {
-                // The clickable point can be a corner another element overlaps;
-                // the middle is the next best guess before giving up.
-                int middleX = (int)Math.Round(bounds.X + bounds.Width / 2);
-                int middleY = (int)Math.Round(bounds.Y + bounds.Height / 2);
-                AutomationElement middle = At(middleX, middleY);
-                if (middle != null && (Related(middle, element) || PassesThrough(middle, middleX, middleY)))
-                {
-                    x = middleX;
-                    y = middleY;
-                }
-                else
-                {
-                    throw new Stop("covered", "Element " + id + " is covered by " + Summary(hit) + ". Close or move that first, or read the screen again.");
-                }
-            }
-            answer["rect"] = new object[] { (int)bounds.X, (int)bounds.Y, (int)bounds.Width, (int)bounds.Height };
-            // What is being aimed at, by name, for the card in the corner.
-            answer["label"] = Summary(element);
-        }
-        else
-        {
-            x = Number(request, "x", int.MinValue);
-            y = Number(request, "y", int.MinValue);
-            if (x == int.MinValue || y == int.MinValue) throw new Stop("bad-request", "Give an element id, or x and y.");
-            // A point in a screenshot of a window: that window to the front
-            // first, so the point lands on what the screenshot showed, and
-            // where the window is now, so the caller can tell if it moved.
-            IntPtr owner = Handle(request, "hwnd");
-            if (owner != IntPtr.Zero)
-            {
-                if (!Native.IsWindow(owner)) throw new Stop("gone", "The window in the screenshot is gone. Take another.");
-                Allowed(owner);
-                if (Native.GetForegroundWindow() != owner) BringForward(owner);
-                Guard();
-                answer["frame"] = Bounds(owner);
-            }
-        }
-
-        IntPtr at = RootAt(x, y);
-        Allowed(at);
-        answer["x"] = x;
-        answer["y"] = y;
-        if (at != IntPtr.Zero) answer["window"] = Describe(at);
-        return answer;
-    }
-
-    /* ---------------------------------------------------------------- *
      * Seeing: pictures
      * ---------------------------------------------------------------- */
 
@@ -1660,6 +944,34 @@ static class DesktopHelper
             height = (int)box[3];
         }
 
+        // A numbered picture: the window read afresh first, so every number
+        // drawn is one the agent can act on now, and the read goes back with
+        // the picture. The model sees where things are and still clicks by
+        // number, rather than guessing at pixels.
+        WalkState numbered = null;
+        List<object> nodes = null;
+        if (Flag(request, "marks") && region == null)
+        {
+            numbered = new WalkState
+            {
+                Limit = Math.Max(20, Math.Min(1500, Number(request, "maxNodes", 300))),
+                Register = true,
+                Tags = new List<Tag>(),
+            };
+            nodes = new List<object>();
+            ReadWindow(window, 0, numbered, nodes);
+            // A number is drawn only where the control shows: where another
+            // app's window lies over it, the picture shows that window, and a
+            // number there would name something the picture does not show.
+            // Acestes is left out of pictures, so what it covers still shows.
+            uint pid = PidOf(window);
+            numbered.Tags.RemoveAll(delegate(Tag tag)
+            {
+                uint over = PidOf(RootAt(tag.Box.X + tag.Box.Width / 2, tag.Box.Y + tag.Box.Height / 2));
+                return over != pid && !Protected.Contains(over);
+            });
+        }
+
         // Only what is on a screen can be copied.
         int left = Native.GetSystemMetrics(76);
         int top = Native.GetSystemMetrics(77);
@@ -1681,6 +993,7 @@ static class DesktopHelper
         int outHeight = Math.Max(1, (int)Math.Round(height * scale));
 
         string data;
+        int drawn = 0;
         using (var shot = new Bitmap(width, height, PixelFormat.Format24bppRgb))
         {
             using (var g = Graphics.FromImage(shot))
@@ -1690,6 +1003,8 @@ static class DesktopHelper
             using (var small = scale < 1.0 ? Shrink(shot, outWidth, outHeight) : null)
             using (var stream = new MemoryStream())
             {
+                // Drawn at the size the model sees, so the numbers stay sharp.
+                if (numbered != null) drawn = DrawTags(small ?? shot, numbered.Tags, x, y, scale);
                 if (jpeg)
                 {
                     // For a captcha service, which caps what it takes: a grid
@@ -1713,6 +1028,13 @@ static class DesktopHelper
         answer["height"] = outHeight;
         answer["region"] = new object[] { x, y, width, height };
         answer["scale"] = scale;
+        if (numbered != null)
+        {
+            answer["window"] = Describe(window);
+            answer["nodes"] = nodes;
+            answer["truncated"] = numbered.Truncated;
+            answer["marked"] = drawn;
+        }
         return answer;
     }
 
@@ -1738,88 +1060,272 @@ static class DesktopHelper
         return small;
     }
 
-    static AutomationElement At(int x, int y)
+    // The colours numbers are drawn in, in turn, so that neighbouring boxes
+    // tell apart. Each dark enough for white digits.
+    static readonly Color[] TagColors =
     {
-        try
-        {
-            return AutomationElement.FromPoint(new WinPoint(x, y));
-        }
-        catch (Exception)
-        {
-            return null;
-        }
-    }
+        Color.FromArgb(220, 38, 38), Color.FromArgb(21, 128, 61), Color.FromArgb(37, 99, 235), Color.FromArgb(194, 65, 12),
+        Color.FromArgb(126, 34, 206), Color.FromArgb(15, 118, 110), Color.FromArgb(190, 24, 93), Color.FromArgb(67, 56, 202),
+    };
+
+    // A picture with more numbers than this is mostly numbers; the read that
+    // comes with it lists every one.
+    const int MaxTags = 150;
 
     /// <summary>
-    /// A hit on Acestes's own corner card, which clicks go straight through:
-    /// it covers nothing. What actually takes the click at that point is the
-    /// window beneath, and if that is Acestes too, Allowed refuses it later.
+    /// Each control in a numbered picture boxed, with its number on a tag at a
+    /// corner: the box's top left, or failing that just above it, its top
+    /// right or its left, wherever it does not sit on a tag already drawn.
+    /// Returns how many were drawn.
     /// </summary>
-    static bool PassesThrough(AutomationElement hit, int x, int y)
+    static int DrawTags(Bitmap picture, List<Tag> tags, int left, int top, double scale)
     {
-        try
+        int drawn = 0;
+        var frame = new RectangleF(0, 0, picture.Width, picture.Height);
+        var placed = new List<RectangleF>();
+        using (var g = Graphics.FromImage(picture))
+        using (var font = new Font("Segoe UI", 11f, FontStyle.Bold, GraphicsUnit.Pixel))
+        using (var format = (StringFormat)StringFormat.GenericTypographic.Clone())
         {
-            uint pid = (uint)hit.Current.ProcessId;
-            return Protected.Contains(pid) && !Protected.Contains(PidOf(RootAt(x, y)));
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
+            foreach (Tag tag in tags)
+            {
+                if (drawn >= MaxTags) break;
+                var box = new RectangleF((float)((tag.Box.X - left) * scale), (float)((tag.Box.Y - top) * scale),
+                    (float)(tag.Box.Width * scale), (float)(tag.Box.Height * scale));
+                if (box.Width < 3 || box.Height < 3 || !box.IntersectsWith(frame)) continue;
+                Color color = TagColors[tag.Id % TagColors.Length];
+                using (var pen = new Pen(Color.FromArgb(220, color), 1.5f))
+                {
+                    g.DrawRectangle(pen, box.X, box.Y, box.Width, box.Height);
+                }
+                string label = tag.Id.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                float width = g.MeasureString(label, font, PointF.Empty, format).Width + 6;
+                const float Height = 15;
+                RectangleF chosen = RectangleF.Empty;
+                foreach (PointF corner in new[] { new PointF(box.X, box.Y), new PointF(box.X, box.Y - Height), new PointF(box.Right - width, box.Y), new PointF(box.X - width, box.Y) })
+                {
+                    var spot = new RectangleF(Math.Max(0, Math.Min(frame.Width - width, corner.X)), Math.Max(0, Math.Min(frame.Height - Height, corner.Y)), width, Height);
+                    if (!placed.Exists(other => other.IntersectsWith(spot)))
+                    {
+                        chosen = spot;
+                        break;
+                    }
+                }
+                if (chosen.IsEmpty) chosen = new RectangleF(Math.Max(0, Math.Min(frame.Width - width, box.X)), Math.Max(0, Math.Min(frame.Height - Height, box.Y)), width, Height);
+                using (var fill = new SolidBrush(Color.FromArgb(235, color)))
+                using (var ink = new SolidBrush(Color.White))
+                {
+                    g.FillRectangle(fill, chosen);
+                    g.DrawString(label, font, ink, chosen.X + 3, chosen.Y + 1, format);
+                }
+                placed.Add(chosen);
+                drawn++;
+            }
         }
-        catch (Exception)
-        {
-            return false;
-        }
+        return drawn;
     }
 
-    /// <summary>The same element, or one inside the other: a label in a button is still the button.</summary>
-    static bool Related(AutomationElement hit, AutomationElement target)
+    /* ---------------------------------------------------------------- *
+     * Seeing: when a window is still
+     * ---------------------------------------------------------------- */
+
+    const int ThumbWidth = 96;
+    const int ThumbHeight = 64;
+
+    /// <summary>
+    /// Until a window stops changing on screen, for at most `max` ms, so that
+    /// whatever an action set off (a dialog opening, a page loading, a menu
+    /// sliding out) has finished before anyone looks. Watched as a small grey
+    /// thumbnail, taken every 70 ms: two alike, but for a caret's blink, and it
+    /// is still. Acestes's own windows are left out of it, since its chat keeps
+    /// moving while an agent works and may lie over the window.
+    /// </summary>
+    static Dictionary<string, object> Settle(Dictionary<string, object> request)
     {
-        try
+        IntPtr window = Handle(request, "hwnd");
+        int max = Math.Max(100, Math.Min(5000, Number(request, "max", 1500)));
+        var clock = Stopwatch.StartNew();
+        int[] last = null;
+        bool still = false;
+        while (true)
         {
-            if (Automation.Compare(hit, target)) return true;
-            TreeWalker walker = TreeWalker.RawViewWalker;
-            AutomationElement step = hit;
-            for (int level = 0; level < 15 && step != null; level++)
+            IntPtr target = window != IntPtr.Zero && Native.IsWindow(window) && !Native.IsIconic(window) ? window : Native.GetForegroundWindow();
+            int[] now = Thumbnail(target);
+            if (now == null) break;
+            if (last != null && Alike(last, now))
             {
-                step = walker.GetParent(step);
-                if (step != null && Automation.Compare(step, target)) return true;
+                still = true;
+                break;
             }
-            // A hit on one of the target's own containers is a hit on the
-            // target: a browser's hit test can stop at the element holding a
-            // frame (a captcha's iframe) rather than go into it. Only up to
-            // the page itself, though: a document, pane or window that
-            // answered could be hiding whatever really sits on top.
-            step = target;
-            for (int level = 0; level < 10 && step != null; level++)
+            last = now;
+            if (clock.ElapsedMilliseconds >= max) break;
+            Thread.Sleep(70);
+        }
+        var answer = new Dictionary<string, object>();
+        answer["settled"] = still;
+        answer["ms"] = (int)clock.ElapsedMilliseconds;
+        return answer;
+    }
+
+    /// <summary>A window's pixels averaged down into a small grey thumbnail, with -1 wherever an Acestes window lies over it. Null when it is on no screen.</summary>
+    static int[] Thumbnail(IntPtr window)
+    {
+        if (window == IntPtr.Zero) return null;
+        object[] edges = Bounds(window);
+        var area = new Rectangle((int)edges[0], (int)edges[1], (int)edges[2], (int)edges[3]);
+        area.Intersect(new Rectangle(Native.GetSystemMetrics(76), Native.GetSystemMetrics(77), Native.GetSystemMetrics(78), Native.GetSystemMetrics(79)));
+        if (area.Width < 8 || area.Height < 8) return null;
+
+        var grey = new int[ThumbWidth * ThumbHeight];
+        using (var small = new Bitmap(ThumbWidth, ThumbHeight, PixelFormat.Format32bppRgb))
+        {
+            using (var g = Graphics.FromImage(small))
             {
-                step = walker.GetParent(step);
-                if (step == null) break;
-                ControlType type = step.Current.ControlType;
-                if (level >= 3 && (type == ControlType.Document || type == ControlType.Pane || type == ControlType.Window)) break;
-                if (Automation.Compare(step, hit)) return true;
+                IntPtr into = g.GetHdc();
+                IntPtr from = Native.GetDC(IntPtr.Zero);
+                try
+                {
+                    // HALFTONE: each thumbnail pixel the average of what it covers.
+                    Native.SetStretchBltMode(into, 4);
+                    Native.SetBrushOrgEx(into, 0, 0, IntPtr.Zero);
+                    Native.StretchBlt(into, 0, 0, ThumbWidth, ThumbHeight, from, area.X, area.Y, area.Width, area.Height, 0x00CC0020);
+                }
+                finally
+                {
+                    Native.ReleaseDC(IntPtr.Zero, from);
+                    g.ReleaseHdc(into);
+                }
+            }
+            BitmapData bits = small.LockBits(new Rectangle(0, 0, ThumbWidth, ThumbHeight), ImageLockMode.ReadOnly, PixelFormat.Format32bppRgb);
+            try
+            {
+                var row = new byte[bits.Stride];
+                for (int y = 0; y < ThumbHeight; y++)
+                {
+                    Marshal.Copy(new IntPtr(bits.Scan0.ToInt64() + (long)y * bits.Stride), row, 0, bits.Stride);
+                    for (int x = 0; x < ThumbWidth; x++)
+                    {
+                        int at = x * 4;
+                        grey[y * ThumbWidth + x] = (row[at] * 29 + row[at + 1] * 150 + row[at + 2] * 77) >> 8;
+                    }
+                }
+            }
+            finally
+            {
+                small.UnlockBits(bits);
             }
         }
-        catch (Exception)
+
+        foreach (IntPtr other in ProtectedWindows())
         {
-            return true; // cannot tell; the click will say what it hit
+            object[] bounds = Bounds(other);
+            var cover = new Rectangle((int)bounds[0], (int)bounds[1], (int)bounds[2], (int)bounds[3]);
+            cover.Intersect(area);
+            if (cover.Width <= 0 || cover.Height <= 0) continue;
+            int x0 = (cover.Left - area.Left) * ThumbWidth / area.Width;
+            int x1 = ((cover.Right - area.Left) * ThumbWidth + area.Width - 1) / area.Width;
+            int y0 = (cover.Top - area.Top) * ThumbHeight / area.Height;
+            int y1 = ((cover.Bottom - area.Top) * ThumbHeight + area.Height - 1) / area.Height;
+            for (int y = Math.Max(0, y0); y < Math.Min(ThumbHeight, y1); y++)
+            {
+                for (int x = Math.Max(0, x0); x < Math.Min(ThumbWidth, x1); x++) grey[y * ThumbWidth + x] = -1;
+            }
+        }
+        return grey;
+    }
+
+    /// <summary>The visible top-level windows of the protected processes: Acestes, and this helper's own overlays.</summary>
+    static List<IntPtr> ProtectedWindows()
+    {
+        var found = new List<IntPtr>();
+        Native.EnumWindows(delegate(IntPtr window, IntPtr unused)
+        {
+            if (Native.IsWindowVisible(window) && Protected.Contains(PidOf(window))) found.Add(window);
+            return true;
+        }, IntPtr.Zero);
+        return found;
+    }
+
+    /// <summary>Two thumbnails alike: at most two pixels changed by more than a shade, which is all a blinking caret changes.</summary>
+    static bool Alike(int[] before, int[] after)
+    {
+        int changed = 0;
+        for (int index = 0; index < before.Length; index++)
+        {
+            if (before[index] < 0 || after[index] < 0) continue;
+            if (Math.Abs(before[index] - after[index]) > 12 && ++changed > 2) return false;
+        }
+        return true;
+    }
+
+    /* ---------------------------------------------------------------- *
+     * Seeing: the clipboard
+     * ---------------------------------------------------------------- */
+
+    /// <summary>
+    /// What is on the clipboard: its text, the files copied, and whether it
+    /// holds a picture. Never what a password manager put there: they mark
+    /// their copies to be kept out of clipboard history and monitoring, and a
+    /// copy marked so is refused whole. Read on a thread of its own, since the
+    /// clipboard wants a thread that waits on nothing else.
+    /// </summary>
+    static Dictionary<string, object> ReadClipboard()
+    {
+        var answer = new Dictionary<string, object>();
+        Exception failure = null;
+        var reader = new Thread(delegate()
+        {
+            for (int attempt = 0; attempt < 5; attempt++)
+            {
+                try
+                {
+                    failure = null;
+                    IDataObject data = Clipboard.GetDataObject();
+                    if (data == null) return;
+                    if (Concealed(data))
+                    {
+                        answer["private"] = true;
+                        return;
+                    }
+                    string text = data.GetData(DataFormats.UnicodeText) as string ?? data.GetData(DataFormats.Text) as string;
+                    if (text != null) answer["text"] = text;
+                    var files = data.GetData(DataFormats.FileDrop) as string[];
+                    if (files != null && files.Length > 0) answer["files"] = files;
+                    if (data.GetDataPresent(DataFormats.Bitmap) || data.GetDataPresent(DataFormats.Dib)) answer["image"] = true;
+                    return;
+                }
+                catch (ExternalException error)
+                {
+                    // Another app has it open this very moment.
+                    failure = error;
+                    Thread.Sleep(50);
+                }
+            }
+        });
+        reader.SetApartmentState(ApartmentState.STA);
+        reader.IsBackground = true;
+        reader.Start();
+        if (!reader.Join(5000)) throw new Stop("busy", "The clipboard did not answer. Try again in a moment.");
+        if (failure != null) throw new Stop("busy", "Another app is holding the clipboard. Try again in a moment.");
+        return answer;
+    }
+
+    /// <summary>A copy its maker asked to keep private: out of clipboard history, the cloud clipboard, and anything watching.</summary>
+    static bool Concealed(IDataObject data)
+    {
+        if (data.GetDataPresent("ExcludeClipboardContentFromMonitorProcessing")) return true;
+        if (data.GetDataPresent("Clipboard Viewer Ignore")) return true;
+        foreach (string format in new[] { "CanIncludeInClipboardHistory", "CanUploadToCloudClipboard" })
+        {
+            if (!data.GetDataPresent(format)) continue;
+            var stream = data.GetData(format) as MemoryStream;
+            if (stream == null) continue;
+            byte[] bytes = stream.ToArray();
+            if (bytes.Length >= 4 && BitConverter.ToInt32(bytes, 0) == 0) return true;
         }
         return false;
-    }
-
-    static string Summary(AutomationElement element)
-    {
-        try
-        {
-            AutomationElement step = element;
-            for (int level = 0; level < 4 && step != null; level++)
-            {
-                string name = step.Current.Name;
-                string role = step.Current.ControlType.ProgrammaticName.Replace("ControlType.", "").ToLowerInvariant();
-                if (!string.IsNullOrEmpty(name)) return role + " \"" + Clip(name.Trim(), 80) + "\"";
-                step = TreeWalker.ControlViewWalker.GetParent(step);
-            }
-        }
-        catch (Exception)
-        {
-        }
-        return "something without a name";
     }
 
     /* ---------------------------------------------------------------- *
@@ -1895,11 +1401,14 @@ static class DesktopHelper
     static Dictionary<string, object> Drag(Dictionary<string, object> request)
     {
         RequireDriving();
+        int glide = Number(request, "glide", 300);
+        List<Native.POINT> path = PathOf(request);
+        if (path != null) return Trace(path, glide);
+
         int x = Number(request, "x", 0);
         int y = Number(request, "y", 0);
         int toX = Number(request, "toX", 0);
         int toY = Number(request, "toY", 0);
-        int glide = Number(request, "glide", 300);
 
         Glide(x, y, glide);
         Allowed(RootAt(x, y));
@@ -1922,42 +1431,281 @@ static class DesktopHelper
         return After(toX, toY);
     }
 
+    /// <summary>A drag's path, as [[x, y], ...] in screen pixels; null when it has none.</summary>
+    static List<Native.POINT> PathOf(Dictionary<string, object> request)
+    {
+        object raw;
+        var points = request.TryGetValue("path", out raw) ? raw as System.Collections.IList : null;
+        if (points == null) return null;
+        var path = new List<Native.POINT>();
+        foreach (object each in points)
+        {
+            var pair = each as System.Collections.IList;
+            if (pair == null || pair.Count != 2) throw new Stop("bad-request", "Each point of a path is [x, y].");
+            path.Add(new Native.POINT { X = Convert.ToInt32(pair[0]), Y = Convert.ToInt32(pair[1]) });
+        }
+        if (path.Count < 2) throw new Stop("bad-request", "A path needs two points at least.");
+        return path;
+    }
+
+    /// <summary>
+    /// A drag through every point of a path, in straight lines from one to the
+    /// next at an even speed, the way a hand draws: a signature, a shape in
+    /// Paint, a slider dragged and then dragged back. Unlike Glide it does not
+    /// ease or bow, since the shape is the point. The button is let go at the
+    /// end, or wherever it was stopped.
+    /// </summary>
+    static Dictionary<string, object> Trace(List<Native.POINT> path, int glide)
+    {
+        foreach (Native.POINT point in path) Allowed(RootAt(point.X, point.Y));
+        double length = 0;
+        for (int index = 1; index < path.Count; index++) length += Distance(path[index - 1], path[index]);
+        // About a pixel a millisecond at the usual pace, within reason.
+        int duration = (int)Math.Max(300, Math.Min(8000, length * glide / 300.0));
+
+        Glide(path[0].X, path[0].Y, glide);
+        Guard();
+        MouseEvent(0x0002, 0);
+        Native.timeBeginPeriod(1);
+        try
+        {
+            Thread.Sleep(50);
+            var clock = Stopwatch.StartNew();
+            double travelled = 0;
+            for (int index = 1; index < path.Count; index++)
+            {
+                Native.POINT from = path[index - 1];
+                Native.POINT to = path[index];
+                double segment = Distance(from, to);
+                int steps = Math.Max(1, (int)Math.Ceiling(segment / 6));
+                for (int step = 1; step <= steps; step++)
+                {
+                    Guard();
+                    double t = (double)step / steps;
+                    MoveTo((int)Math.Round(from.X + (to.X - from.X) * t), (int)Math.Round(from.Y + (to.Y - from.Y) * t));
+                    double due = length > 0 ? (travelled + segment * t) / length * duration : 0;
+                    int ahead = (int)(due - clock.Elapsed.TotalMilliseconds);
+                    if (ahead > 0) Thread.Sleep(ahead);
+                }
+                travelled += segment;
+            }
+            Thread.Sleep(50);
+        }
+        finally
+        {
+            MouseEvent(0x0004, 0);
+            Native.timeEndPeriod(1);
+        }
+        Native.POINT end = path[path.Count - 1];
+        Ui(delegate { overlay.Ripple(end.X, end.Y); });
+        Thread.Sleep(100);
+        return After(end.X, end.Y);
+    }
+
+    static double Distance(Native.POINT a, Native.POINT b)
+    {
+        double dx = b.X - a.X;
+        double dy = b.Y - a.Y;
+        return Math.Sqrt(dx * dx + dy * dy);
+    }
+
+    /// <summary>The cursor to a place and left there: a hover, for tooltips, menus that open on it, and buttons that only show under it.</summary>
+    static Dictionary<string, object> Move(Dictionary<string, object> request)
+    {
+        RequireDriving();
+        int x = Number(request, "x", 0);
+        int y = Number(request, "y", 0);
+        ShowOutline(request);
+        Glide(x, y, Number(request, "glide", 300));
+        Guard();
+        Allowed(RootAt(x, y));
+        Ui(delegate { overlay.FadeOutline(); });
+        return After(x, y);
+    }
+
+    // Mouse buttons an agent pressed and has not let go yet, as the flags that
+    // let them go, and whose they are.
+    static readonly object HeldLock = new object();
+    static uint heldUps;
+    static string heldBy = "";
+
+    static bool Held()
+    {
+        lock (HeldLock) return heldUps != 0;
+    }
+
+    static string HeldBy()
+    {
+        lock (HeldLock) return heldBy;
+    }
+
+    /// <summary>
+    /// A mouse button pressed, or let go, by itself: for a press held while
+    /// something else happens, or a gesture made in parts. Moves there first
+    /// when given a place. A button left down is let go at the end of the
+    /// turn, when the person takes over, or before another agent acts.
+    /// </summary>
+    static Dictionary<string, object> Button(Dictionary<string, object> request)
+    {
+        RequireDriving();
+        string which = Text(request, "button");
+        bool down = Flag(request, "down");
+        uint press = which == "right" ? 0x0008u : which == "middle" ? 0x0020u : 0x0002u;
+        uint release = which == "right" ? 0x0010u : which == "middle" ? 0x0040u : 0x0004u;
+        if (request.ContainsKey("x") && request.ContainsKey("y"))
+        {
+            ShowOutline(request);
+            Glide(Number(request, "x", 0), Number(request, "y", 0), Number(request, "glide", 300));
+            Guard();
+        }
+        Native.POINT at;
+        Native.GetCursorPos(out at);
+        Allowed(RootAt(at.X, at.Y));
+        if (down)
+        {
+            MouseEvent(press, 0);
+            lock (HeldLock)
+            {
+                heldUps |= release;
+                heldBy = Text(request, "owner");
+            }
+        }
+        else
+        {
+            MouseEvent(release, 0);
+            lock (HeldLock)
+            {
+                heldUps &= ~release;
+                if (heldUps == 0) heldBy = "";
+            }
+            Ui(delegate { overlay.Ripple(at.X, at.Y); });
+        }
+        Ui(delegate { overlay.FadeOutline(); });
+        Thread.Sleep(80);
+        return After(at.X, at.Y);
+    }
+
+    /// <summary>Every button an agent left down, let go: one agent's when it names an owner, anyone's otherwise.</summary>
+    static Dictionary<string, object> LetGo(Dictionary<string, object> request)
+    {
+        string owner = Text(request, "owner");
+        if (owner.Length == 0 || HeldBy() == owner) LetGo();
+        return new Dictionary<string, object>();
+    }
+
+    static void LetGo()
+    {
+        uint ups;
+        lock (HeldLock)
+        {
+            ups = heldUps;
+            heldUps = 0;
+            heldBy = "";
+        }
+        foreach (uint flag in new[] { 0x0004u, 0x0010u, 0x0040u })
+        {
+            if ((ups & flag) != 0) MouseEvent(flag, 0);
+        }
+    }
+
+    // The most keys a second typing goes at, as in the Mac helper. computer.js
+    // reckons the time it allows a long text by the same figure.
+    const int MaxCps = 400;
+
     static Dictionary<string, object> TypeText(Dictionary<string, object> request)
     {
         RequireDriving();
         string text = Text(request, "text");
-        int perSecond = Math.Max(5, Math.Min(400, Number(request, "cps", 30)));
-        int pause = 1000 / perSecond;
+        int perSecond = Math.Max(5, Math.Min(MaxCps, Number(request, "cps", 30)));
+        double pause = 1000.0 / perSecond;
         IntPtr front = Native.GetForegroundWindow();
         Allowed(front);
 
-        for (int index = 0; index < text.Length; index++)
+        // Each key is timed against a clock, with a sleep only while ahead of
+        // it. A sleep is never shorter than a tick of the system timer, 15.6 ms
+        // unless the process asks for finer, so one sleep per key held typing
+        // near 64 keys a second whatever the pace, and long text outran the
+        // time the app allowed it. The timer is made fine while typing, too, so
+        // a quick pace comes out even rather than in bursts.
+        Native.timeBeginPeriod(1);
+        var clock = Stopwatch.StartNew();
+        double due = 0;
+        int index = 0;
+        try
         {
-            Guard();
-            // Typing into whatever took the focus meanwhile is worse than stopping.
-            if (Native.GetForegroundWindow() != front)
+            for (; index < text.Length; index++)
             {
-                throw new Stop("focus-moved", "The window in front changed while typing, after " + index + " of " + text.Length + " characters.");
+                Guard();
+                // Typing into whatever took the focus meanwhile is worse than stopping.
+                if (Native.GetForegroundWindow() != front) throw new Stop("focus-moved", "The window in front changed while typing.");
+                char letter = text[index];
+                if (letter == '\r') continue;
+                if (letter == '\n') KeyTap(0x0D);
+                else if (letter == '\t') KeyTap(0x09);
+                else
+                {
+                    UnicodeEvent(letter, false);
+                    UnicodeEvent(letter, true);
+                }
+                // The same average pace, never the same gap twice: a metronome
+                // reads as a machine, a rhythm as someone typing.
+                double spread;
+                lock (Chance) spread = 0.55 + Chance.NextDouble() * 0.9;
+                due += pause * spread;
+                int ahead = (int)(due - clock.Elapsed.TotalMilliseconds);
+                if (ahead > 0) Thread.Sleep(ahead);
             }
-            char letter = text[index];
-            if (letter == '\r') continue;
-            if (letter == '\n') KeyTap(0x0D);
-            else if (letter == '\t') KeyTap(0x09);
-            else
-            {
-                UnicodeEvent(letter, false);
-                UnicodeEvent(letter, true);
-            }
-            // The same average pace, never the same gap twice: a metronome
-            // reads as a machine, a rhythm as someone typing.
-            double spread;
-            lock (Chance) spread = 0.55 + Chance.NextDouble() * 0.9;
-            Thread.Sleep(Math.Max(1, (int)(pause * spread)));
+            if (perSecond > 100) CatchUp();
+        }
+        catch (Stop stop)
+        {
+            // Whatever stopped it, how much went in is what the agent needs next.
+            throw new Stop(stop.Code, stop.Message + " " + index + " of " + text.Length + " characters were typed.");
+        }
+        finally
+        {
+            Native.timeEndPeriod(1);
         }
         var answer = new Dictionary<string, object>();
         answer["typed"] = text.Length;
         answer["window"] = Describe(front);
         return answer;
+    }
+
+    /// <summary>
+    /// After fast typing, until the control with the focus has taken in what
+    /// it was sent. An app can fall behind keys that arrive hundreds a second:
+    /// Character Map was 115 short of 1,350 when typing at 400 a second ended,
+    /// and level half a second later, so a read straight after showed a field
+    /// missing text that was still on its way. The value is watched until it
+    /// holds still, for two seconds at most; a control with no value to watch
+    /// gets a moment instead.
+    /// </summary>
+    static void CatchUp()
+    {
+        var value = FocusedValue();
+        if (value == null)
+        {
+            Thread.Sleep(400);
+            return;
+        }
+        int last = -1;
+        var clock = Stopwatch.StartNew();
+        while (clock.ElapsedMilliseconds < 2000)
+        {
+            int length;
+            try
+            {
+                length = (value.CurrentValue ?? "").Length;
+            }
+            catch (Exception)
+            {
+                return;
+            }
+            if (length == last) return;
+            last = length;
+            Thread.Sleep(120);
+        }
     }
 
     static Dictionary<string, object> PressKeys(Dictionary<string, object> request)
@@ -1967,7 +1715,29 @@ static class DesktopHelper
         Allowed(front);
         var keys = Combo(Text(request, "keys"), false);
         if (keys.Count == 0) throw new Stop("bad-request", "Name the keys, like \"ctrl+s\" or \"enter\".");
-        int repeat = Math.Max(1, Math.Min(50, Number(request, "repeat", 1)));
+        int hold = Math.Max(0, Math.Min(10000, Number(request, "hold", 0)));
+        if (hold > 0)
+        {
+            // Held down for a while: a game's arrow, a key that does something
+            // only while it is down. Windows does not repeat a key a program
+            // presses, so held text keys type once.
+            foreach (var key in keys) KeyEvent(key, false);
+            try
+            {
+                var clock = Stopwatch.StartNew();
+                while (clock.ElapsedMilliseconds < hold)
+                {
+                    Guard();
+                    Thread.Sleep((int)Math.Min(50, Math.Max(1, hold - clock.ElapsedMilliseconds)));
+                }
+            }
+            finally
+            {
+                // Never left holding a key, whatever stopped the wait.
+                for (int index = keys.Count - 1; index >= 0; index--) KeyEvent(keys[index], true);
+            }
+        }
+        int repeat = hold > 0 ? 0 : Math.Max(1, Math.Min(50, Number(request, "repeat", 1)));
         for (int time = 0; time < repeat; time++)
         {
             Guard();
@@ -1987,7 +1757,7 @@ static class DesktopHelper
     static Dictionary<string, object> After(int x, int y)
     {
         var answer = new Dictionary<string, object>();
-        AutomationElement under = At(x, y);
+        var under = At(x, y);
         if (under != null) answer["under"] = Summary(under);
         IntPtr front = Native.GetForegroundWindow();
         if (front != IntPtr.Zero) answer["window"] = Describe(front);
@@ -2639,6 +2409,20 @@ static class Native
     }
 
     [StructLayout(LayoutKind.Sequential)]
+    public struct GUITHREADINFO
+    {
+        public int cbSize;
+        public uint flags;
+        public IntPtr hwndActive;
+        public IntPtr hwndFocus;
+        public IntPtr hwndCapture;
+        public IntPtr hwndMenuOwner;
+        public IntPtr hwndMoveSize;
+        public IntPtr hwndCaret;
+        public RECT rcCaret;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
     public struct KBDLLHOOKSTRUCT
     {
         public uint vkCode;
@@ -2659,6 +2443,9 @@ static class Native
     [DllImport("user32.dll")] public static extern uint MapVirtualKey(uint code, uint mapType);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern short VkKeyScan(char letter);
     [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] public static extern bool GetGUIThreadInfo(uint thread, ref GUITHREADINFO info);
+    [DllImport("winmm.dll")] public static extern uint timeBeginPeriod(uint period);
+    [DllImport("winmm.dll")] public static extern uint timeEndPeriod(uint period);
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr window);
     [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr window);
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr window, int command);
@@ -2700,6 +2487,9 @@ static class Native
     [DllImport("gdi32.dll")] public static extern bool DeleteDC(IntPtr context);
     [DllImport("gdi32.dll")] public static extern IntPtr SelectObject(IntPtr context, IntPtr handle);
     [DllImport("gdi32.dll")] public static extern bool DeleteObject(IntPtr handle);
+    [DllImport("gdi32.dll")] public static extern int SetStretchBltMode(IntPtr context, int mode);
+    [DllImport("gdi32.dll")] public static extern bool SetBrushOrgEx(IntPtr context, int x, int y, IntPtr previous);
+    [DllImport("gdi32.dll")] public static extern bool StretchBlt(IntPtr destination, int x, int y, int width, int height, IntPtr source, int sourceX, int sourceY, int sourceWidth, int sourceHeight, uint operation);
     [DllImport("user32.dll")] public static extern IntPtr MonitorFromPoint(POINT point, uint flags);
     [DllImport("shcore.dll")] public static extern int GetDpiForMonitor(IntPtr monitor, int kind, out uint dpiX, out uint dpiY);
 }
