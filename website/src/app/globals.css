@@ -227,6 +227,50 @@ body {
   }
 }
 
+/* The app replica's working spinner and the light passing over its working
+   phrase, as the app draws them (.working-ring and .working-phrase). */
+.app-ring {
+  animation: app-ring 0.8s linear infinite;
+}
+
+@keyframes app-ring {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.app-glint {
+  background-image: linear-gradient(
+    90deg,
+    rgb(107 114 128) 0%,
+    rgb(107 114 128) 44%,
+    rgb(209 213 219) 50%,
+    rgb(107 114 128) 56%,
+    rgb(107 114 128) 100%
+  );
+  background-size: 300% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: app-glint 1.6s linear infinite;
+}
+
+@keyframes app-glint {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-ring,
+  .app-glint {
+    animation: none;
+  }
+}
+
 /* Highlighter used in pull quotes and the compare panes */
 .mark {
   background: color-mix(in oklab, var(--fg) 10%, transparent);
