@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ImageResponse } from "next/og";
 
-export const alt = "Acestes Agent: every agent, every account, one app.";
+export const alt = "Acestes Agent: every server, every screen, one agent on guard.";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -95,12 +95,12 @@ export default async function Image() {
             lineHeight: 1.04,
           }}
         >
-          <span>Every agent.</span>
-          <span>Every account.</span>
-          <span style={{ color: "#c4a5ff" }}>One app.</span>
+          <span>Every server.</span>
+          <span>Every screen.</span>
+          <span style={{ color: "#c4a5ff" }}>One agent on guard.</span>
         </div>
         <div style={{ display: "flex", fontSize: 24, color: "#a1a1aa" }}>
-          Claude Code, Codex, Cursor and ten more. Free on Windows, macOS and Linux.
+          Security, IT and computer use. Free on Windows, macOS and Linux.
         </div>
       </div>
     </div>,

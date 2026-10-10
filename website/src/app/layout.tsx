@@ -29,7 +29,7 @@ const appMono = JetBrains_Mono({
   preload: false,
 });
 
-const title = "Acestes Agent: every agent, every account, one app";
+const title = "Acestes Agent: the AI agent for security, IT and computer use";
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
@@ -38,14 +38,17 @@ export const metadata: Metadata = {
   applicationName: site.name,
   keywords: [
     "AI agent",
+    "cybersecurity",
+    "security automation",
+    "SecOps",
+    "incident response",
+    "computer use",
     "desktop agent",
-    "coding agent",
     "SSH client",
-    "persistent memory",
+    "IT operations",
+    "sysadmin",
     "Claude Code",
     "Codex",
-    "DevOps",
-    "sysadmin",
   ],
   alternates: { canonical: "/" },
   openGraph: {

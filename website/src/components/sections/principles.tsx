@@ -1,10 +1,10 @@
 import {
-  EyeIcon,
-  Notebook01Icon,
+  BlockedIcon,
   CheckmarkCircle02Icon,
+  EyeIcon,
+  FolderSecurityIcon,
   LockPasswordIcon,
   UserMultiple02Icon,
-  PlugSocketIcon,
 } from "@hugeicons/core-free-icons";
 import { Section } from "../frame";
 import { Icon } from "../icon";
@@ -13,16 +13,10 @@ import { SectionHeader } from "../section-header";
 
 const principles = [
   {
-    tag: "works in the open",
+    tag: "in the open",
     icon: EyeIcon,
     lead: "It works where you can see.",
-    body: "Edits show as a diff. On a server, commands run in a real terminal in front of you.",
-  },
-  {
-    tag: "memory",
-    icon: Notebook01Icon,
-    lead: "Memory is a notebook, not a transcript.",
-    body: "Short facts it chose to keep, in plain text you can read and edit.",
+    body: "Edits show as a diff, server commands run in a real terminal in front of you, and on the desktop you watch the real cursor.",
   },
   {
     tag: "approvals",
@@ -37,26 +31,32 @@ const principles = [
     body: "It can store a password or key, but never reads one back. None ever lands in a transcript or a log.",
   },
   {
+    tag: "fence",
+    icon: FolderSecurityIcon,
+    lead: "It stays inside the fence.",
+    body: "It only touches the folders you grant it. Turn on the container and the fence becomes a wall.",
+  },
+  {
+    tag: "blocked",
+    icon: BlockedIcon,
+    lead: "Some commands never run.",
+    body: "Whatever is on your blocked list is refused however it's spelled, and no approval lets it through.",
+  },
+  {
     tag: "agents",
     icon: UserMultiple02Icon,
     lead: "Every agent is its own person.",
     body: "Separate memory, inventory, folders and sessions. One can't reach into another's.",
   },
-  {
-    tag: "runtimes",
-    icon: PlugSocketIcon,
-    lead: "It runs on the agent you already have.",
-    body: "Claude Code, Codex, Cursor and more. No new subscription, no key to paste.",
-  },
 ];
 
 export function Principles() {
   return (
-    <Section label="Principles">
+    <Section id="guardrails" label="Guardrails">
       <SectionHeader
-        eyebrow="an opinionated agent."
-        title="Not a blank canvas."
-        sub="It has views on how work should be done, and they're built in."
+        eyebrow="guardrails, built in."
+        title="Safe by construction."
+        sub="The rules a security team would set are there from the first run, not bolted on afterwards."
         className="border-b border-line"
       />
       <Reveal draw className="grid gap-px bg-line md:grid-cols-2 lg:grid-cols-3" stagger={0.08}>

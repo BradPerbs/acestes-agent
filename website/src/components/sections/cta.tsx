@@ -55,11 +55,11 @@ export function Cta() {
                 data-r
                 className="mt-7 max-w-[560px] text-[34px] leading-[1.05] font-medium tracking-[-0.035em] sm:text-[44px]"
               >
-                Ready to meet Acestes? <span className="text-muted">Hand it the next fix.</span>
+                Ready to put Acestes on guard? <span className="text-muted">Hand it the next audit.</span>
               </h2>
               <p data-r className="mt-5 max-w-[520px] text-[16px] leading-relaxed text-muted">
-                The agent that stays. Download it, sign in to the agent you already use, and it will be there tomorrow
-                knowing what happened today.
+                Download it, point it at your servers and the apps you work in, and it will be there tomorrow knowing
+                what happened today.
               </p>
               <div data-r className="mt-8 flex flex-wrap items-center justify-center gap-3">
                 <DownloadButton other={false} />

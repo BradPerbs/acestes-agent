@@ -8,136 +8,111 @@ import { TermLines, TermWindow, type TermLine } from "../terminal";
 import { SectionHeader } from "../section-header";
 import { ButtonLink } from "../ui";
 
-type Feature = { title: string; tool: string; lead: string; body: string; cwd: string; lines: TermLine[] };
+type Play = { title: string; tool: string; lead: string; body: string; cwd: string; lines: TermLine[] };
 
-const features: Feature[] = [
+// Addresses are from the ranges set aside for examples (RFC 5737).
+const plays: Play[] = [
   {
-    title: "It remembers",
-    tool: "remember",
-    lead: "It remembers.",
-    body: "How your projects are laid out, how you like things done, what the fix turned out to be. Stored on your machine and searched by meaning.",
-    cwd: "~/code/shop",
+    title: "It audits the fleet",
+    tool: "fan_out",
+    lead: "It audits the whole fleet.",
+    body: "One check across every host at once: SSH settings, open ports, pending updates, who can log in. The odd ones out come back first.",
+    cwd: "fleet · 40 hosts",
     lines: [
-      { k: "cmd", t: "why is the staging deploy slow again?" },
-      { k: "info", t: 'recall "staging deploy slow"' },
-      { k: "out", t: "m-4f2  staging builds skip the npm cache since 12 Sep" },
-      { k: "out", t: "m-9a1  you prefer small commits, one fix each" },
+      { k: "cmd", t: "fan_out \"sshd -T | grep -iE 'permitroot|passwordauth'\"" },
+      { k: "ok", t: "web-01 … web-24    keys only, no root" },
+      { k: "ok", t: "cache-01 … 08      keys only, no root" },
+      { k: "bad", t: "legacy-03   permitrootlogin yes" },
+      { k: "bad", t: "vpn-01      passwordauthentication yes" },
       { k: "gap" },
-      { k: "ok", t: "2 notes found. Picking up where we left off." },
+      { k: "info", t: "38 as they should be · 2 need you" },
     ],
   },
   {
-    title: "It does the work",
-    tool: "run_command",
-    lead: "It does the work.",
-    body: "Reads, searches and edits your code, runs the build, opens a shell on the server and checks the result.",
-    cwd: "~/code/shop",
+    title: "It digs into an incident",
+    tool: "watch_metric",
+    lead: "It digs into an incident.",
+    body: "Reads the logs on every box you point it at, charts what is happening as it happens, and remembers what the last incident turned out to be.",
+    cwd: "bastion-01",
     lines: [
-      { k: "cmd", t: "npm test" },
-      { k: "bad", t: "3 failing  test/billing.test.js" },
-      { k: "info", t: 'git bisect  →  8c1e2d4 "Round invoice lines early"' },
-      { k: "info", t: "edit src/billing/total.js  (+4 −2)" },
+      { k: "cmd", t: "why so many failed logins on bastion-01?" },
+      { k: "info", t: 'recall "bastion failed logins"  →  brute force from one range, May' },
+      { k: "out", t: "auth.log   1,912 failed in the last hour" },
+      { k: "out", t: "top        203.0.113.42  1,804 tries · 41 usernames" },
+      { k: "tag", tag: "live", tone: "accent", t: "failed logins / min   ▁▂▃▅▇█▇█" },
       { k: "gap" },
-      { k: "ok", t: "214 passing  (1.84s)" },
+      { k: "ok", t: "Same pattern as May. Blocking it needs you." },
     ],
   },
   {
-    title: "It uses your desktop",
-    tool: "read_screen",
-    lead: "It uses your desktop.",
-    body: "When there is no API, it works the app itself: reads the window, clicks, types and checks the result, with the real cursor where you can see it.",
-    cwd: "desktop",
+    title: "It fixes it, on your say-so",
+    tool: "approval",
+    lead: "It fixes it, on your say-so.",
+    body: "Every change waits on a card with the exact command. Sessions can be recorded keystroke by keystroke, and commands you block never run.",
+    cwd: "bastion-01",
     lines: [
-      { k: "cmd", t: "export last month's invoices from the billing app" },
-      { k: "info", t: "open_app  Billing" },
-      { k: "out", t: "read_screen  48 controls · [12] Reports · [31] Export" },
-      { k: "info", t: 'click [12] → click [31] → type_text "2026-09"' },
+      { k: "cmd", t: "sudo ufw deny from 203.0.113.42" },
+      { k: "tag", tag: "waiting", tone: "warn", t: "on you   [ Allow ]  [ Deny ]" },
+      { k: "ok", t: "allowed by you · rule added" },
+      { k: "out", t: "recorded   bastion-01 · 02:31:07" },
       { k: "gap" },
-      { k: "ok", t: "invoices-2026-09.csv saved to ~/Downloads" },
+      { k: "cmd", t: "rm -rf /var/log" },
+      { k: "tag", tag: "blocked", tone: "bad", t: "on your list. No approval lets it through." },
     ],
   },
   {
-    title: "It carries its own kit",
-    tool: "inventory",
-    lead: "It carries its own kit.",
-    body: "Folders, hosts, keys, snippets, playbooks and MCP servers live in its inventory. It keeps that up to date itself.",
-    cwd: "inventory",
-    lines: [
-      { k: "cmd", t: "list_inventory" },
-      { k: "tag", tag: "hosts", tone: "accent", t: "web-01  web-02  db-01  homelab" },
-      { k: "tag", tag: "keys", tone: "accent", t: "deploy-ed25519  github-ci" },
-      { k: "tag", tag: "folders", tone: "accent", t: "~/code/shop  ~/code/infra" },
-      { k: "tag", tag: "mcp", tone: "accent", t: "github  grafana  postgres" },
-      { k: "tag", tag: "specs", tone: "accent", t: "rotate-logs  renew-certs" },
-    ],
-  },
-  {
-    title: "It stays inside the fence",
-    tool: "folders",
-    lead: "It stays inside the fence.",
-    body: "It only touches the folders you grant it. Turn on the container and the fence becomes a wall.",
-    cwd: "~/code/shop",
-    lines: [
-      { k: "cmd", t: "read ~/.ssh/id_ed25519" },
-      { k: "bad", t: "refused  outside the granted folders" },
-      { k: "out", t: "granted  ~/code/shop  (read and write)" },
-      { k: "gap" },
-      { k: "info", t: "container on: the fence is now a wall" },
-    ],
-  },
-  {
-    title: "It works while you're away",
+    title: "It keeps watch",
     tool: "schedule_job",
-    lead: "It works while you're away.",
-    body: "Jobs run on a schedule, a webhook or a host going down, and keep running after you close the window.",
+    lead: "It keeps watch while you sleep.",
+    body: "Jobs run on a schedule, a webhook or a host going down: certificates about to lapse, ports that opened, logins that spiked. Anything that needs changing waits for you.",
     cwd: "jobs",
     lines: [
-      { k: "cmd", t: 'schedule_job "certificate expiry" daily 07:00' },
-      { k: "ok", t: "job created  cert-check" },
-      { k: "out", t: "next run   tomorrow 07:00" },
-      { k: "out", t: "watches    web-01  web-02  homelab" },
+      { k: "cmd", t: 'schedule_job "exposure check" daily 06:00' },
+      { k: "ok", t: "job created  exposure-check" },
+      { k: "out", t: "checks     open ports · cert expiry · failed logins" },
+      { k: "out", t: "on         web-01 … web-24 · bastion-01 · vpn-01" },
       { k: "out", t: "on change  waits for you first" },
     ],
   },
   {
-    title: "It shares the work",
-    tool: "fan_out",
-    lead: "It shares the work.",
-    body: "Run one check across twenty hosts, or hand a task to another agent.",
-    cwd: "fleet",
+    title: "It reaches the odd box",
+    tool: "connect_host",
+    lead: "It reaches the odd box.",
+    body: "Jump hosts, proxies, serial and Telnet: the switch in the rack and the server behind the bastion are in reach, through sessions you can watch.",
+    cwd: "core-sw-01 · serial",
     lines: [
-      { k: "cmd", t: 'fan_out "df -h /" across 20 hosts' },
-      { k: "ok", t: "web-01 … web-12   under 70%" },
-      { k: "ok", t: "cache-01 … 06     under 55%" },
-      { k: "bad", t: "db-01   91%  /var/lib/postgresql" },
+      { k: "cmd", t: "connect_host core-sw-01   COM3 · 9600 8N1" },
+      { k: "ok", t: "connected" },
+      { k: "cmd", t: "show running-config | include snmp" },
+      { k: "bad", t: "snmp-server community public RO" },
       { k: "gap" },
-      { k: "info", t: "19 healthy · 1 needs you" },
+      { k: "info", t: "A default community string. Replace it with one from your keychain?" },
     ],
   },
   {
-    title: "You decide how much it does alone",
-    tool: "approval",
-    lead: "You decide how much it does alone.",
-    body: "Ask for everything, only for changes, or never. Dangerous commands are blocked outright.",
-    cwd: "web-02",
+    title: "It can stay in the building",
+    tool: "local model",
+    lead: "It can stay in the building.",
+    body: "Give an agent a local model through Ollama, LM Studio or vLLM, and what it reads never leaves your network. Secrets never reach any model at all.",
+    cwd: "agents · Achates",
     lines: [
-      { k: "cmd", t: "sudo systemctl reload nginx" },
-      { k: "tag", tag: "waiting", tone: "warn", t: "on you   [ Allow ]  [ Deny ]" },
+      { k: "tag", tag: "runtime", tone: "accent", t: "Ollama, on this machine" },
+      { k: "tag", tag: "access", tone: "accent", t: "20 hosts · reads only" },
+      { k: "tag", tag: "secrets", tone: "accent", t: "seen as {{secret:name}}, never the value" },
       { k: "gap" },
-      { k: "cmd", t: "rm -rf /var/www" },
-      { k: "tag", tag: "blocked", tone: "bad", t: "on your list. No approval lets it through." },
+      { k: "ok", t: "Audit done. Nothing left the building." },
     ],
   },
 ];
 
 const DWELL = 7;
 
-export function Features() {
+export function Security() {
   const [active, setActive] = useState(0);
   const root = useRef<HTMLDivElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   const tabs = useRef<(HTMLButtonElement | null)[]>([]);
-  const f = features[active];
+  const p = plays[active];
 
   // Autoplay: the active tab's bar fills, then the next tab takes over.
   // Paused while the section is off screen.
@@ -154,7 +129,7 @@ export function Features() {
           duration: DWELL,
           ease: "none",
           paused: true,
-          onComplete: () => setActive((a) => (a + 1) % features.length),
+          onComplete: () => setActive((a) => (a + 1) % plays.length),
         },
       );
       const st = ScrollTrigger.create({
@@ -201,7 +176,7 @@ export function Features() {
     const keys = ["ArrowDown", "ArrowUp", "Home", "End"];
     if (!keys.includes(e.key)) return;
     e.preventDefault();
-    const n = features.length;
+    const n = plays.length;
     const next =
       e.key === "ArrowDown"
         ? (active + 1) % n
@@ -215,12 +190,12 @@ export function Features() {
   };
 
   return (
-    <Section id="features" label="Features">
+    <Section id="security" label="Security work">
       <div ref={root} className="grid lg:grid-cols-2">
         <SectionHeader
-          eyebrow="an agent, not a chatbot."
-          title="Remembers. Works. Asks first."
-          sub="It drives your desktop apps, carries its own kit, stays inside the fence, and keeps working while you're away."
+          eyebrow="built for security work."
+          title="Audits. Investigates. Hardens. Asks first."
+          sub="It works your fleet like a careful engineer: through the same SSH sessions you use, every command in the open, every change on your say-so."
           className="border-b border-line lg:col-span-2"
         >
           <ButtonLink href={site.repo} external arrow>
@@ -234,12 +209,12 @@ export function Features() {
         {/* Tabs */}
         <div
           role="tablist"
-          aria-label="What Acestes does"
+          aria-label="Security work Acestes does"
           aria-orientation="vertical"
           onKeyDown={onKey}
           className="border-line lg:border-r"
         >
-          {features.map((item, i) => {
+          {plays.map((item, i) => {
             const on = i === active;
             return (
               <button
@@ -248,9 +223,9 @@ export function Features() {
                   tabs.current[i] = el;
                 }}
                 role="tab"
-                id={`feature-tab-${i}`}
+                id={`security-tab-${i}`}
                 aria-selected={on}
-                aria-controls="feature-panel"
+                aria-controls="security-panel"
                 tabIndex={on ? 0 : -1}
                 onClick={() => setActive(i)}
                 className={`relative flex w-full items-center gap-4 border-b border-line px-5 py-6 text-left transition-colors duration-300 sm:px-10 lg:min-h-[88px] ${
@@ -275,9 +250,9 @@ export function Features() {
         {/* Panel */}
         <div
           ref={panel}
-          id="feature-panel"
+          id="security-panel"
           role="tabpanel"
-          aria-labelledby={`feature-tab-${active}`}
+          aria-labelledby={`security-tab-${active}`}
           className="flex flex-col border-t border-line lg:border-t-0"
         >
           <div className="flex min-h-[176px] items-center border-b border-line px-5 py-8 sm:px-10">
@@ -286,14 +261,14 @@ export function Features() {
                 {"//"}
               </span>
               <strong data-copy className="font-medium text-fg">
-                {f.lead}
+                {p.lead}
               </strong>{" "}
-              <span data-copy>{f.body}</span>
+              <span data-copy>{p.body}</span>
             </p>
           </div>
           <div className="flex flex-1 p-4 sm:p-5">
-            <TermWindow title={f.cwd} className="flex w-full flex-col" bodyClassName="min-h-[230px] flex-1">
-              <TermLines key={active} lines={f.lines} />
+            <TermWindow title={p.cwd} className="flex w-full flex-col" bodyClassName="min-h-[230px] flex-1">
+              <TermLines key={active} lines={p.lines} />
             </TermWindow>
           </div>
         </div>

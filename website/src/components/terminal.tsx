@@ -42,14 +42,20 @@ const toneClass = {
   warn: "bg-amber-400/15 text-amber-400",
 } as const;
 
-export function TermLines({ lines }: { lines: TermLine[] }) {
+/**
+ * A terminal's lines. With `reveal`, each line stays hidden until an
+ * animation shows it (the page's reveal gate), so a scripted run does not
+ * flash its ending first.
+ */
+export function TermLines({ lines, reveal = false }: { lines: TermLine[]; reveal?: boolean }) {
+  const gate = reveal ? { "data-reveal": "" } : {};
   return (
     <>
       {lines.map((l, i) => {
         switch (l.k) {
           case "cmd":
             return (
-              <p key={i} data-line className="-mx-2 mb-1 flex gap-2 rounded-[4px] bg-term-hl px-2 py-0.5">
+              <p key={i} data-line {...gate} className="-mx-2 mb-1 flex gap-2 rounded-[4px] bg-term-hl px-2 py-0.5">
                 <span className="text-violet-400">❯</span>
                 <span data-cmd className="min-w-0 break-words whitespace-pre-wrap">
                   {l.t}
@@ -58,28 +64,28 @@ export function TermLines({ lines }: { lines: TermLine[] }) {
             );
           case "ok":
             return (
-              <p key={i} data-line className="flex gap-2 text-emerald-400">
+              <p key={i} data-line {...gate} className="flex gap-2 text-emerald-400">
                 <span>✓</span>
                 <span className="min-w-0 whitespace-pre-wrap">{l.t}</span>
               </p>
             );
           case "bad":
             return (
-              <p key={i} data-line className="flex gap-2 text-red-400">
+              <p key={i} data-line {...gate} className="flex gap-2 text-red-400">
                 <span>✗</span>
                 <span className="min-w-0 whitespace-pre-wrap">{l.t}</span>
               </p>
             );
           case "info":
             return (
-              <p key={i} data-line className="flex gap-2">
+              <p key={i} data-line {...gate} className="flex gap-2">
                 <span className="text-violet-400">◆</span>
                 <span className="min-w-0 whitespace-pre-wrap">{l.t}</span>
               </p>
             );
           case "tag":
             return (
-              <p key={i} data-line className="flex items-baseline gap-2">
+              <p key={i} data-line {...gate} className="flex items-baseline gap-2">
                 <span
                   className={`shrink-0 rounded-[3px] px-1.5 text-[10px] leading-[1.7] font-medium tracking-wider uppercase ${toneClass[l.tone ?? "ok"]}`}
                 >
@@ -89,10 +95,10 @@ export function TermLines({ lines }: { lines: TermLine[] }) {
               </p>
             );
           case "gap":
-            return <p key={i} data-line aria-hidden="true" className="h-2" />;
+            return <p key={i} data-line {...gate} aria-hidden="true" className="h-2" />;
           default:
             return (
-              <p key={i} data-line className="pl-4 whitespace-pre-wrap text-term-muted">
+              <p key={i} data-line {...gate} className="pl-4 whitespace-pre-wrap text-term-muted">
                 {l.t}
               </p>
             );

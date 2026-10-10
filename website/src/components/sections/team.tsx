@@ -25,7 +25,7 @@ type Agent = {
 const agents: Agent[] = [
   {
     name: "Ace",
-    role: "production",
+    role: "incident response",
     helmet: "corinthian",
     crest: "plume",
     line: "#7C3AED", // violet
@@ -66,10 +66,10 @@ const agents: Agent[] = [
 
 export function Team() {
   return (
-    <Section label="A team of agents">
+    <Section id="team" label="A team of agents">
       <SectionHeader
         eyebrow="a team of them."
-        title="One for prod. One for the homelab. One that only reads."
+        title="One for incidents. One for the homelab. One that only reads."
         sub="Each has its own name, helmet, colour, memory, inventory and rules, and runs on whichever model you give it."
         className="border-b border-line"
       />

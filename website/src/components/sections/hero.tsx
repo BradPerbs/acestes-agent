@@ -86,7 +86,7 @@ export function Hero() {
                 <span className="font-medium">
                   Acestes <AppVersion />
                 </span>
-                <span className="text-white/60"> · charts in replies, split view with terminals</span>
+                <span className="text-white/60"> · computer use, rebuilt</span>
               </span>
               <span className="grid size-6 shrink-0 place-items-center rounded-full bg-white text-[#3b0f8f] transition-transform group-hover/ann:translate-x-0.5">
                 <Icon icon={ArrowRight01Icon} size={14} strokeWidth={2.2} />
@@ -99,17 +99,17 @@ export function Hero() {
               data-reveal
               className="mt-8 max-w-[1000px] text-[40px] leading-[1.02] font-medium tracking-[-0.035em] min-[400px]:text-[44px] sm:text-[56px] lg:text-[70px]"
             >
-              <span className="block sm:whitespace-nowrap">Every agent. Every account.</span>
-              <span className="block text-[#d8c4ff]">One app.</span>
+              <span className="block sm:whitespace-nowrap">Every server. Every screen.</span>
+              <span className="block text-balance text-[#d8c4ff]">One agent on guard.</span>
             </h1>
 
             <p
               data-hero-fade
               data-reveal
-              className="mt-6 max-w-[680px] text-[17px] leading-relaxed text-balance text-white/80 sm:text-[19px]"
+              className="mt-6 max-w-[700px] text-[17px] leading-relaxed text-balance text-white/80 sm:text-[19px]"
             >
-              Acestes runs Claude Code, Codex, Cursor and ten more on all your accounts, with memory, computer use and
-              your servers built in.
+              The desktop agent for security and IT work. It audits and hardens your fleet over SSH, works the apps that
+              have no API with the real mouse and keyboard, and asks before it changes anything.
             </p>
 
             <div
@@ -133,7 +133,7 @@ export function Hero() {
                   href="#runtimes"
                   className="text-white/80 underline decoration-white/30 underline-offset-4 hover:decoration-white"
                 >
-                  all 13 runtimes
+                  on the agent you already use
                 </a>
               </span>
             </p>

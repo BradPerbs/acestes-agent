@@ -8,10 +8,14 @@ import { BrandIcon, Icon } from "./icon";
 import { ThemeSwitch } from "./theme-toggle";
 
 const links = [
-  { label: "Features", href: "#features" },
-  { label: "Runtimes", href: "#runtimes" },
+  { label: "Security", href: "#security" },
+  { label: "Computer use", href: "#computer-use" },
+  { label: "Advanced", href: "#advanced" },
+  { label: "Guardrails", href: "#guardrails" },
   { label: "Desktop", href: "#desktop" },
+  { label: "Team", href: "#team" },
   { label: "Memory", href: "#memory" },
+  { label: "Runtimes", href: "#runtimes" },
   { label: "Download", href: "#download" },
   { label: "FAQ", href: "#faq" },
   { label: "Changelog", href: site.releases, external: true },

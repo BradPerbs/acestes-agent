@@ -21,12 +21,42 @@ const A = ({ href, children }: { href: string; children: ReactNode }) => (
 
 const faqs: { q: string; a: ReactNode }[] = [
   {
+    q: "Can it do security work on my servers?",
+    a: (
+      <>
+        Yes, with your access and nothing more. It opens the same SSH sessions you do, through jump hosts and proxies,
+        runs a check across many hosts at once, reads the logs, and keeps watch on a schedule. Anything that changes a
+        server waits for your say-so on a card with the exact command, unless you decide otherwise.
+      </>
+    ),
+  },
+  {
+    q: "Does anything leave my network?",
+    a: (
+      <>
+        That depends on the agent you run it on. Give it a local model through Ollama, LM Studio or vLLM and what it
+        reads stays on your machine. Passwords and keys never reach any model: it only ever sees a reference to them.
+      </>
+    ),
+  },
+  {
+    q: "How does computer use work, and is it safe?",
+    a: (
+      <>
+        It reads a window through the accessibility tree, the way a screen reader does, numbers its controls and works
+        them with the real cursor and keys. It is off until you switch it on, asks before each app, pauses the moment
+        you touch the mouse, stops on Esc, and can never touch its own window.
+      </>
+    ),
+  },
+  {
     q: "How is Acestes different from Claude Code or Codex?",
     a: (
       <>
         It runs <strong className="font-medium text-fg">on</strong> them. Acestes drives the coding agent you already
         have and adds what a chat window lacks: a memory that lasts, an inventory of hosts, keys and folders, approval
-        cards for every change, real terminal sessions on your servers, and jobs that run while you&apos;re away.
+        cards for every change, real terminal sessions on your servers, computer use, and jobs that run while
+        you&apos;re away.
       </>
     ),
   },
@@ -169,7 +199,7 @@ export function Faq() {
               answered.
             </h2>
             <p className="mt-5 max-w-[320px] text-[15px] leading-relaxed text-muted">
-              What usually comes up before someone hands it the keys. Still curious? Read the{" "}
+              What usually comes up before someone hands it the keys to the fleet. Still curious? Read the{" "}
               <A href={`${site.repo}#readme`}>README</A> or <A href={site.issues}>open an issue</A>.
             </p>
           </div>

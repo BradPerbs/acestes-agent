@@ -5,14 +5,14 @@ import { Icon } from "../icon";
 import { Reveal } from "../reveal";
 import { Eyebrow } from "../ui";
 
-// From the commits in v1.2.2...v1.3.4.
+// From the commits since v1.4.3: Full access mode, and the computer use rebuild.
 const entries = [
-  { kind: "feat", text: "Draw charts in replies from ```chart blocks" },
-  { kind: "feat", text: "Split view holds terminals beside chats" },
-  { kind: "feat", text: "An agent's memory can be switched off" },
-  { kind: "feat", text: "Pick the task-done sound in Settings" },
-  { kind: "fix", text: "Scroll up freely while a reply streams" },
-  { kind: "fix", text: "Antigravity reads images as files on the prompt" },
+  { kind: "feat", text: "Computer use reads a window in one call" },
+  { kind: "feat", text: "Numbered screenshots, with their read" },
+  { kind: "feat", text: "Actions report only what changed" },
+  { kind: "feat", text: "Hover, held keys, drag paths, the clipboard" },
+  { kind: "feat", text: "Full access mode, one step past Yolo" },
+  { kind: "fix", text: "Menu items click by number; long text types whole" },
 ] as const;
 
 const released = new Date(`${site.released}T12:00:00Z`).toLocaleDateString("en-GB", {

@@ -2,9 +2,9 @@ const repo = "https://github.com/BradPerbs/acestes-agent";
 
 export const site = {
   name: "Acestes Agent",
-  tagline: "Every agent. Every account. One app.",
+  tagline: "Every server. Every screen. One agent on guard.",
   description:
-    "Acestes runs Claude Code, Codex, Cursor and ten more coding agents side by side, on all your accounts, in one desktop app. It remembers how you work, drives your desktop apps and opens shells on your servers.",
+    "Acestes is a desktop AI agent for security and IT work. It audits and hardens your servers over SSH, works the apps that have no API with the real mouse and keyboard, and asks before it changes anything. Free, on the agent you already use.",
   // The latest release at build time, filled in by next.config.ts.
   // <AppVersion /> refreshes it in the browser if a newer one is out.
   version: process.env.NEXT_PUBLIC_APP_VERSION ?? "",

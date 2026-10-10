@@ -10,8 +10,9 @@ import { ThemeToggle } from "./theme-toggle";
 import { buttonClass } from "./ui";
 
 const links = [
-  { href: "#features", label: "Features" },
-  { href: "#runtimes", label: "Runtimes" },
+  { href: "#security", label: "Security" },
+  { href: "#computer-use", label: "Computer use" },
+  { href: "#advanced", label: "Advanced" },
   { href: "#desktop", label: "Desktop" },
   { href: "#download", label: "Pricing" },
   { href: "#faq", label: "FAQ" },
