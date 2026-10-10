@@ -1345,6 +1345,10 @@ const BUNDLE_OF = {
     do_steps: 'desktop',
     wait_for: 'desktop',
     solve_captcha: 'desktop',
+    hover: 'desktop',
+    mouse_button: 'desktop',
+    hold_key: 'desktop',
+    read_clipboard: 'desktop',
     // Inventory: hosts, keys, proxies, snippets, files, folders, agents.
     list_hosts: 'inventory',
     list_snippets: 'inventory',

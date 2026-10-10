@@ -7,6 +7,15 @@
  * Element 99 is where the user "takes over": clicking it answers as the real
  * helper does when a hand touches the mouse mid-action. Pressing "f12" has the
  * user press Esc instead.
+ *
+ * Typing "slowly" answers only once a cancel names it, as long typing does
+ * when it runs past its time; typing "stuck" never answers at all, like a
+ * helper caught in an app that stopped answering.
+ *
+ * The window changes when told to, for the reads after an action: aiming at
+ * element 8 opens a small dialog in Notepad, "f5" swaps the whole window for
+ * another, and "f6" puts it back as it was. A file named like the log with
+ * ".private" beside it makes the clipboard hold a password manager's copy.
  */
 const fs = require('fs');
 const readline = require('readline');
@@ -158,6 +167,21 @@ const send = message => process.stdout.write(`${JSON.stringify(message)}\n`);
 send({ event: 'ready', version: 'fake', elevated: false });
 
 let front = WINDOWS[0];
+// The id of typing that answers only when asked to stop.
+let slowType = null;
+// How the window stands: a dialog open in it, or swapped for another.
+let opened = false;
+let swapped = false;
+
+const DIALOG = [
+    { id: 50, d: 1, r: 'dialog', n: 'Saved' },
+    { id: 51, d: 2, r: 'button', n: 'OK' },
+];
+const ELSEWHERE = [
+    { id: 60, d: 0, r: 'window', n: 'Elsewhere' },
+    ...Array.from({ length: 15 }, (unused, index) => ({ id: 61 + index, d: 1, r: 'button', n: `Other ${index + 1}` })),
+];
+const nodesNow = () => (swapped ? ELSEWHERE : [...NODES, ...(opened ? DIALOG : [])]);
 
 readline.createInterface({ input: process.stdin }).on('line', (line) => {
     const request = JSON.parse(line);
@@ -187,14 +211,15 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
             // With a reCAPTCHA scripted, its frame is in the read as Chrome shows one.
             const framed = ['checkbox', 'challenge', 'checked', 'invisible'].includes(scenario().stage);
             const nodes = framed
-                ? [...NODES, { id: 9, d: 1, r: 'group', n: 'reCAPTCHA', v: 'https://www.google.com/recaptcha/api2/anchor?ar=1&k=abc' }]
-                : NODES;
+                ? [...nodesNow(), { id: 9, d: 1, r: 'group', n: 'reCAPTCHA', v: 'https://www.google.com/recaptcha/api2/anchor?ar=1&k=abc' }]
+                : nodesNow();
             return reply({ window, nodes, truncated: false });
         }
         case 'captcha': return reply({ window: WINDOWS[0], ...captchaScan() });
         case 'text': return reply({ text: LONG, length: LONG.length });
         case 'target': {
             if (request.element === 42) return refuse('protected', 'That is on the Acestes window itself, which the agent may not touch.');
+            if (request.element === 8) opened = true;
             if (request.element === undefined) {
                 // A point from a screenshot: Notepad sits at 0,0, 800x600,
                 // except that aiming at 796,596 finds it nudged since.
@@ -219,6 +244,8 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
                 height: region[3] * scale,
                 region,
                 scale,
+                // A numbered picture brings the read its numbers come from.
+                ...(request.marks ? { window: WINDOWS[0], nodes: nodesNow(), truncated: false, marked: 2 } : {}),
             });
         }
         case 'click': {
@@ -229,10 +256,38 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
             captchaClick(request.x, request.y);
             return reply({ under: 'button "Save"', window: WINDOWS[0] });
         }
-        case 'type': return reply({ typed: request.text.length, window: WINDOWS[0] });
+        case 'type': {
+            if (request.text === 'slowly') {
+                slowType = request.id;
+                return undefined;
+            }
+            if (request.text === 'stuck') return undefined;
+            return reply({ typed: request.text.length, window: WINDOWS[0] });
+        }
+        // Answers nothing itself: it stops the request it names, which answers.
+        case 'cancel': {
+            if (request.target === slowType) {
+                send({ id: slowType, ok: false, code: 'cancelled', error: 'Stopped by the app. 3 of 6 characters were typed.' });
+                slowType = null;
+            }
+            return undefined;
+        }
         case 'keys': {
             if (request.keys === 'f12') send({ event: 'escape' });
+            if (request.keys === 'f5') swapped = true;
+            if (request.keys === 'f6') {
+                swapped = false;
+                opened = false;
+            }
             return reply({ window: WINDOWS[0] });
+        }
+        case 'settle': return reply({ settled: true, ms: 1 });
+        case 'move': return reply({ under: 'button "Save"', window: WINDOWS[0] });
+        case 'button': return reply({ under: 'pane "Canvas"', window: WINDOWS[0] });
+        case 'letgo': return reply({});
+        case 'clipboard': {
+            if (fs.existsSync(`${log}.private`)) return reply({ private: true });
+            return reply({ text: 'copied words', files: ['C:\\notes.txt'] });
         }
         case 'scroll': return reply({ under: 'document "Text editor"', window: WINDOWS[0] });
         case 'drag': {

@@ -428,7 +428,7 @@ function conversation(id, overrides = {}) {
         const trees = sent().filter(request => request.cmd === 'tree');
         assert.ok(trees.slice(0, -1).every(request => request.find), 'waiting searched without renumbering');
         assert.ok(!trees.at(-1).find, 'one read, at the end');
-        assert.ok(result.screen.elements.includes('[2] document'));
+        assert.strictEqual(result.screen.changes, 'Nothing in the window changed.', 'set against the read before it');
         busy.delete('c-steps');
         computer.release('c-steps');
     });
@@ -517,14 +517,14 @@ function conversation(id, overrides = {}) {
         assert.deepStrictEqual([click.x, click.y], [200, 100]);
     });
 
-    await check('working from pictures, an action hands back a fresh screenshot rather than a read', async () => {
+    await check('working from pictures, an action hands back a fresh numbered screenshot, with what changed', async () => {
         clearLog();
         const { api } = conversation('c-shot');
         const result = await api.drag({ fromX: 10, fromY: 10, toX: 200, toY: 150 });
         assert.ok(!result.error, result.error);
         assert.ok(result.image && result.screenshot, 'pictured');
-        assert.ok(!result.screen, 'not read');
-        assert.ok(sent().some(request => request.cmd === 'capture'));
+        assert.strictEqual(result.screen.changes, 'Nothing in the window changed.', 'the numbers on it, set against the last look');
+        assert.ok(sent().some(request => request.cmd === 'capture' && request.marks), 'numbered');
     });
 
     await check('a point outside the picture, or in a window that has moved since, is refused', async () => {
@@ -799,6 +799,229 @@ function conversation(id, overrides = {}) {
         computer.release(id);
     }
 
+    console.log('\nwhat comes back after an action');
+
+    await check('after a read, an action hands back only what changed, once the window has settled', async () => {
+        const { api } = conversation('c-diff');
+        busy.add('c-diff');
+        try {
+            await api.read({ window: 'notepad' });
+            clearLog();
+            const result = await api.click({ element: 8 });
+            assert.ok(!result.error, result.error);
+            assert.ok(!result.screen.elements, 'not the whole window again');
+            assert.strictEqual(result.screen.changes, 'New:\n  [50] dialog "Saved"\n    [51] button "OK"');
+            const order = sent().map(request => request.cmd).filter(cmd => ['click', 'settle', 'tree'].includes(cmd));
+            assert.deepStrictEqual(order, ['click', 'settle', 'tree'], 'settled before it was looked at');
+            const quiet = await api.click({ element: 3 });
+            assert.strictEqual(quiet.screen.changes, 'Nothing in the window changed.');
+        } finally {
+            await api.keys({ keys: 'f6', read: false });
+            busy.delete('c-diff');
+            computer.release('c-diff');
+        }
+    });
+
+    await check('when most of the window changed, the whole of it comes back', async () => {
+        const { api } = conversation('c-diff-big');
+        busy.add('c-diff-big');
+        try {
+            await api.read({ window: 'notepad' });
+            const result = await api.keys({ keys: 'f5' });
+            assert.ok(result.screen.elements && !result.screen.changes, 'whole');
+            assert.ok(result.screen.elements.includes('[60] window "Elsewhere"'));
+        } finally {
+            await api.keys({ keys: 'f6', read: false });
+            busy.delete('c-diff-big');
+            computer.release('c-diff-big');
+        }
+    });
+
+    await check('on a Mac, whose numbers do not stay with their controls, an action hands back the whole window', async () => {
+        computer._test.setPlatform('darwin');
+        const { api } = conversation('c-diff-mac');
+        busy.add('c-diff-mac');
+        try {
+            await api.read({ window: 'notepad' });
+            clearLog();
+            const result = await api.click({ element: 8 });
+            assert.ok(result.screen.elements && !result.screen.changes, 'whole');
+            assert.ok(!sent().some(request => request.cmd === 'settle'), 'nothing the Mac helper does not know');
+        } finally {
+            computer._test.setPlatform('win32');
+            await api.keys({ keys: 'f6', read: false });
+            busy.delete('c-diff-mac');
+            computer.release('c-diff-mac');
+        }
+    });
+
+    await check('a change is said as new controls, changed ones with what they were, and those gone', () => {
+        const before = [{ id: 1, d: 0, r: 'window', n: 'App' }, { id: 2, d: 1, r: 'button', n: 'Play' }, { id: 3, d: 1, r: 'text', n: 'Ready' }];
+        const after = [{ id: 1, d: 0, r: 'window', n: 'App' }, { id: 2, d: 1, r: 'button', n: 'Pause', s: 'focused' }, { id: 4, d: 1, r: 'text', n: 'Playing' }];
+        assert.strictEqual(computer._test.changesBetween(before, after),
+            'New:\n  [4] text "Playing"\nChanged:\n  [2] button "Pause" (focused), was "Play" (nothing marked)\nGone: [3] text "Ready"');
+        const cut = computer._test.changesBetween(before, after, { truncated: true });
+        assert.ok(!/Gone/.test(cut) && /stops at its limit/.test(cut), 'a read cut short says nothing of what went');
+    });
+
+    await check('a numbered screenshot comes with its read, and a clean one when asked', async () => {
+        const { api } = conversation('c-marks');
+        busy.add('c-marks');
+        try {
+            clearLog();
+            const result = await api.screenshot({ window: 'notepad' });
+            assert.strictEqual(sent().find(request => request.cmd === 'capture').marks, true);
+            assert.ok(result.screen.elements.includes('[3] button "Save"'), 'the list comes with the picture');
+            assert.ok(/numbered boxes/.test(result.screenshot.note), result.screenshot.note);
+            clearLog();
+            const clean = await api.screenshot({ window: 'notepad', marks: false });
+            assert.strictEqual(sent().find(request => request.cmd === 'capture').marks, undefined, 'clean when asked');
+            assert.ok(!clean.screen);
+        } finally {
+            busy.delete('c-marks');
+            computer.release('c-marks');
+        }
+    });
+
+    await check('wait_for can wait for something to go', async () => {
+        const { api } = conversation('c-gone');
+        const went = await api.waitFor({ text: 'Loading', gone: true });
+        assert.ok(/nothing matching "Loading"/.test(went.gone), JSON.stringify(went));
+        const stays = await api.waitFor({ text: 'save', gone: true, timeout: 1 });
+        assert.strictEqual(stays.error, '"save" was still there after 1 second.');
+    });
+
+    console.log('\nthe newer hands');
+
+    await check('hover rests the cursor on its target and looks while the mouse is still held', async () => {
+        const { api } = conversation('c-hover');
+        busy.add('c-hover');
+        try {
+            clearLog();
+            const result = await api.hover({ element: 3, seconds: 0 });
+            assert.ok(!result.error, result.error);
+            assert.strictEqual(result.hovered, 'element 3');
+            const move = sent().find(request => request.cmd === 'move');
+            assert.deepStrictEqual([move.x, move.y], [50, 60]);
+            assert.ok(result.screen, 'what it showed comes back');
+            assert.ok(!sent().some(request => request.cmd === 'click'), 'nothing clicked');
+        } finally {
+            busy.delete('c-hover');
+            computer.release('c-hover');
+        }
+    });
+
+    await check('a mouse button pressed is held until let go, and the end of the turn lets go of it', async () => {
+        const { api } = conversation('c-press');
+        busy.add('c-press');
+        clearLog();
+        const down = await api.mouse({ action: 'down', element: 3, read: false });
+        assert.ok(!down.error, down.error);
+        const up = await api.mouse({ action: 'up', read: false });
+        assert.ok(!up.error, up.error);
+        assert.deepStrictEqual(sent().filter(request => request.cmd === 'button').map(request => request.down), [true, false]);
+        assert.ok(/where to press/.test((await api.mouse({ action: 'down', read: false })).error), 'pressing needs a place');
+        busy.delete('c-press');
+        computer.release('c-press');
+        await new Promise(resolve => setTimeout(resolve, 50));
+        assert.ok(sent().some(request => request.cmd === 'letgo' && request.owner === 'c-press'), 'let go with the turn');
+    });
+
+    await check('hold_key holds the keys for as long as asked', async () => {
+        const { api } = conversation('c-hold');
+        busy.add('c-hold');
+        try {
+            clearLog();
+            const result = await api.hold({ keys: 'shift', seconds: 2, read: false });
+            assert.ok(!result.error, result.error);
+            assert.strictEqual(sent().find(request => request.cmd === 'keys').hold, 2000);
+        } finally {
+            busy.delete('c-hold');
+            computer.release('c-hold');
+        }
+    });
+
+    await check('a drag along a path goes through each point, scaled from the screenshot to the screen', async () => {
+        const { api } = conversation('c-path');
+        busy.add('c-path');
+        try {
+            await api.screenshot({ window: 'notepad' });
+            clearLog();
+            const result = await api.drag({ path: [{ x: 10, y: 10 }, { x: 50, y: 20 }, { x: 90, y: 60 }], read: false });
+            assert.ok(!result.error, result.error);
+            assert.deepStrictEqual(sent().find(request => request.cmd === 'drag').path, [[20, 20], [100, 40], [180, 120]]);
+        } finally {
+            busy.delete('c-path');
+            computer.release('c-path');
+        }
+    });
+
+    await check('the clipboard is read a page at a time, and a copy marked private never', async () => {
+        const { api } = conversation('c-clip');
+        const read = await api.clipboard({});
+        assert.strictEqual(read.text, 'copied words');
+        assert.deepStrictEqual(read.files, ['C:\\notes.txt']);
+        fs.writeFileSync(`${log}.private`, '1');
+        try {
+            const refused = await api.clipboard({});
+            assert.ok(/marked private/.test(refused.error), refused.error);
+        } finally {
+            fs.unlinkSync(`${log}.private`);
+        }
+    });
+
+    console.log('\ntime limits');
+
+    await check('an action that runs past its time is asked to stop, says how far it got, and the helper stays', async () => {
+        computer._test.timeouts({ typeBase: 150, cancelGrace: 3000 });
+        const { api } = conversation('c-slow');
+        try {
+            await api.windows();
+            const before = computer._test.helperPid();
+            clearLog();
+            const result = await api.type({ text: 'slowly', read: false });
+            assert.ok(/took longer than allowed/.test(result.error) && /3 of 6 characters were typed/.test(result.error), result.error);
+            assert.ok(!/Stopped by the app/.test(result.error), result.error);
+            const typed = sent().find(request => request.cmd === 'type');
+            const cancel = sent().find(request => request.cmd === 'cancel');
+            assert.ok(cancel, 'the helper was asked to stop');
+            assert.strictEqual(cancel.target, typed.id, 'the stop names the request it is for');
+            assert.strictEqual(computer._test.helperPid(), before, 'the same helper, with every agent\'s numbers');
+        } finally {
+            computer.release('c-slow');
+            computer._test.timeouts({});
+        }
+    });
+
+    await check('a helper that does not answer even when asked to stop is let go, and the next call starts a fresh one', async () => {
+        computer._test.timeouts({ typeBase: 100, cancelGrace: 150 });
+        const { api } = conversation('c-stuck');
+        try {
+            await api.windows();
+            const before = computer._test.helperPid();
+            const result = await api.type({ text: 'stuck', read: false });
+            assert.ok(/did not answer in time/.test(result.error), result.error);
+            const listed = await api.windows();
+            assert.ok(!listed.error, listed.error);
+            assert.notStrictEqual(computer._test.helperPid(), before, 'a fresh helper');
+        } finally {
+            computer.release('c-stuck');
+            computer._test.timeouts({});
+        }
+    });
+
+    await check('long text goes no faster than the helper types, and is given the time that takes', async () => {
+        const { api } = conversation('c-long');
+        try {
+            clearLog();
+            const result = await api.type({ text: 'y'.repeat(5000), read: false });
+            assert.ok(!result.error, result.error);
+            assert.strictEqual(sent().find(request => request.cmd === 'type').cps, 400);
+        } finally {
+            computer.release('c-long');
+        }
+    });
+
     console.log('\nthe catalog');
 
     await check('reading is read-only; acting is a write the per-app question gates; opening an app asks', () => {
@@ -870,6 +1093,25 @@ function conversation(id, overrides = {}) {
                     const scanned = await ask(5, 'captcha', { hwnd: listed.windows[listed.windows.length - 1].hwnd });
                     assert.strictEqual(scanned.ok, true, scanned.error);
                     assert.ok(Array.isArray(scanned.widgets) && Array.isArray(scanned.images));
+                }
+                // Reading moves nothing either. Two apps' windows, read one,
+                // the other, then the first again: a control keeps its number,
+                // and the other app's controls never take the first's numbers,
+                // as they did when every read counted from 1.
+                const [one, two] = listed.windows.filter((window, index, all) => all.findIndex(other => other.pid === window.pid) === index);
+                if (one && two) {
+                    const numbers = read => read.nodes.filter(node => node.id).map(node => node.id);
+                    const first = await ask(6, 'tree', { hwnd: one.hwnd, maxNodes: 60 });
+                    const other = await ask(7, 'tree', { hwnd: two.hwnd, maxNodes: 60 });
+                    const again = await ask(8, 'tree', { hwnd: one.hwnd, maxNodes: 60 });
+                    for (const read of [first, other, again]) {
+                        assert.strictEqual(read.ok, true, read.error);
+                        assert.strictEqual(new Set(numbers(read)).size, numbers(read).length, 'no number twice in one read');
+                    }
+                    const firstNumbers = new Set(numbers(first));
+                    assert.ok(numbers(other).every(id => !firstNumbers.has(id)), 'another app\'s controls have numbers of their own');
+                    const kept = numbers(again).filter(id => firstNumbers.has(id)).length;
+                    assert.ok(kept >= numbers(again).length * 0.9, `${kept} of ${numbers(again).length} kept their numbers`);
                 }
             } finally {
                 child.stdin.end();

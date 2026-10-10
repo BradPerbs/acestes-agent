@@ -186,6 +186,13 @@ function ensureHelper() {
         if (!waiting) return;
         state.pending.delete(message.id);
         clearTimeout(waiting.timer);
+        // Stopped because it ran past its time: said as that, with what the
+        // helper knows of how far it got.
+        if (waiting.late && message.code === 'cancelled') {
+            const detail = String(message.error || '').replace(/^Stopped by the app\.\s*/, '');
+            waiting.resolve({ ...message, code: 'timeout', error: `It took longer than allowed, so it was stopped.${detail ? ` ${detail}` : ''}` });
+            return;
+        }
         waiting.resolve(message);
     });
     child.stderr.on('data', (chunk) => console.error('desktop helper:', String(chunk).trim()));
@@ -195,23 +202,51 @@ function ensureHelper() {
     child.stdin.on('error', () => {});
 
     const gone = (reason) => {
-        if (helper === state) helper = null;
+        detach(state);
         fail(new Error(reason));
         for (const waiting of state.pending.values()) {
             clearTimeout(waiting.timer);
             waiting.resolve({ ok: false, code: 'helper-exited', error: reason });
         }
         state.pending.clear();
-        // Whoever was driving has to be driven again by a fresh helper.
-        driving = false;
-        helperPaused = false;
     };
     child.on('error', error => gone(`The desktop helper could not start: ${error.message}`));
     child.on('exit', code => gone(`The desktop helper stopped (exit ${code}).`));
     return state.ready;
 }
 
-/** One request, answered with the helper's reply; never rejects. */
+/**
+ * A helper let go, or gone: the next call starts a fresh one, and whoever was
+ * driving has to drive that one afresh. Done at once when a helper is given up
+ * on, not when it exits a moment later, or a call in between (the look after
+ * a failed step) went to the helper on its way out. One already replaced is
+ * nobody's concern.
+ */
+function detach(state) {
+    if (helper !== state) return;
+    helper = null;
+    driving = false;
+    helperPaused = false;
+}
+
+/**
+ * How long the helper is given, in milliseconds. A test shortens them.
+ *   typeBase     on top of the time the typing itself should take
+ *   cancelGrace  for a request that ran past its time to stop when asked
+ */
+const TIMEOUTS = { typeBase: 15000, cancelGrace: 3000 };
+let timeouts = TIMEOUTS;
+
+/**
+ * One request, answered with the helper's reply; never rejects.
+ *
+ * One that runs past its time is asked to stop. An action stops at its next
+ * step and says how far it got, and the helper stays, with its badge and
+ * every agent's numbers. Killing it outright, as this once did, threw all of
+ * that away over typing that was merely long. Only a helper that does not
+ * answer even then is let go: that is a read stuck in an app that stopped
+ * answering UI Automation, and the next call starts a fresh helper.
+ */
 async function call(cmd, payload = {}, timeout = 30000) {
     try {
         await ensureHelper();
@@ -222,18 +257,25 @@ async function call(cmd, payload = {}, timeout = 30000) {
     return new Promise((resolve) => {
         state.seq += 1;
         const id = state.seq;
-        const timer = setTimeout(() => {
+        const waiting = { resolve, timer: null, late: false };
+        const giveUp = () => {
             state.pending.delete(id);
-            // A read that hangs is usually an app that stopped answering UI
-            // Automation. The helper is let go so the next call starts clean.
+            detach(state);
             try { state.child.kill(); } catch { /* already gone */ }
             resolve({ ok: false, code: 'timeout', error: 'The desktop helper did not answer in time. The app may have stopped responding.' });
+        };
+        waiting.timer = setTimeout(() => {
+            waiting.late = true;
+            try {
+                state.child.stdin.write(`${JSON.stringify({ cmd: 'cancel', target: id })}\n`);
+            } catch { /* gone: its exit answers everything waiting */ }
+            waiting.timer = setTimeout(giveUp, timeouts.cancelGrace);
         }, timeout);
-        state.pending.set(id, { resolve, timer });
+        state.pending.set(id, waiting);
         try {
             state.child.stdin.write(`${JSON.stringify({ id, cmd, ...payload })}\n`);
         } catch (error) {
-            clearTimeout(timer);
+            clearTimeout(waiting.timer);
             state.pending.delete(id);
             resolve({ ok: false, code: 'helper-exited', error: error.message });
         }
@@ -280,6 +322,8 @@ function withMouse(work) {
 
 /** Longer text types faster, so no one action keeps the mouse for long. */
 const TYPE_SECONDS = 2.5;
+/** The most keys a second either helper types (DesktopHelper.cs, Input.swift). */
+const MAX_CPS = 400;
 // conversationId -> Set of process names the user allowed
 const consents = new Map();
 // conversationId -> the latest screenshot's frame: which window, the screen
@@ -292,6 +336,26 @@ const frames = new Map();
  * accepts without shrinking it again, so a pixel in it is a pixel it sees.
  */
 const IMAGE = { maxLong: 1568, maxPixels: 1150000 };
+
+/**
+ * How long the look after an action waits for the window to stop changing,
+ * in milliseconds; less between the steps of a batch, which only need what a
+ * step set off to have landed before the next one aims.
+ */
+const SETTLE = { after: 1500, between: 800 };
+
+// conversationId -> Map of hwnd -> { nodes, limit }: the last read this agent
+// had of each window, which the read after an action is set against so that
+// only what changed goes back.
+const seen = new Map();
+
+/**
+ * What the Windows helper does and the Mac one does not yet: numbers that
+ * stay with their controls (so one read can be set against the last),
+ * numbered pictures, waiting for a window to settle, and the newer actions.
+ */
+const windowsOnly = () => platform === 'win32';
+const WINDOWS_ONLY = 'This works on Windows only for now.';
 
 let hooks = {
     isBusy: () => false,
@@ -373,6 +437,8 @@ const PAUSED = {
  */
 function release(conversationId) {
     if (!drivers.delete(conversationId)) return;
+    // A mouse button this agent pressed and never let go goes with its turn.
+    if (helper && windowsOnly()) call('letgo', { owner: conversationId }, 5000).catch(() => {});
     announce();
     if (drivers.size === 0) {
         const wasDriving = driving;
@@ -390,6 +456,7 @@ function forget(conversationId) {
     consents.delete(conversationId);
     frames.delete(conversationId);
     homes.delete(conversationId);
+    seen.delete(conversationId);
     if (helper) call('forget', { whose: conversationId }, 5000).catch(() => {});
 }
 
@@ -586,13 +653,24 @@ function apiFor(state) {
     /**
      * A picture of a window, or of the monitor it is on. Acestes is kept out
      * of it, and it becomes the frame the next x and y are read against.
+     *
+     * On Windows the window's controls are boxed and numbered on it, from a
+     * read taken the moment before, and that read comes back with it: the
+     * model sees where things are and still clicks by number, which is surer
+     * than pixels. A picture asked for clean stays clean after actions too.
      */
-    const snap = async (window, { screen = false } = {}) => {
+    const snap = async (window, { screen = false, marks, full = true } = {}) => {
+        const numbered = windowsOnly() && (marks ?? frames.get(state.id)?.marks ?? true);
         hooks.hideFromCapture(true);
         await new Promise(resolve => setTimeout(resolve, 60));
         let answer;
         try {
-            answer = await callFor('capture', { hwnd: window.hwnd, monitor: screen, ...IMAGE }, 20000);
+            answer = await callFor('capture', {
+                hwnd: window.hwnd,
+                monitor: screen,
+                ...IMAGE,
+                ...(numbered ? { marks: true, maxNodes: 300 } : {}),
+            }, 20000);
         } finally {
             hooks.hideFromCapture(false);
         }
@@ -605,14 +683,19 @@ function apiFor(state) {
             width: answer.width,
             height: answer.height,
             mode: 'image',
+            marks: numbered,
         });
         return {
             screenshot: {
                 of: screen ? `the screen ${window.process} is on` : `"${window.title}" (${window.process})`,
                 size: `${answer.width}×${answer.height}`,
-                note: 'x and y for click, scroll and drag are pixels of this picture.',
+                note: answer.marked
+                    ? 'The numbered boxes are elements: click them by element, which is surer than x and y. x and y '
+                        + 'for click, scroll and drag are pixels of this picture.'
+                    : 'x and y for click, scroll and drag are pixels of this picture.',
             },
             image: { mediaType: answer.mediaType, data: answer.data },
+            ...(Array.isArray(answer.nodes) ? { screen: describe(answer, { full, limit: 300 }) } : {}),
         };
     };
 
@@ -642,6 +725,45 @@ function apiFor(state) {
     };
 
     /**
+     * A read as the agent gets it back: whole, or, after an action, only what
+     * changed since this agent last read the same window, which is most of
+     * the time a few lines where the whole read was a few hundred. Whole the
+     * first time, when much changed, and on a Mac, whose helper does not yet
+     * keep numbers from read to read. A read of part of a window (under, or
+     * with what is scrolled away) is not one to set the next against.
+     */
+    const describe = (answer, { full = false, partial = false, limit = 300 } = {}) => {
+        const hwnd = answer.window?.hwnd;
+        const mine = seen.get(state.id) || new Map();
+        const before = hwnd ? mine.get(hwnd) : null;
+        const changes = !full && before && windowsOnly()
+            ? changesBetween(before.nodes, answer.nodes, { truncated: Boolean(answer.truncated) })
+            : null;
+        if (hwnd && !partial) {
+            mine.set(hwnd, { nodes: answer.nodes, limit });
+            seen.set(state.id, mine);
+        }
+        if (changes === null) return present(answer);
+        const spotted = captcha.spotIn(answer.nodes);
+        return {
+            window: brief(answer.window),
+            changes,
+            ...(spotted ? { captcha: `There is ${spotted} here. solve_captcha gets through it; do not click it yourself.` } : {}),
+        };
+    };
+
+    /**
+     * Until this agent's window stops changing, so that what an action set
+     * off has finished before it is looked at, and no turn goes on reading a
+     * dialog half open. Windows only; a failure here costs nothing but the wait.
+     */
+    const settle = async (max = SETTLE.after) => {
+        if (!windowsOnly()) return;
+        const window = homes.get(state.id);
+        await callFor('settle', { hwnd: window ? window.hwnd : 0, max }, max + 5000);
+    };
+
+    /**
      * This agent's own window after an action, the way the agent has been
      * looking at it: read, or pictured when it has been working from
      * screenshots of that window. Its own, not whichever is in front: with
@@ -649,9 +771,10 @@ function apiFor(state) {
      * later, and handing that back had an agent chasing a paste that had
      * gone exactly where it meant it to. The agent looked after nearly every
      * action anyway, and each look was a turn of its own. An app the user
-     * has not allowed is named but not looked at.
+     * has not allowed is named but not looked at. Only what changed comes
+     * back, unless `full`.
      */
-    const look = async (window = null) => {
+    const look = async (window = null, { full = false } = {}) => {
         let target = window || homes.get(state.id) || null;
         if (!target) {
             const front = await callFor('foreground');
@@ -664,11 +787,14 @@ function apiFor(state) {
         }
         const frame = frames.get(state.id);
         if (frame?.mode === 'image' && (frame.screen || frame.hwnd === target.hwnd) && state.canSee()) {
-            const picture = await snap(target, { screen: frame.screen });
+            const picture = await snap(target, { screen: frame.screen, full });
             if (!picture.error) return picture;
         }
-        const answer = await callFor('tree', { hwnd: target.hwnd, maxNodes: 300 }, 45000);
-        return answer.ok ? { screen: present(answer) } : {};
+        // As many as the agent's own last read of it held, so a longer read
+        // is not set against a shorter one and found to have lost its tail.
+        const limit = Math.max(300, seen.get(state.id)?.get(target.hwnd)?.limit || 0);
+        const answer = await callFor('tree', { hwnd: target.hwnd, maxNodes: limit }, 45000);
+        return answer.ok ? { screen: describe(answer, { full, limit }) } : {};
     };
 
     const clickAt = async (target, { button = 'left', count = 1, modifiers = '' } = {}) => {
@@ -739,15 +865,18 @@ function apiFor(state) {
         const filled = raw ? String(text ?? '') : state.resolveSecrets(String(text ?? ''));
         if (!filled) return { error: 'Nothing to type.' };
         // Short text at the pace, so it can be followed; long text (an
-        // address, a paragraph) sped up to be done in a couple of seconds.
-        const cps = Math.max(pace().cps, Math.ceil(filled.length / TYPE_SECONDS));
-        const answer = await callFor('type', { text: filled, cps }, 15000 + Math.ceil((filled.length / cps) * 1500));
+        // address, a paragraph) sped up to be done in a couple of seconds, as
+        // far as the helper goes. The time allowed is reckoned at the speed
+        // it will really type: reckoned at a speed it never reached, anything
+        // over about 1,200 characters ran out of time partway through.
+        const cps = Math.min(MAX_CPS, Math.max(pace().cps, Math.ceil(filled.length / TYPE_SECONDS)));
+        const answer = await callFor('type', { text: filled, cps }, timeouts.typeBase + Math.ceil((filled.length / cps) * 1500));
         if (!answer.ok) return { error: explain(answer) };
         return { typed: `${answer.typed} characters` };
     };
 
-    const doKeys = async ({ keys, window, repeat }) => {
-        if (!keys) return { error: 'Name the keys, like "ctrl+s" or "enter".' };
+    /** The window keys go to: the one named, brought forward, or this agent's own. Null when it may, an error when not. */
+    const keysTo = async (window) => {
         if (window) {
             const picked = await pickWindow(window);
             if (picked.error) return picked;
@@ -755,13 +884,75 @@ function apiFor(state) {
             if (denied) return { error: denied };
             const focused = await callFor('focus', { hwnd: picked.window.hwnd });
             if (!focused.ok) return { error: explain(focused) };
-        } else {
-            const shown = await front();
-            if (shown.error) return shown;
+            return null;
         }
+        const shown = await front();
+        return shown.error ? shown : null;
+    };
+
+    const doKeys = async ({ keys, window, repeat }) => {
+        if (!keys) return { error: 'Name the keys, like "ctrl+s" or "enter".' };
+        const refused = await keysTo(window);
+        if (refused) return refused;
         const answer = await callFor('keys', { keys, repeat });
         if (!answer.ok) return { error: explain(answer) };
         return { pressed: keys };
+    };
+
+    /** Keys held down for a while and let go: a game's controls, a key that does something only while it is down. */
+    const doHold = async ({ keys, seconds, window }) => {
+        if (!windowsOnly()) return { error: WINDOWS_ONLY };
+        if (!keys) return { error: 'Name the keys to hold, like "shift" or "right".' };
+        const hold = Math.round(Math.min(10, Math.max(0.1, Number(seconds) || 1)) * 1000);
+        const refused = await keysTo(window);
+        if (refused) return refused;
+        const answer = await callFor('keys', { keys, hold }, hold + 15000);
+        if (!answer.ok) return { error: explain(answer) };
+        return { held: `${keys} for ${hold / 1000}s` };
+    };
+
+    /**
+     * The cursor rested on a control, without a click, for a moment: what
+     * only shows under a pointer (a tooltip, a menu that opens on hover, a
+     * row's own buttons) has time to show.
+     */
+    const doHover = async ({ element, x, y, seconds }) => {
+        if (!windowsOnly()) return { error: WINDOWS_ONLY };
+        const aimed = await aim({ element, x, y });
+        if (aimed.error) return aimed;
+        const answer = await callFor('move', { x: aimed.target.x, y: aimed.target.y, rect: aimed.target.rect, glide: pace().glide });
+        if (!answer.ok) return { error: explain(answer) };
+        const dwell = Math.min(10, Math.max(0, Number(seconds ?? 0.8)));
+        if (dwell > 0) await new Promise(resolve => setTimeout(resolve, dwell * 1000));
+        return settled(answer, { hovered: element ? `element ${element}` : `${x},${y}` });
+    };
+
+    /**
+     * A mouse button pressed and kept down, or let go: a press held while
+     * something else happens, or a gesture made in parts. Pressing needs a
+     * place; letting go happens where the cursor is unless given one. The
+     * helper lets go of anything still down when the turn ends.
+     */
+    const doMouse = async ({ action, button = 'left', element, x, y }) => {
+        if (!windowsOnly()) return { error: WINDOWS_ONLY };
+        if (action !== 'down' && action !== 'up') return { error: 'Say down or up.' };
+        const placed = element || (Number.isFinite(x) && Number.isFinite(y));
+        if (action === 'down' && !placed) return { error: 'Say where to press: an element, or x and y in your latest screenshot.' };
+        let target = null;
+        if (placed) {
+            const aimed = await aim({ element, x, y });
+            if (aimed.error) return aimed;
+            target = aimed.target;
+        }
+        const answer = await callFor('button', {
+            down: action === 'down',
+            button,
+            ...(target ? { x: target.x, y: target.y, rect: target.rect } : {}),
+            glide: pace().glide,
+        });
+        if (!answer.ok) return { error: explain(answer) };
+        const where = target ? ` at ${element ? `element ${element}` : `${x},${y}`}` : '';
+        return settled(answer, action === 'down' ? { pressed: `the ${button} button${where}, held down` } : { released: `the ${button} button${where}` });
     };
 
     const doScroll = async ({ element, x, y, direction, amount }) => {
@@ -782,7 +973,8 @@ function apiFor(state) {
         return settled(answer, { scrolled: `${direction} ${amount || 3}` });
     };
 
-    const doDrag = async ({ fromElement, fromX, fromY, toElement, toX, toY }) => {
+    const doDrag = async ({ fromElement, fromX, fromY, toElement, toX, toY, path }) => {
+        if (Array.isArray(path) && path.length) return dragThrough(path);
         const from = await aim({ element: fromElement, x: fromX, y: fromY });
         if (from.error) return from;
         const to = await aim({ element: toElement, x: toX, y: toY });
@@ -799,10 +991,32 @@ function apiFor(state) {
     };
 
     /**
-     * Until something shows up. Searched without renumbering anything, so
-     * the numbers the agent holds, and the steps after this one, stay good.
+     * A drag through every point of a path, in the latest screenshot's
+     * pixels: a shape drawn, a signature, a slider dragged one way and back.
+     * The window it starts in is aimed at, and asked about, like any click.
      */
-    const doWait = async ({ text, role, window, seconds, timeout }) => {
+    const dragThrough = async (path) => {
+        if (!windowsOnly()) return { error: WINDOWS_ONLY };
+        if (path.length < 2) return { error: 'A path needs two points at least.' };
+        const first = await aim({ x: path[0].x, y: path[0].y });
+        if (first.error) return first;
+        const points = [];
+        for (const point of path) {
+            const at = toScreen(point.x, point.y);
+            if (at.error) return at;
+            points.push([at.x, at.y]);
+        }
+        const answer = await callFor('drag', { path: points, glide: pace().glide }, 30000);
+        if (!answer.ok) return { error: explain(answer) };
+        return settled(answer, { dragged: `through ${points.length} points` });
+    };
+
+    /**
+     * Until something shows up, or with gone, until it has gone (a spinner,
+     * "Loading…", a progress dialog). Searched without renumbering anything,
+     * so the numbers the agent holds, and the steps after this one, stay good.
+     */
+    const doWait = async ({ text, role, window, seconds, timeout, gone }) => {
         if (!text) return { error: 'Say what to wait for.' };
         const picked = await pickWindow(window);
         if (picked.error) return picked;
@@ -813,10 +1027,16 @@ function apiFor(state) {
         do {
             const answer = await callFor('tree', { hwnd: picked.window.hwnd, find: String(text), role: role || '' }, 45000);
             if (!answer.ok) return { error: explain(answer) };
-            if (answer.found) return { found: `${answer.found.r} "${answer.found.n}"`, window: picked.window };
+            if (gone && !answer.found) return { gone: `nothing matching "${text}" is there now`, window: picked.window };
+            if (!gone && answer.found) return { found: `${answer.found.r} "${answer.found.n}"`, window: picked.window };
             await new Promise(resolve => setTimeout(resolve, 400));
         } while (Date.now() < deadline);
-        return { error: `Nothing matching "${text}" appeared within ${limit} seconds.` };
+        const span = `${limit} second${limit === 1 ? '' : 's'}`;
+        return {
+            error: gone
+                ? `"${text}" was still there after ${span}.`
+                : `Nothing matching "${text}" appeared within ${span}.`,
+        };
     };
 
     const doPause = async ({ seconds }) => {
@@ -833,6 +1053,10 @@ function apiFor(state) {
         drag: doDrag,
         wait_for: doWait,
         pause: doPause,
+        hover: doHover,
+        mouse_down: step => doMouse({ ...step, action: 'down' }),
+        mouse_up: step => doMouse({ ...step, action: 'up' }),
+        hold_key: doHold,
     };
 
     /* ---------------------------------------------------------------- *
@@ -1305,12 +1529,33 @@ function apiFor(state) {
             if (result.error) return { result };
             await remember();
             if (input.read === false) return { result };
-            return pictured() ? { result: { ...result, ...(await look()) } } : { result, later: true };
+            if (!pictured()) return { result, later: true };
+            await settle();
+            return { result: { ...result, ...(await look()) } };
         });
-        // A read of the tree moves nothing and needs nothing on top, so it
-        // is done after the mouse is handed on: the next agent's action
-        // starts while this one's window is being read.
-        return done.later ? { ...done.result, ...(await look()) } : done.result;
+        if (!done.later) return done.result;
+        // Waiting for the window to settle and reading it move nothing and
+        // need nothing on top, so they happen after the mouse is handed on:
+        // the next agent's action starts while this one's window settles.
+        await settle();
+        return { ...done.result, ...(await look()) };
+    };
+
+    /**
+     * A hover as a tool: the look is taken with the mouse still held, since
+     * what a hover shows goes again when another agent moves the cursor away.
+     */
+    const hoverTool = async (input = {}) => {
+        const refused = await begin();
+        if (refused) return { error: refused };
+        return withMouse(async () => {
+            const result = await doHover(input);
+            if (result.error) return result;
+            await remember();
+            if (input.read === false) return result;
+            await settle();
+            return { ...result, ...(await look()) };
+        });
     };
 
     /**
@@ -1325,7 +1570,7 @@ function apiFor(state) {
     };
 
     /** The look at the end of a batch, held for a picture and not for a read. */
-    const lookAfter = () => (pictured() ? withMouse(() => look()) : look());
+    const lookAfter = (options = {}) => (pictured() ? withMouse(() => look(null, options)) : look(null, options));
 
     /** An action that is not one of the steps (opening, pictures, a captcha), with the mouse held throughout. */
     const held = work => async (input = {}) => {
@@ -1387,17 +1632,20 @@ function apiFor(state) {
                 if (denied) return { error: denied };
                 payload = { hwnd: picked.window.hwnd };
             }
-            const answer = await callFor('tree', { ...payload, maxNodes: maxElements || 300, offscreen: Boolean(offscreen) }, 45000);
+            const limit = maxElements || 300;
+            const answer = await callFor('tree', { ...payload, maxNodes: limit, offscreen: Boolean(offscreen) }, 45000);
             if (!answer.ok) return { error: explain(answer) };
             // Reading the tree again is a sign of going back to it: the
             // actions after this hand back reads, not pictures.
             const frame = frames.get(state.id);
             if (frame) frame.mode = 'tree';
-            return present(answer);
+            // Always whole; and what the next action's changes are set against,
+            // unless it was a read of only part of the window.
+            return describe(answer, { full: true, partial: Boolean(under || offscreen), limit });
         },
 
         /** A picture of a window, brought to the front first, or of the monitor it is on. */
-        screenshot: held(async ({ window, screen }) => {
+        screenshot: held(async ({ window, screen, marks }) => {
             if (!state.canSee()) {
                 return { error: 'The runtime this agent is on cannot see images. Use read_screen and read_text, or switch to one that can (Claude Code, Codex).' };
             }
@@ -1407,7 +1655,7 @@ function apiFor(state) {
             if (denied) return { error: denied };
             const focused = await callFor('focus', { hwnd: picked.window.hwnd });
             if (!focused.ok) return { error: explain(focused) };
-            return snap(focused.window || picked.window, { screen: Boolean(screen) });
+            return snap(focused.window || picked.window, { screen: Boolean(screen), marks: marks !== false, full: true });
         }),
 
         /**
@@ -1506,13 +1754,44 @@ function apiFor(state) {
         keys: act(doKeys),
         scroll: act(doScroll),
         drag: act(doDrag),
+        hover: hoverTool,
+        mouse: act(doMouse),
+        hold: act(doHold),
+
+        /**
+         * What is on the clipboard: its text a page at a time, the files
+         * copied, and whether it holds a picture. A copy a password manager
+         * marked private is refused by the helper, whole.
+         */
+        async clipboard({ offset = 0 } = {}) {
+            const refused = allowed();
+            if (refused) return { error: refused };
+            if (!windowsOnly()) return { error: WINDOWS_ONLY };
+            const answer = await callFor('clipboard', {}, 15000);
+            if (!answer.ok) return { error: explain(answer) };
+            if (answer.private) {
+                return { error: 'The clipboard holds a copy its app marked private, the way password managers mark theirs, so it is not read.' };
+            }
+            const has = typeof answer.text === 'string';
+            const whole = has ? answer.text : '';
+            const start = Math.max(0, Math.min(Number(offset) || 0, whole.length));
+            const end = Math.min(whole.length, start + TEXT_PAGE);
+            return {
+                ...(has ? { length: whole.length, text: whole.slice(start, end) } : {}),
+                ...(start > 0 ? { offset: start } : {}),
+                ...(end < whole.length ? { nextOffset: end } : {}),
+                ...(answer.files ? { files: answer.files } : {}),
+                ...(answer.image ? { picture: 'There is a picture on the clipboard.' } : {}),
+                ...(!has && !answer.files && !answer.image ? { empty: 'The clipboard holds nothing that can be read.' } : {}),
+            };
+        },
 
         async waitFor(input = {}) {
             const refused = allowed();
             if (refused) return { error: refused };
             const result = await doWait(input);
             if (result.error) return result;
-            return { found: result.found, ...(await look(result.window)) };
+            return { ...(input.gone ? { gone: result.gone } : { found: result.found }), ...(await look(result.window)) };
         },
 
         /**
@@ -1538,15 +1817,21 @@ function apiFor(state) {
                     return outcome;
                 });
                 if (result.error) {
-                    const after = await lookAfter();
-                    const screen = after.screen ? `\n\nThe window now:\n${after.screen.elements}` : (after.now ? `\n\n${after.now}` : '');
+                    // The whole window, not what changed: a failed batch is
+                    // planned again from what is there.
+                    const after = await lookAfter({ full: true });
+                    const screen = after.screen ? `\n\nThe window now:\n${after.screen.elements || after.screen.changes}` : (after.now ? `\n\n${after.now}` : '');
                     return {
                         error: `Step ${index + 1} of ${steps.length} (${step.do}) failed: ${result.error}`
                             + `${done.length ? ` The ${done.length} before it were done.` : ''}${screen}`,
                     };
                 }
                 done.push(`${index + 1}. ${Object.entries(result).filter(([key]) => key !== 'window').map(([key, value]) => `${key} ${value}`).join(', ')}`);
+                // What a step set off has landed before the next one aims:
+                // the dialog a click opened is there to type into.
+                if (!idle && index < steps.length - 1) await settle(SETTLE.between);
             }
+            await settle();
             return { done, ...(await lookAfter()) };
         },
 
@@ -1583,13 +1868,65 @@ function formatTree(nodes = []) {
         const pad = '  '.repeat(node.d || 0);
         if (node.offscreen) return `${pad}… ${node.offscreen} scrolled out of view`;
         if (node.more) return `${pad}… ${node.more} more`;
-        let line = `${pad}[${node.id}] ${node.r}`;
-        if (node.n) line += ` "${node.n}"`;
-        if (node.v) line += ` = "${node.v}"`;
-        if (node.len) line += ` (${node.len} characters; read_text ${node.id} for all)`;
-        if (node.s) line += ` (${node.s})`;
-        return line;
+        return pad + lineOf(node);
     }).join('\n');
+}
+
+/** One control as the line the agent reads, without its indent. */
+function lineOf(node) {
+    let line = `[${node.id}] ${node.r}`;
+    if (node.n) line += ` "${node.n}"`;
+    if (node.v) line += ` = "${node.v}"`;
+    if (node.len) line += ` (${node.len} characters; read_text ${node.id} for all)`;
+    if (node.s) line += ` (${node.s})`;
+    return line;
+}
+
+/** What a control was, in the parts of it that changed. */
+function wasOf(before, after) {
+    const parts = [];
+    if (before.r !== after.r) parts.push(before.r);
+    if (before.n !== after.n) parts.push(before.n ? `"${before.n}"` : 'unnamed');
+    if (before.v !== after.v || before.len !== after.len) parts.push(before.v ? `= "${before.v}"` : 'empty');
+    if (before.s !== after.s) parts.push(before.s ? `(${before.s})` : '(nothing marked)');
+    return parts.join(' ');
+}
+
+/**
+ * What changed in a window between two reads of it, in the words the agent
+ * reads a window in: controls that appeared, indented as they nest; controls
+ * whose name, value or state changed, with what they were; and those no
+ * longer there. A control keeps its number from read to read on Windows,
+ * which is what lets one read be set against the last. Null when so much
+ * changed that the whole read says it better.
+ */
+function changesBetween(before, after, { truncated = false } = {}) {
+    const listed = nodes => nodes.filter(node => node.id);
+    const was = new Map(listed(before).map(node => [node.id, node]));
+    const now = listed(after);
+    const still = new Set(now.map(node => node.id));
+    const added = now.filter(node => !was.has(node.id));
+    const changed = now.filter(node => was.has(node.id) && lineOf(was.get(node.id)) !== lineOf(node));
+    // A read that stopped at its limit says nothing of what lay past it.
+    const gone = truncated ? [] : listed(before).filter(node => !still.has(node.id));
+    const count = added.length + changed.length + gone.length;
+    if (count === 0) return 'Nothing in the window changed.';
+    if (count > Math.max(10, Math.ceil(now.length / 2))) return null;
+
+    const parts = [];
+    if (added.length) {
+        const top = Math.min(...added.map(node => node.d || 0));
+        parts.push(`New:\n${added.map(node => `${'  '.repeat(1 + (node.d || 0) - top)}${lineOf(node)}`).join('\n')}`);
+    }
+    if (changed.length) {
+        parts.push(`Changed:\n${changed.map(node => `  ${lineOf(node)}, was ${wasOf(was.get(node.id), node)}`).join('\n')}`);
+    }
+    if (gone.length) {
+        const named = gone.slice(0, 20).map(node => `[${node.id}] ${node.r}${node.n ? ` "${node.n}"` : ''}`);
+        parts.push(`Gone: ${named.join(', ')}${gone.length > 20 ? `, and ${gone.length - 20} more` : ''}`);
+    }
+    if (truncated) parts.push('(The read stops at its limit, so what went past it is not said. read_screen with under reads a part.)');
+    return parts.join('\n');
 }
 
 function shutdown() {
@@ -1613,6 +1950,9 @@ module.exports = {
             helperCommand = command;
         },
         setPlatform: (value) => { platform = value; },
+        timeouts: (next) => { timeouts = { ...TIMEOUTS, ...next }; },
+        helperPid: () => helper?.child.pid,
+        changesBetween,
         drivers: () => drivers,
         homes: () => homes,
         reset: () => {
@@ -1624,7 +1964,9 @@ module.exports = {
             mouse = Promise.resolve();
             consents.clear();
             frames.clear();
+            seen.clear();
             captchaTiming = CAPTCHA_TIMING;
+            timeouts = TIMEOUTS;
         },
     },
 };
