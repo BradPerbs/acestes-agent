@@ -8,6 +8,7 @@ import { builds, downloadUrl, osLabel, primaryBuild, site } from "@/lib/site";
 import { useOS } from "@/lib/use-client-info";
 import { gsap, useGSAP } from "@/lib/gsap";
 import { Icon } from "./icon";
+import { Turn } from "./motion-fx";
 import { OSIcon } from "./os-icons";
 
 const MENU_W = 300;
@@ -125,7 +126,8 @@ export function DownloadButton({
     <div className={`inline-flex flex-wrap items-center justify-center gap-x-6 gap-y-3 ${className}`}>
       <a
         href={href}
-        className={`inline-flex items-center rounded-full font-medium tracking-[-0.01em] transition-colors duration-200 active:scale-[0.985] ${pill} ${skin}`}
+        data-press
+        className={`inline-flex items-center rounded-full font-medium tracking-[-0.01em] transition-colors duration-200 ${pill} ${skin}`}
       >
         {os ? (
           <OSIcon os={os} size={lg ? 19 : 17} className="-ml-0.5" />
@@ -146,12 +148,9 @@ export function DownloadButton({
           className={`inline-flex items-center gap-1.5 text-[15px] font-medium transition-colors ${quiet}`}
         >
           Other platforms
-          <Icon
-            icon={ArrowDown01Icon}
-            size={15}
-            strokeWidth={2}
-            className={`transition-transform duration-300 ${open ? "rotate-180" : ""}`}
-          />
+          <Turn open={open}>
+            <Icon icon={ArrowDown01Icon} size={15} strokeWidth={2} />
+          </Turn>
         </button>
       )}
 

@@ -212,33 +212,10 @@ body {
   margin-left: 0.12em;
   vertical-align: -0.16em;
   background: currentColor;
-  animation: caret 1.05s steps(1) infinite;
 }
 
-@keyframes caret {
-  50% {
-    opacity: 0;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .caret {
-    animation: none;
-  }
-}
-
-/* The app replica's working spinner and the light passing over its working
-   phrase, as the app draws them (.working-ring and .working-phrase). */
-.app-ring {
-  animation: app-ring 0.8s linear infinite;
-}
-
-@keyframes app-ring {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
+/* The light passing over the app replica's working phrase, as the app draws
+   it (.working-phrase). GSAP sweeps background-position (useGlint). */
 .app-glint {
   background-image: linear-gradient(
     90deg,
@@ -251,24 +228,8 @@ body {
   background-size: 300% 100%;
   background-clip: text;
   -webkit-background-clip: text;
+  background-position: 100% 0;
   color: transparent;
-  animation: app-glint 1.6s linear infinite;
-}
-
-@keyframes app-glint {
-  from {
-    background-position: 100% 0;
-  }
-  to {
-    background-position: 0% 0;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .app-ring,
-  .app-glint {
-    animation: none;
-  }
 }
 
 /* Highlighter used in pull quotes and the compare panes */

@@ -10,6 +10,89 @@ import { Container } from "../frame";
 import { Halftone } from "../halftone";
 import { Icon } from "../icon";
 
+/** Letters that hang below the line: a rolled copy above would show its tail. */
+const DESCENDERS = /[gjpqy]/i;
+/** How much taller than a line its mask is, so descenders are not clipped. */
+const ROOM = 0.15;
+
+/**
+ * The headline intro, after mistral.ai's: every line is a mask that grows open
+ * from the top while its letters rise into it, left to right with a jittered
+ * stagger, each line 0.7s behind the one above. Every fifth or eighth letter
+ * is stacked twice and rolls through both copies, like an odometer.
+ */
+function titleIntro(title: HTMLElement) {
+  const groups = gsap.utils.toArray<HTMLElement>("[data-title-line]", title);
+  const height = title.offsetHeight;
+  const splits = groups.map((g) =>
+    SplitText.create(g, { type: "lines,words,chars", linesClass: "hero-line", wordsClass: "hero-word" }),
+  );
+  const lines = splits.flatMap((s) => s.lines as HTMLElement[]);
+  const words = splits.flatMap((s) => s.words as HTMLElement[]);
+
+  // Lock the heading to its laid-out height and pin the lines to its foot, so
+  // the masks can grow without pushing the copy below it around.
+  gsap.set(title, { height, display: "flex", flexDirection: "column", justifyContent: "flex-end" });
+  // Words as flex rows: letters stack from their top, so a doubled letter's
+  // second copy sits exactly one line below the first.
+  gsap.set(words, { display: "inline-flex", whiteSpace: "nowrap" });
+
+  const sizes = lines.map((l) => l.offsetHeight);
+  const rolled = new Set<HTMLElement>();
+  lines.forEach((line, li) => {
+    const below = sizes.slice(li).reduce((a, b) => a + b, 0);
+    // A taller mask pushes everything above it up; slide it back down.
+    gsap.set(line, {
+      overflow: "hidden",
+      height: sizes[li] * (1 + ROOM),
+      y: below * ROOM,
+      transformOrigin: "top center",
+    });
+    line.querySelectorAll<HTMLElement>(".hero-word > *").forEach((c, n) => {
+      if ((n % 5 === 0 || n % 8 === 0) && !DESCENDERS.test(c.textContent ?? "")) {
+        c.innerHTML += "<br>" + c.innerHTML;
+        rolled.add(c);
+      }
+    });
+  });
+
+  gsap.set(title, { autoAlpha: 1 });
+
+  const tl = gsap.timeline({
+    delay: 0.2,
+    onComplete: () => {
+      splits.forEach((s) => s.revert());
+      gsap.set(title, { clearProps: "height,display,flexDirection,justifyContent" });
+    },
+  });
+  // 0.7s between lines, as on mistral.ai, but a phone's four lines share the same 1.4s.
+  const gap = lines.length > 2 ? 1.4 / (lines.length - 1) : 0.7;
+  lines.forEach((line, li) => {
+    const chars = gsap.utils.toArray<HTMLElement>(".hero-word > *", line);
+    const jitter = chars.map((_, i) => i * gsap.utils.random(1, 5, 1) * 0.005);
+    tl.fromTo(
+      chars,
+      { y: "100%" },
+      {
+        y: (_, c: HTMLElement) => (rolled.has(c) ? "-50%" : "0%"),
+        duration: 1,
+        ease: "power4.inOut",
+        stagger: (i) => jitter[i],
+      },
+      li * gap * 1.05,
+    );
+    tl.from(line, { height: 0, duration: 1.3, ease: "power4.inOut" }, li * gap);
+  });
+
+  return {
+    revert: () => {
+      tl.kill();
+      splits.forEach((s) => s.revert());
+      gsap.set(title, { clearProps: "height,display,flexDirection,justifyContent" });
+    },
+  };
+}
+
 export function Hero() {
   const root = useRef<HTMLElement>(null);
 
@@ -25,20 +108,10 @@ export function Hero() {
         return;
       }
 
-      gsap.set(title, { autoAlpha: 1 });
-      SplitText.create(title, {
-        type: "lines",
-        mask: "lines",
-        linesClass: "split-line",
-        autoSplit: true,
-        onSplit: (self) =>
-          gsap.from(self.lines, { yPercent: 115, duration: 1.3, ease: "expo.out", stagger: 0.1, delay: 0.25 }),
-      });
-
       gsap.fromTo(
         fades,
         { autoAlpha: 0, y: 14 },
-        { autoAlpha: 1, y: 0, duration: 1, ease: "expo.out", stagger: 0.08, delay: 0.5, clearProps: "transform" },
+        { autoAlpha: 1, y: 0, duration: 1, ease: "expo.out", stagger: 0.08, delay: 0.9, clearProps: "transform" },
       );
 
       gsap.fromTo(
@@ -46,6 +119,17 @@ export function Hero() {
         { clipPath: "inset(6% 4% 6% 4% round 28px)" },
         { clipPath: "inset(0% 0% 0% 0% round 20px)", duration: 1.6, ease: "expo.out" },
       );
+
+      // Split only once the webfont is in, or the lines get measured in the fallback.
+      let intro: { revert: () => void } | undefined;
+      let dead = false;
+      document.fonts.ready.then(() => {
+        if (!dead) intro = titleIntro(title);
+      });
+      return () => {
+        dead = true;
+        intro?.revert();
+      };
     },
     { scope: root },
   );
@@ -77,6 +161,7 @@ export function Hero() {
             <a
               data-hero-fade
               data-reveal
+              data-hover
               href={site.latest}
               target="_blank"
               rel="noopener noreferrer"
@@ -88,7 +173,10 @@ export function Hero() {
                 </span>
                 <span className="text-white/60"> · computer use, rebuilt</span>
               </span>
-              <span className="grid size-6 shrink-0 place-items-center rounded-full bg-white text-[#3b0f8f] transition-transform group-hover/ann:translate-x-0.5">
+              <span
+                data-nudge="x"
+                className="grid size-6 shrink-0 place-items-center rounded-full bg-white text-[#3b0f8f]"
+              >
                 <Icon icon={ArrowRight01Icon} size={14} strokeWidth={2.2} />
               </span>
             </a>
@@ -97,10 +185,14 @@ export function Hero() {
               id="hero-title"
               data-hero-title
               data-reveal
-              className="mt-8 max-w-[1000px] text-[40px] leading-[1.02] font-medium tracking-[-0.035em] min-[400px]:text-[44px] sm:text-[56px] lg:text-[70px]"
+              className="mt-8 max-w-[1000px] text-[40px] leading-[1.02] font-medium tracking-[-0.035em] [font-kerning:none] min-[400px]:text-[44px] sm:text-[56px] lg:text-[70px]"
             >
-              <span className="block sm:whitespace-nowrap">Every server. Every screen.</span>
-              <span className="block text-balance text-[#d8c4ff]">One agent on guard.</span>
+              <span data-title-line className="block sm:whitespace-nowrap">
+                Every server. Every screen.
+              </span>
+              <span data-title-line className="block text-balance text-[#d8c4ff]">
+                One agent on guard.
+              </span>
             </h1>
 
             <p

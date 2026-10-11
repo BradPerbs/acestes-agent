@@ -87,6 +87,7 @@ export function Pricing() {
                 <li key={b.file} className="border-b border-line last:border-b-0">
                   <a
                     href={downloadUrl(b.file)}
+                    data-hover
                     className="group/b flex items-center gap-4 px-5 py-4 transition-colors hover:bg-panel sm:px-12"
                   >
                     <OSIcon os={b.os} size={16} className="text-muted group-hover/b:text-fg" />
@@ -98,7 +99,8 @@ export function Pricing() {
                     <Icon
                       icon={Download04Icon}
                       size={16}
-                      className="text-subtle transition-transform group-hover/b:translate-y-0.5 group-hover/b:text-fg"
+                      nudge="y"
+                      className="text-subtle transition-colors group-hover/b:text-fg"
                     />
                   </a>
                 </li>

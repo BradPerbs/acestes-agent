@@ -2,6 +2,7 @@
 
 import { useRef } from "react";
 import { gsap, prefersReducedMotion, useGSAP } from "@/lib/gsap";
+import { Caret } from "./motion-fx";
 
 /**
  * "// heading" in mono that types itself out the first time it scrolls into
@@ -51,7 +52,7 @@ export function TypeHeading({
       <span aria-hidden="true">
         <span className={variant === "eyebrow" ? "mr-2 text-subtle" : "mr-3 text-subtle"}>{"//"}</span>
         <span data-typed>{text}</span>
-        <span className="caret text-accent" />
+        <Caret className="text-accent" />
       </span>
     </Tag>
   );

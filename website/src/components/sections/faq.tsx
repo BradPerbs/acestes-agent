@@ -4,6 +4,7 @@ import { useId, useRef, useState, type ReactNode } from "react";
 import { ArrowDown01Icon } from "@hugeicons/core-free-icons";
 import { site } from "@/lib/site";
 import { gsap, prefersReducedMotion, useGSAP } from "@/lib/gsap";
+import { Turn } from "../motion-fx";
 import { Section } from "../frame";
 import { Icon } from "../icon";
 import { Eyebrow } from "../ui";
@@ -162,12 +163,9 @@ function Item({ q, a, open, onToggle }: { q: string; a: ReactNode; open: boolean
           className="flex w-full items-center justify-between gap-6 px-5 py-6 text-left text-[16px] font-medium tracking-[-0.01em] transition-colors hover:bg-panel sm:px-8"
         >
           {q}
-          <Icon
-            icon={ArrowDown01Icon}
-            size={18}
-            strokeWidth={2}
-            className={`shrink-0 text-muted transition-transform duration-300 ${open ? "rotate-180" : ""}`}
-          />
+          <Turn open={open} className="shrink-0 text-muted">
+            <Icon icon={ArrowDown01Icon} size={18} strokeWidth={2} />
+          </Turn>
         </button>
       </h3>
       <div

@@ -34,6 +34,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import type { IconSvgElement } from "@hugeicons/react";
 import { gsap, prefersReducedMotion, ScrollTrigger, SplitText, useGSAP } from "@/lib/gsap";
+import { useGlint, useSpin } from "./motion-fx";
 import { Helmet } from "./brand";
 import { BrandIcon, Icon } from "./icon";
 
@@ -114,10 +115,23 @@ function Prose({ name, children }: { name: string; children: ReactNode }) {
   );
 }
 
+/** WorkingIndicator.jsx's phrase, with the light passing over it. */
+function Phrase() {
+  const ref = useGlint<HTMLSpanElement>();
+  return (
+    <span className="grid overflow-hidden">
+      <span ref={ref} data-phrase className="app-glint whitespace-nowrap">
+        Thinking
+      </span>
+    </span>
+  );
+}
+
 /** WorkingIndicator.jsx's spinner: a chat at work, on its tab, its row and its working line. */
 function Ring() {
+  const ref = useSpin<SVGSVGElement>();
   return (
-    <svg viewBox="0 0 12 12" className="app-ring size-3 shrink-0" aria-hidden="true">
+    <svg ref={ref} viewBox="0 0 12 12" className="size-3 shrink-0" aria-hidden="true">
       <circle cx="6" cy="6" r="4.75" fill="none" stroke="currentColor" strokeWidth="1.5" opacity="0.2" />
       <circle
         cx="6"
@@ -509,7 +523,12 @@ export function AppMock() {
       // The elapsed time on the working line, from the third second on, and
       // the header's mark breathing for as long as the turn runs.
       const total = tl.duration();
-      tl.fromTo(seconds, { textContent: 0 }, { textContent: Math.round(total), duration: total, snap: { textContent: 1 }, ease: "none" }, 0);
+      tl.fromTo(
+        seconds,
+        { textContent: 0 },
+        { textContent: Math.round(total), duration: total, snap: { textContent: 1 }, ease: "none" },
+        0,
+      );
       tl.fromTo(clock, { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.2 }, 3);
       const beats = Math.max(2, Math.floor(total) - (Math.floor(total) % 2));
       tl.to(pulse, { opacity: 0.45, duration: total / beats, repeat: beats - 1, yoyo: true, ease: "sine.inOut" }, 0);
@@ -831,11 +850,7 @@ export function AppMock() {
                       style={hidden}
                     >
                       <Ring />
-                      <span className="grid overflow-hidden">
-                        <span data-phrase className="app-glint whitespace-nowrap">
-                          Thinking
-                        </span>
-                      </span>
+                      <Phrase />
                       <span data-clock className="text-gray-600 tabular-nums">
                         <span data-seconds>0</span>s
                       </span>
@@ -894,7 +909,15 @@ export function AppMock() {
                       <div className="ml-auto flex items-center gap-1">
                         <span className="grid size-7 shrink-0 place-items-center text-gray-400">
                           <svg width="16" height="16" viewBox="0 0 16 16">
-                            <circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" strokeOpacity="0.22" strokeWidth="2" />
+                            <circle
+                              cx="8"
+                              cy="8"
+                              r="7"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeOpacity="0.22"
+                              strokeWidth="2"
+                            />
                             <circle
                               data-context
                               cx="8"

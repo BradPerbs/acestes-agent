@@ -120,9 +120,9 @@ export function Succession() {
             </h2>
             <p data-r className="mt-6 max-w-[620px] text-[16px] leading-relaxed text-white/65 sm:text-[17px]">
               From the front desk to the top floor. We study how a person works, what they decide and how they answer,
-              then build the agent that takes their seat: a receptionist that never logs off, an analyst on every
-              shift, or a cloud twin of the one person everyone asks, answering the whole company at once. The people
-              who stay approve, decide and sign off.
+              then build the agent that takes their seat: a receptionist that never logs off, an analyst on every shift,
+              or a cloud twin of the one person everyone asks, answering the whole company at once. The people who stay
+              approve, decide and sign off.
             </p>
             <div
               data-r
@@ -153,21 +153,18 @@ export function Succession() {
               <div data-r className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-3">
                 <a
                   href={site.succession}
-                  className="inline-flex h-11 items-center rounded-full bg-white px-5 text-[15px] font-medium tracking-[-0.01em] text-[#0d0818] transition-colors duration-200 hover:bg-white/90 active:scale-[0.985]"
+                  data-press
+                  className="inline-flex h-11 items-center rounded-full bg-white px-5 text-[15px] font-medium tracking-[-0.01em] text-[#0d0818] transition-colors duration-200 hover:bg-white/90"
                 >
                   Start a succession
                 </a>
                 <a
                   href="#guardrails"
+                  data-hover
                   className="group/g inline-flex items-center gap-1.5 text-[15px] font-medium text-white/70 transition-colors hover:text-white"
                 >
                   Read the guardrails
-                  <Icon
-                    icon={ArrowRight01Icon}
-                    size={16}
-                    strokeWidth={2}
-                    className="transition-transform duration-200 group-hover/g:translate-x-0.5"
-                  />
+                  <Icon icon={ArrowRight01Icon} size={16} strokeWidth={2} nudge="x" />
                 </a>
               </div>
               <p data-r className="mt-8 border-t border-white/10 pt-5 text-[13px] leading-relaxed text-white/45">

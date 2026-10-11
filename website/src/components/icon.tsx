@@ -6,16 +6,19 @@ type IconProps = {
   size?: number;
   strokeWidth?: number;
   className?: string;
+  /** Slide 2px along this axis while the nearest [data-hover] group is active. */
+  nudge?: "x" | "y";
 };
 
 /** Hugeicons, decorative by default. */
-export function Icon({ icon, size = 18, strokeWidth = 1.6, className }: IconProps) {
+export function Icon({ icon, size = 18, strokeWidth = 1.6, className, nudge }: IconProps) {
   return (
     <HugeiconsIcon
       icon={icon}
       size={size}
       strokeWidth={strokeWidth}
       className={className}
+      data-nudge={nudge}
       aria-hidden="true"
       focusable="false"
     />

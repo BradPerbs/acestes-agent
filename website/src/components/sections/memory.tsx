@@ -7,6 +7,7 @@ import { Section } from "../frame";
 import { Icon } from "../icon";
 import { TermLines, TermWindow, type TermLine } from "../terminal";
 import { Bracket } from "../ui";
+import { Caret } from "../motion-fx";
 
 const prompts = [
   "remember that staging builds skip the npm cache",
@@ -120,7 +121,7 @@ export function Memory() {
           </span>
           <p className="min-w-0 flex-1 truncate font-mono text-[13px] sm:text-[14px]" aria-hidden="true">
             <span data-prompt>{prompts[0]}</span>
-            <span className="caret text-accent" />
+            <Caret className="text-accent" />
           </p>
           <button
             type="button"

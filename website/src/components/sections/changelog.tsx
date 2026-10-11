@@ -43,6 +43,7 @@ export function Changelog() {
         href={site.releases}
         target="_blank"
         rel="noopener noreferrer"
+        data-hover
         className="group/cl block transition-colors hover:bg-panel"
       >
         <Reveal as="ul" className="grid md:grid-cols-2" stagger={0.05} y={8}>
@@ -65,12 +66,7 @@ export function Changelog() {
         </Reveal>
         <span className="flex items-center gap-2 px-5 py-5 text-[14px] text-muted transition-colors group-hover/cl:text-fg sm:px-10">
           Read the full changelog
-          <Icon
-            icon={ArrowRight01Icon}
-            size={15}
-            strokeWidth={2}
-            className="transition-transform group-hover/cl:translate-x-0.5"
-          />
+          <Icon icon={ArrowRight01Icon} size={15} strokeWidth={2} nudge="x" />
         </span>
       </a>
     </Section>

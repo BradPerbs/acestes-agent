@@ -13,7 +13,7 @@ const variants: Record<Variant, string> = {
 
 export const buttonClass = (variant: Variant = "solid", size: "sm" | "md" | "lg" = "md") =>
   [
-    "group/btn inline-flex select-none items-center justify-center gap-2 whitespace-nowrap rounded-full font-medium tracking-[-0.01em] transition-[background-color,border-color,color,transform] duration-200 active:scale-[0.98]",
+    "group/btn inline-flex select-none items-center justify-center gap-2 whitespace-nowrap rounded-full font-medium tracking-[-0.01em] transition-[background-color,border-color,color] duration-200",
     size === "sm" ? "h-9 px-4 text-sm" : size === "lg" ? "h-12 px-6 text-[17px]" : "h-11 px-5 text-[15px]",
     variants[variant],
   ].join(" ");
@@ -35,19 +35,14 @@ export function ButtonLink({
 }) {
   return (
     <a
+      data-hover
+      data-press
       className={`${buttonClass(variant, size)} ${className}`}
       {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
       {...rest}
     >
       {children}
-      {arrow && (
-        <Icon
-          icon={ArrowRight01Icon}
-          size={16}
-          strokeWidth={2}
-          className="-mr-1 transition-transform duration-200 group-hover/btn:translate-x-0.5"
-        />
-      )}
+      {arrow && <Icon icon={ArrowRight01Icon} size={16} strokeWidth={2} nudge="x" className="-mr-1" />}
     </a>
   );
 }
