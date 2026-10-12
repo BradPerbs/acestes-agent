@@ -7,12 +7,13 @@ const secrets = require('../ai/secrets');
 const { createConfig } = require('./config');
 const { createGateway } = require('./gateway');
 const { createTelegramAdapter } = require('./telegram');
+const { createDiscordAdapter } = require('./discord');
 
 /**
  * Channels: talking to the agent from somewhere other than the app.
- * Telegram so far: a gateway (gateway.js) on its own adapter. Another
- * chat app is another adapter beside it, with its own bot, its own paired
- * account and its own switch, independent of the others.
+ * Telegram and Discord, each a gateway (gateway.js) on its
+ * own adapter, each with its own bot, its own paired account and its own
+ * switch. They are independent: one can be paired and another off.
  *
  * Started by ipc once the window is wired, stopped on quit. None needs the
  * window: a message with the window closed starts its turn the way a
@@ -22,6 +23,7 @@ const { createTelegramAdapter } = require('./telegram');
 
 const ADAPTERS = {
     telegram: () => createTelegramAdapter(),
+    discord: () => createDiscordAdapter(),
 };
 
 /** The channels, in the order the settings page and `message_user` take them. */
@@ -94,7 +96,7 @@ function status() {
 async function messageOwner({ text, from }) {
     const ready = NAMES.map(name => build()[name]).filter(gateway => gateway.ready());
     if (ready.length === 0) {
-        return { error: 'No channel is paired: the user has not connected Telegram in Settings, Channels.' };
+        return { error: 'No channel is paired: the user has not connected Telegram or Discord in Settings, Channels.' };
     }
     ready.sort((a, b) => b.lastMessageAt() - a.lastMessageAt());
     let last = null;
