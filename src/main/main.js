@@ -20,6 +20,21 @@ const tray = require('./tray');
 const failover = require('./failover');
 const channels = require('./channels');
 
+/*
+ * One copy of the app per user. Closing the window can leave the process up
+ * in the tray (a job on the books, a paired chat app), and a second launch
+ * beside it finds the first one's files held: Chromium's localStorage above
+ * all, which the newcomer then keeps in memory and empty, so the tabs and
+ * every setting stored there come up as if the app were new. Both would also
+ * poll the same chat apps and run the same jobs. So a second launch tells the
+ * first, which brings its window back ('second-instance' below), and goes.
+ *
+ * Packaged builds only: a run from a checkout shares the userData folder with
+ * the installed app, and starting one beside the other is the point of it.
+ */
+const firstInstance = !app.isPackaged || app.requestSingleInstanceLock();
+if (!firstInstance) app.quit();
+
 let mainWindow = null;
 // Set by the tray's Quit and by before-quit: the one way out once jobs
 // keep the process up after the window closes.
@@ -118,7 +133,14 @@ function createWindow() {
 
     // 'close' fires while the window is still alive, so its bounds are
     // still readable; 'closed' is too late.
-    mainWindow.on('close', () => saveWindowState(mainWindow));
+    mainWindow.on('close', () => {
+        saveWindowState(mainWindow);
+        // localStorage reaches the disk on Chromium's own schedule, and with
+        // the process kept up in the tray that can be long after the window
+        // has gone. A kill in between (an installer, a shutdown) would take
+        // the open tabs with it, so they are written out now.
+        mainWindow.webContents.session.flushStorageData();
+    });
 
     mainWindow.on('closed', () => {
         ipc.cancelPendingPrompts();
@@ -146,7 +168,26 @@ function createWindow() {
     }
 }
 
+/** The window brought back, or made again: from the tray, or a second launch. */
+function showMainWindow() {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.focus();
+    } else {
+        createWindow();
+    }
+}
+
+// A second launch, turned away in its own process above, lands here.
+app.on('second-instance', () => {
+    app.whenReady().then(showMainWindow);
+});
+
 app.whenReady().then(() => {
+    // A second launch on its way out: everything below is the first one's.
+    if (!firstInstance) return;
+
     /*
      * Windows attributes a notification to an Application User Model ID, and
      * without one set it uses the host executable's: toasts from the monitor
@@ -187,15 +228,7 @@ app.whenReady().then(() => {
     // The icon is there from the start, so the way to quit an app that
     // stays up for its jobs is learned before it is needed.
     tray.show({
-        onOpen: () => {
-            if (mainWindow && !mainWindow.isDestroyed()) {
-                if (mainWindow.isMinimized()) mainWindow.restore();
-                mainWindow.show();
-                mainWindow.focus();
-            } else {
-                createWindow();
-            }
-        },
+        onOpen: showMainWindow,
         onQuit: () => {
             quitting = true;
             app.quit();
@@ -208,6 +241,7 @@ app.whenReady().then(() => {
 });
 
 app.on('before-quit', () => {
+    if (!firstInstance) return;
     quitting = true;
     // A debounced upload that has not fired yet would be lost with the process,
     // so quitting right after an edit is the case worth flushing for. Best
