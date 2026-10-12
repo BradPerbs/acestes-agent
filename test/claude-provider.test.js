@@ -145,6 +145,57 @@ async function run() {
     assert(winget.includes('C:\\Program Files\\WinGet\\Links\\claude.exe'));
     assert(!winget.some(candidate => candidate.includes('ripgrep')));
 
+    // The Claude desktop app's own copy, for a machine that has nothing else.
+    // The Store build keeps it inside its package (its %APPDATA% is
+    // redirected there); the downloaded installer in the real %APPDATA%.
+    // Newest version first, the build-hash folder before the flat layout,
+    // and all of it after the user's own installs.
+    const local = 'C:\\Users\\Mario\\AppData\\Local';
+    const msixStore = `${local}\\Packages\\Claude_pzs8sxrjxfjjc\\LocalCache\\Roaming\\Claude\\claude-code`;
+    const exeStore = 'C:\\Users\\Mario\\AppData\\Roaming\\Claude\\claude-code';
+    const desktop = provider.claudeCandidates({
+        platform: 'win32',
+        home: 'C:\\Users\\Mario',
+        env: { LOCALAPPDATA: local, APPDATA: 'C:\\Users\\Mario\\AppData\\Roaming' },
+        readdirSync: readdirMap({
+            [`${local}\\Packages`]: ['Claude_pzs8sxrjxfjjc', 'Microsoft.WindowsCalculator_8wekyb3d8bbwe'],
+            [msixStore]: ['2.1.99', '2.1.295', 'downloads'],
+            [`${msixStore}\\2.1.295`]: ['d2e29494ec83', 'claude.exe.zst'],
+            [`${msixStore}\\2.1.99`]: ['claude.exe'],
+            [exeStore]: ['2.1.280'],
+            [`${exeStore}\\2.1.280`]: ['claude.exe'],
+        }),
+    });
+    const fromDesktop = desktop.filter(candidate => candidate.includes('\\Claude\\claude-code\\'));
+    assert.deepStrictEqual(fromDesktop, [
+        `${msixStore}\\2.1.295\\d2e29494ec83\\claude.exe`,
+        `${msixStore}\\2.1.295\\claude.exe`,
+        `${exeStore}\\2.1.280\\claude.exe`,
+        `${msixStore}\\2.1.99\\claude.exe`,
+    ]);
+    assert(desktop.indexOf('C:\\Users\\Mario\\.local\\bin\\claude.exe') < desktop.indexOf(fromDesktop[0]),
+        'an install of the user\'s own comes first');
+    assert(!desktop.some(candidate => candidate.includes('WindowsCalculator') || candidate.includes('downloads')));
+
+    // The same store on a Mac, where the binary is inside an app bundle.
+    const macStore = '/Users/mario/Library/Application Support/Claude/claude-code';
+    const mac = provider.claudeCandidates({
+        platform: 'darwin',
+        home: '/Users/mario',
+        env: { PATH: '/usr/bin' },
+        readdirSync: readdirMap({ [macStore]: ['2.1.78'], [`${macStore}/2.1.78`]: ['claude.app'] }),
+    });
+    assert(mac.includes(`${macStore}/2.1.78/claude.app/Contents/MacOS/claude`));
+
+    // There is no desktop app on Linux, so nothing is looked for.
+    const linuxDesktop = provider.claudeCandidates({
+        platform: 'linux',
+        home: '/home/mario',
+        env: { PATH: '/usr/bin' },
+        readdirSync: readdirMap({ '/home/mario/Library/Application Support/Claude/claude-code': ['2.1.78'] }),
+    });
+    assert(!linuxDesktop.some(candidate => candidate.includes('claude-code/')));
+
     // None of this on the other platforms, where npm and Homebrew put a real
     // `claude` on PATH.
     const posixNpm = provider.claudeCandidates({

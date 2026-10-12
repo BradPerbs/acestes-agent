@@ -128,6 +128,65 @@ function extensionRoots({ readdirSync, paths, home }) {
 }
 
 /**
+ * The copies the Claude desktop app downloads for its Code tab, newest first.
+ *
+ * The app keeps them in its own data folder, `claude-code/<version>/`, and
+ * since about 2.1.286 one folder deeper, under a build hash:
+ * `claude-code/2.1.295/d2e29494ec83/claude.exe`. Both layouts are read. A
+ * person with only the desktop app has Claude Code this way and nowhere else.
+ *
+ * On Windows the data folder is `%APPDATA%\Claude` for the downloaded
+ * installer, but the Store (MSIX) build has its `%APPDATA%` redirected into
+ * its package, so the same folder is on disk under
+ * `%LOCALAPPDATA%\Packages\Claude_<publisher>\LocalCache\Roaming\Claude`, even
+ * though the app's own log names the `%APPDATA%` path. `Claude-3p` is the
+ * folder the app uses in its third-party-provider mode. On a Mac the binary
+ * sits inside an app bundle in the version folder; that layout is taken from
+ * reports rather than seen here. There is no desktop app on Linux.
+ */
+function desktopAppBinaries({ readdirSync, paths, platform, env, home }) {
+    const windows = platform === 'win32';
+    if (!windows && platform !== 'darwin') return [];
+
+    const NAMES = ['Claude', 'Claude-3p'];
+    const dataFolders = [];
+    if (windows) {
+        const appData = envValue(env, 'APPDATA', 'AppData');
+        if (appData) dataFolders.push(...NAMES.map(name => paths.join(appData, name)));
+        const localAppData = envValue(env, 'LOCALAPPDATA', 'LocalAppData');
+        const packages = localAppData ? paths.join(localAppData, 'Packages') : '';
+        for (const entry of packages ? readdir(readdirSync, packages) : []) {
+            if (!/^Claude_/i.test(entry)) continue;
+            dataFolders.push(...NAMES.map(name => paths.join(packages, entry, 'LocalCache', 'Roaming', name)));
+        }
+    } else {
+        dataFolders.push(...NAMES.map(name => paths.join(home, 'Library', 'Application Support', name)));
+    }
+
+    const binaries = windows
+        ? ['claude.exe']
+        : [paths.join('claude.app', 'Contents', 'MacOS', 'claude'), 'claude'];
+    const found = [];
+    for (const folder of dataFolders) {
+        const store = paths.join(folder, 'claude-code');
+        for (const version of readdir(readdirSync, store)) {
+            if (!/^\d+(?:\.\d+)*$/.test(version)) continue;
+            const directory = paths.join(store, version);
+            const builds = readdir(readdirSync, directory)
+                .filter(entry => /^[0-9a-f]{6,64}$/i.test(entry))
+                .map(entry => paths.join(directory, entry));
+            found.push({
+                version: version.split('.').map(Number),
+                files: [...builds, directory].flatMap(root => binaries.map(binary => paths.join(root, binary))),
+            });
+        }
+    }
+    return found
+        .sort((a, b) => compareVersions(b.version, a.version))
+        .flatMap(entry => entry.files);
+}
+
+/**
  * Every place a Claude Code install puts its binary, best first.
  *
  * Editor extensions lead, newest version first, for the reason given above
@@ -212,6 +271,10 @@ function claudeCandidates({
             candidates.push(paths.join(prefix, 'node_modules', '@anthropic-ai', 'claude-code', 'bin', name));
         }
     }
+
+    // Last: the desktop app's copy is the app's to update and remove, so an
+    // install of the user's own, anywhere above, is the one that runs.
+    candidates.push(...desktopAppBinaries({ readdirSync, paths, platform, env, home }));
 
     return [...new Set(candidates)];
 }
