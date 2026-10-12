@@ -3,69 +3,79 @@ const path = require('path');
 
 /**
  * What the channels keep between launches, in `channels.json` beside the
- * rest of the app's data.
+ * rest of the app's data: one section per chat app.
  *
- * The bot token is the one secret here, and it is kept out of the agent's
- * keychain on purpose. A secret there can be named by any agent as
- * `{{secret:name}}` in a command, and a bot token in a command is an agent
- * able to read the user's messages to it, or send as it. So it is encrypted
- * under the vault key instead, like a host's password: unreadable while the
- * app is locked, and never in a backup or a cloud snapshot, which is also
- * what keeps a restore on a second machine from polling the same bot.
+ * Each section's credentials (a bot token, a Slack app's two tokens, a
+ * Matrix access token) are the one secret, kept out of the agent's keychain
+ * on purpose. A secret there can be named by any agent as `{{secret:name}}`
+ * in a command, and a bot token in a command is an agent able to read the
+ * user's messages to it, or send as it. So they are encrypted under the
+ * vault key instead, like a host's password: unreadable while the app is
+ * locked, and never in a backup or a cloud snapshot, which is also what
+ * keeps a restore on a second machine from answering as the same bot.
  *
  * Everything else is plain: who the bot is, who it answers, which
- * conversation each chat is in, and the update offset, so a restart does
- * not read the same messages twice.
+ * conversation each chat is in, and the cursor (an update offset, a message
+ * id, a sync token), so a restart neither reads the same messages twice nor
+ * loses the ones that came while the app was closed.
  */
 
-const VERSION = 1;
+const VERSION = 2;
 
-/** Phone approvals: every change asks, or the agent's own setting applies. */
+const NAMES = ['telegram', 'discord', 'slack', 'matrix'];
+
+/** Turns from the channel: every change asks, or the agent's own setting applies. */
 const APPROVALS = new Set(['ask', 'agent']);
 
-function blankTelegram() {
+const text = (value, max) => String(value ?? '').slice(0, max);
+
+function blank() {
     return {
         enabled: false,
-        token: '',
-        bot: null,
+        secret: '',
+        identity: null,
         owner: null,
-        offset: 0,
+        cursor: '',
         agentId: '',
         approvals: 'ask',
         chats: {},
     };
 }
 
-function cleanTelegram(raw) {
+function cleanSection(raw) {
     const source = raw && typeof raw === 'object' ? raw : {};
-    const out = blankTelegram();
+    const out = blank();
     out.enabled = Boolean(source.enabled);
-    out.token = typeof source.token === 'string' ? source.token : '';
-    if (source.bot && typeof source.bot === 'object' && source.bot.id) {
-        out.bot = {
-            id: Number(source.bot.id) || 0,
-            username: String(source.bot.username || '').slice(0, 64),
-            name: String(source.bot.name || '').slice(0, 128),
-        };
+    // Version 1 kept Telegram's token, bot and offset under these names.
+    out.secret = typeof source.secret === 'string' ? source.secret : (typeof source.token === 'string' ? source.token : '');
+    const identity = source.identity || source.bot;
+    if (identity && typeof identity === 'object' && identity.id) {
+        out.identity = {};
+        for (const [key, value] of Object.entries(identity).slice(0, 12)) {
+            if (/^[A-Za-z]{1,32}$/.test(key) && ['string', 'number'].includes(typeof value)) out.identity[key] = text(value, 300);
+        }
+        out.identity.id = text(identity.id, 200);
     }
-    if (source.owner && typeof source.owner === 'object' && Number(source.owner.userId) > 0) {
+    const owner = source.owner;
+    if (owner && typeof owner === 'object' && owner.userId && String(owner.userId) !== 'NaN' && !/^0*$/.test(String(owner.userId))) {
         out.owner = {
-            userId: Number(source.owner.userId) || 0,
-            chatId: Number(source.owner.chatId) || Number(source.owner.userId) || 0,
-            name: String(source.owner.name || '').slice(0, 128),
-            username: String(source.owner.username || '').slice(0, 64),
-            pairedAt: Number(source.owner.pairedAt) || 0,
+            userId: text(owner.userId, 200),
+            chatId: text(owner.chatId || owner.userId, 200),
+            name: text(owner.name, 128),
+            username: text(owner.username, 128),
+            pairedAt: Number(owner.pairedAt) || 0,
         };
     }
-    out.offset = Math.max(0, Number(source.offset) || 0);
-    out.agentId = String(source.agentId || '').slice(0, 120);
+    const cursor = source.cursor ?? (Number(source.offset) > 0 ? String(source.offset) : '');
+    out.cursor = text(cursor, 2000);
+    out.agentId = text(source.agentId, 120);
     out.approvals = APPROVALS.has(source.approvals) ? source.approvals : 'ask';
     if (source.chats && typeof source.chats === 'object') {
         for (const [chatId, chat] of Object.entries(source.chats)) {
-            if (!/^-?\d+$/.test(chatId) || !chat || typeof chat !== 'object') continue;
+            if (!/^[\w!:.@+=-]{1,200}$/.test(chatId) || !chat || typeof chat !== 'object') continue;
             out.chats[chatId] = {
-                conversationId: String(chat.conversationId || '').slice(0, 120),
-                agentId: String(chat.agentId || '').slice(0, 120),
+                conversationId: text(chat.conversationId, 120),
+                agentId: text(chat.agentId, 120),
             };
         }
     }
@@ -74,7 +84,7 @@ function cleanTelegram(raw) {
 
 /**
  * The store. `dir` is where the file lives; `crypt` encrypts and decrypts
- * the token (the vault in the app, a stand-in in the tests).
+ * the credentials (the vault in the app, a stand-in in the tests).
  */
 function createConfig({ dir, crypt }) {
     const file = () => path.join(typeof dir === 'function' ? dir() : dir, 'channels.json');
@@ -88,7 +98,8 @@ function createConfig({ dir, crypt }) {
         } catch {
             parsed = {};
         }
-        state = { version: VERSION, telegram: cleanTelegram(parsed.telegram) };
+        state = { version: VERSION };
+        for (const name of NAMES) state[name] = cleanSection(parsed?.[name]);
         return state;
     }
 
@@ -104,40 +115,53 @@ function createConfig({ dir, crypt }) {
         }
     }
 
+    /** One channel's section, with the same calls each gateway uses. */
+    function section(name) {
+        if (!NAMES.includes(name)) throw new Error(`No channel called ${name}`);
+        return {
+            get: () => load()[name],
+            update(patch) {
+                const current = load();
+                current[name] = cleanSection({ ...current[name], ...patch });
+                save();
+                return current[name];
+            },
+            /** The credentials in the clear, or null while locked or when there are none. */
+            credentials() {
+                const stored = load()[name].secret;
+                if (!stored) return null;
+                try {
+                    const plain = crypt.decrypt(stored);
+                    if (!plain) return null;
+                    // Version 1 sealed Telegram's bare token.
+                    if (!plain.startsWith('{')) return { token: plain };
+                    return JSON.parse(plain);
+                } catch {
+                    return null;
+                }
+            },
+            /** Throws when the vault is locked: credentials that were not stored must not look stored. */
+            setCredentials(credentials) {
+                const current = load();
+                const sealed = credentials ? crypt.encrypt(JSON.stringify(credentials)) : '';
+                current[name] = cleanSection({ ...current[name], secret: sealed });
+                save();
+            },
+            chat(chatId) {
+                return load()[name].chats[String(chatId)] || { conversationId: '', agentId: '' };
+            },
+            setChat(chatId, patch) {
+                const current = load();
+                const key = String(chatId);
+                current[name].chats[key] = { ...(current[name].chats[key] || { conversationId: '', agentId: '' }), ...patch };
+                save();
+                return current[name].chats[key];
+            },
+        };
+    }
+
     return {
-        telegram: () => load().telegram,
-        update(patch) {
-            const current = load();
-            current.telegram = cleanTelegram({ ...current.telegram, ...patch });
-            save();
-            return current.telegram;
-        },
-        /** The token in the clear, or '' while locked or when there is none. */
-        token() {
-            const stored = load().telegram.token;
-            if (!stored) return '';
-            try {
-                return crypt.decrypt(stored) || '';
-            } catch {
-                return '';
-            }
-        },
-        /** Throws when the vault is locked: a token that was not stored must not look stored. */
-        setToken(token) {
-            const current = load();
-            current.telegram = cleanTelegram({ ...current.telegram, token: token ? crypt.encrypt(token) : '' });
-            save();
-        },
-        chat(chatId) {
-            return load().telegram.chats[String(chatId)] || { conversationId: '', agentId: '' };
-        },
-        setChat(chatId, patch) {
-            const current = load();
-            const key = String(chatId);
-            current.telegram.chats[key] = { ...(current.telegram.chats[key] || { conversationId: '', agentId: '' }), ...patch };
-            save();
-            return current.telegram.chats[key];
-        },
+        section,
         /** For the tests: read the file again. */
         reload() {
             state = null;
@@ -146,4 +170,4 @@ function createConfig({ dir, crypt }) {
     };
 }
 
-module.exports = { createConfig, cleanTelegram, APPROVALS };
+module.exports = { createConfig, cleanSection, APPROVALS, NAMES };

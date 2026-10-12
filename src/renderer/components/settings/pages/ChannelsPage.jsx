@@ -2,7 +2,7 @@ import SettingsPage from '../ui/SettingsPage';
 import ChannelsSection from '../ChannelsSection';
 import { useT } from '../../../i18n';
 
-/** The agent reached from somewhere other than the app: Telegram, for now. See ChannelsSection. */
+/** The agent reached from a chat app: Telegram, Discord, Slack, Matrix. See ChannelsSection. */
 export default function ChannelsPage() {
     const t = useT();
 

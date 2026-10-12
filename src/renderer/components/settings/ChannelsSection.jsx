@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
-import { TelegramIcon } from 'hugeicons-react';
+import { TelegramIcon, DiscordIcon, SlackIcon, MatrixIcon, ArrowDown01Icon } from 'hugeicons-react';
 import SettingCard from './ui/SettingCard';
 import SettingRow, { DIVIDED } from './ui/SettingRow';
 import LoadingCard from './ui/LoadingCard';
@@ -9,6 +9,7 @@ import Button from '../ui/Button';
 import Select from '../ui/Select';
 import SegmentedControl from '../ui/SegmentedControl';
 import ConfirmDialog from '../ui/ConfirmDialog';
+import CopyButton from '../ui/CopyButton';
 import { FIELD_CLASS } from './useAssistantSettings';
 import { useAgents } from '../../hooks/useAgents';
 import { toastOptions } from '../../lib/toast';
@@ -16,14 +17,51 @@ import { formatDate } from '../../lib/format';
 import { useT } from '../../i18n';
 
 /**
- * Talking to the agent from the phone, through the user's own Telegram bot.
+ * Talking to the agent from a chat app, through a bot of the user's own:
+ * Telegram, Discord, Slack and Matrix, one card each.
  *
- * Three states, one card: no bot yet (how to make one, and where the token
- * goes), a bot with nobody paired (the one-time link), and a paired account
- * (what it may do from there). The status is main's: the poll runs there,
- * and is pushed here on `channels-changed` as it moves. The token is sent
- * once, on Connect, and never comes back.
+ * Each card has three states: no bot yet (how to make one, and where its
+ * credentials go), a bot with nobody paired (the one-time code), and a
+ * paired account (what it may do from there). The status is main's: the
+ * listeners run there, and push it here on `channels-changed` as it moves.
+ * Credentials are sent once, on Connect, and never come back.
  */
+
+const CHANNELS = [
+    {
+        name: 'telegram',
+        icon: TelegramIcon,
+        steps: [
+            { key: 'step1', link: 'https://t.me/BotFather', linkKey: 'openBotFather' },
+            { key: 'step2', fields: [{ key: 'token', placeholder: '123456789:AA...' }] },
+        ],
+    },
+    {
+        name: 'discord',
+        icon: DiscordIcon,
+        steps: [
+            { key: 'step1', link: 'https://discord.com/developers/applications', linkKey: 'openPortal' },
+            { key: 'step2', fields: [{ key: 'token', placeholder: 'MTA...' }] },
+        ],
+    },
+    {
+        name: 'slack',
+        icon: SlackIcon,
+        steps: [
+            { key: 'step1', link: 'https://api.slack.com/apps?new_app=1', linkKey: 'openSlackApps', manifest: true },
+            { key: 'step2', fields: [{ key: 'botToken', placeholder: 'xoxb-...' }] },
+            { key: 'step3', fields: [{ key: 'appToken', placeholder: 'xapp-...' }] },
+        ],
+    },
+    {
+        name: 'matrix',
+        icon: MatrixIcon,
+        steps: [
+            { key: 'step1', link: 'https://app.element.io/#/register', linkKey: 'openElement' },
+            { key: 'step2', fields: [{ key: 'homeserver', placeholder: 'matrix.org', plain: true }, { key: 'accessToken', placeholder: 'syt_...' }] },
+        ],
+    },
+];
 
 const STATE_TONES = {
     running: 'bg-emerald-500',
@@ -37,17 +75,19 @@ const STATE_TONES = {
     off: 'bg-gray-400 dark:bg-neutral-600',
 };
 
-function StatePill({ telegram, t }) {
-    const state = telegram.enabled ? telegram.state : 'off';
+const PROBLEMS = new Set(['conflict', 'webhook', 'unauthorized', 'error', 'offline', 'locked']);
+
+function StatePill({ status, t }) {
+    const state = status.enabled ? status.state : 'off';
     return (
-        <span className="inline-flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
+        <span className="inline-flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 shrink-0">
             <span aria-hidden="true" className={`w-1.5 h-1.5 rounded-full ${STATE_TONES[state] || STATE_TONES.off}`} />
             {t(`settings.channels.state.${state}`)}
         </span>
     );
 }
 
-/** Minutes left on a pairing link, ticking down while it is on screen. */
+/** Minutes left on a pairing code, ticking down while it is on screen. */
 function useMinutesLeft(expiresAt) {
     const [now, setNow] = useState(Date.now());
     useEffect(() => {
@@ -58,19 +98,280 @@ function useMinutesLeft(expiresAt) {
     return expiresAt ? Math.max(0, Math.ceil((expiresAt - now) / 60000)) : 0;
 }
 
+/** How the bot is named in a sentence: @handle, or its Matrix id. */
+const botName = status => (status.identity
+    ? (status.name === 'matrix' ? status.identity.id : `@${status.identity.username || status.identity.name}`)
+    : '');
+
+function ChannelCard({ channel, status, agents, run, busy, setConfirm }) {
+    const t = useT();
+    const key = `settings.channels.${channel.name}`;
+    const Icon = channel.icon;
+    const [open, setOpen] = useState(false);
+    const [fields, setFields] = useState({});
+    const minutesLeft = useMinutesLeft(status.pairing?.expiresAt || 0);
+    const bot = botName(status);
+    const working = (what) => busy === `${channel.name}:${what}`;
+    const expanded = status.connected || open;
+    const problem = PROBLEMS.has(status.state) && status.enabled ? status.message : '';
+    const needed = channel.steps.flatMap(step => step.fields || []);
+    const complete = needed.every(field => String(fields[field.key] || '').trim());
+
+    const connect = async () => {
+        const credentials = Object.fromEntries(needed.map(field => [field.key, String(fields[field.key] || '').trim()]));
+        const result = await run(channel.name, 'connect', () => window.api.channels.connect(channel.name, credentials), t('settings.channels.connected'));
+        if (result) setFields({});
+    };
+
+    const openLink = url => window.api.links.open(url);
+
+    return (
+        <SettingCard>
+            <div className="flex items-start justify-between gap-4">
+                <div className="flex items-start gap-3 min-w-0">
+                    <Icon size={22} strokeWidth={1.5} className="shrink-0 mt-0.5 text-gray-900 dark:text-white" />
+                    <div className="min-w-0">
+                        <h4 className="text-base font-semibold text-gray-900 dark:text-white">{t(`${key}.title`)}</h4>
+                        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t(`${key}.desc`)}</p>
+                    </div>
+                </div>
+                {status.connected ? (
+                    <StatePill status={status} t={t} />
+                ) : (
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        aria-expanded={open}
+                        onClick={() => setOpen(value => !value)}
+                        icon={<ArrowDown01Icon size={14} className={`transition-transform ${open ? 'rotate-180' : ''}`} />}
+                    >
+                        {t('settings.channels.setUp')}
+                    </Button>
+                )}
+            </div>
+
+            {problem && (
+                <div className="mt-4 rounded-lg px-3 py-2 text-xs leading-relaxed bg-amber-50 dark:bg-amber-500/10 text-amber-800 dark:text-amber-300">
+                    {problem}
+                </div>
+            )}
+
+            {expanded && !status.connected && (
+                <div className={DIVIDED}>
+                    <form
+                        className="flex flex-col gap-5 text-sm text-gray-700 dark:text-gray-300"
+                        onSubmit={(event) => {
+                            event.preventDefault();
+                            if (complete) connect();
+                        }}
+                    >
+                        {channel.steps.map((step, index) => (
+                            <div key={step.key} className="flex flex-col gap-2">
+                                <span>{`${index + 1}. ${t(`${key}.${step.key}`)}`}</span>
+                                {step.link && (
+                                    <div>
+                                        <Button size="sm" variant="outline" onClick={() => openLink(step.link)}>
+                                            {t(`settings.channels.${step.linkKey}`)}
+                                        </Button>
+                                    </div>
+                                )}
+                                {step.manifest && status.manifest && (
+                                    <div className="relative">
+                                        <pre className="max-h-40 overflow-auto rounded-lg p-3 pr-10 text-[11px] leading-relaxed font-jetbrains
+                                            bg-gray-50 dark:bg-black/40 border border-gray-200 dark:border-neutral-800 text-gray-700 dark:text-gray-300"
+                                        >
+                                            {JSON.stringify(status.manifest, null, 2)}
+                                        </pre>
+                                        <div className="absolute top-2 right-2">
+                                            <CopyButton text={JSON.stringify(status.manifest, null, 2)} />
+                                        </div>
+                                    </div>
+                                )}
+                                {(step.fields || []).map(field => (
+                                    <input
+                                        key={field.key}
+                                        type={field.plain ? 'text' : 'password'}
+                                        autoComplete="off"
+                                        spellCheck={false}
+                                        value={fields[field.key] || ''}
+                                        onChange={event => setFields(previous => ({ ...previous, [field.key]: event.target.value }))}
+                                        placeholder={field.placeholder}
+                                        aria-label={t(`${key}.${field.key}`)}
+                                        className={`${FIELD_CLASS} font-jetbrains`}
+                                    />
+                                ))}
+                            </div>
+                        ))}
+                        <div className="flex items-center gap-3">
+                            <Button type="submit" variant="primary" disabled={!complete || working('connect')}>
+                                {working('connect') ? t('settings.channels.connecting') : t('settings.channels.connect')}
+                            </Button>
+                            <span className="text-xs text-gray-500 dark:text-gray-400">{t('settings.channels.tokenNote')}</span>
+                        </div>
+                    </form>
+                </div>
+            )}
+
+            {status.connected && !status.owner && status.setup?.inviteUrl && (
+                <SettingRow
+                    className={DIVIDED}
+                    title={t('settings.channels.discord.inviteTitle')}
+                    description={t('settings.channels.discord.inviteDesc')}
+                    control={(
+                        <Button variant="outline" onClick={() => openLink(status.setup.inviteUrl)}>
+                            {t('settings.channels.discord.invite')}
+                        </Button>
+                    )}
+                />
+            )}
+
+            {status.connected && !status.owner && (
+                <SettingRow
+                    className={DIVIDED}
+                    title={t('settings.channels.pairTitle', { app: status.label })}
+                    description={t('settings.channels.pairDesc', { bot })}
+                    control={!status.pairing && (
+                        <Button variant="primary" disabled={working('pair')} onClick={() => run(channel.name, 'pair', () => window.api.channels.pair(channel.name))}>
+                            {t('settings.channels.pair')}
+                        </Button>
+                    )}
+                >
+                    {status.pairing && (
+                        <div className="flex flex-col gap-3 rounded-xl border border-gray-200 dark:border-neutral-700 p-4">
+                            <p className="text-sm text-gray-700 dark:text-gray-300">{t(`${key}.pairHow`, { bot })}</p>
+                            <div className="flex flex-wrap items-center gap-2">
+                                <code className="px-2.5 py-1.5 rounded-lg font-jetbrains text-sm text-gray-900 dark:text-white
+                                    bg-gray-100 dark:bg-white/[0.06] select-all"
+                                >
+                                    {status.pairing.text}
+                                </code>
+                                <CopyButton text={status.pairing.text} />
+                                {status.pairing.link && (
+                                    <Button variant="primary" onClick={() => openLink(status.pairing.link)}>
+                                        {t(`${key}.openChat`)}
+                                    </Button>
+                                )}
+                                <Button variant="ghost" onClick={() => run(channel.name, 'cancel', () => window.api.channels.cancelPair(channel.name))}>
+                                    {t('settings.channels.cancel')}
+                                </Button>
+                            </div>
+                            <p className="text-xs text-gray-500 dark:text-gray-400">
+                                {t('settings.channels.pairExpires', { count: minutesLeft })}
+                            </p>
+                        </div>
+                    )}
+                </SettingRow>
+            )}
+
+            {status.connected && status.owner && (
+                <>
+                    <SettingRow
+                        className={DIVIDED}
+                        title={t('settings.channels.pairedWith', {
+                            name: status.owner.username && status.owner.username !== status.owner.name
+                                ? `${status.owner.name} (${status.name === 'matrix' ? status.owner.username : `@${status.owner.username}`})`
+                                : status.owner.name,
+                        })}
+                        description={t('settings.channels.pairedDesc', {
+                            bot,
+                            when: status.owner.pairedAt ? formatDate(status.owner.pairedAt) : '',
+                        })}
+                        control={(
+                            <div className="flex gap-2">
+                                <Button
+                                    variant="outline"
+                                    disabled={working('test') || !status.enabled}
+                                    onClick={() => run(channel.name, 'test', () => window.api.channels.test(channel.name), t('settings.channels.testSent', { app: status.label }))}
+                                >
+                                    {t('settings.channels.test')}
+                                </Button>
+                                <Button variant="dangerGhost" onClick={() => setConfirm({ name: channel.name, action: 'unpair', label: status.label, bot })}>
+                                    {t('settings.channels.unpair')}
+                                </Button>
+                            </div>
+                        )}
+                    />
+
+                    <SettingRow
+                        className={DIVIDED}
+                        align="center"
+                        title={t('settings.channels.enabled')}
+                        description={t('settings.channels.enabledDesc', { app: status.label })}
+                        control={(
+                            <Toggle
+                                checked={status.enabled}
+                                ariaLabel={t('settings.channels.enabled')}
+                                onChange={value => run(channel.name, 'enabled', () => window.api.channels.update(channel.name, { enabled: value }))}
+                            />
+                        )}
+                    />
+
+                    <SettingRow
+                        className={DIVIDED}
+                        title={t('settings.channels.agent')}
+                        description={t('settings.channels.agentDesc', { app: status.label, command: `${status.prefix}agent` })}
+                        control={(
+                            <div className="w-56">
+                                <Select
+                                    value={status.agentId || ''}
+                                    onChange={value => run(channel.name, 'agent', () => window.api.channels.update(channel.name, { agentId: value }))}
+                                    className={FIELD_CLASS}
+                                    aria-label={t('settings.channels.agent')}
+                                    options={[
+                                        { value: '', label: t('settings.channels.agentSelected') },
+                                        ...agents.map(agent => ({ value: agent.id, label: agent.name })),
+                                    ]}
+                                />
+                            </div>
+                        )}
+                    />
+
+                    <SettingRow
+                        className={DIVIDED}
+                        title={t('settings.channels.approvals', { app: status.label })}
+                        description={t('settings.channels.approvalsDesc', { app: status.label })}
+                    >
+                        <SegmentedControl
+                            ariaLabel={t('settings.channels.approvals', { app: status.label })}
+                            value={status.approvals}
+                            onChange={value => run(channel.name, 'approvals', () => window.api.channels.update(channel.name, { approvals: value }))}
+                            segments={[
+                                { value: 'ask', label: t('settings.channels.approvalsAsk') },
+                                { value: 'agent', label: t('settings.channels.approvalsAgent') },
+                            ]}
+                        />
+                    </SettingRow>
+                </>
+            )}
+
+            {status.connected && (
+                <SettingRow
+                    className={DIVIDED}
+                    title={t('settings.channels.bot', { bot })}
+                    description={t('settings.channels.botDesc', { app: status.label })}
+                    control={(
+                        <Button variant="dangerOutline" onClick={() => setConfirm({ name: channel.name, action: 'disconnect', label: status.label, bot })}>
+                            {t('settings.channels.disconnect')}
+                        </Button>
+                    )}
+                />
+            )}
+        </SettingCard>
+    );
+}
+
 export default function ChannelsSection() {
     const t = useT();
     const { agents } = useAgents();
     const [status, setStatus] = useState(null);
-    const [token, setToken] = useState('');
     const [busy, setBusy] = useState('');
-    const [confirm, setConfirm] = useState('');
+    const [confirm, setConfirm] = useState(null);
 
     useEffect(() => {
         let alive = true;
         window.api.channels.status()
             .then((next) => { if (alive) setStatus(next); })
-            .catch(() => { if (alive) setStatus({ telegram: null }); });
+            .catch(() => { if (alive) setStatus({}); });
         const off = window.api.channels.onChanged((next) => setStatus(next));
         return () => {
             alive = false;
@@ -78,19 +379,16 @@ export default function ChannelsSection() {
         };
     }, []);
 
-    const telegram = status?.telegram || null;
-    const minutesLeft = useMinutesLeft(telegram?.pairing?.expiresAt || 0);
-
     /** One call to main, with the button that made it marked busy and any error toasted. */
-    const run = useCallback(async (key, call, success = '') => {
-        setBusy(key);
+    const run = useCallback(async (name, what, call, success = '') => {
+        setBusy(`${name}:${what}`);
         try {
             const result = await call();
             if (result?.error) {
                 toast.error(result.error, toastOptions());
                 return null;
             }
-            if (result?.telegram) setStatus(result);
+            if (result?.name) setStatus(previous => ({ ...(previous || {}), [result.name]: result }));
             if (success) toast.success(success, toastOptions());
             return result;
         } catch (error) {
@@ -101,15 +399,8 @@ export default function ChannelsSection() {
         }
     }, [t]);
 
-    const connect = async () => {
-        const result = await run('connect', () => window.api.channels.telegram.connect(token.trim()), t('settings.channels.connected'));
-        if (result) setToken('');
-    };
-
-    const openLink = (url) => window.api.links.open(url);
-
     if (!status) return <LoadingCard />;
-    if (!telegram) {
+    if (!CHANNELS.some(channel => status[channel.name])) {
         return (
             <SettingCard>
                 <p className="text-sm text-gray-500 dark:text-gray-400">{t('settings.channels.unavailable')}</p>
@@ -117,197 +408,19 @@ export default function ChannelsSection() {
         );
     }
 
-    const bot = telegram.bot ? `@${telegram.bot.username}` : '';
-    const problem = ['conflict', 'webhook', 'unauthorized', 'error', 'offline', 'locked'].includes(telegram.state) && telegram.enabled
-        ? telegram.message
-        : '';
-
     return (
         <>
-            <SettingCard>
-                <div className="flex items-start justify-between gap-4">
-                    <div className="flex items-start gap-3 min-w-0">
-                        <TelegramIcon size={22} strokeWidth={1.5} className="shrink-0 mt-0.5 text-gray-900 dark:text-white" />
-                        <div className="min-w-0">
-                            <h4 className="text-base font-semibold text-gray-900 dark:text-white">{t('settings.channels.telegram')}</h4>
-                            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t('settings.channels.telegramDesc')}</p>
-                        </div>
-                    </div>
-                    {telegram.connected && <StatePill telegram={telegram} t={t} />}
-                </div>
-
-                {problem && (
-                    <div className="mt-4 rounded-lg px-3 py-2 text-xs leading-relaxed bg-amber-50 dark:bg-amber-500/10 text-amber-800 dark:text-amber-300">
-                        {problem}
-                    </div>
-                )}
-
-                {!telegram.connected && (
-                    <div className={DIVIDED}>
-                        <ol className="flex flex-col gap-4 text-sm text-gray-700 dark:text-gray-300">
-                            <li className="flex flex-col gap-2">
-                                <span>{t('settings.channels.step1')}</span>
-                                <div>
-                                    <Button size="sm" variant="outline" onClick={() => openLink('https://t.me/BotFather')}>
-                                        {t('settings.channels.openBotFather')}
-                                    </Button>
-                                </div>
-                            </li>
-                            <li className="flex flex-col gap-2">
-                                <span>{t('settings.channels.step2')}</span>
-                                <form
-                                    className="flex gap-2"
-                                    onSubmit={(event) => {
-                                        event.preventDefault();
-                                        if (token.trim()) connect();
-                                    }}
-                                >
-                                    <input
-                                        type="password"
-                                        autoComplete="off"
-                                        spellCheck={false}
-                                        value={token}
-                                        onChange={event => setToken(event.target.value)}
-                                        placeholder="123456789:AA..."
-                                        aria-label={t('settings.channels.token')}
-                                        className={`${FIELD_CLASS} font-jetbrains`}
-                                    />
-                                    <Button type="submit" variant="primary" disabled={!token.trim() || busy === 'connect'}>
-                                        {busy === 'connect' ? t('settings.channels.connecting') : t('settings.channels.connect')}
-                                    </Button>
-                                </form>
-                                <span className="text-xs text-gray-500 dark:text-gray-400">{t('settings.channels.tokenNote')}</span>
-                            </li>
-                        </ol>
-                    </div>
-                )}
-
-                {telegram.connected && !telegram.owner && (
-                    <SettingRow
-                        className={DIVIDED}
-                        title={t('settings.channels.pairTitle')}
-                        description={t('settings.channels.pairDesc', { bot })}
-                        control={!telegram.pairing && (
-                            <Button variant="primary" disabled={busy === 'pair'} onClick={() => run('pair', () => window.api.channels.telegram.pair())}>
-                                {t('settings.channels.pair')}
-                            </Button>
-                        )}
-                    >
-                        {telegram.pairing && (
-                            <div className="flex flex-col gap-3 rounded-xl border border-gray-200 dark:border-neutral-700 p-4">
-                                <p className="text-sm text-gray-700 dark:text-gray-300">{t('settings.channels.pairHow')}</p>
-                                <div className="flex flex-wrap items-center gap-2">
-                                    <Button variant="primary" onClick={() => openLink(telegram.pairing.link)}>
-                                        {t('settings.channels.openTelegram')}
-                                    </Button>
-                                    <Button variant="ghost" onClick={() => run('cancel', () => window.api.channels.telegram.cancelPair())}>
-                                        {t('settings.channels.cancel')}
-                                    </Button>
-                                </div>
-                                <p className="text-xs text-gray-500 dark:text-gray-400 break-all">
-                                    {t('settings.channels.pairManual', { bot })}{' '}
-                                    <code className="font-jetbrains text-gray-900 dark:text-white select-all">/start {telegram.pairing.code}</code>
-                                </p>
-                                <p className="text-xs text-gray-500 dark:text-gray-400">
-                                    {t('settings.channels.pairExpires', { count: minutesLeft })}
-                                </p>
-                            </div>
-                        )}
-                    </SettingRow>
-                )}
-
-                {telegram.connected && telegram.owner && (
-                    <>
-                        <SettingRow
-                            className={DIVIDED}
-                            title={t('settings.channels.pairedWith', {
-                                name: telegram.owner.username ? `${telegram.owner.name} (@${telegram.owner.username})` : telegram.owner.name,
-                            })}
-                            description={t('settings.channels.pairedDesc', {
-                                bot,
-                                when: telegram.owner.pairedAt ? formatDate(telegram.owner.pairedAt) : '',
-                            })}
-                            control={(
-                                <div className="flex gap-2">
-                                    <Button
-                                        variant="outline"
-                                        disabled={busy === 'test' || !telegram.enabled}
-                                        onClick={() => run('test', () => window.api.channels.telegram.test(), t('settings.channels.testSent'))}
-                                    >
-                                        {t('settings.channels.test')}
-                                    </Button>
-                                    <Button variant="dangerGhost" onClick={() => setConfirm('unpair')}>
-                                        {t('settings.channels.unpair')}
-                                    </Button>
-                                </div>
-                            )}
-                        />
-
-                        <SettingRow
-                            className={DIVIDED}
-                            align="center"
-                            title={t('settings.channels.enabled')}
-                            description={t('settings.channels.enabledDesc')}
-                            control={(
-                                <Toggle
-                                    checked={telegram.enabled}
-                                    ariaLabel={t('settings.channels.enabled')}
-                                    onChange={value => run('enabled', () => window.api.channels.telegram.update({ enabled: value }))}
-                                />
-                            )}
-                        />
-
-                        <SettingRow
-                            className={DIVIDED}
-                            title={t('settings.channels.agent')}
-                            description={t('settings.channels.agentDesc')}
-                            control={(
-                                <div className="w-56">
-                                    <Select
-                                        value={telegram.agentId || ''}
-                                        onChange={value => run('agent', () => window.api.channels.telegram.update({ agentId: value }))}
-                                        className={FIELD_CLASS}
-                                        aria-label={t('settings.channels.agent')}
-                                        options={[
-                                            { value: '', label: t('settings.channels.agentSelected') },
-                                            ...agents.map(agent => ({ value: agent.id, label: agent.name })),
-                                        ]}
-                                    />
-                                </div>
-                            )}
-                        />
-
-                        <SettingRow
-                            className={DIVIDED}
-                            title={t('settings.channels.approvals')}
-                            description={t('settings.channels.approvalsDesc')}
-                        >
-                            <SegmentedControl
-                                ariaLabel={t('settings.channels.approvals')}
-                                value={telegram.approvals}
-                                onChange={value => run('approvals', () => window.api.channels.telegram.update({ approvals: value }))}
-                                segments={[
-                                    { value: 'ask', label: t('settings.channels.approvalsAsk') },
-                                    { value: 'agent', label: t('settings.channels.approvalsAgent') },
-                                ]}
-                            />
-                        </SettingRow>
-                    </>
-                )}
-
-                {telegram.connected && (
-                    <SettingRow
-                        className={DIVIDED}
-                        title={t('settings.channels.bot', { bot })}
-                        description={t('settings.channels.botDesc')}
-                        control={(
-                            <Button variant="dangerOutline" onClick={() => setConfirm('disconnect')}>
-                                {t('settings.channels.disconnect')}
-                            </Button>
-                        )}
-                    />
-                )}
-            </SettingCard>
+            {CHANNELS.filter(channel => status[channel.name]).map(channel => (
+                <ChannelCard
+                    key={channel.name}
+                    channel={channel}
+                    status={status[channel.name]}
+                    agents={agents}
+                    run={run}
+                    busy={busy}
+                    setConfirm={setConfirm}
+                />
+            ))}
 
             <SettingCard>
                 <SettingRow title={t('settings.channels.howTitle')} description={t('settings.channels.howDesc')}>
@@ -321,28 +434,30 @@ export default function ChannelsSection() {
                 </SettingRow>
             </SettingCard>
 
-            {confirm === 'unpair' && (
+            {confirm?.action === 'unpair' && (
                 <ConfirmDialog
-                    title={t('settings.channels.unpairTitle')}
+                    title={t('settings.channels.unpairTitle', { app: confirm.label })}
                     message={t('settings.channels.unpairMessage')}
                     confirmLabel={t('settings.channels.unpair')}
                     onConfirm={() => {
-                        setConfirm('');
-                        run('unpair', () => window.api.channels.telegram.unpair(), t('settings.channels.unpaired'));
+                        const { name } = confirm;
+                        setConfirm(null);
+                        run(name, 'unpair', () => window.api.channels.unpair(name), t('settings.channels.unpaired'));
                     }}
-                    onCancel={() => setConfirm('')}
+                    onCancel={() => setConfirm(null)}
                 />
             )}
-            {confirm === 'disconnect' && (
+            {confirm?.action === 'disconnect' && (
                 <ConfirmDialog
                     title={t('settings.channels.disconnectTitle')}
-                    message={t('settings.channels.disconnectMessage', { bot })}
+                    message={t('settings.channels.disconnectMessage', { bot: confirm.bot })}
                     confirmLabel={t('settings.channels.disconnect')}
                     onConfirm={() => {
-                        setConfirm('');
-                        run('disconnect', () => window.api.channels.telegram.disconnect(), t('settings.channels.disconnected'));
+                        const { name } = confirm;
+                        setConfirm(null);
+                        run(name, 'disconnect', () => window.api.channels.disconnect(name), t('settings.channels.disconnected'));
                     }}
-                    onCancel={() => setConfirm('')}
+                    onCancel={() => setConfirm(null)}
                 />
             )}
         </>

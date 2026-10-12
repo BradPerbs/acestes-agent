@@ -1590,84 +1590,118 @@ export default {
      * Settings: Channels
      * ---------------------------------------------------------------- */
     'settings.channels.title': 'Channels',
-    'settings.channels.desc': 'Talk to your agent from your phone. It does the work here, on this '
+    'settings.channels.desc': 'Talk to your agent from a chat app. It does the work here, on this '
         + 'computer, and answers you there.',
-    'settings.channels.telegram': 'Telegram',
-    'settings.channels.telegramDesc': 'Through a Telegram bot of your own, which only your account can talk to. '
-        + 'It answers while Acestes is running on this computer.',
     'settings.channels.unavailable': 'Channels could not be read. Restart the app and try again.',
     'settings.channels.failed': 'That did not work.',
-    'settings.channels.step1': '1. In Telegram, open @BotFather, send /newbot, and answer its two questions: '
-        + 'a name for the bot and a username ending in "bot".',
-    'settings.channels.openBotFather': 'Open @BotFather',
-    'settings.channels.step2': '2. Paste the token it gives you.',
-    'settings.channels.token': 'Bot token',
-    'settings.channels.tokenNote': 'Encrypted on this computer and never shown to the agent. '
-        + 'It stays out of backups, so a restored copy elsewhere cannot answer as this bot.',
+    'settings.channels.setUp': 'Set up',
     'settings.channels.connect': 'Connect',
     'settings.channels.connecting': 'Checking…',
-    'settings.channels.connected': 'Bot connected. Pair your Telegram account next.',
-    'settings.channels.pairTitle': 'Pair your Telegram account',
+    'settings.channels.connected': 'Connected. Pair your account next.',
+    'settings.channels.tokenNote': 'Encrypted on this computer, never shown to the agent, and kept out of backups.',
+    'settings.channels.cancel': 'Cancel',
+    'settings.channels.openBotFather': 'Open @BotFather',
+    'settings.channels.openPortal': 'Open the Developer Portal',
+    'settings.channels.openSlackApps': 'Open Slack apps',
+    'settings.channels.openElement': 'Open Element',
+    'settings.channels.pairTitle': 'Pair your {app} account',
     'settings.channels.pairDesc': 'Only the account you pair can talk to {bot}. Messages from anyone else '
         + 'are ignored without an answer.',
     'settings.channels.pair': 'Pair',
-    'settings.channels.pairHow': 'Open the link where you use Telegram, on your phone or this computer, '
-        + 'and press Start.',
-    'settings.channels.openTelegram': 'Open in Telegram',
-    'settings.channels.cancel': 'Cancel',
-    'settings.channels.pairManual': 'Or send this to {bot}:',
-    'settings.channels.pairExpires_one': 'The link works once, for the next minute.',
-    'settings.channels.pairExpires_other': 'The link works once, for the next {count} minutes.',
+    'settings.channels.pairExpires_one': 'The code works once, for the next minute.',
+    'settings.channels.pairExpires_other': 'The code works once, for the next {count} minutes.',
     'settings.channels.pairedWith': 'Paired with {name}',
     'settings.channels.pairedDesc': 'This account can talk to the agent through {bot}. Paired {when}.',
     'settings.channels.test': 'Send a test',
-    'settings.channels.testSent': 'Sent. Check Telegram.',
+    'settings.channels.testSent': 'Sent. Check {app}.',
     'settings.channels.unpair': 'Unpair',
     'settings.channels.unpaired': 'Unpaired. The bot ignores that account now.',
-    'settings.channels.unpairTitle': 'Unpair this Telegram account?',
+    'settings.channels.unpairTitle': 'Unpair this {app} account?',
     'settings.channels.unpairMessage': 'The bot stops answering it straight away. You can pair again at any time.',
     'settings.channels.enabled': 'Answer messages',
     'settings.channels.enabledDesc': 'Off, the bot stays connected but Acestes stops reading its messages. '
-        + 'They wait in Telegram for up to a day.',
+        + 'What arrives meanwhile waits in {app}, and is offered rather than run when it is read late.',
     'settings.channels.agent': 'Who answers',
-    'settings.channels.agentDesc': 'The agent a new conversation from Telegram goes to. /agent changes it from the phone.',
+    'settings.channels.agentDesc': 'The agent a new conversation from {app} goes to. {command} changes it from the chat.',
     'settings.channels.agentSelected': 'The selected agent',
-    'settings.channels.approvals': 'Approvals from the phone',
-    'settings.channels.approvalsDesc': 'While you are talking from Telegram, the agent can still change things '
-        + 'on your servers and this computer. Asking first means a lost phone or a stolen Telegram account is '
+    'settings.channels.approvals': 'Approvals from {app}',
+    'settings.channels.approvalsDesc': 'While you are talking from {app}, the agent can still change things '
+        + 'on your servers and this computer. Asking first means a lost phone or a stolen {app} account is '
         + 'not enough to run anything: every change waits for your Approve, whatever the agent\'s own mode. '
         + 'The blocked commands apply either way.',
     'settings.channels.approvalsAsk': 'Ask before every change',
     'settings.channels.approvalsAgent': 'Same as the desktop',
     'settings.channels.bot': 'Bot {bot}',
-    'settings.channels.botDesc': 'Disconnecting forgets the token and the paired account on this computer. '
-        + 'The bot itself stays yours in Telegram.',
+    'settings.channels.botDesc': 'Disconnecting forgets its credentials and the paired account on this computer. '
+        + 'The bot itself stays yours in {app}.',
     'settings.channels.disconnect': 'Disconnect',
-    'settings.channels.disconnected': 'Bot disconnected.',
+    'settings.channels.disconnected': 'Disconnected.',
     'settings.channels.disconnectTitle': 'Disconnect the bot?',
-    'settings.channels.disconnectMessage': 'Acestes forgets the token for {bot} and the paired account. '
-        + 'To use it again, paste the token and pair again.',
+    'settings.channels.disconnectMessage': 'Acestes forgets the credentials for {bot} and the paired account. '
+        + 'To use it again, connect it and pair again.',
     'settings.channels.howTitle': 'How it works',
-    'settings.channels.howDesc': 'Each Telegram chat is a conversation in Acestes, which you can open on the '
-        + 'desktop and carry on from either side.',
-    'settings.channels.howCommands': '/new starts a conversation, /list picks up a recent one, /stop stops the '
-        + 'agent, /status says what it is doing, /agent chooses who answers.',
+    'settings.channels.howDesc': 'Each chat is a conversation in Acestes, which you can open on the desktop '
+        + 'and carry on from either side.',
+    'settings.channels.howCommands': 'new starts a conversation, list picks up a recent one, stop stops the '
+        + 'agent, status says what it is doing, agent chooses who answers. Type them after / in Telegram and '
+        + 'Discord, and after ! in Slack and Matrix.',
     'settings.channels.howTray': 'Closing the window keeps Acestes in the tray, answering. Quitting it, or the '
         + 'computer sleeping, stops it until it is back.',
     'settings.channels.howStale': 'A message that reaches Acestes more than ten minutes after you sent it is '
         + 'not run by itself: you are asked first.',
-    'settings.channels.howSecrets': 'A question that wants a password or a key is answered on the desktop only. '
-        + 'Telegram bot chats are not end-to-end encrypted.',
-    'settings.channels.howJobs': 'Jobs can send their results here too: switch on "Send to Telegram" in a job\'s delivery.',
+    'settings.channels.howSecrets': 'A question that wants a password or a key is answered on the desktop only.',
+    'settings.channels.howJobs': 'Jobs can send their results here too: switch on "Send to my chat apps" in a job\'s delivery.',
     'settings.channels.state.running': 'Listening',
     'settings.channels.state.starting': 'Starting',
     'settings.channels.state.locked': 'Paused while locked',
-    'settings.channels.state.offline': 'Cannot reach Telegram',
+    'settings.channels.state.offline': 'Cannot reach it',
     'settings.channels.state.conflict': 'In use elsewhere',
     'settings.channels.state.webhook': 'Webhook set',
-    'settings.channels.state.unauthorized': 'Token no longer works',
+    'settings.channels.state.unauthorized': 'Credentials no longer work',
     'settings.channels.state.error': 'Not working',
     'settings.channels.state.off': 'Off',
+
+    'settings.channels.telegram.title': 'Telegram',
+    'settings.channels.telegram.desc': 'A Telegram bot of your own, which only your account can talk to.',
+    'settings.channels.telegram.step1': 'In Telegram, open @BotFather, send /newbot, and answer its two questions: '
+        + 'a name for the bot and a username ending in "bot".',
+    'settings.channels.telegram.step2': 'Paste the token it gives you.',
+    'settings.channels.telegram.token': 'Bot token',
+    'settings.channels.telegram.pairHow': 'Open the bot where you use Telegram, on your phone or this computer, '
+        + 'and press Start. Or send it this:',
+    'settings.channels.telegram.openChat': 'Open in Telegram',
+
+    'settings.channels.discord.title': 'Discord',
+    'settings.channels.discord.desc': 'A Discord bot of your own, in a direct message. It reads no server.',
+    'settings.channels.discord.step1': 'In the Developer Portal, make a New Application, open Bot, and press Reset Token.',
+    'settings.channels.discord.step2': 'Paste the bot token.',
+    'settings.channels.discord.token': 'Bot token',
+    'settings.channels.discord.inviteTitle': 'Add the bot to a server you are in',
+    'settings.channels.discord.inviteDesc': 'Discord only lets you message a bot you share a server with. '
+        + 'Any server works, a private one of your own included. The bot asks for no permissions there.',
+    'settings.channels.discord.invite': 'Add to a server',
+    'settings.channels.discord.pairHow': 'Open {bot}\'s profile, press Message, and send it this:',
+    'settings.channels.discord.openChat': 'Open its profile',
+
+    'settings.channels.slack.title': 'Slack',
+    'settings.channels.slack.desc': 'A Slack app of your own, in your workspace, in its Messages tab.',
+    'settings.channels.slack.step1': 'Make the app from this manifest: Create New App, From a manifest, '
+        + 'pick your workspace, and paste it.',
+    'settings.channels.slack.step2': 'Install it to the workspace, then copy the Bot User OAuth Token from OAuth & Permissions.',
+    'settings.channels.slack.step3': 'Under Basic Information, App-Level Tokens, generate one with the connections:write scope.',
+    'settings.channels.slack.botToken': 'Bot token',
+    'settings.channels.slack.appToken': 'App-level token',
+    'settings.channels.slack.pairHow': 'In Slack, open the app under Apps in the sidebar and send it this in its Messages tab:',
+
+    'settings.channels.matrix.title': 'Matrix',
+    'settings.channels.matrix.desc': 'A Matrix account for the bot, on any homeserver, in a room with you.',
+    'settings.channels.matrix.step1': 'Make an account for the bot, for example with Element on matrix.org, and sign in to it.',
+    'settings.channels.matrix.step2': 'Give its homeserver and the access token Element shows under Settings, Help & About, '
+        + 'Advanced. Close that tab rather than signing out: signing out ends the token.',
+    'settings.channels.matrix.homeserver': 'Homeserver',
+    'settings.channels.matrix.accessToken': 'Access token',
+    'settings.channels.matrix.pairHow': 'Make a new room with end-to-end encryption switched off (the bot cannot '
+        + 'read encrypted rooms), invite {bot}, and send this there:',
 
     /* ---------------------------------------------------------------- *
      * Settings: Monitoring

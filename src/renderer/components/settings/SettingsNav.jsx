@@ -47,7 +47,7 @@ export const SETTINGS_CATEGORIES = [
     { id: 'permissions', icon: UserShield01Icon, group: 'agent' },
     { id: 'agentic', icon: CursorMagicSelection01Icon, group: 'agent' },
     { id: 'chat', icon: BubbleChatIcon, group: 'agent' },
-    // Reaching the agent from the phone: a Telegram bot of the user's own.
+    // Reaching the agent from a chat app, through a bot of the user's own.
     { id: 'channels', icon: SmartPhone01Icon, group: 'agent' },
     // Everything to do with terminals, sessions and servers is one category,
     // as tabs of a single page.

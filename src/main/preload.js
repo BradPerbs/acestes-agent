@@ -502,23 +502,21 @@ contextBridge.exposeInMainWorld('api', {
     },
 
     /**
-     * Channels: the agent reached from the user's phone, through their own
-     * Telegram bot. The token goes in once and never comes back out; what
-     * comes back is the status, pushed on `channels-changed` as it moves.
-     * See src/main/channels.
+     * Channels: the agent reached from a chat app through the user's own bot
+     * (Telegram, Discord, Slack, Matrix), each called by name. Credentials go
+     * in once and never come back out; what comes back is the status of all
+     * of them, pushed on `channels-changed` as it moves. See src/main/channels.
      */
     channels: {
         status: () => ipcRenderer.invoke('channels-status'),
         onChanged: (callback) => subscribe('channels-changed', callback),
-        telegram: {
-            connect: (token) => ipcRenderer.invoke('channels-telegram-connect', token),
-            disconnect: () => ipcRenderer.invoke('channels-telegram-disconnect'),
-            pair: () => ipcRenderer.invoke('channels-telegram-pair'),
-            cancelPair: () => ipcRenderer.invoke('channels-telegram-pair-cancel'),
-            unpair: () => ipcRenderer.invoke('channels-telegram-unpair'),
-            update: (patch) => ipcRenderer.invoke('channels-telegram-update', patch || {}),
-            test: () => ipcRenderer.invoke('channels-telegram-test'),
-        },
+        connect: (name, credentials) => ipcRenderer.invoke('channels-connect', name, credentials || {}),
+        disconnect: (name) => ipcRenderer.invoke('channels-disconnect', name),
+        pair: (name) => ipcRenderer.invoke('channels-pair', name),
+        cancelPair: (name) => ipcRenderer.invoke('channels-pair-cancel', name),
+        unpair: (name) => ipcRenderer.invoke('channels-unpair', name),
+        update: (name, patch) => ipcRenderer.invoke('channels-update', name, patch || {}),
+        test: (name) => ipcRenderer.invoke('channels-test', name),
     },
 
     dialog: {

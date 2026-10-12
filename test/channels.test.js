@@ -20,9 +20,10 @@ const assert = require('assert');
 
 const ROOT = path.join(__dirname, '..', 'src', 'main', 'channels');
 const format = require(path.join(ROOT, 'format'));
-const { createConfig, cleanTelegram } = require(path.join(ROOT, 'config'));
+const { createConfig, cleanSection } = require(path.join(ROOT, 'config'));
 const { createTelegramApi, TelegramError } = require(path.join(ROOT, 'telegram-api'));
-const { createTelegramGateway, stepLine } = require(path.join(ROOT, 'telegram'));
+const { createTelegramGateway } = require(path.join(ROOT, 'telegram'));
+const { stepLine } = require(path.join(ROOT, 'gateway'));
 
 const TOKEN = '123456789:AAtestTOKENtestTOKENtestTOKENtest12';
 const OWNER = { id: 5001, first_name: 'Brad', username: 'brad', is_bot: false };
@@ -256,12 +257,13 @@ async function setup({ locked = { value: false }, jobs } = {}) {
     const base = await telegram.listen();
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cb-test-channels-'));
     const config = createConfig({ dir, crypt: fakeCrypt });
+    const section = config.section('telegram');
     const ai = fakeAi();
     const audits = [];
     const changes = [];
     const agentList = [{ id: 'agent-1', name: 'Acestino' }, { id: 'agent-2', name: 'Night Shift' }];
     const gateway = createTelegramGateway({
-        config,
+        section,
         ai,
         agents: {
             list: () => agentList,
@@ -279,6 +281,7 @@ async function setup({ locked = { value: false }, jobs } = {}) {
         typingInterval: 60000,
         retryDelay: 50,
         conflictDelay: 100,
+        lockCheck: 50,
         hostName: 'test-pc',
         log: { error: () => {} },
     });
@@ -287,11 +290,11 @@ async function setup({ locked = { value: false }, jobs } = {}) {
 }
 
 async function pairOwner(env) {
-    const connected = await env.gateway.connect(TOKEN);
-    assert.ok(connected.telegram?.connected, connected.error);
-    const { telegram: status } = env.gateway.pair();
+    const connected = await env.gateway.connect({ token: TOKEN });
+    assert.ok(connected.connected, connected.error);
+    const status = env.gateway.pair();
     env.telegram.message(OWNER, `/start ${status.pairing.code}`);
-    await until(() => env.gateway.status().telegram.owner, { label: 'pairing' });
+    await until(() => env.gateway.status().owner, { label: 'pairing' });
     await until(() => env.telegram.sent('sendMessage').some(call => /Paired with Acestes/.test(call.body.text)), { label: 'welcome' });
     env.telegram.clear();
 }
@@ -363,31 +366,45 @@ async function teardown(env) {
 
     console.log('\nchannels: config');
 
-    await check('the token is stored encrypted and read back in the clear', () => {
+    await check('the credentials are stored encrypted and read back in the clear', () => {
         const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cb-test-channels-config-'));
         const config = createConfig({ dir, crypt: fakeCrypt });
-        config.setToken(TOKEN);
+        config.section('telegram').setCredentials({ token: TOKEN });
         const onDisk = fs.readFileSync(path.join(dir, 'channels.json'), 'utf8');
         assert.ok(!onDisk.includes(TOKEN), 'the token is not on disk in the clear');
-        assert.strictEqual(config.reload().telegram.token.startsWith('enc:'), true);
-        assert.strictEqual(config.token(), TOKEN);
+        assert.strictEqual(config.reload().telegram.secret.startsWith('enc:'), true);
+        assert.deepStrictEqual(config.section('telegram').credentials(), { token: TOKEN });
     });
 
-    await check('a locked vault reads no token', () => {
+    await check('a locked vault reads no credentials', () => {
         const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cb-test-channels-config-'));
         let locked = false;
         const config = createConfig({ dir, crypt: { encrypt: fakeCrypt.encrypt, decrypt: value => (locked ? '' : fakeCrypt.decrypt(value)) } });
-        config.setToken(TOKEN);
+        config.section('slack').setCredentials({ botToken: 'xoxb-1', appToken: 'xapp-1' });
         locked = true;
-        assert.strictEqual(config.token(), '');
+        assert.strictEqual(config.section('slack').credentials(), null);
+    });
+
+    await check('the first version\'s Telegram section is read as it was written', () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cb-test-channels-config-'));
+        fs.writeFileSync(path.join(dir, 'channels.json'), JSON.stringify({
+            version: 1,
+            telegram: { enabled: true, token: fakeCrypt.encrypt(TOKEN), bot: { id: 42, username: 'old_bot', name: 'Old' }, owner: { userId: 5001, chatId: 5001, name: 'Brad' }, offset: 77, chats: { 5001: { conversationId: 'conv-1' } } },
+        }));
+        const section = createConfig({ dir, crypt: fakeCrypt }).section('telegram');
+        assert.deepStrictEqual(section.credentials(), { token: TOKEN });
+        assert.strictEqual(section.get().identity.username, 'old_bot');
+        assert.strictEqual(section.get().owner.userId, '5001');
+        assert.strictEqual(section.get().cursor, '77');
+        assert.strictEqual(section.chat('5001').conversationId, 'conv-1');
     });
 
     await check('junk in the file is dropped, not trusted', () => {
-        const clean = cleanTelegram({ approvals: 'yolo', owner: { userId: 'x' }, chats: { 'not-a-chat': {}, 12: { conversationId: 'conv-1' } }, offset: -5 });
+        const clean = cleanSection({ approvals: 'yolo', owner: { userId: '' }, chats: { 'not a chat/x': {}, 12: { conversationId: 'conv-1' } }, offset: -5 });
         assert.strictEqual(clean.approvals, 'ask');
         assert.strictEqual(clean.owner, null);
         assert.deepStrictEqual(Object.keys(clean.chats), ['12']);
-        assert.strictEqual(clean.offset, 0);
+        assert.strictEqual(clean.cursor, '');
     });
 
     console.log('\nchannels: Bot API client');
@@ -423,12 +440,12 @@ async function teardown(env) {
     await check('connecting checks the token with Telegram and starts listening', async () => {
         const env = await setup();
         try {
-            const bad = await env.gateway.connect('not a token');
+            const bad = await env.gateway.connect({ token: 'not a token' });
             assert.ok(bad.error);
-            const result = await env.gateway.connect(TOKEN);
-            assert.strictEqual(result.telegram.connected, true);
-            assert.strictEqual(result.telegram.bot.username, 'acestes_test_bot');
-            await until(() => env.gateway.status().telegram.state === 'running', { label: 'running' });
+            const result = await env.gateway.connect({ token: TOKEN });
+            assert.strictEqual(result.connected, true);
+            assert.strictEqual(result.identity.username, 'acestes_test_bot');
+            await until(() => env.gateway.status().state === 'running', { label: 'running' });
             await until(() => env.telegram.sent('setMyCommands').length === 1, { label: 'commands' });
             assert.ok(env.audits.some(entry => entry.action === 'channels.telegram-connected'));
             assert.ok(!JSON.stringify(env.gateway.status()).includes(TOKEN), 'the status never carries the token');
@@ -440,16 +457,16 @@ async function teardown(env) {
     await check('a stranger is ignored, and a wrong code pairs nobody', async () => {
         const env = await setup();
         try {
-            await env.gateway.connect(TOKEN);
+            await env.gateway.connect({ token: TOKEN });
             env.telegram.message(STRANGER, 'run rm everywhere');
             env.telegram.message(STRANGER, '/start NOTTHECODE');
-            const { telegram: status } = env.gateway.pair();
+            const status = env.gateway.pair();
             env.telegram.message(STRANGER, '/start WRONGCODE1');
             await sleep(300);
             assert.strictEqual(env.ai.calls.send.length, 0);
             assert.strictEqual(env.ai.calls.create.length, 0);
             assert.strictEqual(env.telegram.sent('sendMessage').length, 0, 'nothing is said to a stranger');
-            assert.strictEqual(env.gateway.status().telegram.owner, null);
+            assert.strictEqual(env.gateway.status().owner, null);
             assert.ok(status.pairing.link.startsWith('https://t.me/acestes_test_bot?start='));
         } finally {
             await teardown(env);
@@ -459,18 +476,18 @@ async function teardown(env) {
     await check('the code from the desktop pairs the account that sends it, once', async () => {
         const env = await setup();
         try {
-            await env.gateway.connect(TOKEN);
-            const { telegram: status } = env.gateway.pair();
+            await env.gateway.connect({ token: TOKEN });
+            const status = env.gateway.pair();
             env.telegram.message(OWNER, `/start ${status.pairing.code}`);
-            await until(() => env.gateway.status().telegram.owner, { label: 'paired' });
-            assert.strictEqual(env.gateway.status().telegram.owner.username, 'brad');
-            assert.strictEqual(env.gateway.status().telegram.pairing, null, 'the code is spent');
+            await until(() => env.gateway.status().owner, { label: 'paired' });
+            assert.strictEqual(env.gateway.status().owner.username, 'brad');
+            assert.strictEqual(env.gateway.status().pairing, null, 'the code is spent');
             await until(() => env.telegram.sent('sendMessage').length >= 1, { label: 'welcome' });
             assert.ok(/Paired with Acestes on test-pc/.test(env.telegram.sent('sendMessage')[0].body.text));
             // The same code again, from someone else, pairs nobody new.
             env.telegram.message(STRANGER, `/start ${status.pairing.code}`);
             await sleep(200);
-            assert.strictEqual(env.gateway.status().telegram.owner.username, 'brad');
+            assert.strictEqual(env.gateway.status().owner.username, 'brad');
             assert.ok(env.audits.some(entry => entry.action === 'channels.telegram-paired'));
         } finally {
             await teardown(env);
@@ -713,7 +730,7 @@ async function teardown(env) {
         try {
             await pairOwner(env);
             env.locked.value = true;
-            await until(() => env.gateway.status().telegram.state === 'locked', { label: 'locked' });
+            await until(() => env.gateway.status().state === 'locked', { label: 'locked' });
             const before = env.telegram.polls;
             env.telegram.message(OWNER, 'are you there?');
             await sleep(400);
@@ -731,10 +748,10 @@ async function teardown(env) {
     await check('another program polling the bot is reported, not fought', async () => {
         const env = await setup();
         try {
-            await env.gateway.connect(TOKEN);
+            await env.gateway.connect({ token: TOKEN });
             env.telegram.fail('getUpdates', 409, 'Conflict: terminated by other getUpdates request; make sure that only one bot instance is running', 1);
-            await until(() => env.gateway.status().telegram.state === 'conflict', { label: 'conflict' });
-            await until(() => env.gateway.status().telegram.state === 'running', { label: 'recovers' });
+            await until(() => env.gateway.status().state === 'conflict', { label: 'conflict' });
+            await until(() => env.gateway.status().state === 'running', { label: 'recovers' });
         } finally {
             await teardown(env);
         }
@@ -743,10 +760,10 @@ async function teardown(env) {
     await check('a revoked token stops the poll and says so', async () => {
         const env = await setup();
         try {
-            await env.gateway.connect(TOKEN);
-            await until(() => env.gateway.status().telegram.state === 'running', { label: 'running' });
+            await env.gateway.connect({ token: TOKEN });
+            await until(() => env.gateway.status().state === 'running', { label: 'running' });
             env.telegram.fail('getUpdates', 401, 'Unauthorized', 5);
-            await until(() => env.gateway.status().telegram.state === 'unauthorized', { label: 'unauthorized' });
+            await until(() => env.gateway.status().state === 'unauthorized', { label: 'unauthorized' });
         } finally {
             await teardown(env);
         }
@@ -756,7 +773,7 @@ async function teardown(env) {
         const env = await setup();
         try {
             const none = await env.gateway.messageOwner({ text: 'build done' });
-            assert.ok(/No phone is paired/.test(none.error));
+            assert.ok(/No Telegram account is paired/.test(none.error), none.error);
             await pairOwner(env);
             const sent = await env.gateway.messageOwner({ text: 'The build **passed**.', from: 'Acestino' });
             assert.deepStrictEqual(sent, { sent: true, channel: 'telegram' });
@@ -816,13 +833,13 @@ async function teardown(env) {
         try {
             await pairOwner(env);
             await env.gateway.unpair();
-            assert.strictEqual(env.gateway.status().telegram.owner, null);
+            assert.strictEqual(env.gateway.status().owner, null);
             env.telegram.message(OWNER, 'still there?');
             await sleep(300);
             assert.strictEqual(env.ai.calls.send.length, 0, 'an unpaired account is a stranger');
             env.gateway.disconnect();
-            assert.strictEqual(env.gateway.status().telegram.connected, false);
-            assert.strictEqual(env.config.reload().telegram.token, '');
+            assert.strictEqual(env.gateway.status().connected, false);
+            assert.strictEqual(env.config.reload().telegram.secret, '');
             assert.strictEqual(env.gateway.keepAlive(), false);
         } finally {
             await teardown(env);

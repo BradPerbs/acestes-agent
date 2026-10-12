@@ -1826,16 +1826,17 @@ function register(getWindow) {
 
     /* ---------------- Channels ---------------- */
 
-    // The bot token crosses the bridge once, renderer to main, when it is
-    // pasted; it is never sent back. See channels/config.js.
+    // Telegram, Discord, Slack and Matrix, each by name. A bot's credentials
+    // cross the bridge once, renderer to main, when they are pasted; they are
+    // never sent back. See channels/config.js.
     handle('channels-status', () => channels.status());
-    handle('channels-telegram-connect', (event, token) => channels.telegram.connect(token));
-    handle('channels-telegram-disconnect', () => channels.telegram.disconnect());
-    handle('channels-telegram-pair', () => channels.telegram.pair());
-    handle('channels-telegram-pair-cancel', () => channels.telegram.cancelPair());
-    handle('channels-telegram-unpair', () => channels.telegram.unpair());
-    handle('channels-telegram-update', (event, patch) => channels.telegram.update(patch));
-    handle('channels-telegram-test', () => channels.telegram.test());
+    handle('channels-connect', (event, name, credentials) => channels.connect(String(name || ''), credentials));
+    handle('channels-disconnect', (event, name) => channels.disconnect(String(name || '')));
+    handle('channels-pair', (event, name) => channels.pair(String(name || '')));
+    handle('channels-pair-cancel', (event, name) => channels.cancelPair(String(name || '')));
+    handle('channels-unpair', (event, name) => channels.unpair(String(name || '')));
+    handle('channels-update', (event, name, patch) => channels.update(String(name || ''), patch));
+    handle('channels-test', (event, name) => channels.test(String(name || '')));
 
     // The two answers the window owes the main process: whether a tool call may
     // go ahead, and whether it managed to open or close the session it was
