@@ -9,10 +9,11 @@ const { createGateway } = require('./gateway');
 const { createTelegramAdapter } = require('./telegram');
 const { createDiscordAdapter } = require('./discord');
 const { createSlackAdapter } = require('./slack');
+const { createMatrixAdapter } = require('./matrix');
 
 /**
  * Channels: talking to the agent from somewhere other than the app.
- * Telegram, Discord and Slack, each a gateway (gateway.js) on its
+ * Telegram, Discord, Slack and Matrix, each a gateway (gateway.js) on its
  * own adapter, each with its own bot, its own paired account and its own
  * switch. They are independent: one can be paired and another off.
  *
@@ -26,6 +27,7 @@ const ADAPTERS = {
     telegram: () => createTelegramAdapter(),
     discord: () => createDiscordAdapter(),
     slack: () => createSlackAdapter(),
+    matrix: () => createMatrixAdapter(),
 };
 
 /** The channels, in the order the settings page and `message_user` take them. */
@@ -98,7 +100,7 @@ function status() {
 async function messageOwner({ text, from }) {
     const ready = NAMES.map(name => build()[name]).filter(gateway => gateway.ready());
     if (ready.length === 0) {
-        return { error: 'No channel is paired: the user has not connected Telegram, Discord or Slack in Settings, Channels.' };
+        return { error: 'No channel is paired: the user has not connected Telegram, Discord, Slack or Matrix in Settings, Channels.' };
     }
     ready.sort((a, b) => b.lastMessageAt() - a.lastMessageAt());
     let last = null;
