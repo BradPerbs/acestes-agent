@@ -1064,6 +1064,7 @@ export default {
         + 'model menu in the chat lists all of their models together, and picking one there is what '
         + 'decides which agent answers next.',
     'settings.assistant.provider.claudeCode': 'Anthropic’s agent, on your own account.',
+    'settings.assistant.provider.claudeDesktop': 'The Claude Code inside the Claude app. Sign in once here.',
     'settings.assistant.provider.codex': 'OpenAI’s agent, on your own account.',
     'settings.assistant.provider.cursor': 'Cursor’s agent, on your own account.',
     'settings.assistant.provider.antigravity': 'Google’s agent, on your Google AI plan.',
@@ -2372,6 +2373,9 @@ export default {
     'assistant.pickModel': 'Pick a model to set its effort.',
     'assistant.readingModels': 'Reading the model list...',
     'assistant.noModels': 'No models reported. Try again',
+    'assistant.signIn.button': 'Sign in to {name}',
+    'assistant.signIn.done': 'Signed in to {name}. Send your message again.',
+    'assistant.signIn.failed': 'The sign-in did not finish: {message}',
     'assistant.someNoModels': 'Some agents reported no models. Try again',
     'assistant.notInRuntimeList': 'Not in this runtime’s list',
     'assistant.effort': 'Effort',

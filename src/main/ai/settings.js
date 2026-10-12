@@ -25,7 +25,7 @@ const { isBrowserServer } = require('./browser-use');
 const CONFIG_VERSION = 2;
 
 const PROVIDERS = new Set([
-    'claude-code', 'codex', 'cursor', 'antigravity', 'muse', 'opencode', 'grok', 'kimi',
+    'claude-code', 'claude-desktop', 'codex', 'cursor', 'antigravity', 'muse', 'opencode', 'grok', 'kimi',
     'qwen', 'vibe', 'pi', 'local', 'openai',
 ]);
 

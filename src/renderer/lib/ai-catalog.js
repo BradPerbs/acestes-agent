@@ -47,6 +47,7 @@ export const effortLabel = (stop) => (stop ? translate(stop.labelKey) : '');
 /** What each agent is called, for the rows that have to name one. */
 export const PROVIDER_NAMES = {
     'claude-code': 'Claude Code',
+    'claude-desktop': 'Claude Desktop',
     codex: 'Codex',
     cursor: 'Cursor',
     antigravity: 'Antigravity',

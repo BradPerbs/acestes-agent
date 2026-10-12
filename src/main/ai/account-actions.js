@@ -16,6 +16,7 @@ const limits = require('./limits');
 
 const RUNNERS = {
     'claude-code': require('./providers/claude-code'),
+    'claude-desktop': require('./providers/claude-desktop'),
     codex: require('./providers/codex'),
     cursor: require('./providers/cursor'),
     antigravity: require('./providers/antigravity'),

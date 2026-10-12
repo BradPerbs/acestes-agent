@@ -66,6 +66,7 @@ const liveMetrics = require('./live-metrics');
 
 const PROVIDERS = {
     'claude-code': require('./providers/claude-code'),
+    'claude-desktop': require('./providers/claude-desktop'),
     codex: require('./providers/codex'),
     cursor: require('./providers/cursor'),
     antigravity: require('./providers/antigravity'),
@@ -1890,6 +1891,17 @@ function handleProviderEvent(conversation, event) {
 
     if (event.type === 'session') {
         conversation.providerSessionId = event.sessionId;
+    }
+    // The runtime is not signed in. The chat offers a Sign in for the account
+    // this conversation runs on, so that goes with the event; and the query
+    // that found no login is replaced on the next message, so it starts again
+    // reading the one the sign-in writes rather than carrying on without it.
+    if (event.type === 'error' && event.code === 'signInNeeded') {
+        // The runtime the conversation is on, which the shared Claude module
+        // cannot tell apart from the inside (Claude Code or Claude Desktop).
+        event.provider = conversation.provider || event.provider;
+        event.accountId = conversation.accountId || accounts.DEFAULT_ID;
+        conversation.needsRestart = true;
     }
     // Held so a panel can be told how this conversation is being paid for
     // without waiting for the next turn to say so again.
@@ -4202,6 +4214,12 @@ function locateAgent(provider) {
     if (provider === 'cursor') {
         const launch = agent.cursorLauncher?.([]);
         return launch ? { command: launch.command, prefix: launch.args } : null;
+    }
+    // The desktop app's own copy, which that app updates: the CLI's update
+    // command would install a second copy beside it rather than touch it.
+    if (provider === 'claude-desktop') {
+        const command = agent.findClaude?.() || '';
+        return command ? { command, managedBy: 'app' } : null;
     }
     if (provider === 'vibe') {
         const acpEntry = agent.findVibe?.() || '';

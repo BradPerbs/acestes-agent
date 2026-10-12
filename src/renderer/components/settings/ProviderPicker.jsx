@@ -44,6 +44,7 @@ import { useT } from '../../i18n';
 
 const HINT_KEYS = {
     'claude-code': 'settings.assistant.provider.claudeCode',
+    'claude-desktop': 'settings.assistant.provider.claudeDesktop',
     codex: 'settings.assistant.provider.codex',
     cursor: 'settings.assistant.provider.cursor',
     antigravity: 'settings.assistant.provider.antigravity',

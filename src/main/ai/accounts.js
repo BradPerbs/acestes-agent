@@ -79,6 +79,9 @@ const RUNTIMES = {
     antigravity: { single: true },
     vibe: { single: true },
     grok: { single: true },
+    // The Claude desktop app's Claude Code, signed in once in the standard
+    // Claude Code folder, which is where that copy reads its settings from.
+    'claude-desktop': { single: true },
 };
 
 const DEFAULT_ID = 'default';

@@ -14,6 +14,8 @@ const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
 /** Words that name a runtime, so "on grok" narrows the search to it. */
 const PROVIDER_ALIASES = {
     'claude-code': ['claude', 'claudecode', 'anthropic'],
+    // "claude" names whichever of the two is on; Claude Code first when both are.
+    'claude-desktop': ['claudedesktop', 'desktop', 'claude', 'anthropic'],
     codex: ['codex', 'openai'],
     cursor: ['cursor'],
     antigravity: ['antigravity', 'agy', 'gemini', 'google'],
@@ -63,8 +65,11 @@ function matchModel(catalogs, query, { providerOrder = [] } = {}) {
             effort = word;
             continue;
         }
-        const provider = Object.entries(PROVIDER_ALIASES).find(([, aliases]) => aliases.includes(fold(word)))?.[0];
-        if (provider && catalogs.some(catalog => catalog.provider === provider)) {
+        // The first runtime that is on and answers to the word, so a word two
+        // runtimes share ("claude") names whichever of them is switched on.
+        const provider = Object.entries(PROVIDER_ALIASES).find(([name, aliases]) => aliases.includes(fold(word))
+            && catalogs.some(catalog => catalog.provider === name))?.[0];
+        if (provider) {
             wantedProvider = provider;
             continue;
         }

@@ -426,6 +426,7 @@ export default {
         + 'O menu de modelos da conversa lista os modelos de todos eles juntos, e escolher um ali é '
         + 'o que decide qual agente responde a seguir.',
     'settings.assistant.provider.claudeCode': 'O agente da Anthropic, na sua conta.',
+    'settings.assistant.provider.claudeDesktop': 'O Claude Code dentro da app Claude. Inicie sessão uma vez aqui.',
     'settings.assistant.provider.codex': 'O agente da OpenAI, na sua conta.',
     'settings.assistant.provider.opencode': 'Código aberto, nos fornecedores que definir.',
     'settings.assistant.provider.grok': 'O agente da xAI, na sua conta.',
@@ -1185,6 +1186,9 @@ export default {
     'assistant.modelAndEffort': 'Modelo e esforço',
     'assistant.readingModels': 'A ler a lista de modelos...',
     'assistant.noModels': 'Nenhum modelo comunicado. Tente outra vez',
+    'assistant.signIn.button': 'Iniciar sessão no {name}',
+    'assistant.signIn.done': 'Sessão iniciada no {name}. Envie a sua mensagem outra vez.',
+    'assistant.signIn.failed': 'O início de sessão não terminou: {message}',
     'assistant.someNoModels': 'Alguns agentes não comunicaram modelos. Tente outra vez',
     'assistant.notInRuntimeList': 'Não está na lista deste runtime',
     'assistant.effort': 'Esforço',

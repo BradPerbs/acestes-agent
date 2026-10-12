@@ -148,12 +148,12 @@ async function run() {
     // The Claude desktop app's own copy, for a machine that has nothing else.
     // The Store build keeps it inside its package (its %APPDATA% is
     // redirected there); the downloaded installer in the real %APPDATA%.
-    // Newest version first, the build-hash folder before the flat layout,
-    // and all of it after the user's own installs.
+    // Newest version first, the build-hash folder before the flat layout.
+    // These are the Claude Desktop agent's, and only its.
     const local = 'C:\\Users\\Mario\\AppData\\Local';
     const msixStore = `${local}\\Packages\\Claude_pzs8sxrjxfjjc\\LocalCache\\Roaming\\Claude\\claude-code`;
     const exeStore = 'C:\\Users\\Mario\\AppData\\Roaming\\Claude\\claude-code';
-    const desktop = provider.claudeCandidates({
+    const desktopMachine = {
         platform: 'win32',
         home: 'C:\\Users\\Mario',
         env: { LOCALAPPDATA: local, APPDATA: 'C:\\Users\\Mario\\AppData\\Roaming' },
@@ -165,21 +165,29 @@ async function run() {
             [exeStore]: ['2.1.280'],
             [`${exeStore}\\2.1.280`]: ['claude.exe'],
         }),
-    });
-    const fromDesktop = desktop.filter(candidate => candidate.includes('\\Claude\\claude-code\\'));
-    assert.deepStrictEqual(fromDesktop, [
+    };
+    assert.deepStrictEqual(provider.desktopClaudeCandidates(desktopMachine), [
         `${msixStore}\\2.1.295\\d2e29494ec83\\claude.exe`,
         `${msixStore}\\2.1.295\\claude.exe`,
         `${exeStore}\\2.1.280\\claude.exe`,
         `${msixStore}\\2.1.99\\claude.exe`,
     ]);
-    assert(desktop.indexOf('C:\\Users\\Mario\\.local\\bin\\claude.exe') < desktop.indexOf(fromDesktop[0]),
-        'an install of the user\'s own comes first');
-    assert(!desktop.some(candidate => candidate.includes('WindowsCalculator') || candidate.includes('downloads')));
+    // Claude Code never runs the desktop app's copy: that is a separate agent.
+    assert(!provider.claudeCandidates(desktopMachine).some(candidate => candidate.includes('\\Claude\\claude-code\\')));
+
+    // And the lookup each agent uses picks only its own.
+    const real = `${msixStore}\\2.1.295\\d2e29494ec83\\claude.exe`;
+    const onlyDesktop = {
+        ...desktopMachine,
+        accessSync(candidate) { if (candidate !== real) throw new Error('missing'); },
+        statSync: () => ({ size: 250 * 1024 * 1024 }),
+    };
+    assert.strictEqual(provider.findDesktopClaude(onlyDesktop), real);
+    assert.strictEqual(provider.findClaude(onlyDesktop), '', 'Claude Code is not installed here');
 
     // The same store on a Mac, where the binary is inside an app bundle.
     const macStore = '/Users/mario/Library/Application Support/Claude/claude-code';
-    const mac = provider.claudeCandidates({
+    const mac = provider.desktopClaudeCandidates({
         platform: 'darwin',
         home: '/Users/mario',
         env: { PATH: '/usr/bin' },
@@ -188,13 +196,80 @@ async function run() {
     assert(mac.includes(`${macStore}/2.1.78/claude.app/Contents/MacOS/claude`));
 
     // There is no desktop app on Linux, so nothing is looked for.
-    const linuxDesktop = provider.claudeCandidates({
+    assert.deepStrictEqual(provider.desktopClaudeCandidates({
         platform: 'linux',
         home: '/home/mario',
         env: { PATH: '/usr/bin' },
         readdirSync: readdirMap({ '/home/mario/Library/Application Support/Claude/claude-code': ['2.1.78'] }),
-    });
-    assert(!linuxDesktop.some(candidate => candidate.includes('claude-code/')));
+    }), []);
+
+    /* ---------------- Claude Desktop, the agent ---------------- */
+
+    // Every entry point that starts the CLI runs as Claude Desktop whatever the
+    // caller passed, including the account actions, which pass no provider.
+    const desktopAgent = require('../src/main/ai/providers/claude-desktop');
+    const seen = [];
+    const originals = {};
+    for (const name of ['start', 'title', 'listModels', 'readLimits', 'authStatus', 'login', 'logout']) {
+        originals[name] = provider[name];
+        provider[name] = (options) => { seen.push([name, options?.settings?.provider, options?.settings?.accountEnv]); return null; };
+    }
+    try {
+        desktopAgent.start({ settings: { provider: 'claude-code' }, onEvent() {} });
+        desktopAgent.title({ settings: {} });
+        desktopAgent.listModels({ settings: {} });
+        desktopAgent.readLimits({ settings: { accountEnv: { X: '1' } } });
+        desktopAgent.authStatus();
+        desktopAgent.login({ settings: {} });
+        desktopAgent.logout({});
+    } finally {
+        Object.assign(provider, originals);
+    }
+    assert.deepStrictEqual(seen.map(([name]) => name), ['start', 'title', 'listModels', 'readLimits', 'authStatus', 'login', 'logout']);
+    assert(seen.every(([, pinned]) => pinned === 'claude-desktop'), 'always the desktop agent');
+    assert.deepStrictEqual(seen[3][2], { X: '1' }, 'the rest of the settings are passed on');
+    assert.strictEqual(desktopAgent.PROVIDER, 'claude-desktop');
+    assert.strictEqual(typeof desktopAgent.detect, 'function');
+    assert.strictEqual(desktopAgent.supportsImages, provider.supportsImages, 'the rest is Claude Code\'s');
+
+    // Signed out, the CLI answers with a canned reply flagged on the message
+    // and a result that says success with is_error set (shapes as Claude Code
+    // 2.1.295 sends them). That is a sign-in for the chat to offer, not a
+    // reply to print, and the turn is a failure.
+    const signedOut = [];
+    provider.translate({
+        type: 'assistant',
+        error: 'authentication_failed',
+        is_api_error_message: false,
+        message: { role: 'assistant', content: [{ type: 'text', text: 'Not logged in · Please run /login' }] },
+        parent_tool_use_id: null,
+    }, event => signedOut.push(event));
+    provider.translate({
+        type: 'result',
+        subtype: 'success',
+        is_error: true,
+        result: 'Not logged in · Please run /login',
+        num_turns: 1,
+    }, event => signedOut.push(event));
+    assert.strictEqual(signedOut.length, 2);
+    assert.strictEqual(signedOut[0].type, 'error');
+    assert.strictEqual(signedOut[0].code, 'signInNeeded');
+    assert.strictEqual(signedOut[0].provider, 'claude-code');
+    assert(!/\/login|terminal/.test(signedOut[0].message), 'no advice that cannot be followed here');
+    assert(!signedOut.some(event => event.type === 'assistant-text'), 'the canned reply is not printed');
+    assert.strictEqual(signedOut[1].type, 'result');
+    assert.strictEqual(signedOut[1].isError, true);
+
+    // An ordinary reply is untouched.
+    const ordinary = [];
+    provider.translate({
+        type: 'assistant',
+        message: { role: 'assistant', content: [{ type: 'text', text: 'Hello.' }] },
+        parent_tool_use_id: null,
+    }, event => ordinary.push(event));
+    provider.translate({ type: 'result', subtype: 'success', is_error: false, result: 'Hello.' }, event => ordinary.push(event));
+    assert.deepStrictEqual(ordinary.map(event => event.type), ['assistant-text', 'result']);
+    assert.strictEqual(ordinary[1].isError, false);
 
     // None of this on the other platforms, where npm and Homebrew put a real
     // `claude` on PATH.

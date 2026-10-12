@@ -412,6 +412,7 @@ export default {
         + 'bạn có. Trình đơn mô hình trong cuộc trò chuyện liệt kê mô hình của tất cả chúng, và '
         + 'chọn một ở đó quyết định tác nhân nào trả lời tiếp theo.',
     'settings.assistant.provider.claudeCode': 'Tác nhân của Anthropic, bằng tài khoản của bạn.',
+    'settings.assistant.provider.claudeDesktop': 'Claude Code bên trong ứng dụng Claude. Đăng nhập một lần tại đây.',
     'settings.assistant.provider.codex': 'Tác nhân của OpenAI, bằng tài khoản của bạn.',
     'settings.assistant.provider.opencode': 'Mã nguồn mở, với nhà cung cấp bạn cấu hình.',
     'settings.assistant.provider.grok': 'Tác nhân của xAI, bằng tài khoản của bạn.',
@@ -1119,6 +1120,9 @@ export default {
     'assistant.modelAndEffort': 'Mô hình và mức nỗ lực',
     'assistant.readingModels': 'Đang đọc danh sách mô hình…',
     'assistant.noModels': 'Không có mô hình nào được báo về. Thử lại',
+    'assistant.signIn.button': 'Đăng nhập {name}',
+    'assistant.signIn.done': 'Đã đăng nhập {name}. Hãy gửi lại tin nhắn của bạn.',
+    'assistant.signIn.failed': 'Đăng nhập chưa hoàn tất: {message}',
     'assistant.someNoModels': 'Một số tác nhân không báo mô hình nào. Thử lại',
     'assistant.notInRuntimeList': 'Không có trong danh sách của runtime này',
     'assistant.effort': 'Mức nỗ lực',

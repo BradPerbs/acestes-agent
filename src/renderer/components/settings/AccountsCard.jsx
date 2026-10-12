@@ -181,7 +181,7 @@ function AccountRow({
                         </div>
                     )}
                     <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-                        <UsageLine usage={entry?.usage} priced={provider !== 'claude-code' || !entry?.identity?.plan} />
+                        <UsageLine usage={entry?.usage} priced={(provider !== 'claude-code' && provider !== 'claude-desktop') || !entry?.identity?.plan} />
                         {checkedAt > 0 && (
                             <span className="text-[11px] text-gray-400 dark:text-neutral-500">
                                 {t('settings.accounts.checkedAgo', { span: span(now - checkedAt) })}
@@ -423,18 +423,21 @@ export default function AccountsCard({ providers = [], settings, onSettings }) {
 
     // Read on the way in whatever has not been read lately, once the accounts
     // are known. Only the switched-on runtimes: nobody asked about the others.
-    const [autoChecked, setAutoChecked] = useState(false);
+    // Once per runtime rather than once per visit, so one ticked while the
+    // page is open is read too: until it is, its row cannot say whether it is
+    // signed in, and so cannot offer the Sign in.
+    const autoChecked = useRef(new Set());
     useEffect(() => {
-        if (autoChecked || multiProviders.length === 0) return;
-        setAutoChecked(true);
         const at = Date.now();
         for (const provider of multiProviders) {
+            if (autoChecked.current.has(provider)) continue;
+            autoChecked.current.add(provider);
             for (const account of overview.accounts[provider]) {
                 const entry = overview.limits?.[keyOf(provider, account.id)];
                 if (!entry?.checkedAt || at - entry.checkedAt > STALE_AFTER) check(provider, account.id);
             }
         }
-    }, [autoChecked, multiProviders, overview, check]);
+    }, [multiProviders, overview, check]);
 
     const checkAll = () => {
         for (const provider of multiProviders) {

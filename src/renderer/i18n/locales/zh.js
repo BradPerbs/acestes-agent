@@ -390,6 +390,7 @@ export default {
         + '有几份账号或密钥就可以开启几个。对话里的模型菜单会把它们的模型列在一起，在那里选哪个模型，'
         + '就决定接下来由谁来作答。',
     'settings.assistant.provider.claudeCode': '来自 Anthropic，用你自己的账号。',
+    'settings.assistant.provider.claudeDesktop': 'Claude 应用内置的 Claude Code。在这里登录一次即可。',
     'settings.assistant.provider.codex': '来自 OpenAI，用你自己的账号。',
     'settings.assistant.provider.opencode': '开源，用你配置的服务商。',
     'settings.assistant.provider.grok': '来自 xAI，用你自己的账号。',
@@ -1023,6 +1024,9 @@ export default {
     'assistant.modelAndEffort': '模型与思考强度',
     'assistant.readingModels': '正在读取模型列表…',
     'assistant.noModels': '未报告任何模型。请重试',
+    'assistant.signIn.button': '登录 {name}',
+    'assistant.signIn.done': '已登录 {name}。请重新发送你的消息。',
+    'assistant.signIn.failed': '登录未完成：{message}',
     'assistant.someNoModels': '部分代理未报告模型。请重试',
     'assistant.notInRuntimeList': '不在此运行时的列表中',
     'assistant.effort': '思考强度',

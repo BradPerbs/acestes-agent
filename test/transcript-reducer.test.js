@@ -259,6 +259,23 @@ async function main() {
         assert.strictEqual(resumed.items, state.items, 'no row for it');
     });
 
+    check('a runtime that is not signed in leaves a notice with a sign-in on it', () => {
+        const state = replay([
+            { type: 'user-message', text: 'hi', at: 1 },
+            { type: 'error', code: 'signInNeeded', provider: 'claude-code', accountId: 'default', message: 'Not signed in.', at: 2 },
+            { type: 'result', subtype: 'success', isError: true, text: 'Not logged in · Please run /login', at: 3 },
+        ]);
+        const notices = state.items.filter(item => item.kind === 'notice');
+        assert.strictEqual(notices.length, 1, 'one notice, not a second "ended early" one');
+        assert.strictEqual(notices[0].tone, 'error');
+        assert.deepStrictEqual(notices[0].signIn, { provider: 'claude-code', accountId: 'default' });
+        assert(!state.items.some(item => item.kind === 'assistant'), 'the canned reply is not shown');
+        assert.strictEqual(state.busy, false);
+
+        const plain = replay([{ type: 'error', message: 'Something else broke', at: 1 }]);
+        assert.strictEqual(plain.items[0].signIn, undefined, 'other errors carry no button');
+    });
+
     console.log(`\n${passed} passed, ${failed} failed`);
     if (failed > 0) process.exit(1);
 }

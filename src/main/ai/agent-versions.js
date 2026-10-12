@@ -20,6 +20,8 @@ const spawn = require('cross-spawn');
  */
 const SOURCES = {
     'claude-code': { registry: 'npm', package: '@anthropic-ai/claude-code', update: 'claude update' },
+    // The desktop app's copy, which the app updates (the locator says so).
+    'claude-desktop': { registry: 'npm', package: '@anthropic-ai/claude-code', update: '' },
     codex: { registry: 'npm', package: '@openai/codex', update: 'npm install -g @openai/codex@latest' },
     cursor: { registry: 'none', update: 'cursor-agent update' },
     antigravity: { registry: 'none', update: '' },

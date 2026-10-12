@@ -272,6 +272,18 @@ const check = async (label, fn) => {
         assert.strictEqual(modelMatch.matchModel(claude, 'opus 5', { providerOrder: ['claude-code'] }).model, 'opus[1m]');
     });
 
+    await check('"claude" names whichever Claude runtime is on, and "desktop" the desktop one', () => {
+        const rows = [{ value: 'opus', label: 'Opus', resolved: 'claude-opus-5-5', short: 'Opus', effort: ['high'] }];
+        const desktopOnly = [{ provider: 'claude-desktop', rows }];
+        const onClaude = modelMatch.matchModel(desktopOnly, 'opus on claude', { providerOrder: ['claude-desktop'] });
+        assert.strictEqual(onClaude.error, undefined, onClaude.error);
+        assert.strictEqual(onClaude.provider, 'claude-desktop');
+        const both = [{ provider: 'claude-code', rows }, { provider: 'claude-desktop', rows }];
+        const order2 = ['claude-code', 'claude-desktop'];
+        assert.strictEqual(modelMatch.matchModel(both, 'opus on claude', { providerOrder: order2 }).provider, 'claude-code');
+        assert.strictEqual(modelMatch.matchModel(both, 'opus on desktop', { providerOrder: order2 }).provider, 'claude-desktop');
+    });
+
     await check('the tighter name wins, and the runtime word narrows the search', () => {
         assert.strictEqual(modelMatch.matchModel(catalogs, 'grok 4', { providerOrder: order }).model, 'grok-4');
         assert.strictEqual(modelMatch.matchModel(catalogs, 'grok 4.6 fast high', { providerOrder: order }).model, 'grok-4.6-fast');

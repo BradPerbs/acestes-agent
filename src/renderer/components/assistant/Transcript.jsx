@@ -1,5 +1,7 @@
 import { memo, startTransition, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Image01Icon } from 'hugeicons-react';
+import { Cancel01Icon, Image01Icon, LinkSquare02Icon, Loading03Icon } from 'hugeicons-react';
+import Button from '../ui/Button';
+import { PROVIDER_NAMES } from '../../lib/ai-catalog';
 import Markdown from '../../lib/markdown';
 import ToolCall, { SUBAGENT_TOOLS } from './ToolCall';
 import SubagentGroup from './SubagentGroup';
@@ -58,6 +60,82 @@ const SEGMENT = 50;
  */
 const ROW_STYLE = { contentVisibility: 'auto', containIntrinsicHeight: 'auto 72px' };
 
+/**
+ * Sign a runtime in from the chat, where its "not signed in" turned up.
+ *
+ * The same sign-in as the button on Settings > Accounts, for the account the
+ * conversation runs on: the runtime opens the browser itself, and the page's
+ * address is offered too in case it did not. Followed through the same
+ * progress events, so a sign-in started on the settings page shows here too.
+ * Once it is done the next message starts the runtime again (main replaces
+ * the query that found no login), which is why it says to send again.
+ */
+function SignInAction({ provider, accountId }) {
+    const t = useT();
+    const [state, setState] = useState({ phase: '', url: '', message: '' });
+
+    useEffect(() => {
+        const off = window.api?.ai?.accounts?.onLogin?.((event) => {
+            if (event.provider !== provider) return;
+            if (accountId && event.accountId && event.accountId !== accountId) return;
+            setState(current => ({
+                phase: event.phase,
+                url: event.url || (event.phase === 'waiting' ? current.url : ''),
+                message: event.message || '',
+            }));
+        });
+        return () => off?.();
+    }, [provider, accountId]);
+
+    const start = async () => {
+        setState({ phase: 'started', url: '', message: '' });
+        const result = await window.api.ai.accounts.login(provider, accountId || undefined)
+            .catch(error => ({ error: error.message }));
+        if (result?.error) setState({ phase: 'failed', url: '', message: result.error });
+    };
+    const cancel = () => window.api.ai.accounts.cancelLogin(provider, accountId || undefined);
+
+    const name = PROVIDER_NAMES[provider] || provider;
+    const waiting = state.phase === 'started' || state.phase === 'waiting';
+
+    if (state.phase === 'done') {
+        return <p className="mt-2 text-gray-700 dark:text-gray-200">{t('assistant.signIn.done', { name })}</p>;
+    }
+
+    return (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+            {waiting ? (
+                <>
+                    <Loading03Icon size={13} className="animate-spin shrink-0" />
+                    <span>{t('settings.accounts.waiting', { name })}</span>
+                    {state.url && (
+                        <Button
+                            size="sm"
+                            variant="ghost"
+                            icon={<LinkSquare02Icon size={13} strokeWidth={2} />}
+                            onClick={() => window.api.links.open(state.url)}
+                        >
+                            {t('settings.accounts.openPage')}
+                        </Button>
+                    )}
+                    <Button size="sm" variant="ghost" icon={<Cancel01Icon size={13} strokeWidth={2} />} onClick={cancel}>
+                        {t('common.cancel')}
+                    </Button>
+                </>
+            ) : (
+                <>
+                    <Button size="sm" variant="primary" onClick={start}>
+                        {t('assistant.signIn.button', { name })}
+                    </Button>
+                    {state.phase === 'failed' && state.message && state.message !== 'Cancelled.' && (
+                        <span>{t('assistant.signIn.failed', { message: state.message })}</span>
+                    )}
+                </>
+            )}
+        </div>
+    );
+}
+
 export function Notice({ item }) {
     const tone = item.tone === 'error'
         ? 'bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-300'
@@ -68,6 +146,7 @@ export function Notice({ item }) {
     return (
         <div className={`rounded-lg px-2.5 py-2 text-[11px] leading-relaxed ${tone}`}>
             {item.text}
+            {item.signIn?.provider && <SignInAction provider={item.signIn.provider} accountId={item.signIn.accountId} />}
         </div>
     );
 }

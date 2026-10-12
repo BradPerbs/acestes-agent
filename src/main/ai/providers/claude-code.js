@@ -272,11 +272,24 @@ function claudeCandidates({
         }
     }
 
-    // Last: the desktop app's copy is the app's to update and remove, so an
-    // install of the user's own, anywhere above, is the one that runs.
-    candidates.push(...desktopAppBinaries({ readdirSync, paths, platform, env, home }));
+    // The Claude desktop app's own copy is not one of these: it is the
+    // Claude Desktop agent's, a runtime of its own (providers/claude-desktop.js).
 
     return [...new Set(candidates)];
+}
+
+/**
+ * Where the Claude Desktop agent looks: only the desktop app's own copies.
+ * Same arguments as `claudeCandidates`, for the same reason.
+ */
+function desktopClaudeCandidates({
+    platform = process.platform,
+    env = process.env,
+    home = os.homedir(),
+    readdirSync = fs.readdirSync,
+} = {}) {
+    const paths = platform === 'win32' ? path.win32 : path.posix;
+    return [...new Set(desktopAppBinaries({ readdirSync, paths, platform, env, home }))];
 }
 
 /**
@@ -306,10 +319,36 @@ const WINDOWS_STUB_SIZE = 4096;
 const { agentServers } = require('../mcp-config');
 
 function findClaude(options = {}) {
+    return firstUsable(claudeCandidates, options);
+}
+
+/** The Claude desktop app's own Claude Code, for the Claude Desktop agent, or ''. */
+function findDesktopClaude(options = {}) {
+    return firstUsable(desktopClaudeCandidates, options);
+}
+
+/**
+ * The binary a run uses: the desktop app's copy for the Claude Desktop agent,
+ * the user's own install for Claude Code. Every function here that starts the
+ * CLI goes through this, so the one module serves both agents, told apart by
+ * the provider on the settings (claude-desktop.js always sets it).
+ */
+function executableFor(settings = {}) {
+    return settings?.provider === 'claude-desktop' ? findDesktopClaude() : findClaude();
+}
+
+/** What to say when that binary is not there, in the terms of the agent asked for. */
+function missingMessage(settings = {}) {
+    return settings?.provider === 'claude-desktop'
+        ? 'The Claude desktop app\'s Claude Code was not found. Open the Code tab in the Claude app once, so it downloads it.'
+        : 'Claude Code is not installed on this machine.';
+}
+
+function firstUsable(listCandidates, options = {}) {
     const platform = options.platform || process.platform;
     const accessSync = options.accessSync || fs.accessSync;
     const statSync = options.statSync || fs.statSync;
-    const candidates = claudeCandidates({
+    const candidates = listCandidates({
         platform,
         env: options.env || process.env,
         home: options.home || os.homedir(),
@@ -608,7 +647,7 @@ async function listModels({ settings = {} } = {}) {
     // the import nor the spawn. An empty list is the right answer here rather
     // than a throw: the menus ask for this on their own, long before anyone
     // has chosen this provider, and a missing CLI is not an error until they do.
-    const executable = findClaude();
+    const executable = executableFor(settings);
     if (!executable) return null;
 
     const sdk = await loadSdk();
@@ -666,7 +705,7 @@ async function listModels({ settings = {} } = {}) {
  * turn, and no session written to disk for a history to list. See titles.js.
  */
 async function title({ settings = {}, instruction, prompt, signal, think = 'default' } = {}) {
-    const executable = findClaude();
+    const executable = executableFor(settings);
     if (!executable) return '';
 
     const sdk = await loadSdk();
@@ -783,9 +822,9 @@ async function start({
     onEvent,
     resumeSessionId = '',
 }) {
-    const executable = findClaude();
+    const executable = executableFor(settings);
     if (!executable) {
-        throw new Error('Claude Code is not installed on this machine, or its CLI could not be found');
+        throw new Error(missingMessage(settings));
     }
 
     const sdk = await loadSdk();
@@ -977,7 +1016,9 @@ async function start({
             }
         } catch (error) {
             if (!abortController.signal.aborted) {
-                onEvent({ type: 'error', message: describeFailure(error) });
+                const message = describeFailure(error);
+                const signIn = message === SIGN_IN_NEEDED ? { code: 'signInNeeded', provider: 'claude-code' } : {};
+                onEvent({ type: 'error', message, ...signIn });
             }
         } finally {
             onEvent({ type: 'closed' });
@@ -1297,7 +1338,9 @@ function resultEvent(message) {
     return {
         type: 'result',
         subtype: message.subtype,
-        isError: message.subtype !== 'success',
+        // A turn can fail and still be a `success` subtype: the signed-out
+        // answer above is one. `is_error` is what says so.
+        isError: message.subtype !== 'success' || message.is_error === true,
         text: message.result || '',
         costUsd: message.total_cost_usd || 0,
         usage: message.usage || null,
@@ -1371,6 +1414,17 @@ function translate(message, onEvent) {
         }
 
         case 'assistant': {
+            // Signed out, the CLI does not fail: it answers every message
+            // with a canned "Not logged in · Please run /login", marked with
+            // this error, and a result that says success. "/login" means
+            // nothing in this app, and on a machine whose only Claude Code is
+            // the desktop app's copy there is no `claude` to run it in either
+            // (that app signs its copy in itself and shares nothing). So it is
+            // passed on as an error the chat can offer a sign-in for.
+            if (message.error === 'authentication_failed') {
+                onEvent({ type: 'error', code: 'signInNeeded', provider: 'claude-code', message: SIGN_IN_NEEDED });
+                break;
+            }
             const blocks = message.message?.content || [];
             const text = blocks.filter(block => block.type === 'text').map(block => block.text).join('');
             if (text.trim()) onEvent({ type: 'assistant-text', text, ...(parentId ? { parentId } : {}) });
@@ -1449,11 +1503,19 @@ function flattenResult(content) {
  * login and no key, everything else about the panel looks broken, and the fix
  * is one command the user can run.
  */
+/**
+ * What the chat says when Claude Code is not signed in on this machine. It
+ * carries a Sign in button there (see the transcript's Notice); the sentence
+ * also names the settings page, for anywhere the button is not drawn.
+ */
+const SIGN_IN_NEEDED = 'Claude Code is not signed in on this computer. Sign in to use it here '
+    + '(Settings > Accounts has the same button). The Claude desktop app\'s sign-in is its own '
+    + 'and is not shared with other apps.';
+
 function describeFailure(error) {
     const text = String(error?.message || error || 'Unknown error');
     if (/auth|credential|api[_ -]?key|unauthor|log ?in|sign ?in/i.test(text)) {
-        return 'Claude could not authenticate. Sign in with Claude Code (run "claude" in a terminal, then /login), '
-            + 'or add an API key in the assistant settings.';
+        return SIGN_IN_NEEDED;
     }
     if (/ENOENT|not found|spawn/i.test(text)) {
         return 'The Claude Code CLI could not be started. Install Claude Code and check that "claude" runs '
@@ -1474,8 +1536,8 @@ function accountEnv(settings = {}) {
  * missing or that times out is an answer with a code on it.
  */
 function runAuth(args, { settings = {}, timeout = 20000 } = {}) {
-    const executable = findClaude();
-    if (!executable) return Promise.resolve({ code: -1, stdout: '', stderr: 'Claude Code is not installed on this machine.' });
+    const executable = executableFor(settings);
+    if (!executable) return Promise.resolve({ code: -1, stdout: '', stderr: missingMessage(settings) });
     return new Promise((resolve) => {
         execFile(executable, ['auth', ...args], {
             env: accountEnv(settings),
@@ -1534,8 +1596,8 @@ const USAGE_REQUEST = 'usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET
  * windows, and the page keeps the ones the last turn's rate-limit events left.
  */
 async function readLimits({ settings = {} } = {}) {
-    const executable = findClaude();
-    if (!executable) return { identity: null, windows: [], error: 'Claude Code is not installed on this machine.' };
+    const executable = executableFor(settings);
+    if (!executable) return { identity: null, windows: [], error: missingMessage(settings) };
 
     const identity = await authStatus({ settings });
     // No JSON at all is a CLI that did not answer (slow to start, timed
@@ -1606,9 +1668,9 @@ async function readLimits({ settings = {} } = {}) {
  * Resolves `{ ok, message }`. `cancel` kills the CLI.
  */
 function login({ settings = {}, onProgress = () => {} } = {}) {
-    const executable = findClaude();
+    const executable = executableFor(settings);
     if (!executable) {
-        return { done: Promise.resolve({ ok: false, message: 'Claude Code is not installed on this machine.' }), cancel() {} };
+        return { done: Promise.resolve({ ok: false, message: missingMessage(settings) }), cancel() {} };
     }
 
     let child = null;
@@ -1702,6 +1764,9 @@ module.exports = {
     findClaude,
     nativeAutoApproved,
     claudeCandidates,
+    findDesktopClaude,
+    desktopClaudeCandidates,
+    translate,
     userContent,
     createTurnTracker,
     createContextMeter,

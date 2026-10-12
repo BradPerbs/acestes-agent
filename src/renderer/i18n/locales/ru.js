@@ -440,6 +440,7 @@ export default {
         + 'запись или ключ. Меню моделей в чате показывает модели всех включённых сразу, и выбор '
         + 'там решает, какой агент ответит следующим.',
     'settings.assistant.provider.claudeCode': 'Агент Anthropic, под вашей учётной записью.',
+    'settings.assistant.provider.claudeDesktop': 'Claude Code из приложения Claude. Войдите здесь один раз.',
     'settings.assistant.provider.codex': 'Агент OpenAI, под вашей учётной записью.',
     'settings.assistant.provider.opencode': 'Открытый код, с вашими провайдерами.',
     'settings.assistant.provider.grok': 'Агент xAI, под вашей учётной записью.',
@@ -1230,6 +1231,9 @@ export default {
     'assistant.modelAndEffort': 'Модель и усилие',
     'assistant.readingModels': 'Читаем список моделей…',
     'assistant.noModels': 'Моделей не сообщено. Попробуйте снова',
+    'assistant.signIn.button': 'Войти в {name}',
+    'assistant.signIn.done': 'Вход в {name} выполнен. Отправьте сообщение ещё раз.',
+    'assistant.signIn.failed': 'Вход не завершён: {message}',
     'assistant.someNoModels': 'Некоторые агенты не сообщили моделей. Попробуйте снова',
     'assistant.notInRuntimeList': 'Нет в списке этого рантайма',
     'assistant.effort': 'Усилие',

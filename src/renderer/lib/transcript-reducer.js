@@ -495,7 +495,17 @@ function step(state, event, owned) {
                     thinking: draft.thinking,
                 });
             }
-            edit().push({ kind: 'notice', id: `e-${event.at}`, tone: 'error', text: event.message });
+            edit().push({
+                kind: 'notice',
+                id: `e-${event.at}`,
+                tone: 'error',
+                text: event.message,
+                // A runtime that is not signed in: the notice carries a Sign
+                // in for the account the conversation runs on.
+                ...(event.code === 'signInNeeded' && event.provider
+                    ? { signIn: { provider: event.provider, accountId: event.accountId || '' } }
+                    : {}),
+            });
             draft = emptyDraft();
             break;
 
