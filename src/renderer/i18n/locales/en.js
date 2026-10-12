@@ -1092,7 +1092,6 @@ export default {
     'settings.assistant.apiNone': 'The address answered but listed no models. Check the key and the address.',
     'settings.assistant.apiCleared': 'The key was forgotten.',
     'settings.assistant.provider.unavailable': 'Not available in this build yet.',
-    'settings.assistant.provider.keepOne': 'One agent has to stay switched on.',
     'settings.assistant.provider.checking': 'Looking for it on this machine...',
     'settings.assistant.provider.notFound': 'Not found on this machine. Install it, then tick this '
         + 'again.',

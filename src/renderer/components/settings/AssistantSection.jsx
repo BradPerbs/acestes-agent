@@ -92,7 +92,8 @@ export default function AssistantSection() {
      * never left working out which of two states a name meant. Switching off
      * the agent that is answering is allowed: main moves the conversation to
      * the first one still on, since the alternative is a model menu offering
-     * nothing that can run.
+     * nothing that can run. Switching off the last one is allowed too, and
+     * leaves nothing to answer until one is ticked again.
      *
      * Switching one on asks main whether it is there first, and the tick does
      * not take if it is not. An agent that was never installed used to be
@@ -108,12 +109,7 @@ export default function AssistantSection() {
         setRejected(null);
 
         if (on.includes(provider)) {
-            const next = on.filter(name => name !== provider);
-            // The picker will not offer the click that empties the list, and
-            // main would refuse it anyway. Guarded here as well so the three of
-            // them agree rather than relying on the one furthest from it.
-            if (next.length === 0) return;
-            update({ providers: next });
+            update({ providers: on.filter(name => name !== provider) });
             return;
         }
 

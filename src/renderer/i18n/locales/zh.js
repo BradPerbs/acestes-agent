@@ -396,7 +396,6 @@ export default {
     'settings.assistant.provider.kimi': '来自月之暗面，用你自己的账号。',
     'settings.assistant.provider.local': '你自己的模型：LM Studio、Ollama、vLLM。',
     'settings.assistant.provider.unavailable': '此版本尚未提供。',
-    'settings.assistant.provider.keepOne': '至少要保留一个代理处于开启状态。',
     'settings.assistant.provider.checking': '正在本机上查找…',
     'settings.assistant.provider.notFound': '本机未找到。请先安装，然后再勾选。',
     'settings.assistant.provider.notSignedIn': '已安装，但尚未登录。请在终端中登录，然后再勾选。',

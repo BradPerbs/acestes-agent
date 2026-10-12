@@ -67,6 +67,34 @@ const ALL_ON = {
     const workerId = agents.save({ name: 'Worker' }).saved;
     const divergedId = agents.save({ name: 'Diverged' }).saved;
 
+    // First, before anything is written: there is no assistant.json yet.
+    await check('the first run ticks Claude Code only if it is installed', async () => {
+        const installed = Boolean(require(path.join(ROOT, 'ai', 'providers', 'claude-code')).findClaude());
+        assert.deepStrictEqual(settings.get(acestesId).providers, installed ? ['claude-code'] : []);
+        assert.ok(!fs.existsSync(path.join(userData, 'assistant.json')), 'nothing written until a change');
+    });
+
+    await check('the agent list can be empty, and an old single-agent config still reads', async () => {
+        const { sanitize } = settings._test;
+        assert.deepStrictEqual(sanitize(null).providers, [], 'nothing ticked by default');
+        assert.deepStrictEqual(sanitize({ provider: 'codex' }).providers, ['codex'], 'pre-list config');
+        const empty = sanitize({ providers: [], provider: 'codex' });
+        assert.deepStrictEqual(empty.providers, [], 'unticking the last one is kept');
+        assert.strictEqual(empty.provider, 'codex', 'provider is left as it was');
+        assert.strictEqual(sanitize({ providers: ['codex'], provider: 'claude-code' }).provider, 'codex');
+        assert.deepStrictEqual(sanitize({ providers: ['from-a-newer-build'], provider: 'codex' }).providers, ['codex']);
+    });
+
+    await check('unticking every agent is saved', async () => {
+        settings.set({ providers: ['claude-code'] }, acestesId);
+        settings.set({ providers: [] }, acestesId);
+        assert.deepStrictEqual(settings.get(acestesId).providers, []);
+        assert.deepStrictEqual(settings.get(workerId).providers, [], 'the list is the machine\'s');
+        settings.set({ providers: ['codex'] }, acestesId);
+        assert.strictEqual(settings.get(acestesId).provider, 'codex', 'the next tick answers');
+        settings.takePropagation();
+    });
+
     await check('a change on another agent stays on that agent', async () => {
         settings.set({ approval: 'always' }, workerId);
         assert.strictEqual(settings.get(workerId).approval, 'always');

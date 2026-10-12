@@ -25,9 +25,10 @@ import { useT } from '../../i18n';
  * are already on says what the state is; an empty box says what the control
  * does, which is the question someone arriving at this page is asking.
  *
- * At least one stays on. Nothing switched on is a model menu with no models and
- * an assistant that cannot answer, which is the `enabled` toggle's job to say
- * rather than something to arrive at by unticking six boxes.
+ * Any of them can be unticked, the last one included. Keeping one on used to
+ * mean a fresh machine opened with Claude Code ticked whether or not it was
+ * installed, and stuck that way. Nothing on is a model menu with nothing in
+ * it, and a message sent then is answered by asking for an agent to be ticked.
  *
  * A tick is a request rather than the setting itself: the card spins while the
  * machine is searched for that agent, and the box only fills if it was found.
@@ -120,21 +121,15 @@ export default function ProviderPicker({
     rejected = null,
     onToggle,
 }) {
-    const t = useT();
-    const only = values.length === 1;
-
     return (
         <div className={GRID} role="group">
             {PROVIDER_ORDER.map((provider) => {
                 const ready = available.includes(provider);
                 const on = values.includes(provider);
-                // The last one standing keeps its box ticked, and says why on
-                // hover rather than swallowing the click in silence.
-                const stuck = on && only;
                 const looking = checking === provider;
 
                 return (
-                    <div key={provider} title={stuck ? t('settings.assistant.provider.keepOne') : undefined}>
+                    <div key={provider}>
                         <Checkbox
                             variant="card"
                             className="h-full"
@@ -143,7 +138,7 @@ export default function ProviderPicker({
                             // so a second click cannot start a second search
                             // for the same agent.
                             disabled={!ready || looking}
-                            onChange={() => !stuck && onToggle(provider)}
+                            onChange={() => onToggle(provider)}
                             label={
                                 <span className="flex items-center gap-2 min-w-0
                                     text-gray-900 dark:text-white">

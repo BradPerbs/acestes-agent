@@ -1630,6 +1630,12 @@ function ensureProvider(conversation) {
     if (conversation.starting) return conversation.starting;
 
     const current = effectiveSettings(conversation);
+    // Nothing ticked: a fresh machine with no agent installed, or every one
+    // switched off. Said as that, rather than as whichever runtime `provider`
+    // still names failing to find itself.
+    if (Array.isArray(current.providers) && current.providers.length === 0) {
+        return Promise.reject(new Error('No AI agent is switched on. Tick one under Settings > AI Agent.'));
+    }
     const provider = PROVIDERS[current.provider];
     if (!provider) {
         return Promise.reject(new Error(`No provider named "${current.provider}" is available`));

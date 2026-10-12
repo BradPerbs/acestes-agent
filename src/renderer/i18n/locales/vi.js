@@ -418,7 +418,6 @@ export default {
     'settings.assistant.provider.kimi': 'Tác nhân của Moonshot, bằng tài khoản của bạn.',
     'settings.assistant.provider.local': 'Mô hình của bạn: LM Studio, Ollama, vLLM.',
     'settings.assistant.provider.unavailable': 'Bản dựng này chưa có.',
-    'settings.assistant.provider.keepOne': 'Phải giữ ít nhất một tác nhân được bật.',
     'settings.assistant.provider.checking': 'Đang tìm nó trên máy này…',
     'settings.assistant.provider.notFound': 'Không tìm thấy trên máy này. Hãy cài đặt rồi đánh dấu '
         + 'lại.',

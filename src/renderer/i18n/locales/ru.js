@@ -446,7 +446,6 @@ export default {
     'settings.assistant.provider.kimi': 'Агент Moonshot, под вашей учётной записью.',
     'settings.assistant.provider.local': 'Ваша модель: LM Studio, Ollama, vLLM.',
     'settings.assistant.provider.unavailable': 'В этой сборке пока недоступно.',
-    'settings.assistant.provider.keepOne': 'Хотя бы один агент должен оставаться включённым.',
     'settings.assistant.provider.checking': 'Ищем его на этой машине…',
     'settings.assistant.provider.notFound': 'Не найден на этой машине. Установите его и отметьте '
         + 'снова.',

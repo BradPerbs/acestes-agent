@@ -432,7 +432,6 @@ export default {
     'settings.assistant.provider.kimi': 'O agente da Moonshot, na sua conta.',
     'settings.assistant.provider.local': 'O seu modelo: LM Studio, Ollama, vLLM.',
     'settings.assistant.provider.unavailable': 'Ainda não disponível nesta versão.',
-    'settings.assistant.provider.keepOne': 'Pelo menos um agente tem de ficar ligado.',
     'settings.assistant.provider.checking': 'A procurá-lo nesta máquina...',
     'settings.assistant.provider.notFound': 'Não encontrado nesta máquina. Instale-o e volte a '
         + 'marcar.',

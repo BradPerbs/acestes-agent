@@ -166,8 +166,11 @@ function claudeCandidates({
         paths.join(home, '.local', 'bin'),
     ];
 
+    const appData = windows ? envValue(env, 'APPDATA', 'AppData') : '';
+    const localAppData = windows ? envValue(env, 'LOCALAPPDATA', 'LocalAppData') : '';
+    const programFiles = windows ? envValue(env, 'ProgramFiles', 'PROGRAMFILES') : '';
+
     if (windows) {
-        const localAppData = envValue(env, 'LOCALAPPDATA', 'LocalAppData');
         if (localAppData) roots.push(paths.join(localAppData, 'Programs', 'claude'));
     } else {
         roots.push('/opt/homebrew/bin', '/usr/local/bin', '/usr/bin');
@@ -177,8 +180,53 @@ function claudeCandidates({
     // copy on a machine that has not been through an update since.
     roots.push(paths.join(home, '.claude', 'local'));
 
-    return [...new Set(roots.filter(Boolean).map(root => paths.join(root, name)))];
+    if (windows) {
+        // winget installs Claude Code as a portable package: the exe in a
+        // folder of its own under Packages, and a link to it under Links. The
+        // Links folder is added to PATH by that install, which an app already
+        // running never sees, so both are named here. The package folder is
+        // for a machine where winget could not make the link and put the
+        // package folder on PATH instead. Per user first, then machine-wide.
+        for (const base of [localAppData && paths.join(localAppData, 'Microsoft', 'WinGet'), programFiles && paths.join(programFiles, 'WinGet')]) {
+            if (!base) continue;
+            roots.push(paths.join(base, 'Links'));
+            const packages = paths.join(base, 'Packages');
+            for (const entry of readdir(readdirSync, packages)) {
+                if (/^Anthropic\.ClaudeCode_/i.test(entry)) roots.push(paths.join(packages, entry));
+            }
+        }
+    }
+
+    const candidates = roots.filter(Boolean).map(root => paths.join(root, name));
+
+    if (windows) {
+        // `npm i -g @anthropic-ai/claude-code` leaves only `claude.cmd` shims
+        // on PATH, which cannot be spawned (see above), but the package's
+        // postinstall copies the real binary to `bin/claude.exe` inside it.
+        // Looked for under every PATH folder, since an npm prefix (nvm, a
+        // custom one) is a PATH folder with `node_modules` beside its shims,
+        // and under npm's default prefix, which a PATH read when the app
+        // started may not have had yet.
+        const prefixes = [...pathEntries, appData && paths.join(appData, 'npm')];
+        for (const prefix of prefixes.filter(Boolean)) {
+            candidates.push(paths.join(prefix, 'node_modules', '@anthropic-ai', 'claude-code', 'bin', name));
+        }
+    }
+
+    return [...new Set(candidates)];
 }
+
+/**
+ * Below this, a Windows candidate is not a Claude Code binary.
+ *
+ * The npm package ships a few hundred bytes of shell script at `bin/claude.exe`
+ * and only replaces it with the real binary in its postinstall. An install
+ * that skipped that (`--ignore-scripts`, `--omit=optional`) leaves the stub,
+ * which exists and will not launch. 4096 is the size the package's own
+ * installer uses to tell the stub from the binary. Windows only: on the other
+ * platforms a small `claude` can be a real launcher script.
+ */
+const WINDOWS_STUB_SIZE = 4096;
 
 /**
  * The user's own Claude Code, or '' if this machine has none.
@@ -205,6 +253,7 @@ function findClaude(options = {}) {
         readdirSync: options.readdirSync || fs.readdirSync,
     });
 
+    const smallest = platform === 'win32' ? WINDOWS_STUB_SIZE : 1;
     for (const candidate of candidates) {
         try {
             accessSync(candidate, platform === 'win32' ? fs.constants.F_OK : fs.constants.X_OK);
@@ -212,8 +261,9 @@ function findClaude(options = {}) {
             // bytes behind, which passes every existence check and then will
             // not start. That is not a hypothetical: it is what a stalled
             // self-update looks like on disk, and the symptom without this is
-            // an assistant that cannot say why it will not run.
-            if (statSync(candidate).size > 0) return candidate;
+            // an assistant that cannot say why it will not run. On Windows the
+            // npm package's placeholder is skipped the same way.
+            if (statSync(candidate).size >= smallest) return candidate;
         } catch {
             // Keep looking.
         }

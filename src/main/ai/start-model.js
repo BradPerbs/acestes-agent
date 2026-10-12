@@ -98,7 +98,8 @@ function star(pin) {
  * the agent can run on that sign-in.
  */
 function pickFor(current, accountOk = () => true) {
-    const on = current?.providers?.length ? current.providers : [current?.provider].filter(Boolean);
+    // An empty list is nothing switched on, not "fall back to the selected one".
+    const on = Array.isArray(current?.providers) ? current.providers : [current?.provider].filter(Boolean);
     const { starred, last } = load();
     for (const pin of [starred, last]) {
         if (!pin || !on.includes(pin.provider)) continue;
