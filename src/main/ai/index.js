@@ -92,6 +92,8 @@ const HISTORY_SWEEP_INTERVAL = 6 * 60 * 60 * 1000;
  * this is only about how long a conversation may sit blocked on one call.
  */
 const APPROVAL_TIMEOUT = 45 * 60 * 1000;
+/** The same for a turn sent from a phone, whose answer may come hours later. */
+const REMOTE_APPROVAL_TIMEOUT = 12 * 60 * 60 * 1000;
 /** How long a question to the user holds the turn before the turn is handed back. */
 const QUESTION_WAIT = 15 * 60 * 1000;
 
@@ -241,6 +243,58 @@ const modelsPending = new Map();
 function setNotifier(fn) {
     notify = fn;
 }
+
+/**
+ * Listeners on every conversation's events, after they are masked and
+ * recorded: what a channel (channels/telegram.js) follows a turn by. Each is
+ * given the event and a few facts about the conversation, never the
+ * conversation itself, so nothing outside this module can change one.
+ * Streaming fragments are left out; the finished blocks carry the same text.
+ */
+const observers = new Set();
+
+function observe(fn) {
+    if (typeof fn !== 'function') return () => {};
+    observers.add(fn);
+    return () => observers.delete(fn);
+}
+
+function tellObservers(conversation, stamped) {
+    if (observers.size === 0) return;
+    const info = {
+        conversationId: conversation.id,
+        agentId: conversation.agentId,
+        title: conversation.title || '',
+        runKind: conversation.runKind || 'interactive',
+        jobId: conversation.jobId || '',
+        busy: Boolean(conversation.busy),
+        remembering: Boolean(conversation.remembering),
+    };
+    for (const fn of observers) {
+        try {
+            fn(stamped, info);
+        } catch (error) {
+            console.error('An event observer failed:', error.message);
+        }
+    }
+}
+
+/**
+ * Where `message_user` sends: the paired channel, set by channels/index.js.
+ * Without one the tool says there is no phone to send to.
+ */
+let messenger = null;
+
+function setMessenger(fn) {
+    messenger = typeof fn === 'function' ? fn : null;
+}
+
+/**
+ * The channels a message can arrive through, other than a window. A turn
+ * from one of them is marked on the message and may run under stricter
+ * approvals: see `channelTurn` in `send` and `effectiveSettings`.
+ */
+const CHANNELS = new Set(['telegram']);
 
 function nextId(prefix) {
     counter += 1;
@@ -564,6 +618,24 @@ async function runHooks(conversation, event, payload = {}) {
  * existing gate is the only gate.
  */
 function effectiveSettings(conversation) {
+    return channelSettings(conversation, policySettings(conversation));
+}
+
+/**
+ * A turn sent from a phone asks before every change, whatever the agent's
+ * own mode, unless the user said otherwise for the channel. Holding a phone
+ * that is signed in to Telegram is weaker proof of who is there than sitting
+ * at the desk, and the card costs one tap there. Only ever tightens: a mode
+ * that already asks keeps asking, and the blocked list applies either way.
+ * Lifted by the next message typed at the desk. See `send`.
+ */
+function channelSettings(conversation, current) {
+    if (!conversation.channelTurn?.strict) return current;
+    if (current.approval === 'never' || current.approval === 'full') return { ...current, approval: 'writes' };
+    return current;
+}
+
+function policySettings(conversation) {
     const patch = conversation.settingsPatch || {};
     // A pinned runtime is resolved as that runtime, key and all, not as the
     // agent's default with a name swapped in.
@@ -769,6 +841,7 @@ function emit(conversation, event) {
     conversation.events.push(stamped);
     notify('ai-event', { conversationId: conversation.id, event: stamped });
     tellSubagents(conversation, stamped);
+    tellObservers(conversation, stamped);
 
     // A stream preview is not worth a write of its own: the finished block that
     // replaces it is an event in its own right, and that one schedules one.
@@ -1300,7 +1373,13 @@ function requestApproval(conversation, { toolName, name, input, local, signal = 
         // the card is still there in the morning and the answer still counts.
         const parked = Boolean(policy && policy.approvals !== 'inherit' && conversation.runId);
 
-        const settle = (verdict, status) => {
+        // A turn sent from a phone: the person is somewhere else and may
+        // answer hours later, so the card waits longer than one at the desk.
+        const remote = Boolean(conversation.channelTurn);
+
+        // `by` is where the answer came from, when not this app's own window:
+        // the card on the other side says so ("approved on Telegram").
+        const settle = (verdict, status, by = '') => {
             const entry = pendingApprovals.get(requestId);
             if (!entry) return;
             if (entry.timer) clearTimeout(entry.timer);
@@ -1309,7 +1388,7 @@ function requestApproval(conversation, { toolName, name, input, local, signal = 
             // so without this a window that reloads after answering replays the
             // card as though it were still waiting, and clicking it does
             // nothing because the id it names is long gone.
-            emit(conversation, { type: 'approval-settled', requestId, status });
+            emit(conversation, { type: 'approval-settled', requestId, status, ...(by ? { by } : {}) });
             if (parked && conversation.runId && status !== 'expired') {
                 try {
                     const run = runs.get(conversation.runId);
@@ -1327,10 +1406,10 @@ function requestApproval(conversation, { toolName, name, input, local, signal = 
         const timer = parked ? null : setTimeout(() => {
             settle({
                 approved: false,
-                message: 'The user has not answered this approval in 45 minutes. Do not ask again: end your turn, '
+                message: `The user has not answered this approval in ${remote ? '12 hours' : '45 minutes'}. Do not ask again: end your turn, `
                     + 'saying in one line what is waiting for their go-ahead, and call it when they say so.',
             }, 'expired');
-        }, APPROVAL_TIMEOUT);
+        }, remote ? REMOTE_APPROVAL_TIMEOUT : APPROVAL_TIMEOUT);
 
         pendingApprovals.set(requestId, { resolve: settle, timer, conversationId: conversation.id });
 
@@ -1407,7 +1486,7 @@ function requestQuestion(conversation, { question, options = [], secret = '', si
         // agent: it gets a reference, the transcript gets a mask.
         const name = secret && secrets.NAME.test(String(secret).trim()) ? String(secret).trim() : '';
 
-        const settle = (reply, status) => {
+        const settle = (reply, status, by = '') => {
             const entry = pendingQuestions.get(requestId);
             if (!entry) return;
             clearTimeout(entry.timer);
@@ -1422,7 +1501,7 @@ function requestQuestion(conversation, { question, options = [], secret = '', si
                     ? { answered: false, message: `The answer could not be stored: ${kept.error}` }
                     : { answered: true, stored: true, name: kept.name, reference: kept.reference };
             }
-            emit(conversation, { type: 'question-settled', requestId, status, answer: shown });
+            emit(conversation, { type: 'question-settled', requestId, status, answer: shown, ...(by ? { by } : {}) });
             resolve(outcome);
         };
 
@@ -1483,15 +1562,18 @@ function requestQuestion(conversation, { question, options = [], secret = '', si
     });
 }
 
-function respondToQuestion({ requestId, answer, chosen }) {
+/** `by` names a channel the answer came through ('telegram'); empty for a window. */
+const answeredBy = by => (CHANNELS.has(by) ? by : '');
+
+function respondToQuestion({ requestId, answer, chosen, by }) {
     const entry = pendingQuestions.get(requestId);
     if (!entry) return false;
     const text = String(answer || '').trim();
     if (!text) {
-        entry.resolve({ answered: false, message: 'The user dismissed the question without answering.' }, 'dismissed');
+        entry.resolve({ answered: false, message: 'The user dismissed the question without answering.' }, 'dismissed', answeredBy(by));
         return true;
     }
-    entry.resolve({ answered: true, answer: text, chosen: Boolean(chosen) }, 'answered');
+    entry.resolve({ answered: true, answer: text, chosen: Boolean(chosen) }, 'answered', answeredBy(by));
     return true;
 }
 
@@ -1523,12 +1605,13 @@ function requestAction(conversation, payload) {
     });
 }
 
-function respondToApproval({ requestId, approved, message }) {
+function respondToApproval({ requestId, approved, message, by }) {
     const entry = pendingApprovals.get(requestId);
     if (!entry) return false;
     entry.resolve(
         { approved: Boolean(approved), message: message || '' },
-        approved ? 'approved' : 'denied'
+        approved ? 'approved' : 'denied',
+        answeredBy(by),
     );
     return true;
 }
@@ -1670,6 +1753,13 @@ function ensureProvider(conversation) {
             ),
             // A question to the person, answered on a card. See requestQuestion.
             askUser: (payload) => requestQuestion(conversation, payload || {}),
+            // A message to the person's phone, through the channel they
+            // paired. See channels/telegram.js.
+            messageUser: async (text) => {
+                if (!messenger) return { error: 'No phone is paired: the user has not connected Telegram in Settings, Channels.' };
+                const from = agents.get(conversation.agentId)?.name || '';
+                return messenger({ text: secrets.scrub(String(text || '')), from });
+            },
             // The secrets store as this conversation's agent sees it, minus
             // reading: it lists its own names and the shared ones, resolves
             // references at the moment of use, and deletes its own on
@@ -3406,9 +3496,14 @@ function summarise(input) {
  * fixed when the conversation starts, and which session is in front of the
  * user is exactly the thing that moves while they work. Sending it only on
  * change keeps the cached prefix intact for the turns where nothing moved.
+ *
+ * `options.channel` is a message from outside the app ('telegram'), which
+ * is marked on the message and, with `options.strict`, asks before every
+ * change for as long as the phone is the one talking. See `channelSettings`.
  */
-async function send(conversationId, text, attachments = [], tagged = [], attachedFiles = []) {
+async function send(conversationId, text, attachments = [], tagged = [], attachedFiles = [], options = {}) {
     hydrate();
+    const channel = CHANNELS.has(options?.channel) ? options.channel : '';
 
     if (parseSubagentId(conversationId)) {
         return { success: false, message: 'This is a subagent\'s work, read only. Reply in the conversation that started it.' };
@@ -3493,6 +3588,33 @@ async function send(conversationId, text, attachments = [], tagged = [], attache
     // A message is going, so a runtime started early for the draft is this
     // conversation's in the open from here (see `warm`).
     conversation.warmOnly = false;
+
+    // Whoever spoke last is who the turn answers to, and under whose rules
+    // it runs: the phone's stricter approvals hold until the desk speaks.
+    // The note-taking turn after a real one is the app's, not a person's,
+    // and changes neither. Full access moving with it changes the folder
+    // fence, which a runtime fixes when it starts, so it is restarted for
+    // it, between turns only.
+    let channelNote = '';
+    if (!conversation.remembering) {
+        const fencedBefore = effectiveSettings(conversation).approval === 'full';
+        conversation.channelTurn = channel ? { channel, strict: options?.strict !== false } : null;
+        const fencedAfter = effectiveSettings(conversation).approval === 'full';
+        if (fencedBefore !== fencedAfter && !conversation.busy && (conversation.session || conversation.starting)) {
+            conversation.needsRestart = true;
+        }
+        // Said to the model once per switch rather than with every message.
+        if (channel && conversation.noteChannel !== channel) {
+            channelNote = 'The user is writing from their phone, through Telegram, and reads your replies there. '
+                + 'Keep replies short. Chart blocks and wide tables do not show on a phone: say what they would have shown. '
+                + (conversation.channelTurn.strict && ['never', 'full'].includes(policySettings(conversation).approval)
+                    ? 'While they are on the phone, every change asks for their approval there first.'
+                    : '');
+        } else if (!channel && conversation.noteChannel) {
+            channelNote = 'The user is back at the desktop app, reading your replies there.';
+        }
+        conversation.noteChannel = channel;
+    }
     // From the click to the runtime, stage by stage. See send-timing.js.
     const timer = sendTiming.createTimer();
     const cold = !conversation.session;
@@ -3505,6 +3627,8 @@ async function send(conversationId, text, attachments = [], tagged = [], attache
         ...(images.length ? { images } : {}),
         ...(files.length ? { files } : {}),
         ...(mentions.length ? { mentions: stripMentions(mentions) } : {}),
+        // Where it was written, when not in the app: the bubble says so.
+        ...(channel ? { channel } : {}),
     });
     // Told to the panel like the runtime's name will be, so the tab and the
     // header say what the list says from the first moment.
@@ -3518,7 +3642,7 @@ async function send(conversationId, text, attachments = [], tagged = [], attache
     if (!conversation.runId) {
         beginRun(conversation, {
             kind: conversation.runKind || 'interactive',
-            trigger: conversation.runTrigger || { source: 'window' },
+            trigger: channel ? { source: channel } : (conversation.runTrigger || { source: 'window' }),
             policy: conversation.runPolicy,
             title: conversation.title,
         });
@@ -3576,6 +3700,7 @@ async function send(conversationId, text, attachments = [], tagged = [], attache
             parts.push(`<app-note>\n${conversation.pendingNote}\n</app-note>`);
             conversation.pendingNote = '';
         }
+        if (channelNote && !bare) parts.push(`<app-note>\n${channelNote}\n</app-note>`);
         if (!bare && context !== conversation.lastContext) {
             conversation.lastContext = context;
             parts.push(`<app-context>\n${context}\n</app-context>`);
@@ -4220,6 +4345,8 @@ module.exports = {
     metricSnapshot,
     stopMetric,
     setNotifier,
+    observe,
+    setMessenger,
     setWindowProbe,
     setToaster,
     setTabOpener,
