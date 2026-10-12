@@ -415,10 +415,11 @@ function register(getWindow) {
         probe: (job, probe) => assistant.probeForJob(job, probe),
         notifyUser: toastFromAssistant,
         jobsNotifier: broadcast,
-        // A job whose delivery asks for the paired phone.
+        // A job whose delivery asks for the paired chat apps.
         deliverToChannel: (job, run) => channels.deliverJob(job, run),
     });
-    // Talking to the agent from the phone: the Telegram gateway, polling in
+    // Talking to the agent from a chat app: the Telegram, Discord, Slack and
+    // Matrix gateways, listening in
     // this process whether or not a window is up. See channels/.
     channels.start(broadcast);
     // A monitored host crossing is a door a job can wait on.
@@ -2296,7 +2297,7 @@ function cancelPendingPrompts() {
     pendingKeys.clear();
     // Decrypted credentials from a backup nobody is going to restore now.
     pendingBackups.clear();
-    // A turn the phone is following is ended by this too, and the phone is
+    // A turn a chat app is following is ended by this too, and the chat is
     // told so rather than left watching a typing indicator.
     channels.appClosing();
     // A tool call waiting on an approval nobody can give any more. Ending the

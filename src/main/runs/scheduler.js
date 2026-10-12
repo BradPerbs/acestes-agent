@@ -16,7 +16,7 @@ const runs = require('./index');
  * still going is skipped, not stacked), the heartbeat probe (a command run
  * first, so a quiet check costs no tokens), the event and webhook doors,
  * and delivery of a finished run's result to a notification, a webhook, a
- * file or the paired phone. The backoff and the ten-strikes rule are the
+ * file or the paired chat apps. The backoff and the ten-strikes rule are the
  * jobs module's.
  */
 
@@ -247,7 +247,7 @@ function deliver(job, run) {
         try {
             deps.deliverToChannel?.(job, run);
         } catch (error) {
-            console.error(`Delivery of ${job.name} to the phone failed:`, error.message);
+            console.error(`Delivery of ${job.name} to the chat apps failed:`, error.message);
         }
     }
 
@@ -294,7 +294,7 @@ function runEnded(run) {
  *   probe       (job, probe) => { success, exitCode, stdout, stderr }
  *   notifyUser  ({ title, body, jobId, runId }) => void
  *   resumeRun   (run) => void, for runs re-queued on launch
- *   deliverToChannel (job, run) => void, for a job sent to the paired phone
+ *   deliverToChannel (job, run) => void, for a job sent to the paired chat apps
  */
 function start(options = {}) {
     deps = { ...deps, ...options };

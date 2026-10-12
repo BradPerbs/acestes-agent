@@ -10,6 +10,7 @@ import QuestionRequest from './QuestionRequest';
 import LiveMetric from './LiveMetric';
 import { TurnActions, TurnChanges } from './TurnFooter';
 import { useT } from '../../i18n';
+import { channelLabel } from '../../lib/channels';
 
 /**
  * The conversation so far, as rows.
@@ -139,11 +140,11 @@ function RowContent({ item, conversationId, onRespond, onAnswer, onRevert, onOpe
                     )}
                     {item.text}
                 </div>
-                {/* Sent from the phone: said under the bubble, so a turn that
+                {/* Sent from a chat app: said under the bubble, so a turn that
                     ran while nobody was at the desk reads as what it was. */}
-                {item.channel === 'telegram' && (
+                {channelLabel(item.channel) && (
                     <span className="mt-1 mr-1 text-[10px] text-gray-400 dark:text-gray-500">
-                        {t('assistant.fromTelegram')}
+                        {t('assistant.fromChannel', { channel: channelLabel(item.channel) })}
                     </span>
                 )}
             </div>

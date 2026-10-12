@@ -241,7 +241,7 @@ export default function JobDialog({ job, seed, agentId, hosts, onClose, onSaved 
     ].filter(Boolean).join(' · ');
     const delivery = [
         draft.notify && t('jobs.summary.notify'),
-        draft.channel && t('jobs.summary.telegram'),
+        draft.channel && t('jobs.summary.channels'),
         draft.webhook && t('jobs.summary.webhook'),
         draft.file && t('jobs.summary.file'),
     ].filter(Boolean).join(' · ');
@@ -424,8 +424,8 @@ export default function JobDialog({ job, seed, agentId, hosts, onClose, onSaved 
                     </label>
                     <label className="flex items-center justify-between gap-3 text-sm text-gray-800 dark:text-gray-200">
                         <span className="min-w-0">
-                            {t('jobs.telegram')}
-                            <span className="block text-xs text-gray-500 dark:text-gray-400">{t('jobs.telegramHint')}</span>
+                            {t('jobs.channels')}
+                            <span className="block text-xs text-gray-500 dark:text-gray-400">{t('jobs.channelsHint')}</span>
                         </span>
                         <Toggle checked={draft.channel} onChange={value => set('channel', value)} />
                     </label>

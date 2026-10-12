@@ -138,7 +138,7 @@ const eventsOf = (conversationId, type) => seen
         assert.strictEqual(conversation.channelTurn.channel, 'telegram');
         assert.strictEqual(assistant.effectiveSettings(conversation).approval, 'writes');
         const text = starts[0].session.sent[0];
-        assert.ok(/writing from their phone, through Telegram/.test(text), text);
+        assert.ok(/writing through Telegram, away from this computer/.test(text), text);
         assert.ok(/every change asks for their approval there first/.test(text), text);
         const started = eventsOf(conversationId, 'run-started')[0];
         assert.ok(started, 'a run started');

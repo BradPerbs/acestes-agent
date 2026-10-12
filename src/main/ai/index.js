@@ -92,7 +92,7 @@ const HISTORY_SWEEP_INTERVAL = 6 * 60 * 60 * 1000;
  * this is only about how long a conversation may sit blocked on one call.
  */
 const APPROVAL_TIMEOUT = 45 * 60 * 1000;
-/** The same for a turn sent from a phone, whose answer may come hours later. */
+/** The same for a turn sent from a chat app, whose answer may come hours later. */
 const REMOTE_APPROVAL_TIMEOUT = 12 * 60 * 60 * 1000;
 /** How long a question to the user holds the turn before the turn is handed back. */
 const QUESTION_WAIT = 15 * 60 * 1000;
@@ -281,7 +281,7 @@ function tellObservers(conversation, stamped) {
 
 /**
  * Where `message_user` sends: the paired channel, set by channels/index.js.
- * Without one the tool says there is no phone to send to.
+ * Without one the tool says there is nowhere to send.
  */
 let messenger = null;
 
@@ -294,7 +294,8 @@ function setMessenger(fn) {
  * from one of them is marked on the message and may run under stricter
  * approvals: see `channelTurn` in `send` and `effectiveSettings`.
  */
-const CHANNELS = new Set(['telegram']);
+const CHANNEL_LABELS = { telegram: 'Telegram', discord: 'Discord', slack: 'Slack', matrix: 'Matrix' };
+const CHANNELS = new Set(Object.keys(CHANNEL_LABELS));
 
 function nextId(prefix) {
     counter += 1;
@@ -622,10 +623,10 @@ function effectiveSettings(conversation) {
 }
 
 /**
- * A turn sent from a phone asks before every change, whatever the agent's
+ * A turn sent from a chat app asks before every change, whatever the agent's
  * own mode, unless the user said otherwise for the channel. Holding a phone
- * that is signed in to Telegram is weaker proof of who is there than sitting
- * at the desk, and the card costs one tap there. Only ever tightens: a mode
+ * that is signed in to a chat account is weaker proof of who is there than
+ * sitting at the desk, and the card costs one tap there. Only ever tightens: a mode
  * that already asks keeps asking, and the blocked list applies either way.
  * Lifted by the next message typed at the desk. See `send`.
  */
@@ -1373,7 +1374,7 @@ function requestApproval(conversation, { toolName, name, input, local, signal = 
         // the card is still there in the morning and the answer still counts.
         const parked = Boolean(policy && policy.approvals !== 'inherit' && conversation.runId);
 
-        // A turn sent from a phone: the person is somewhere else and may
+        // A turn sent from a chat app: the person is somewhere else and may
         // answer hours later, so the card waits longer than one at the desk.
         const remote = Boolean(conversation.channelTurn);
 
@@ -1753,10 +1754,10 @@ function ensureProvider(conversation) {
             ),
             // A question to the person, answered on a card. See requestQuestion.
             askUser: (payload) => requestQuestion(conversation, payload || {}),
-            // A message to the person's phone, through the channel they
-            // paired. See channels/telegram.js.
+            // A message to the person in the chat app they paired. See
+            // channels/index.js.
             messageUser: async (text) => {
-                if (!messenger) return { error: 'No phone is paired: the user has not connected Telegram in Settings, Channels.' };
+                if (!messenger) return { error: 'No channel is paired: the user has not connected Telegram, Discord, Slack or Matrix in Settings, Channels.' };
                 const from = agents.get(conversation.agentId)?.name || '';
                 return messenger({ text: secrets.scrub(String(text || '')), from });
             },
@@ -3499,7 +3500,7 @@ function summarise(input) {
  *
  * `options.channel` is a message from outside the app ('telegram'), which
  * is marked on the message and, with `options.strict`, asks before every
- * change for as long as the phone is the one talking. See `channelSettings`.
+ * change for as long as the chat app is the one talking. See `channelSettings`.
  */
 async function send(conversationId, text, attachments = [], tagged = [], attachedFiles = [], options = {}) {
     hydrate();
@@ -3590,7 +3591,7 @@ async function send(conversationId, text, attachments = [], tagged = [], attache
     conversation.warmOnly = false;
 
     // Whoever spoke last is who the turn answers to, and under whose rules
-    // it runs: the phone's stricter approvals hold until the desk speaks.
+    // it runs: a channel's stricter approvals hold until the desk speaks.
     // The note-taking turn after a real one is the app's, not a person's,
     // and changes neither. Full access moving with it changes the folder
     // fence, which a runtime fixes when it starts, so it is restarted for
@@ -3605,10 +3606,11 @@ async function send(conversationId, text, attachments = [], tagged = [], attache
         }
         // Said to the model once per switch rather than with every message.
         if (channel && conversation.noteChannel !== channel) {
-            channelNote = 'The user is writing from their phone, through Telegram, and reads your replies there. '
-                + 'Keep replies short. Chart blocks and wide tables do not show on a phone: say what they would have shown. '
+            const app = CHANNEL_LABELS[channel];
+            channelNote = `The user is writing through ${app}, away from this computer, and reads your replies there. `
+                + 'Keep replies short. Chart blocks and wide tables do not show there: say what they would have shown. '
                 + (conversation.channelTurn.strict && ['never', 'full'].includes(policySettings(conversation).approval)
-                    ? 'While they are on the phone, every change asks for their approval there first.'
+                    ? `While they are on ${app}, every change asks for their approval there first.`
                     : '');
         } else if (!channel && conversation.noteChannel) {
             channelNote = 'The user is back at the desktop app, reading your replies there.';

@@ -222,7 +222,7 @@ app.on('window-all-closed', () => {
     ipc.cancelPendingPrompts();
     // With a job on the books the process stays up, sessions and all: a
     // scheduled run may need the one the agent left open. So it does with a
-    // paired phone, which expects an answer with the window closed. Without
+    // paired chat app, which expects an answer with the window closed. Without
     // either the app quits as it always did, everywhere but macOS.
     if (!quitting && (scheduler.keepAlive() || channels.keepAlive())) return;
     transport.destroyAll();

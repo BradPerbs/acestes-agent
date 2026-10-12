@@ -144,7 +144,7 @@ function step(state, event, owned) {
                 files: event.files || [],
                 mentions: event.mentions
                     || (event.specs || []).map(spec => ({ ...spec, kind: 'snippet' })),
-                // Written somewhere other than the app (Telegram), when it was.
+                // Written somewhere other than the app (a chat app), when it was.
                 channel: event.channel || '',
             });
             busy = true;
@@ -331,7 +331,7 @@ function step(state, event, owned) {
                 // and once by the main process when it resolves. Only the
                 // first carries what the user typed, so it is kept.
                 const feedback = event.feedback || item.approval?.feedback || item.feedback || '';
-                // Where it was answered, when not in a window (Telegram).
+                // Where it was answered, when not in a window (a chat app).
                 const by = event.by || item.approval?.by || item.by || '';
                 edit()[index] = item.kind === 'approval'
                     ? { ...item, status: event.status, feedback, by }

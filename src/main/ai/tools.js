@@ -1157,15 +1157,16 @@ const TOOLS = [
 
     {
         name: 'message_user',
-        title: 'Message the user on their phone',
+        title: 'Message the user in their chat app',
         // It changes nothing on any system: it tells the user something,
         // through the channel they paired themselves.
         readOnly: true,
         description:
-            'Send the user a message on their phone, through the Telegram chat they paired with Acestes. '
+            'Send the user a message in the chat app they paired with Acestes (Telegram, Discord, Slack or '
+            + 'Matrix), wherever they last wrote from. '
             + 'For news they asked to hear as it happens ("tell me when the build finishes"), or something a '
             + 'scheduled run found that cannot wait. Not for your replies in this conversation, which reach them '
-            + 'wherever they wrote from. Fails when no phone is paired.',
+            + 'wherever they wrote from. Fails when no chat app is paired.',
         shape: {
             text: z.string().min(1).max(3500).describe('The message: short, plain text or light Markdown.'),
         },
@@ -1390,7 +1391,7 @@ const BUNDLE_OF = {
     delete_inventory_file: 'inventory',
     list_agents: 'inventory',
     // Automation: background tasks and scheduled jobs, and telling the
-    // user's phone what one of them found.
+    // user's chat app what one of them found.
     start_task: 'automation',
     message_user: 'automation',
     list_job_templates: 'automation',

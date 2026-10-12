@@ -139,7 +139,7 @@ function build({ z, ok, fail }) {
                 autonomous: z.boolean().optional().describe('Only when the user said to do it without asking: nothing waits for approval. The blocked list still applies.'),
                 approvals: z.enum(['read-only']).optional().describe('read-only for a task that only reports.'),
                 notify: z.boolean().optional().describe('Notify the user when it ends. Defaults to true.'),
-                phone: z.boolean().optional().describe('Also send the result, and any approval it waits on, to the user\'s paired Telegram. When they asked to hear about it on their phone.'),
+                channels: z.boolean().optional().describe('Also send the result, and any approval it waits on, to the chat apps the user paired (Telegram, Discord, Slack, Matrix). When they asked to hear about it there.'),
                 open: z.boolean().optional().describe('Show the run\'s conversation in a tab, so the user can watch it work.'),
                 budget: z.object({
                     maxToolCalls: z.number().int().min(1).max(500).optional(),
@@ -161,7 +161,7 @@ function build({ z, ok, fail }) {
                     prompt: input.task,
                     ...pinned,
                     policy: { approvals: policyFor(input), budget: input.budget || {} },
-                    delivery: { notify: input.notify !== false, channel: input.phone === true },
+                    delivery: { notify: input.notify !== false, channel: input.channels === true },
                 });
                 if (result.error) return fail(result.error);
                 const shown = input.open && result.conversationId && typeof ctx.conversations?.open === 'function'
@@ -249,7 +249,7 @@ function build({ z, ok, fail }) {
                 effort: z.string().max(20).optional().describe('An effort level the model offers, from list_models.'),
                 probe: z.string().max(2000).optional().describe('For a heartbeat: a local command run first. Wakes you only if it prints something or exits non-zero. Print SKIP to stay quiet.'),
                 notify: z.boolean().optional().describe('Whether the user gets a notification when a run ends. Defaults to true.'),
-                phone: z.boolean().optional().describe('Also send each result, and any approval a run waits on, to the user\'s paired Telegram. When they asked to hear about it on their phone.'),
+                channels: z.boolean().optional().describe('Also send each result, and any approval a run waits on, to the chat apps the user paired (Telegram, Discord, Slack, Matrix). When they asked to hear about it there.'),
                 budget: z.object({
                     maxToolCalls: z.number().int().min(1).max(500).optional(),
                     maxCostUsd: z.number().min(0.01).max(100).optional(),
@@ -293,7 +293,7 @@ function build({ z, ok, fail }) {
                     prompt: input.prompt || base?.prompt,
                     ...pinned,
                     policy: { approvals, budget: input.budget || base?.policy.budget || {} },
-                    delivery: { notify: input.notify !== false, channel: input.phone === true },
+                    delivery: { notify: input.notify !== false, channel: input.channels === true },
                     ...(base ? { missed: base.missed, template: base.template } : {}),
                 });
                 if (result.error) return fail(result.error);

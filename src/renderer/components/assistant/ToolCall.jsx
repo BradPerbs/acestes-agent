@@ -13,6 +13,7 @@ import CopyButton from '../ui/CopyButton';
 import DiffView from './DiffView';
 import { chipFor, todoProgress, verbFor } from '../../lib/tool-bucket';
 import { translate, useT } from '../../i18n';
+import { channelLabel } from '../../lib/channels';
 
 /** The verb's icon, by the name tool-bucket gives it. Kept here so that file stays free of JSX. */
 const VERB_ICONS = {
@@ -384,14 +385,15 @@ export default function ToolCall({ item, conversationId = '', onOpenConversation
     // having to click to see what was done to a file is one click too many.
     const [open, setOpen] = useState(item.status === 'error' || Boolean(item.diff));
     const summary = describeCall(item.name, item.input);
-    // A refusal given on the phone says so: nobody at the desk said no.
-    const refused = item.approval?.status === 'denied' && item.approval?.by === 'telegram'
-        ? 'assistant.declinedOnTelegram'
-        : REFUSED[item.approval?.status];
+    // A refusal given in a chat app says so: nobody at the desk said no.
+    const refusedIn = item.approval?.status === 'denied' ? channelLabel(item.approval?.by) : '';
+    const refused = REFUSED[item.approval?.status];
     const known = refused || TITLES[item.name];
-    const title = known
-        ? t(known)
-        : (item.local ? item.name : item.name.replace(/_/g, ' '));
+    const title = refusedIn
+        ? t('assistant.declinedOn', { channel: refusedIn })
+        : known
+            ? t(known)
+            : (item.local ? item.name : item.name.replace(/_/g, ' '));
     // A subagent's work opens as a transcript of its own, which is where its
     // report is too. The call's result is the runtime's note to the model
     // ("launched", "here is the hand-back"), and not worth a fold here.

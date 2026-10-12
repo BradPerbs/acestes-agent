@@ -141,7 +141,7 @@ function JobRow({ job, runs, expanded, onExpand, onEdit, onToggle, onRun, onDupl
     ].filter(Boolean).join(' · ');
     const delivery = [
         job.delivery?.notify !== false && t('jobs.summary.notify'),
-        job.delivery?.channel && t('jobs.summary.telegram'),
+        job.delivery?.channel && t('jobs.summary.channels'),
         job.delivery?.webhook,
         job.delivery?.file,
     ].filter(Boolean).join(' · ');
