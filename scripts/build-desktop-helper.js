@@ -27,6 +27,7 @@ const ROOT = path.join(__dirname, '..');
 const SOURCES = [
     path.join(ROOT, 'tools', 'DesktopHelper.cs'),
     path.join(ROOT, 'tools', 'DesktopTree.cs'),
+    path.join(ROOT, 'tools', 'DesktopRecorder.cs'),
 ];
 const INTEROP_SOURCE = path.join(ROOT, 'tools', 'UiaInterop.cs');
 const OUTPUT_DIR = path.join(ROOT, 'resources');

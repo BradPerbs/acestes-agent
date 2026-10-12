@@ -4,6 +4,7 @@ import InventoryTabs, { INVENTORY_PAGES } from './InventoryTabs';
 import InventoryOverview from './InventoryOverview';
 import McpPanel from './McpPanel';
 import MemoryPanel from './MemoryPanel';
+import TeachPanel from './TeachPanel';
 import FilesPanel from './FilesPanel';
 import HostsPanel from './HostsPanel';
 import KeychainPanel from './KeychainPanel';
@@ -99,6 +100,10 @@ function HomeView({
 
             {activeNav === 'memory' && (
                 <MemoryPanel agentId={agentId} />
+            )}
+
+            {activeNav === 'teach' && (
+                <TeachPanel agentId={agentId} />
             )}
 
             {activeNav === 'conversations' && (

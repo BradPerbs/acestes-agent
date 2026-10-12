@@ -32,6 +32,7 @@ export default {
 
     /* ---- Sidebar ---- */
     'nav.hosts': '主机',
+    'nav.teach': 'Teach',
     'nav.keychain': '密钥串',
     'nav.proxies': '代理',
     'nav.snippets': '代码片段',

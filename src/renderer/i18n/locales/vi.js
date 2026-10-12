@@ -32,6 +32,7 @@ export default {
 
     /* ---- Sidebar ---- */
     'nav.hosts': 'Máy chủ',
+    'nav.teach': 'Teach',
     'nav.keychain': 'Kho khoá',
     'nav.proxies': 'Proxy',
     'nav.snippets': 'Đoạn lệnh',

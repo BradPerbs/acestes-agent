@@ -373,6 +373,8 @@ let hooks = {
     driversChanged: () => {},
     // Told what an action is aimed at, by name, for the corner overlay.
     aimed: () => {},
+    // A recorder event line, in teach mode. See teach.js.
+    recorded: () => {},
     // How a captcha service is reached. A test hands in its own.
     fetch: (...args) => globalThis.fetch(...args),
 };
@@ -411,6 +413,31 @@ function pauseAll(code) {
 
 function onEvent(message) {
     if (message.event === 'took-over' || message.event === 'escape') pauseAll(message.event);
+    if (message.event === 'rec' && message.line) {
+        try {
+            hooks.recorded(message.line);
+        } catch (error) {
+            console.error('Could not record an event:', error.message);
+        }
+    }
+}
+
+/* ------------------------------------------------------------------ *
+ * Recording, in teach mode: the helper reports what the person does,
+ * rather than the agent doing anything. See teach.js for what becomes of it.
+ * ------------------------------------------------------------------ */
+
+/** Tell the helper to start recording the apps named. See teach.js. */
+function recordStart({ apps = [], label = '', paused = '' } = {}) {
+    return call('record', { on: true, apps, label, paused }, 10000);
+}
+
+function recordPause(on) {
+    return call('record', { pause: Boolean(on) }, 10000);
+}
+
+function recordStop() {
+    return call('record', { on: false }, 10000);
 }
 
 /** Whoever is watching who drives (the corner overlay) hears it on every change. */
@@ -1985,6 +2012,9 @@ module.exports = {
     shutdown,
     formatTree,
     warningFor,
+    recordStart,
+    recordPause,
+    recordStop,
     _test: {
         useHelper: (command) => {
             shutdown();

@@ -32,6 +32,7 @@ export default {
 
     /* ---- Sidebar ---- */
     'nav.hosts': 'Anfitriões',
+    'nav.teach': 'Teach',
     'nav.keychain': 'Porta-chaves',
     'nav.proxies': 'Proxies',
     'nav.snippets': 'Excertos',

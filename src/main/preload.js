@@ -890,6 +890,22 @@ contextBridge.exposeInMainWorld('api', {
     },
 
     /**
+     * Teach mode: record a person doing a job, then let the agent learn it.
+     * Start and stop the recording, review the draft the agent distils, and
+     * accept or discard it. Only accept writes anything (memory, specs, the
+     * keychain); discard leaves no trace. See ai/teach.js.
+     */
+    teach: {
+        state: () => ipcRenderer.invoke('teach-state'),
+        start: (agentId, options) => ipcRenderer.invoke('teach-start', { agentId, ...(options || {}) }),
+        pause: (on) => ipcRenderer.invoke('teach-pause', { on }),
+        stop: (agentId) => ipcRenderer.invoke('teach-stop', { agentId }),
+        accept: (agentId, id, selections) => ipcRenderer.invoke('teach-accept', { agentId, id, selections }),
+        discard: (id, selections) => ipcRenderer.invoke('teach-discard', { id, selections }),
+        pending: () => ipcRenderer.invoke('teach-pending'),
+    },
+
+    /**
      * The agents: whose the conversations, the inventory and the settings
      * are. Every mutation answers with the whole list and the selection.
      */

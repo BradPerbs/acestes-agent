@@ -2196,6 +2196,24 @@ function register(getWindow) {
         return { success: true, ...result };
     });
 
+    /* ---------------- Teach mode ---------------- */
+
+    // Recording a person at work and learning from it. The helper watches;
+    // this side starts and stops it, distils the recording into a draft the
+    // person reviews, and writes the kept parts into memory, specs and the
+    // keychain only on accept. See ai/teach.js and docs/teach-mode.md.
+    handle('teach-state', () => assistant.teachState());
+    handle('teach-start', (event, { agentId, apps, redact } = {}) =>
+        assistant.teachStart(String(agentId || agents.activeId()), { apps, redact }));
+    handle('teach-pause', (event, { on } = {}) => assistant.teachPauseRecording(Boolean(on)));
+    handle('teach-stop', (event, { agentId } = {}) =>
+        assistant.teachStop(String(agentId || agents.activeId())));
+    handle('teach-accept', (event, { agentId, id, selections } = {}) =>
+        assistant.teachAccept(String(agentId || agents.activeId()), String(id || ''), selections || {}));
+    handle('teach-discard', (event, { id, selections } = {}) =>
+        assistant.teachDiscard(String(id || ''), selections || {}));
+    handle('teach-pending', () => assistant.teachPending());
+
     /* ---------------- Assistant: windows of its own ---------------- */
 
     // The composer's microphone, transcribed here, by the engine and model

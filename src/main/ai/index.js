@@ -5,6 +5,7 @@ const agents = require('../agents');
 const accounts = require('./accounts');
 const limits = require('./limits');
 const memory = require('./memory');
+const teach = require('./teach');
 const memoryTidy = require('./memory-tidy');
 const prompt = require('./prompt');
 const catalog = require('./tools');
@@ -2580,7 +2581,76 @@ computer.configure({
         return { id, title: conversation?.title || '', agent: agent?.name || '', look: agent?.look || null };
     })),
     aimed: (conversationId, label) => overlay.aimed(conversationId, label),
+    // In teach mode, a recorder event line, written to the trace. See teach.js.
+    recorded: line => teach.ingest(line),
 });
+
+/* ------------------------------------------------------------------ *
+ * Teach mode: recording a person at work and learning from it.
+ *
+ * The helper does the watching (computer.js forwards its event lines to
+ * teach.ingest through the hook above); this side starts and stops it, then
+ * asks the agent's own runtime to distil the recording into a draft the
+ * person reviews. See teach.js and docs/teach-mode.md.
+ * ------------------------------------------------------------------ */
+
+teach.configure({
+    helper: {
+        start: options => computer.recordStart(options),
+        pause: on => computer.recordPause(on),
+        stop: () => computer.recordStop(),
+    },
+    // A spec saved to the agent's inventory, from a procedure or template the
+    // person kept. The body lives in the snippet's `command`, as every spec's
+    // does; store.saveSnippet normalizes and records the change.
+    saveSpec: ({ agentId, name, kind, text, description, tags }) => store.saveSnippet({
+        agentId, name, kind, command: text, description, tags,
+    }),
+});
+
+/** Start recording the person's work for an agent, in the apps named. */
+async function teachStart(agentId, { apps = [], redact = false } = {}) {
+    const id = String(agentId || agents.activeId());
+    const agent = agents.get(id);
+    const label = `Recording your work for ${agent?.name || 'Acestes'} · stop it in Acestes`;
+    return teach.start(id, { apps, redact, label, paused: 'Recording paused' });
+}
+
+function teachPauseRecording(on) {
+    return teach.pause(on);
+}
+
+/**
+ * Stop recording and distil what was caught into a draft to review. The
+ * agent's own runtime is asked (teach.distil); a runtime that cannot be asked
+ * gives an empty draft with the recording's app and login list, so there is
+ * still something to review.
+ */
+async function teachStop(agentId) {
+    const stopped = await teach.stop();
+    if (!stopped.ok) return stopped;
+    const id = String(agentId || agents.activeId());
+    const current = resolved(id);
+    const provider = PROVIDERS[current.provider];
+    const distilled = await teach.distil(provider, { settings: current, id: stopped.id });
+    return { ...stopped, review: distilled };
+}
+
+function teachAccept(agentId, recordingId, selections = {}) {
+    return teach.accept(recordingId, { agentId: String(agentId || agents.activeId()), ...selections });
+}
+
+function teachDiscard(recordingId, selections = {}) {
+    return teach.discard(recordingId, selections);
+}
+
+function teachPending() {
+    return teach.pending();
+}
+
+function teachState() {
+    return { recording: teach.recording(), pending: teach.pending() };
+}
 
 function conversationsApiFor(conversation) {
     const isChild = (entry) => Boolean(entry)
@@ -4452,6 +4522,13 @@ module.exports = {
     rememberUsed,
     tidyMemory,
     memoryTidyRunning,
+    teachStart,
+    teachPauseRecording,
+    teachStop,
+    teachAccept,
+    teachDiscard,
+    teachPending,
+    teachState,
     secrets,
     resolveModel,
     reconfigure,

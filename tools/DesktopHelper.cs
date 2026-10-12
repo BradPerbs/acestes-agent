@@ -281,6 +281,7 @@ static partial class DesktopHelper
             case "settle": return Settle(request);
             case "clipboard": return ReadClipboard();
             case "drive": return Drive(request);
+            case "record": return Record(request);
             case "place": return Place(request);
             case "forget": return Forget(Text(request, "whose"));
             default: throw new Stop("unknown", "Unknown command: " + Text(request, "cmd"));
@@ -310,6 +311,9 @@ static partial class DesktopHelper
         bool on = Flag(request, "on");
         if (on)
         {
+            // Recording and driving are exclusive: the person is at the keyboard
+            // while recording, so the agent may not take the desktop then.
+            if (recordingOn) throw new Stop("recording", "A recording is under way. Stop recording before the agent drives the desktop.");
             if (Text(request, "label").Length > 0) labelDriving = Text(request, "label");
             if (Text(request, "paused").Length > 0) labelPaused = Text(request, "paused");
             if (Text(request, "stopped").Length > 0) labelStopped = Text(request, "stopped");
@@ -2053,7 +2057,7 @@ static partial class DesktopHelper
 /// </summary>
 class Overlay
 {
-    public enum Tone { Driving, Paused, Stopped }
+    public enum Tone { Driving, Paused, Stopped, Recording }
 
     static readonly Color Accent = Color.FromArgb(47, 123, 246);
 
@@ -2223,7 +2227,7 @@ class Overlay
                     {
                         g.FillPath(fill, path);
                     }
-                    Color signal = tone == Tone.Driving ? Accent : tone == Tone.Paused ? Color.FromArgb(245, 158, 11) : Color.FromArgb(239, 68, 68);
+                    Color signal = tone == Tone.Driving ? Accent : tone == Tone.Paused ? Color.FromArgb(245, 158, 11) : tone == Tone.Recording ? Color.FromArgb(16, 185, 129) : Color.FromArgb(239, 68, 68);
                     using (var brush = new SolidBrush(signal))
                     {
                         g.FillEllipse(brush, pad, (height - dot) / 2f, dot, dot);
@@ -2434,6 +2438,10 @@ static class Native
 
     public delegate bool EnumProc(IntPtr window, IntPtr parameter);
     public delegate IntPtr HookProc(int code, IntPtr message, IntPtr data);
+    // The desktop helper uses this for recording (teach mode): see
+    // DesktopRecorder.cs. Out-of-context, so it is delivered to the message loop
+    // of the thread that installed it.
+    public delegate void WinEventDelegate(IntPtr hook, uint eventType, IntPtr window, int idObject, int idChild, uint eventThread, uint eventTime);
 
     [DllImport("user32.dll")] public static extern IntPtr SetProcessDpiAwarenessContext(IntPtr value);
     [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
@@ -2475,6 +2483,9 @@ static class Native
     [DllImport("user32.dll", SetLastError = true)] public static extern IntPtr SetWindowsHookEx(int id, HookProc proc, IntPtr module, uint thread);
     [DllImport("user32.dll")] public static extern bool UnhookWindowsHookEx(IntPtr hook);
     [DllImport("user32.dll")] public static extern IntPtr CallNextHookEx(IntPtr hook, int code, IntPtr message, IntPtr data);
+    [DllImport("user32.dll")] public static extern IntPtr SetWinEventHook(uint min, uint max, IntPtr module, WinEventDelegate proc, uint process, uint thread, uint flags);
+    [DllImport("user32.dll")] public static extern bool UnhookWinEvent(IntPtr hook);
+    [DllImport("user32.dll")] public static extern short GetAsyncKeyState(int key);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr GetModuleHandle(string name);
     [DllImport("kernel32.dll", SetLastError = true)] public static extern IntPtr OpenProcess(uint access, bool inherit, uint pid);
     [DllImport("advapi32.dll", SetLastError = true)] public static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);

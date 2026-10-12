@@ -33,6 +33,7 @@ export default {
 
     /* ---- Sidebar ---- */
     'nav.hosts': 'Хосты',
+    'nav.teach': 'Teach',
     'nav.keychain': 'Ключи',
     'nav.proxies': 'Прокси',
     'nav.snippets': 'Сниппеты',

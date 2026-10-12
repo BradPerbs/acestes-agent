@@ -50,6 +50,7 @@ export default {
     'nav.keychain': 'Keychain',
     'nav.proxies': 'Proxies',
     'nav.memory': 'Memory',
+    'nav.teach': 'Teach',
     'nav.files': 'Files',
     'nav.mcp': 'MCP servers',
     'nav.logs': 'Logs',
