@@ -24,6 +24,7 @@ const { createConfig, cleanSection } = require(path.join(ROOT, 'config'));
 const { createTelegramApi, TelegramError } = require(path.join(ROOT, 'telegram-api'));
 const { createTelegramGateway } = require(path.join(ROOT, 'telegram'));
 const { stepLine } = require(path.join(ROOT, 'gateway'));
+const { createControls, readEffort, readMode, nearestEffort, effortStops } = require(path.join(ROOT, 'controls'));
 
 const TOKEN = '123456789:AAtestTOKENtestTOKENtestTOKENtest12';
 const OWNER = { id: 5001, first_name: 'Brad', username: 'brad', is_bot: false };
@@ -122,6 +123,8 @@ function fakeTelegram() {
                 case 'sendMessage':
                 case 'sendDocument':
                     messageId += 1;
+                    // For pressing a menu's buttons: the id it went out as.
+                    calls[calls.length - 1].messageId = messageId;
                     return reply(response, 200, { ok: true, result: { message_id: messageId, chat: { id: body.chat_id }, text: body.text } });
                 case 'getFile':
                     return reply(response, 200, { ok: true, result: { file_id: body.file_id, file_path: 'documents/notes.txt' } });
@@ -180,18 +183,42 @@ function fakeTelegram() {
  * A stand-in assistant core
  * ------------------------------------------------------------------ */
 
+/** What the runtimes say they have, for the model, effort and mode cases. */
+const CATALOGS = {
+    'claude-code': [
+        { value: 'opus', resolved: 'claude-opus-5-5', label: 'Opus 5.5', effort: ['low', 'medium', 'high', 'xhigh', 'max'], preferred: true },
+        { value: 'sonnet', resolved: 'claude-sonnet-5', label: 'Sonnet 5', effort: ['low', 'medium', 'high'] },
+        { value: 'haiku', resolved: 'claude-haiku-4-5', label: 'Haiku 4.5', effort: [] },
+    ],
+    codex: [
+        { value: 'gpt-5.5', label: 'GPT-5.5', effort: ['low', 'medium', 'high', 'xhigh'], preferred: true },
+    ],
+};
+
 function fakeAi() {
     const observers = new Set();
     const conversations = new Map();
     const pendingApprovals = new Set();
     const pendingQuestions = new Set();
+    /** conversationId -> its pin, as setConversationModel keeps one. */
+    const pins = new Map();
     let counter = 0;
-    const calls = { send: [], interrupt: [], approvals: [], questions: [], create: [] };
+    const calls = { send: [], interrupt: [], approvals: [], questions: [], create: [], pin: [] };
     return {
         calls,
         conversations,
         pendingApprovals,
         pendingQuestions,
+        pins,
+        models: async ({ provider }) => CATALOGS[provider] || null,
+        setConversationModel(id, patch) {
+            if (!conversations.has(id)) return { error: 'No such conversation.' };
+            calls.pin.push({ id, patch });
+            const next = { ...(pins.get(id) || {}) };
+            for (const [key, value] of Object.entries(patch)) if (value) next[key] = value;
+            pins.set(id, next);
+            return { pinned: next };
+        },
         observe(fn) {
             observers.add(fn);
             return () => observers.delete(fn);
@@ -219,7 +246,9 @@ function fakeAi() {
         },
         history(id) {
             const found = conversations.get(id);
-            return found ? { found: true, busy: found.busy, title: found.title, agentId: found.agentId } : { found: false };
+            return found
+                ? { found: true, busy: found.busy, title: found.title, agentId: found.agentId, pinned: pins.get(id) || null }
+                : { found: false };
         },
         list({ agentId }) {
             return [...conversations.values()]
@@ -252,7 +281,30 @@ const fakeCrypt = {
     decrypt: stored => (stored.startsWith('enc:') ? Buffer.from(stored.slice(4), 'base64').toString('utf8') : ''),
 };
 
-async function setup({ locked = { value: false }, jobs } = {}) {
+/** The agents' settings as ai/settings.js answers them, and what was changed. */
+function fakeSettings(overrides = {}) {
+    const agents = {
+        'agent-1': { provider: 'claude-code', model: '', effort: 'high', approval: 'writes', providers: ['claude-code', 'codex'], hiddenModels: {}, ...overrides },
+        'agent-2': { provider: 'claude-code', model: 'sonnet', effort: 'medium', approval: 'always', providers: ['claude-code'], hiddenModels: {} },
+    };
+    const calls = { set: [], reconfigure: [], record: [], notify: [] };
+    return {
+        agents,
+        calls,
+        get: (id) => {
+            const key = agents[id] ? id : 'agent-1';
+            return { ...agents[key], agentId: key };
+        },
+        set(patch, id) {
+            calls.set.push({ patch, id });
+            Object.assign(agents[id], patch);
+            return { ...agents[id], agentId: id };
+        },
+        takePropagation: () => [],
+    };
+}
+
+async function setup({ locked = { value: false }, jobs, settings = null } = {}) {
     const telegram = fakeTelegram();
     const base = await telegram.listen();
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cb-test-channels-'));
@@ -262,9 +314,18 @@ async function setup({ locked = { value: false }, jobs } = {}) {
     const audits = [];
     const changes = [];
     const agentList = [{ id: 'agent-1', name: 'Acestino' }, { id: 'agent-2', name: 'Night Shift' }];
+    const controls = settings ? createControls({
+        ai,
+        settings,
+        reconfigure: (before, after, agentId) => settings.calls.reconfigure.push({ before: before.approval, after: after.approval, agentId }),
+        notify: (channel, payload) => settings.calls.notify.push({ channel, payload }),
+        record: entry => settings.calls.record.push(entry),
+        catalogWait: 200,
+    }) : null;
     const gateway = createTelegramGateway({
         section,
         ai,
+        controls,
         agents: {
             list: () => agentList,
             activeId: () => 'agent-1',
@@ -286,7 +347,7 @@ async function setup({ locked = { value: false }, jobs } = {}) {
         log: { error: () => {} },
     });
     gateway.start();
-    return { telegram, base, dir, config, ai, gateway, audits, changes, locked };
+    return { telegram, base, dir, config, ai, gateway, audits, changes, locked, settings };
 }
 
 async function pairOwner(env) {
@@ -841,6 +902,148 @@ async function teardown(env) {
             assert.strictEqual(env.gateway.status().connected, false);
             assert.strictEqual(env.config.reload().telegram.secret, '');
             assert.strictEqual(env.gateway.keepAlive(), false);
+        } finally {
+            await teardown(env);
+        }
+    });
+
+    console.log('\nchannels: model, effort and mode');
+
+    const sentText = (env, pattern) => env.telegram.sent('sendMessage').find(call => pattern.test(call.body.text));
+    const editedText = (env, pattern) => env.telegram.sent('editMessageText').find(call => pattern.test(call.body.text));
+    const buttonsOf = call => call.body.reply_markup.inline_keyboard.flat();
+
+    await check('efforts and modes are read the way they are typed', () => {
+        assert.strictEqual(readEffort('Extra high'), 'xhigh');
+        assert.strictEqual(readEffort('x-high'), 'xhigh');
+        assert.strictEqual(readEffort('MAX'), 'max');
+        assert.strictEqual(readEffort('loud'), '');
+        assert.strictEqual(readMode('yolo'), 'never');
+        assert.strictEqual(readMode('Full access'), 'full');
+        assert.strictEqual(readMode('ask'), 'always');
+        assert.strictEqual(readMode('workspace'), 'writes');
+        assert.strictEqual(readMode('reckless'), '');
+        // Rounded down onto a model's scale, as the runtime does.
+        assert.strictEqual(nearestEffort(effortStops({ effort: ['low', 'medium', 'high'] }), 'max'), 'high');
+        assert.strictEqual(nearestEffort(effortStops({ effort: ['low', 'medium', 'high', 'xhigh'] }), 'max'), 'xhigh');
+    });
+
+    await check('/status names the model, the effort and the mode, with buttons for each', async () => {
+        const env = await setup({ settings: fakeSettings({ approval: 'never' }) });
+        try {
+            await pairOwner(env);
+            env.telegram.message(OWNER, '/status');
+            await until(() => sentText(env, /Model:/), { label: 'status' });
+            const status = sentText(env, /Model:/);
+            assert.ok(/<b>Model:<\/b> Opus 5\.5 \(Claude Code\) · High effort/.test(status.body.text), status.body.text);
+            // Yolo on the agent, held to Workspace only for turns from the phone.
+            assert.ok(/<b>Mode:<\/b> Workspace only from here \(Yolo Mode on the desktop/.test(status.body.text), status.body.text);
+            assert.deepStrictEqual(buttonsOf(status).map(button => button.text), ['Model', 'Effort', 'Mode']);
+            assert.ok(buttonsOf(status).every(button => Buffer.byteLength(button.callback_data) <= 64));
+        } finally {
+            await teardown(env);
+        }
+    });
+
+    await check('a mode picked on the phone is the agent\'s, and applies on the phone too', async () => {
+        const env = await setup({ settings: fakeSettings({ approval: 'never' }) });
+        try {
+            await pairOwner(env);
+            env.telegram.message(OWNER, '/status');
+            await until(() => sentText(env, /Model:/), { label: 'status' });
+            env.telegram.press(OWNER, 's:mode', sentText(env, /Model:/).messageId);
+            await until(() => sentText(env, /do without asking/), { label: 'mode menu' });
+            const menu = sentText(env, /do without asking/);
+            assert.deepStrictEqual(buttonsOf(menu).map(button => button.text), ['Ask every time', 'Workspace only', '> Yolo Mode', 'Full Access']);
+            assert.ok(/held to Workspace only/.test(menu.body.text), menu.body.text);
+
+            // The same mode, picked here: nothing to change on the agent,
+            // but the phone's hold is lifted so Yolo means Yolo here too.
+            env.telegram.press(OWNER, 'p:never', menu.messageId);
+            await until(() => editedText(env, /Yolo Mode/), { label: 'mode settled' });
+            assert.strictEqual(env.gateway.status().approvals, 'agent');
+            assert.strictEqual(env.settings.calls.set.length, 0);
+            assert.ok(env.audits.some(entry => entry.action === 'channels.telegram-approvals'));
+
+            env.telegram.clear();
+            env.telegram.message(OWNER, '/status');
+            await until(() => sentText(env, /Model:/), { label: 'status after' });
+            assert.ok(/<b>Mode:<\/b> Yolo Mode, nothing stops/.test(sentText(env, /Model:/).body.text));
+
+            // Typed, and a real change: the agent's setting, logged, and the
+            // panels told with the selected agent's settings.
+            env.telegram.message(OWNER, '/mode full access');
+            await until(() => sentText(env, /<b>Mode:<\/b> Full Access/), { label: 'full access' });
+            assert.deepStrictEqual(env.settings.calls.set[0], { patch: { approval: 'full' }, id: 'agent-1' });
+            assert.deepStrictEqual(env.settings.calls.reconfigure[0], { before: 'never', after: 'full', agentId: 'agent-1' });
+            assert.deepStrictEqual(env.settings.calls.record[0].changes, [{ field: 'approvals', from: 'never', to: 'full' }]);
+            assert.strictEqual(env.settings.calls.notify[0].channel, 'ai-settings');
+
+            env.telegram.message(OWNER, '/mode reckless');
+            await until(() => sentText(env, /is not a mode/), { label: 'unknown mode' });
+            assert.strictEqual(env.settings.agents['agent-1'].approval, 'full');
+        } finally {
+            await teardown(env);
+        }
+    });
+
+    await check('the model and the effort are pinned on the chat\'s conversation', async () => {
+        const env = await setup({ settings: fakeSettings({ hiddenModels: { 'claude-code': ['haiku'] } }) });
+        try {
+            await pairOwner(env);
+            // No conversation yet: the menu starts one when a model is picked.
+            env.telegram.message(OWNER, '/model');
+            await until(() => sentText(env, /Which model/), { label: 'model menu' });
+            const menu = sentText(env, /Which model/);
+            const labels = buttonsOf(menu).map(button => button.text);
+            assert.deepStrictEqual(labels, ['> Claude Code: Opus 5.5', 'Claude Code: Sonnet 5', 'Codex: GPT-5.5'], 'haiku is hidden');
+
+            const sonnet = buttonsOf(menu)[1];
+            env.telegram.press(OWNER, sonnet.callback_data, menu.messageId);
+            await until(() => editedText(env, /Switched to/), { label: 'switched' });
+            assert.ok(/Switched to <b>Sonnet 5<\/b> · High effort/.test(editedText(env, /Switched to/).body.text));
+            assert.strictEqual(env.ai.calls.create.length, 1);
+            const id = env.ai.calls.create[0].id;
+            assert.deepStrictEqual(env.ai.pins.get(id), { provider: 'claude-code', model: 'sonnet', effort: 'high' });
+
+            // A level the model does not take is refused, with what it takes.
+            env.telegram.message(OWNER, '/effort xhigh');
+            await until(() => sentText(env, /Could not change the effort/), { label: 'effort refused' });
+            assert.ok(/Sonnet 5 takes low, medium, high/.test(sentText(env, /Could not change the effort/).body.text));
+
+            // By name, with an effort: the same conversation, not a new one.
+            env.telegram.message(OWNER, '/model opus max');
+            await until(() => sentText(env, /Switched to <b>Opus 5\.5<\/b> · Max effort/), { label: 'opus max' });
+            assert.deepStrictEqual(env.ai.pins.get(id), { provider: 'claude-code', model: 'opus', effort: 'max' });
+            assert.strictEqual(env.ai.calls.create.length, 1);
+
+            // Onto a model without Max: rounded down, as the runtime would.
+            env.telegram.message(OWNER, '/model gpt');
+            await until(() => sentText(env, /Switched to <b>GPT-5\.5<\/b> · Extra high effort/), { label: 'gpt' });
+            assert.deepStrictEqual(env.ai.pins.get(id), { provider: 'codex', model: 'gpt-5.5', effort: 'xhigh' });
+
+            env.telegram.message(OWNER, '/effort');
+            await until(() => sentText(env, /How hard should/), { label: 'effort menu' });
+            const efforts = sentText(env, /How hard should/);
+            assert.deepStrictEqual(buttonsOf(efforts).map(button => button.text), ['Low', 'Medium', 'High', '> Extra high']);
+            env.telegram.press(OWNER, 'e:low', efforts.messageId);
+            await until(() => editedText(env, /at <b>Low<\/b> effort/), { label: 'effort low' });
+            assert.strictEqual(env.ai.pins.get(id).effort, 'low');
+
+            env.telegram.message(OWNER, '/model banana');
+            await until(() => sentText(env, /No model matching/), { label: 'no match' });
+        } finally {
+            await teardown(env);
+        }
+    });
+
+    await check('without the controls, the commands are the agent\'s and /status says what it can', async () => {
+        const env = await setup();
+        try {
+            await pairOwner(env);
+            env.telegram.message(OWNER, '/model opus');
+            await until(() => env.ai.calls.send.length === 1, { label: 'passed on' });
+            assert.strictEqual(env.ai.calls.send[0].text, '/model opus');
         } finally {
             await teardown(env);
         }

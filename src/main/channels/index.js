@@ -6,6 +6,7 @@ const jobs = require('../runs/jobs');
 const secrets = require('../ai/secrets');
 const { createConfig } = require('./config');
 const { createGateway } = require('./gateway');
+const { createControls } = require('./controls');
 const { createTelegramAdapter } = require('./telegram');
 const { createDiscordAdapter } = require('./discord');
 const { createSlackAdapter } = require('./slack');
@@ -57,6 +58,21 @@ function build() {
             },
         },
         jobs: { get: id => jobs.get(id) },
+        // The model, effort and mode, as the composer's chips hold them.
+        controls: createControls({
+            ai: assistant,
+            settings: assistant.settings,
+            reconfigure: (before, after, agentId) => assistant.reconfigure(before, after, agentId),
+            notify: (channel, payload) => notify(channel, payload),
+            record: ({ detail, changes }) => activity.record({
+                category: 'security',
+                action: 'assistant.configure',
+                outcome: 'info',
+                target: 'Assistant',
+                detail,
+                changes,
+            }),
+        }),
         isLocked: () => vault.isLocked(),
         scrub: text => secrets.scrub(text),
         onChange: () => notify('channels-changed', status()),

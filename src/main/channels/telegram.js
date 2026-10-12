@@ -19,7 +19,10 @@ const COMMANDS = [
     { command: 'new', description: 'Start a new conversation' },
     { command: 'list', description: 'Pick up a recent conversation' },
     { command: 'stop', description: 'Stop the agent' },
-    { command: 'status', description: 'What the agent is doing' },
+    { command: 'status', description: 'What the agent is doing, on which model' },
+    { command: 'model', description: 'Choose the model' },
+    { command: 'effort', description: 'How hard the model thinks' },
+    { command: 'mode', description: 'What it may do without asking (yolo and the rest)' },
     { command: 'agent', description: 'Choose which agent to talk to' },
     { command: 'help', description: 'What this bot can do' },
 ];

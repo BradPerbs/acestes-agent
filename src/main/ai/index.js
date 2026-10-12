@@ -3236,6 +3236,13 @@ function setConversationModel(conversationId, patch = {}) {
     }
     conversation.settingsPatch = Object.keys(next).length ? next : null;
     archive.save(conversation.id);
+    // Told to the tab showing it, so a pick made somewhere else (a chat
+    // app's /model) moves its chip too. Not recorded: it is not something
+    // that was said, and the line below is what the transcript keeps.
+    notify('ai-event', {
+        conversationId: conversation.id,
+        event: { type: 'pinned', pinned: conversation.settingsPatch, at: Date.now() },
+    });
 
     const after = effectiveSettings(conversation);
     // A line in the chat saying what moved, so the turns after it read as the

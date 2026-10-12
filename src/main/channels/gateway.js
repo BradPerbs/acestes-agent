@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const os = require('os');
 const format = require('./format');
+const { MODES } = require('./controls');
 
 /**
  * A channel's gateway: the user's own bot on a chat app, answering only
@@ -95,7 +96,10 @@ function helpText(prefix) {
         `${prefix}new  start a new conversation`,
         `${prefix}list  pick up a recent conversation`,
         `${prefix}stop  stop the agent`,
-        `${prefix}status  what it is doing`,
+        `${prefix}status  what it is doing, on which model`,
+        `${prefix}model  choose the model`,
+        `${prefix}effort  how hard it thinks`,
+        `${prefix}mode  what it may do without asking (yolo and the rest)`,
         `${prefix}agent  choose which agent to talk to`,
         '',
         'Changes it wants to make wait for your Approve. Photos and text files can be sent too.',
@@ -157,6 +161,8 @@ function approvalBody(event) {
  *             observe, list, history: the assistant core, or a stand-in
  *   agents    list() -> [{ id, name }], activeId(), get(id)
  *   jobs      get(id), for whether a job's cards and results come here
+ *   controls  the model, effort and mode a chat can see and change
+ *             (controls.js); without it those commands are not offered
  *   isLocked  whether the vault is locked
  *   scrub     masks stored secrets out of text leaving the machine
  *   onChange  told the status whenever it moves, for the settings page
@@ -169,6 +175,7 @@ function createGateway(deps = {}) {
         ai,
         agents,
         jobs = { get: () => null },
+        controls = null,
         isLocked = () => false,
         scrub = text => text,
         onChange = () => {},
@@ -615,8 +622,17 @@ function createGateway(deps = {}) {
         }
         const agent = agentFor(chatId);
         const created = ai.create({ agentId: agent?.id || '', scope: 'global' });
+        // On the model a new tab starts on (the starred one, else the last
+        // used), as a conversation a person opens at the desk is.
+        ai.startOnPick?.(created.conversationId);
         section.setChat(chatId, { conversationId: created.conversationId });
         return created.conversationId;
+    }
+
+    /** The conversation a chat is in, or '' while it has none (or it is gone). */
+    function existingConversation(chatId) {
+        const { conversationId } = section.chat(chatId);
+        return conversationId && ai.history(conversationId)?.found ? conversationId : '';
     }
 
     /** The question card still open in a conversation, if there is one. */
@@ -755,8 +771,25 @@ function createGateway(deps = {}) {
                 }
                 return true;
             }
-            case 'status':
-                await say(chatId, statusText(chatId));
+            case 'status': {
+                const shown = await statusMessage(chatId);
+                await say(chatId, shown.markdown, shown.buttons ? { buttons: shown.buttons } : {});
+                return true;
+            }
+            case 'model':
+                if (!controls) return false;
+                if (argument) await pickModelByName(chatId, argument);
+                else await showModels(chatId);
+                return true;
+            case 'effort':
+                if (!controls) return false;
+                if (argument) await pickEffort(chatId, argument);
+                else await showEfforts(chatId);
+                return true;
+            case 'mode':
+                if (!controls) return false;
+                if (argument) await pickMode(chatId, argument);
+                else await showModes(chatId);
                 return true;
             case 'list':
                 await showList(chatId);
@@ -782,9 +815,40 @@ function createGateway(deps = {}) {
         }
     }
 
-    function statusText(chatId) {
+    /** What the chat's next message runs on, from controls.js; null without it. */
+    async function settingsOf(chatId) {
+        if (!controls) return null;
+        try {
+            return await controls.describe({
+                agentId: agentFor(chatId)?.id || '',
+                conversationId: existingConversation(chatId),
+                strict: config().approvals !== 'agent',
+            });
+        } catch (error) {
+            log.error?.(`${label}: could not read the model:`, error?.message || error);
+            return null;
+        }
+    }
+
+    /** The mode line: the agent's, or what the channel holds it to here. */
+    function modeLine(shown) {
+        if (shown.heldTo) {
+            return `**Mode:** ${md(shown.heldTo.label)} from here (${md(shown.modeLabel)} on the desktop: `
+                + `turns from ${label} ask first, see Settings, Channels). Pick one with ${prefix}mode to use it here too.`;
+        }
+        return `**Mode:** ${md(shown.modeLabel)}, ${md(shown.modeHint)}`;
+    }
+
+    /** The model line, with the runtime when the agent has more than one on. */
+    function modelLine(shown) {
+        const runtime = shown.runtimes > 1 && !shown.modelLabel.includes(shown.runtime) ? ` (${md(shown.runtime)})` : '';
+        const effort = shown.effortLabel ? ` · ${md(shown.effortLabel)} effort` : '';
+        return `**Model:** ${md(shown.modelLabel)}${runtime}${effort}`;
+    }
+
+    async function statusMessage(chatId) {
         const agent = agentFor(chatId);
-        const { conversationId } = section.chat(chatId);
+        const conversationId = existingConversation(chatId);
         const found = conversationId ? ai.history(conversationId) : null;
         const lines = [`**${md(agent?.name || 'Agent')}** on ${md(hostName)}`];
         if (found?.found) {
@@ -793,10 +857,172 @@ function createGateway(deps = {}) {
         } else {
             lines.push('No conversation yet: the next message starts one.');
         }
-        lines.push(config().approvals === 'agent'
-            ? 'Approvals: the same as on the desktop.'
-            : 'Approvals: every change asks here first.');
-        return lines.join('\n');
+        const shown = await settingsOf(chatId);
+        if (!shown) {
+            lines.push(config().approvals === 'agent'
+                ? 'Approvals: the same as on the desktop.'
+                : 'Approvals: every change asks here first.');
+            return { markdown: lines.join('\n') };
+        }
+        lines.push('', modelLine(shown), modeLine(shown));
+        const row = [{ text: 'Model', data: 's:model' }];
+        if (shown.efforts.length > 0) row.push({ text: 'Effort', data: 's:effort' });
+        row.push({ text: 'Mode', data: 's:mode' });
+        return { markdown: lines.join('\n'), buttons: [row] };
+    }
+
+    /* -------------------------------------------------------------- *
+     * Model, effort and mode
+     * -------------------------------------------------------------- */
+
+    async function showModels(chatId) {
+        const agent = agentFor(chatId);
+        let listed;
+        try {
+            listed = await controls.models({ agentId: agent?.id || '', conversationId: existingConversation(chatId) });
+        } catch (error) {
+            await say(chatId, `Could not read the models: ${md(error?.message || 'unknown error')}`);
+            return;
+        }
+        const shown = await settingsOf(chatId);
+        if (!listed?.rows?.length) {
+            await say(chatId, `${md(shown?.runtime || 'The agent')} has not said which models it has yet. `
+                + `Try again in a moment, or name one: ${prefix}model opus`);
+            return;
+        }
+        const buttons = listed.rows.map((row, index) => [{
+            text: `${row.current ? '> ' : ''}${format.clip(row.label, 56)}`,
+            data: `m:${index}`,
+        }]);
+        const more = listed.total > listed.rows.length
+            ? `\n_${listed.rows.length} of ${listed.total} shown. Name another with ${prefix}model and its name._`
+            : '';
+        const now = shown ? ` Now on **${md(shown.modelLabel)}**.` : '';
+        const sent = await say(chatId, `Which model for this conversation?${now}${more}`, { buttons });
+        if (sent?.id) menus.set(`${chatId}:${sent.id}`, listed.rows.map(row => ({ provider: row.provider, model: row.value })));
+    }
+
+    /** Put the chat's conversation on a model, starting one if it has none. */
+    async function applyModel(chatId, pick) {
+        let conversationId;
+        try {
+            conversationId = conversationFor(chatId);
+        } catch (error) {
+            return { error: error?.message || 'Could not start a conversation.' };
+        }
+        try {
+            return await controls.setModel({ conversationId, ...pick });
+        } catch (error) {
+            return { error: error?.message || 'unknown error' };
+        }
+    }
+
+    function switchedText(shown) {
+        const effort = shown.effortLabel ? ` · ${md(shown.effortLabel)} effort` : '';
+        return `Switched to **${md(shown.modelLabel)}**${effort}. The next message goes to it.`;
+    }
+
+    async function pickModelByName(chatId, query) {
+        let found;
+        try {
+            found = await controls.findModel({ agentId: agentFor(chatId)?.id || '', conversationId: existingConversation(chatId), query });
+        } catch (error) {
+            found = { error: error?.message || 'unknown error' };
+        }
+        if (found?.error) {
+            await say(chatId, `${md(found.error)} Send ${prefix}model to pick from the list.`);
+            return;
+        }
+        const result = await applyModel(chatId, { provider: found.provider, model: found.model, effort: found.effort || '' });
+        if (result?.error) {
+            await say(chatId, `Could not switch: ${md(result.error)}`);
+            return;
+        }
+        const dropped = found.effortDropped ? `\n_${md(result.modelLabel)} has no ${md(found.effortDropped)} effort._` : '';
+        await say(chatId, `${switchedText(result)}${dropped}`);
+    }
+
+    async function showEfforts(chatId) {
+        const shown = await settingsOf(chatId);
+        if (!shown) return;
+        if (shown.efforts.length === 0) {
+            await say(chatId, `${md(shown.modelLabel)} has no effort setting.`);
+            return;
+        }
+        const buttons = [];
+        for (let index = 0; index < shown.efforts.length; index += 3) {
+            buttons.push(shown.efforts.slice(index, index + 3).map(option => ({
+                text: `${option.value === shown.effort ? '> ' : ''}${option.label}`,
+                data: `e:${option.value}`,
+            })));
+        }
+        await say(chatId, `How hard should **${md(shown.modelLabel)}** think? Now **${md(shown.effortLabel || 'its default')}**.`, { buttons });
+    }
+
+    async function pickEffort(chatId, level, messageId = '') {
+        let conversationId;
+        try {
+            conversationId = conversationFor(chatId);
+        } catch (error) {
+            await say(chatId, `Could not start a conversation: ${md(error?.message || 'unknown error')}`);
+            return;
+        }
+        let result;
+        try {
+            result = await controls.setEffort({ conversationId, effort: level });
+        } catch (error) {
+            result = { error: error?.message || 'unknown error' };
+        }
+        const markdown = result?.error
+            ? `Could not change the effort: ${md(result.error)}`
+            : `**${md(result.modelLabel)}** at **${md(result.effortLabel)}** effort from the next message.`;
+        await settleMenu(chatId, messageId, markdown);
+    }
+
+    async function showModes(chatId) {
+        const shown = await settingsOf(chatId);
+        if (!shown) return;
+        const agent = agentFor(chatId);
+        const lines = [`What may **${md(agent?.name || 'the agent')}** do without asking? Now **${md(shown.modeLabel)}**.`, ''];
+        for (const mode of MODES) lines.push(`• **${md(mode.label)}**: ${md(mode.hint)}`);
+        lines.push('', '_The same switch as the one in the desktop composer: it is the agent\'s, not only this chat\'s._');
+        if (shown.heldTo) {
+            lines.push(`_Turns from ${label} are held to ${md(shown.heldTo.label)} now. Picking a mode here lifts that, so the mode you pick applies here too._`);
+        }
+        const button = mode => ({ text: `${mode.value === shown.mode ? '> ' : ''}${mode.label}`, data: `p:${mode.value}` });
+        const buttons = [MODES.slice(0, 2).map(button), MODES.slice(2).map(button)];
+        await say(chatId, lines.join('\n'), { buttons });
+    }
+
+    async function pickMode(chatId, wanted, messageId = '') {
+        const agent = agentFor(chatId);
+        let result;
+        try {
+            result = controls.setMode({ agentId: agent?.id || '', mode: wanted, via: label });
+        } catch (error) {
+            result = { error: error?.message || 'unknown error' };
+        }
+        if (result?.error) {
+            await settleMenu(chatId, messageId, `Could not change the mode: ${md(result.error)} Send ${prefix}mode to pick one.`);
+            return;
+        }
+        // A mode picked from the chat is meant for the chat: the channel's
+        // own rule that holds chat turns to asking is lifted with it, or a
+        // Yolo picked here would go on asking here. Logged by `update`.
+        const lifted = config().approvals !== 'agent';
+        if (lifted) update({ approvals: 'agent' });
+        const note = lifted ? `\n_Turns from ${label} now follow the agent's mode too (Settings, Channels)._` : '';
+        await settleMenu(chatId, messageId,
+            `**Mode:** ${md(result.modeLabel)}, ${md(result.modeHint)}. From the next message, here and on the desktop.${note}`);
+    }
+
+    /** A picker's answer: the menu message turned into it, or a new message. */
+    async function settleMenu(chatId, messageId, markdown) {
+        if (messageId) {
+            const edited = await quietly(enqueue(chatId, current => current.edit(String(chatId), messageId, { markdown, buttons: null }).then(() => true)));
+            if (edited) return;
+        }
+        await say(chatId, markdown);
     }
 
     async function showList(chatId) {
@@ -909,6 +1135,38 @@ function createGateway(deps = {}) {
             section.setChat(chatId, { conversationId: '' });
             await answer('');
             await say(chatId, 'New conversation. Send your first message.');
+            return undefined;
+        }
+
+        if (controls && kind === 's') {
+            // The buttons under /status: open that picker.
+            await answer('');
+            if (key === 'model') await showModels(chatId);
+            else if (key === 'effort') await showEfforts(chatId);
+            else if (key === 'mode') await showModes(chatId);
+            return undefined;
+        }
+
+        if (controls && kind === 'm') {
+            const picked = menus.get(`${chatId}:${messageId}`)?.[Number(key)];
+            if (!picked) return answer('This menu is out of date. Send the command again.');
+            await answer('Switching');
+            const result = await applyModel(chatId, picked);
+            await settleMenu(chatId, messageId, result?.error
+                ? `Could not switch: ${md(result.error)}`
+                : switchedText(result));
+            return undefined;
+        }
+
+        if (controls && kind === 'e') {
+            await answer('');
+            await pickEffort(chatId, key, messageId);
+            return undefined;
+        }
+
+        if (controls && kind === 'p') {
+            await answer('');
+            await pickMode(chatId, key, messageId);
             return undefined;
         }
 

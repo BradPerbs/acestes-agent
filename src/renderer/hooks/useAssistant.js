@@ -278,6 +278,12 @@ export default function useAssistant({
         if (!enabled) return undefined;
         const off = window.api.ai.onEvent(({ conversationId: id, event }) => {
             if (id !== conversationRef.current) return;
+            // The model and effort moved from somewhere else (a chat app's
+            // /model): the chip follows. Not part of the transcript.
+            if (event.type === 'pinned') {
+                setPinned(event.pinned || null);
+                return;
+            }
             dispatch(event);
 
             if (ENDS_TURN.has(event.type)) {

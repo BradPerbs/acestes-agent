@@ -37,7 +37,39 @@ const COMMANDS = [
     { name: 'new', description: 'Start a new conversation' },
     { name: 'list', description: 'Pick up a recent conversation' },
     { name: 'stop', description: 'Stop the agent' },
-    { name: 'status', description: 'What the agent is doing' },
+    { name: 'status', description: 'What the agent is doing, on which model' },
+    {
+        name: 'model',
+        description: 'Choose the model',
+        options: [{ type: 3, name: 'name', description: 'The model, as the menu names it (opus, gpt-5 codex high)', required: false }],
+    },
+    {
+        name: 'effort',
+        description: 'How hard the model thinks',
+        options: [{
+            type: 3,
+            name: 'level',
+            description: 'The level',
+            required: false,
+            choices: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'].map(value => ({ name: value, value })),
+        }],
+    },
+    {
+        name: 'mode',
+        description: 'What it may do without asking',
+        options: [{
+            type: 3,
+            name: 'mode',
+            description: 'The mode',
+            required: false,
+            choices: [
+                { name: 'Ask every time', value: 'always' },
+                { name: 'Workspace only', value: 'writes' },
+                { name: 'Yolo Mode', value: 'never' },
+                { name: 'Full Access', value: 'full' },
+            ],
+        }],
+    },
     {
         name: 'agent',
         description: 'Choose which agent to talk to',
