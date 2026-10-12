@@ -3,6 +3,7 @@ import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { Advanced } from "@/components/sections/advanced";
 import { Changelog } from "@/components/sections/changelog";
+import { Channels } from "@/components/sections/channels";
 import { Compare } from "@/components/sections/compare";
 import { ComputerUse } from "@/components/sections/computer-use";
 import { Cta } from "@/components/sections/cta";
@@ -50,6 +51,8 @@ export default function Home() {
           <ComputerUse />
           <Gap />
           <Advanced />
+          <Gap />
+          <Channels />
           <Gap />
           <Principles />
           <Gap />

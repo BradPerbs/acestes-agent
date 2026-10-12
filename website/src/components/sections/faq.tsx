@@ -100,6 +100,16 @@ const faqs: { q: string; a: ReactNode }[] = [
     ),
   },
   {
+    q: "Can I reach it from my phone?",
+    a: (
+      <>
+        Yes, through a bot of your own on Telegram, Discord, Slack or Matrix, paired to your account and nobody
+        else&apos;s. The agent works on your computer and answers in the chat, and every change it wants to make waits
+        for your Approve there. Passwords are only ever asked for at the desk.
+      </>
+    ),
+  },
+  {
     q: "Which systems does it run on?",
     a: (
       <>

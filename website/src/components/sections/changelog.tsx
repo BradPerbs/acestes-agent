@@ -5,14 +5,14 @@ import { Icon } from "../icon";
 import { Reveal } from "../reveal";
 import { Eyebrow } from "../ui";
 
-// From the commits since v1.4.3: Full access mode, and the computer use rebuild.
+// From the commits since v1.4.6: Channels, and Claude Desktop as an agent.
 const entries = [
-  { kind: "feat", text: "Computer use reads a window in one call" },
-  { kind: "feat", text: "Numbered screenshots, with their read" },
-  { kind: "feat", text: "Actions report only what changed" },
-  { kind: "feat", text: "Hover, held keys, drag paths, the clipboard" },
-  { kind: "feat", text: "Full access mode, one step past Yolo" },
-  { kind: "fix", text: "Menu items click by number; long text types whole" },
+  { kind: "feat", text: "Channels: Telegram, Discord, Slack and Matrix" },
+  { kind: "feat", text: "Approve changes from the chat" },
+  { kind: "feat", text: "Model, effort and mode from the chat" },
+  { kind: "feat", text: "Job results and approvals sent to your chats" },
+  { kind: "feat", text: "Claude Desktop as its own agent" },
+  { kind: "fix", text: "Computer use lets go when a turn ends" },
 ] as const;
 
 const released = new Date(`${site.released}T12:00:00Z`).toLocaleDateString("en-GB", {

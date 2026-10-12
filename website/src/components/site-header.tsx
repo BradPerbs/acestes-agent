@@ -13,6 +13,7 @@ const links = [
   { href: "#security", label: "Security" },
   { href: "#computer-use", label: "Computer use" },
   { href: "#advanced", label: "Advanced" },
+  { href: "#channels", label: "Channels" },
   { href: "#desktop", label: "Desktop" },
   { href: "#download", label: "Pricing" },
   { href: "#faq", label: "FAQ" },

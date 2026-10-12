@@ -11,6 +11,7 @@ const links = [
   { label: "Security", href: "#security" },
   { label: "Computer use", href: "#computer-use" },
   { label: "Advanced", href: "#advanced" },
+  { label: "Channels", href: "#channels" },
   { label: "Guardrails", href: "#guardrails" },
   { label: "Desktop", href: "#desktop" },
   { label: "Team", href: "#team" },
@@ -44,6 +45,10 @@ export function SiteFooter() {
                 {l.label}
                 {l.external && <span className="ml-1.5 text-[11px] text-subtle">↗</span>}
               </a>
+            ))}
+            {/* Blank cells to square off the last row, so the gaps never show as grey blocks. */}
+            {Array.from({ length: (4 - (links.length % 4)) % 4 }, (_, i) => (
+              <span key={i} aria-hidden="true" className="bg-bg" />
             ))}
           </nav>
 
