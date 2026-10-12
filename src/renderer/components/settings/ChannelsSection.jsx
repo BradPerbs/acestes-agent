@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
-import { TelegramIcon, DiscordIcon, SlackIcon, MatrixIcon, ArrowDown01Icon } from 'hugeicons-react';
+import { ArrowDown01Icon } from 'hugeicons-react';
+import ChannelMark from '../../lib/channel-marks';
 import SettingCard from './ui/SettingCard';
 import SettingRow, { DIVIDED } from './ui/SettingRow';
 import LoadingCard from './ui/LoadingCard';
@@ -30,7 +31,6 @@ import { useT } from '../../i18n';
 const CHANNELS = [
     {
         name: 'telegram',
-        icon: TelegramIcon,
         steps: [
             { key: 'step1', link: 'https://t.me/BotFather', linkKey: 'openBotFather' },
             { key: 'step2', fields: [{ key: 'token', placeholder: '123456789:AA...' }] },
@@ -38,7 +38,6 @@ const CHANNELS = [
     },
     {
         name: 'discord',
-        icon: DiscordIcon,
         steps: [
             { key: 'step1', link: 'https://discord.com/developers/applications', linkKey: 'openPortal' },
             { key: 'step2', fields: [{ key: 'token', placeholder: 'MTA...' }] },
@@ -46,7 +45,6 @@ const CHANNELS = [
     },
     {
         name: 'slack',
-        icon: SlackIcon,
         steps: [
             { key: 'step1', link: 'https://api.slack.com/apps?new_app=1', linkKey: 'openSlackApps', manifest: true },
             { key: 'step2', fields: [{ key: 'botToken', placeholder: 'xoxb-...' }] },
@@ -55,7 +53,6 @@ const CHANNELS = [
     },
     {
         name: 'matrix',
-        icon: MatrixIcon,
         steps: [
             { key: 'step1', link: 'https://app.element.io/#/register', linkKey: 'openElement' },
             { key: 'step2', fields: [{ key: 'homeserver', placeholder: 'matrix.org', plain: true }, { key: 'accessToken', placeholder: 'syt_...' }] },
@@ -106,7 +103,6 @@ const botName = status => (status.identity
 function ChannelCard({ channel, status, agents, run, busy, setConfirm }) {
     const t = useT();
     const key = `settings.channels.${channel.name}`;
-    const Icon = channel.icon;
     const [open, setOpen] = useState(false);
     const [fields, setFields] = useState({});
     const minutesLeft = useMinutesLeft(status.pairing?.expiresAt || 0);
@@ -129,7 +125,9 @@ function ChannelCard({ channel, status, agents, run, busy, setConfirm }) {
         <SettingCard>
             <div className="flex items-start justify-between gap-4">
                 <div className="flex items-start gap-3 min-w-0">
-                    <Icon size={22} strokeWidth={1.5} className="shrink-0 mt-0.5 text-gray-900 dark:text-white" />
+                    <span className="flex shrink-0 mt-0.5 text-gray-900 dark:text-white">
+                        <ChannelMark name={channel.name} size={22} />
+                    </span>
                     <div className="min-w-0">
                         <h4 className="text-base font-semibold text-gray-900 dark:text-white">{t(`${key}.title`)}</h4>
                         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t(`${key}.desc`)}</p>
