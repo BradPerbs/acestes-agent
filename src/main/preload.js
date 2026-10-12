@@ -900,6 +900,7 @@ contextBridge.exposeInMainWorld('api', {
         start: (agentId, options) => ipcRenderer.invoke('teach-start', { agentId, ...(options || {}) }),
         pause: (on) => ipcRenderer.invoke('teach-pause', { on }),
         stop: (agentId) => ipcRenderer.invoke('teach-stop', { agentId }),
+        review: (agentId, id) => ipcRenderer.invoke('teach-review', { agentId, id }),
         accept: (agentId, id, selections) => ipcRenderer.invoke('teach-accept', { agentId, id, selections }),
         discard: (id, selections) => ipcRenderer.invoke('teach-discard', { id, selections }),
         pending: () => ipcRenderer.invoke('teach-pending'),

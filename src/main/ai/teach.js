@@ -74,7 +74,17 @@ function recordingsDir() {
     return dir;
 }
 
+/**
+ * Whether an id is one makeId() could have given. The renderer hands ids back
+ * for review and discard, and a discard deletes the folder recursively, so
+ * anything else (an empty string, "..", a path) is refused before it is joined.
+ */
+function validId(id) {
+    return typeof id === 'string' && /^rec-[a-z0-9]+-[a-z0-9]+$/.test(id);
+}
+
 function recordingDir(id) {
+    if (!validId(id)) throw new Error('Not a recording id.');
     return path.join(recordingsDir(), id);
 }
 
@@ -146,7 +156,7 @@ function redactLine(line, options = {}) {
 let active = null;
 
 function makeId() {
-    return `rec-${now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    return `rec-${now().toString(36)}-${Math.random().toString(36).slice(2, 6).padEnd(4, '0')}`;
 }
 
 /** Whether a recording is under way (for the button and to refuse a second). */
@@ -222,10 +232,9 @@ async function stop() {
  * ------------------------------------------------------------------ */
 
 function readTrace(id) {
-    const file = path.join(recordingDir(id), 'trace.jsonl');
     let text;
     try {
-        text = fs.readFileSync(file, 'utf8');
+        text = fs.readFileSync(path.join(recordingDir(id), 'trace.jsonl'), 'utf8');
     } catch {
         return null;
     }
@@ -372,6 +381,8 @@ function parseDraft(reply) {
 
 /** Drafts held in memory between distil and accept/discard, keyed by id. */
 const drafts = new Map();
+/** Distils still being asked, keyed by id, so a second ask joins the first. */
+const distilling = new Map();
 
 /**
  * Read a recording, ask the runtime to distil it, and hold the draft for
@@ -379,9 +390,35 @@ const drafts = new Map();
  * username, no password) so the Q&A can show them even if the model left them
  * out. Never rejects: a runtime that cannot be asked gives an empty draft with
  * the trace's own app and login list, so the person still has something to
- * review.
+ * review. Asked again for the same recording while the first is still going,
+ * it hands back the same answer rather than asking the runtime twice.
  */
-async function distil(provider, { settings, id } = {}) {
+function distil(provider, { settings, id } = {}) {
+    if (distilling.has(id)) return distilling.get(id);
+    const asking = distilNow(provider, { settings, id })
+        .catch(error => ({ ok: false, error: error?.message || 'The recording could not be read.' }))
+        .finally(() => distilling.delete(id));
+    distilling.set(id, asking);
+    return asking;
+}
+
+/**
+ * Open a recording for review: the draft already held for it, the distil
+ * already under way, or a fresh distil of the trace on disk. This is how a
+ * recording left over (the page was closed while it distilled, the app was
+ * restarted, or the first distil failed) gets its Q&A back.
+ */
+function review(provider, { settings, id } = {}) {
+    if (!validId(id)) return Promise.resolve({ ok: false, code: 'bad-id', error: 'Not a recording id.' });
+    if (active && active.id === id) {
+        return Promise.resolve({ ok: false, code: 'recording', error: 'That recording is still under way. Stop it first.' });
+    }
+    const held = drafts.get(id);
+    if (held) return Promise.resolve({ ok: true, ...held });
+    return distil(provider, { settings, id });
+}
+
+async function distilNow(provider, { settings, id } = {}) {
     const lines = readTrace(id);
     if (!lines) return { ok: false, error: 'That recording is gone.' };
     const episodes = splitEpisodes(lines);
@@ -415,6 +452,8 @@ async function distil(provider, { settings, id } = {}) {
         note = 'This agent\'s runtime cannot be asked to distil a recording.';
     }
 
+    // Discarded while the runtime was thinking: hold nothing for it.
+    if (!fs.existsSync(recordingDir(id))) return { ok: false, code: 'gone', error: 'That recording was discarded.' };
     const held = { id, logins, draft, note };
     drafts.set(id, held);
     return { ok: true, ...held };
@@ -545,6 +584,7 @@ function forget(id) {
 }
 
 function removeRecording(id) {
+    if (!validId(id) || (active && active.id === id)) return false;
     try {
         fs.rmSync(recordingDir(id), { recursive: true, force: true });
         return true;
@@ -565,7 +605,10 @@ function discard(id, { logins = [] } = {}) {
     return { ok: true, removed };
 }
 
-/** Recordings on disk waiting to be reviewed, newest first. */
+/**
+ * Recordings on disk waiting to be reviewed, newest first. The one still
+ * under way is not among them.
+ */
 function pending() {
     let names;
     try {
@@ -575,14 +618,15 @@ function pending() {
     }
     const out = [];
     for (const name of names) {
-        if (!name.startsWith('rec-')) continue;
+        if (!validId(name) || (active && active.id === name)) continue;
         let stat;
         try {
             stat = fs.statSync(path.join(recordingsDir(), name));
         } catch {
             continue;
         }
-        out.push({ id: name, at: stat.mtimeMs });
+        // ready: a draft is held and opens at once; reading: the runtime is on it.
+        out.push({ id: name, at: stat.mtimeMs, ready: drafts.has(name), reading: distilling.has(name) });
     }
     return out.sort((a, b) => b.at - a.at);
 }
@@ -605,6 +649,7 @@ module.exports = {
     stop,
     recording,
     distil,
+    review,
     getDraft,
     accept,
     discard,
@@ -619,6 +664,7 @@ module.exports = {
         parseDraft,
         secretName,
         looksLikeCard,
-        reset: () => { active = null; drafts.clear(); },
+        validId,
+        reset: () => { active = null; drafts.clear(); distilling.clear(); },
     },
 };

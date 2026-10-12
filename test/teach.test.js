@@ -195,6 +195,105 @@ async function run() {
         await teach.stop();
     });
 
+    /** A stopped recording with a little in it, for the review tests. */
+    async function recorded(agentId) {
+        const started = await teach.start(agentId, {});
+        assert.ok(started.ok, started.error);
+        teach.ingest({ t: 0, type: 'window', app: 'chrome.exe', window: 'panel.example.com' });
+        teach.ingest({ t: 1, type: 'click', target: { role: 'button', name: 'Mail' } });
+        const stopped = await teach.stop();
+        assert.ok(stopped.ok);
+        return stopped.id;
+    }
+    const DRAFT = JSON.stringify({ questions: [{ id: 'q1', episode: 'e1', text: 'Why Mail?' }] });
+
+    await test('the recording under way is not left over; a held draft is flagged ready', async () => {
+        teach._test.reset();
+        const started = await teach.start('agent-e', {});
+        assert.ok(!teach.pending().some(p => p.id === started.id), 'the live recording is not offered for review');
+        const stopped = await teach.stop();
+        assert.ok(teach.pending().some(p => p.id === stopped.id && !p.ready), 'once stopped it is left over');
+        await teach.distil({ title: async () => DRAFT }, { settings: {}, id: stopped.id });
+        assert.ok(teach.pending().some(p => p.id === stopped.id && p.ready), 'with a draft held it is ready');
+        teach.discard(stopped.id);
+    });
+
+    await test('review hands back the held draft without asking the runtime again', async () => {
+        teach._test.reset();
+        const id = await recorded('agent-f');
+        let asked = 0;
+        const provider = { title: async () => { asked += 1; return DRAFT; } };
+        await teach.distil(provider, { settings: {}, id });
+        const again = await teach.review(provider, { settings: {}, id });
+        assert.ok(again.ok, again.error);
+        assert.strictEqual(asked, 1, 'the runtime was asked once');
+        assert.strictEqual(again.draft.questions[0].text, 'Why Mail?', 'the Q&A comes back');
+        teach.discard(id);
+    });
+
+    await test('review reads a left over recording from disk after a restart', async () => {
+        teach._test.reset();
+        const id = await recorded('agent-g');
+        teach._test.reset(); // the app restarted: no draft, nothing in flight
+        const opened = await teach.review({ title: async () => DRAFT }, { settings: {}, id });
+        assert.ok(opened.ok, opened.error);
+        assert.strictEqual(opened.draft.questions.length, 1, 'the questions were drafted from the trace on disk');
+        const result = await teach.accept(id, { agentId: 'agent-g' });
+        assert.ok(result.ok, 'the reopened draft can be accepted');
+    });
+
+    await test('two reviews at once ask the runtime once', async () => {
+        teach._test.reset();
+        const id = await recorded('agent-h');
+        let asked = 0;
+        let answer;
+        const provider = { title: () => { asked += 1; return new Promise(resolve => { answer = resolve; }); } };
+        const first = teach.distil(provider, { settings: {}, id });
+        const second = teach.review(provider, { settings: {}, id });
+        await new Promise(resolve => setImmediate(resolve));
+        assert.ok(teach.pending().some(p => p.id === id && p.reading), 'left over shows it being read');
+        answer(DRAFT);
+        const [a, b] = await Promise.all([first, second]);
+        assert.strictEqual(asked, 1, 'the second joined the first');
+        assert.ok(a.ok && b.ok);
+        teach.discard(id);
+    });
+
+    await test('a recording discarded while it is read leaves no draft behind', async () => {
+        teach._test.reset();
+        const id = await recorded('agent-i');
+        let answer;
+        const reading = teach.review({ title: () => new Promise(resolve => { answer = resolve; }) }, { settings: {}, id });
+        await new Promise(resolve => setImmediate(resolve));
+        teach.discard(id);
+        answer(DRAFT);
+        const result = await reading;
+        assert.strictEqual(result.ok, false, 'the read reports the recording gone');
+        assert.strictEqual(teach.getDraft(id), null, 'no draft is held for it');
+    });
+
+    await test('review and discard refuse anything that is not a recording id', async () => {
+        teach._test.reset();
+        const marker = path.join(userData, 'keep-me.txt');
+        fs.writeFileSync(marker, 'x');
+        for (const bad of ['', '..', '../..', 'rec-../x', 'C:\\Windows', 'recordings']) {
+            const opened = await teach.review({ title: async () => DRAFT }, { settings: {}, id: bad });
+            assert.strictEqual(opened.ok, false, `review refused ${JSON.stringify(bad)}`);
+            assert.strictEqual(teach.discard(bad).removed, false, `discard refused ${JSON.stringify(bad)}`);
+        }
+        assert.ok(fs.existsSync(marker), 'nothing outside the recordings was touched');
+        assert.ok(teach._test.validId('rec-mv5abc12-x9k2'));
+    });
+
+    await test('a recording under way cannot be reviewed or discarded', async () => {
+        teach._test.reset();
+        const started = await teach.start('agent-j', {});
+        const opened = await teach.review({ title: async () => DRAFT }, { settings: {}, id: started.id });
+        assert.strictEqual(opened.code, 'recording');
+        assert.strictEqual(teach.discard(started.id).removed, false, 'the live trace stays');
+        await teach.stop();
+    });
+
     console.log(failures ? `\n${failures} test(s) failed.` : '\nAll teach tests passed.');
     process.exit(failures ? 1 : 0);
 }

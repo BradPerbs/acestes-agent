@@ -2629,11 +2629,23 @@ function teachPauseRecording(on) {
 async function teachStop(agentId) {
     const stopped = await teach.stop();
     if (!stopped.ok) return stopped;
-    const id = String(agentId || agents.activeId());
-    const current = resolved(id);
-    const provider = PROVIDERS[current.provider];
-    const distilled = await teach.distil(provider, { settings: current, id: stopped.id });
-    return { ...stopped, review: distilled };
+    return { ...stopped, review: await teachReview(agentId, stopped.id) };
+}
+
+/**
+ * Open a recording for review, by this agent's runtime: the draft already
+ * held, the distil under way, or a fresh distil of the trace on disk. Never
+ * rejects, so the page always has an answer to show, an error included.
+ */
+async function teachReview(agentId, recordingId) {
+    try {
+        const id = String(agentId || agents.activeId());
+        const current = resolved(id);
+        const provider = PROVIDERS[current.provider];
+        return await teach.review(provider, { settings: current, id: String(recordingId || '') });
+    } catch (error) {
+        return { ok: false, error: error?.message || 'The recording could not be opened for review.' };
+    }
 }
 
 function teachAccept(agentId, recordingId, selections = {}) {
@@ -4525,6 +4537,7 @@ module.exports = {
     teachStart,
     teachPauseRecording,
     teachStop,
+    teachReview,
     teachAccept,
     teachDiscard,
     teachPending,

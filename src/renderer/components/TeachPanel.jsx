@@ -9,6 +9,7 @@ import {
     RecordIcon,
     StopCircleIcon,
     Tick02Icon,
+    ViewIcon,
 } from 'hugeicons-react';
 import Button from './ui/Button';
 import Checkbox from './ui/Checkbox';
@@ -52,6 +53,10 @@ function TeachPanel({ agentId = '' }) {
     const [apps, setApps] = useState('');
     // One call in flight (start, stop, accept, discard), so buttons settle.
     const [busy, setBusy] = useState(false);
+    // The agent is reading a recording into a draft (after stop, or a left
+    // over one opened with Review). Its own view, so a poll that sees nothing
+    // recording any more cannot drop the page back to idle while it reads.
+    const [reading, setReading] = useState(false);
 
     // Review selections. `kept` holds `section:id` keys the person unticked
     // (anything absent is kept); `loginRows` carries each login's keep box and
@@ -75,8 +80,9 @@ function TeachPanel({ agentId = '' }) {
     }, [refresh]);
 
     // While a recording runs and nothing is up for review, read the line count
-    // and pause state back every couple of seconds.
-    const isRecording = Boolean(recording) && !review;
+    // and pause state back every couple of seconds. Not once stop is pressed:
+    // the recorder is off by then, and the poll would show the idle page.
+    const isRecording = Boolean(recording) && !review && !reading;
     useEffect(() => {
         if (!isRecording) return undefined;
         const timer = setInterval(refresh, 2000);
@@ -120,21 +126,54 @@ function TeachPanel({ agentId = '' }) {
         refresh();
     }, [recording, refresh]);
 
+    // A draft from stop or review: opened, or its error shown. A recording that
+    // could not be read stays under Left over for another go.
+    const takeReview = useCallback((draftReview) => {
+        if (draftReview && draftReview.ok !== false) {
+            openReview(draftReview);
+            return true;
+        }
+        toast.error(draftReview?.error || 'The recording could not be opened for review.', toastOptions());
+        return false;
+    }, [openReview]);
+
     const stop = useCallback(async () => {
         if (busy) return;
         setBusy(true);
+        setReading(true);
         try {
             const res = await window.api.teach?.stop(agentId);
             if (res?.review) {
                 setRecording(null);
-                openReview(res.review);
-            } else {
-                await refresh();
+                takeReview(res.review);
+            } else if (res && res.ok === false) {
+                toast.error(res.error || 'Could not stop the recording.', toastOptions());
             }
+        } catch (error) {
+            toast.error(error?.message || 'Could not stop the recording.', toastOptions());
         } finally {
+            setReading(false);
             setBusy(false);
+            refresh();
         }
-    }, [busy, agentId, openReview, refresh]);
+    }, [busy, agentId, takeReview, refresh]);
+
+    // Review a left over recording: the agent reads it again (or hands back
+    // the draft it already made, or joins the read still under way).
+    const reviewPending = useCallback(async (id) => {
+        if (busy || !agentId) return;
+        setBusy(true);
+        setReading(true);
+        try {
+            takeReview(await window.api.teach?.review(agentId, id));
+        } catch (error) {
+            toast.error(error?.message || 'The recording could not be opened for review.', toastOptions());
+        } finally {
+            setReading(false);
+            setBusy(false);
+            refresh();
+        }
+    }, [busy, agentId, takeReview, refresh]);
 
     const key = (section, id) => `${section}:${id}`;
     const isKept = (section, id) => kept[key(section, id)] !== false;
@@ -464,6 +503,26 @@ function TeachPanel({ agentId = '' }) {
     }
 
     /* ----------------------------------------------------------------- *
+     * Reading: the agent turns the recording into a draft
+     * ----------------------------------------------------------------- */
+    if (reading) {
+        return (
+            <div className="flex flex-col gap-4 h-full min-h-0" id="teach-panel">
+                <div className="flex-1 min-h-0 flex items-center justify-center">
+                    <div className="w-full max-w-md flex flex-col items-center gap-3 text-center">
+                        <Loading03Icon size={22} className="animate-spin text-gray-500 dark:text-gray-400" />
+                        <span className="text-base font-medium text-gray-900 dark:text-white">Reading the recording</span>
+                        <p className="text-[13px] text-gray-500 dark:text-gray-400">
+                            The agent is working out what it learned and what to ask you. This can take a few minutes. If you
+                            leave this page, the recording waits under Left over, and Review picks it up again.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    /* ----------------------------------------------------------------- *
      * Recording
      * ----------------------------------------------------------------- */
     if (recording) {
@@ -559,8 +618,8 @@ function TeachPanel({ agentId = '' }) {
                         <div className="flex flex-col gap-2">
                             <SectionTitle>Left over</SectionTitle>
                             <p className="text-[13px] text-gray-500 dark:text-gray-400 -mt-1">
-                                Recordings that were never reviewed. They cannot be distilled again from here, so discard the ones
-                                you do not need.
+                                Recordings that were never reviewed. Review one to answer the agent's questions and keep what it
+                                learned, or discard the ones you do not need.
                             </p>
                             {pending.map(item => (
                                 <div
@@ -570,13 +629,25 @@ function TeachPanel({ agentId = '' }) {
                                 >
                                     <div className="min-w-0 flex-1">
                                         <p className="text-sm text-gray-900 dark:text-white break-words">{item.id}</p>
-                                        <p className="text-[13px] text-gray-500 dark:text-gray-400">{formatWhen(item.at)}</p>
+                                        <p className="text-[13px] text-gray-500 dark:text-gray-400">
+                                            {formatWhen(item.at)}
+                                            {item.ready ? ' · Ready to review' : item.reading ? ' · The agent is reading it' : ''}
+                                        </p>
                                     </div>
+                                    <Button
+                                        size="sm"
+                                        icon={<ViewIcon size={15} strokeWidth={1.75} />}
+                                        onClick={() => reviewPending(item.id)}
+                                        disabled={busy || !agentId}
+                                    >
+                                        Review
+                                    </Button>
                                     <Button
                                         variant="dangerGhost"
                                         size="sm"
                                         icon={<Delete02Icon size={15} strokeWidth={1.75} />}
                                         onClick={() => discardPending(item.id)}
+                                        disabled={busy}
                                     >
                                         Discard
                                     </Button>

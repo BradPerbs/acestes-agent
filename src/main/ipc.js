@@ -2208,6 +2208,8 @@ function register(getWindow) {
     handle('teach-pause', (event, { on } = {}) => assistant.teachPauseRecording(Boolean(on)));
     handle('teach-stop', (event, { agentId } = {}) =>
         assistant.teachStop(String(agentId || agents.activeId())));
+    handle('teach-review', (event, { agentId, id } = {}) =>
+        assistant.teachReview(String(agentId || agents.activeId()), String(id || '')));
     handle('teach-accept', (event, { agentId, id, selections } = {}) =>
         assistant.teachAccept(String(agentId || agents.activeId()), String(id || ''), selections || {}));
     handle('teach-discard', (event, { id, selections } = {}) =>
