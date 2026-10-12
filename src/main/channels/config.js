@@ -24,9 +24,6 @@ const VERSION = 2;
 
 const NAMES = ['telegram', 'discord', 'slack', 'matrix'];
 
-/** Turns from the channel: every change asks, or the agent's own setting applies. */
-const APPROVALS = new Set(['ask', 'agent']);
-
 const text = (value, max) => String(value ?? '').slice(0, max);
 
 function blank() {
@@ -37,7 +34,6 @@ function blank() {
         owner: null,
         cursor: '',
         agentId: '',
-        approvals: 'ask',
         chats: {},
     };
 }
@@ -69,7 +65,8 @@ function cleanSection(raw) {
     const cursor = source.cursor ?? (Number(source.offset) > 0 ? String(source.offset) : '');
     out.cursor = text(cursor, 2000);
     out.agentId = text(source.agentId, 120);
-    out.approvals = APPROVALS.has(source.approvals) ? source.approvals : 'ask';
+    // `approvals` (ask / agent), from before turns from a chat simply ran in
+    // the conversation's mode, is dropped here.
     if (source.chats && typeof source.chats === 'object') {
         for (const [chatId, chat] of Object.entries(source.chats)) {
             if (!/^[\w!:.@+=-]{1,200}$/.test(chatId) || !chat || typeof chat !== 'object') continue;
@@ -170,4 +167,4 @@ function createConfig({ dir, crypt }) {
     };
 }
 
-module.exports = { createConfig, cleanSection, APPROVALS, NAMES };
+module.exports = { createConfig, cleanSection, NAMES };

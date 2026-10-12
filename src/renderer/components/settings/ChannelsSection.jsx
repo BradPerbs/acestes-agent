@@ -8,7 +8,6 @@ import LoadingCard from './ui/LoadingCard';
 import Toggle from './ui/Toggle';
 import Button from '../ui/Button';
 import Select from '../ui/Select';
-import SegmentedControl from '../ui/SegmentedControl';
 import ConfirmDialog from '../ui/ConfirmDialog';
 import CopyButton from '../ui/CopyButton';
 import { FIELD_CLASS } from './useAssistantSettings';
@@ -323,22 +322,6 @@ function ChannelCard({ channel, status, agents, run, busy, setConfirm }) {
                             </div>
                         )}
                     />
-
-                    <SettingRow
-                        className={DIVIDED}
-                        title={t('settings.channels.approvals', { app: status.label })}
-                        description={t('settings.channels.approvalsDesc', { app: status.label })}
-                    >
-                        <SegmentedControl
-                            ariaLabel={t('settings.channels.approvals', { app: status.label })}
-                            value={status.approvals}
-                            onChange={value => run(channel.name, 'approvals', () => window.api.channels.update(channel.name, { approvals: value }))}
-                            segments={[
-                                { value: 'ask', label: t('settings.channels.approvalsAsk') },
-                                { value: 'agent', label: t('settings.channels.approvalsAgent') },
-                            ]}
-                        />
-                    </SettingRow>
                 </>
             )}
 

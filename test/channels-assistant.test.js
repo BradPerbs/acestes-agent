@@ -99,54 +99,48 @@ const eventsOf = (conversationId, type) => seen
     console.log('\nchannels in the assistant core');
 
     const agentId = agents.activeId();
-    const probe = (approval, { strict = true, policy = null } = {}) => {
+    const probe = (approval, { phone = true, policy = null, own = null } = {}) => {
         assistant.settings.set({ approval }, agentId);
         return assistant.effectiveSettings({
             agentId,
-            settingsPatch: null,
+            settingsPatch: own ? { approval: own } : null,
             runPolicy: policy,
-            channelTurn: strict === null ? null : { channel: 'telegram', strict },
+            channelTurn: phone ? { channel: 'telegram' } : null,
         }).approval;
     };
 
-    await check('a turn from the phone asks before every change, whatever the agent\'s mode', () => {
-        assert.strictEqual(probe('never'), 'writes');
-        assert.strictEqual(probe('full'), 'writes');
-        assert.strictEqual(probe('writes'), 'writes');
-        assert.strictEqual(probe('always'), 'always', 'only ever tightens');
-        assert.strictEqual(probe('full', { policy: { approvals: 'full' } }), 'writes', 'a job\'s full policy too');
+    await check('a turn from the phone runs in the conversation\'s own mode, as one from the desk', () => {
+        for (const mode of ['always', 'writes', 'never', 'full']) {
+            assert.strictEqual(probe(mode), mode, mode);
+            assert.strictEqual(probe(mode, { phone: false }), mode, mode);
+        }
+        assert.strictEqual(probe('writes', { own: 'never' }), 'never', 'the conversation\'s mode over the agent\'s');
+        assert.strictEqual(probe('full', { policy: { approvals: 'full' } }), 'never', 'a job\'s policy still decides');
     });
 
-    await check('"same as the desktop" and a desk turn leave the mode alone', () => {
-        assert.strictEqual(probe('never', { strict: false }), 'never');
-        assert.strictEqual(probe('never', { strict: null }), 'never');
-        assert.strictEqual(probe('full', { strict: null }), 'full');
-    });
-
-    // The rest runs with the agent in yolo, which is where the phone's rule
-    // is felt.
+    // The rest runs with the agent in yolo, which a phone turn now keeps.
     assistant.settings.set({ approval: 'never' }, agentId);
 
     const { conversationId } = assistant.create({ scope: 'global' });
     const conversation = assistant._test.conversation(conversationId);
 
     await check('a message from the phone is marked, and the model told once where the user is', async () => {
-        const sent = await assistant.send(conversationId, 'how full is the disk?', [], [], [], { channel: 'telegram', strict: true });
+        const sent = await assistant.send(conversationId, 'how full is the disk?', [], [], [], { channel: 'telegram' });
         assert.ok(sent.success, sent.message);
         const [message] = eventsOf(conversationId, 'user-message');
         assert.strictEqual(message.channel, 'telegram');
         assert.strictEqual(conversation.channelTurn.channel, 'telegram');
-        assert.strictEqual(assistant.effectiveSettings(conversation).approval, 'writes');
+        assert.strictEqual(assistant.effectiveSettings(conversation).approval, 'never', 'the mode it is in');
         const text = starts[0].session.sent[0];
         assert.ok(/writing through Telegram, away from this computer/.test(text), text);
-        assert.ok(/every change asks for their approval there first/.test(text), text);
+        assert.ok(!/every change asks/.test(text), text);
         const started = eventsOf(conversationId, 'run-started')[0];
         assert.ok(started, 'a run started');
         const runs = require(path.join(ROOT, 'runs'));
         assert.deepStrictEqual(runs.get(started.runId).trigger, { source: 'telegram' });
 
         starts[0].options.onEvent({ type: 'result', subtype: 'success', isError: false, costUsd: 0 });
-        await assistant.send(conversationId, 'and now?', [], [], [], { channel: 'telegram', strict: true });
+        await assistant.send(conversationId, 'and now?', [], [], [], { channel: 'telegram' });
         assert.ok(!/through Telegram/.test(starts[0].session.sent[1]), 'said once per switch, not every message');
         starts[0].options.onEvent({ type: 'result', subtype: 'success', isError: false, costUsd: 0 });
     });
@@ -183,7 +177,7 @@ const eventsOf = (conversationId, type) => seen
         assert.strictEqual(eventsOf(conversationId, 'question-settled').at(-1).by, 'telegram');
     });
 
-    await check('the next message typed at the desk puts the agent\'s own mode back', async () => {
+    await check('the next message typed at the desk ends the phone\'s turn', async () => {
         await assistant.send(conversationId, 'thanks, I am back');
         assert.strictEqual(conversation.channelTurn, null);
         assert.strictEqual(assistant.effectiveSettings(conversation).approval, 'never');
@@ -194,7 +188,7 @@ const eventsOf = (conversationId, type) => seen
     });
 
     await check('the note-taking turn after a real one changes neither', async () => {
-        await assistant.send(conversationId, 'from the phone again', [], [], [], { channel: 'telegram', strict: true });
+        await assistant.send(conversationId, 'from the phone again', [], [], [], { channel: 'telegram' });
         starts[0].options.onEvent({ type: 'result', subtype: 'success', isError: false, costUsd: 0 });
         conversation.remembering = true;
         await assistant.send(conversationId, 'Before we move on: anything to keep?');
@@ -203,14 +197,14 @@ const eventsOf = (conversationId, type) => seen
         starts[0].options.onEvent({ type: 'result', subtype: 'success', isError: false, costUsd: 0 });
     });
 
-    await check('Full access lifted for the phone restarts the runtime between turns, not during one', async () => {
+    await check('a phone turn under Full access keeps it, with no restart', async () => {
         assistant.settings.set({ approval: 'full' }, agentId);
         await assistant.send(conversationId, 'desk turn under full access');
         starts.at(-1).options.onEvent({ type: 'result', subtype: 'success', isError: false, costUsd: 0 });
         const before = starts.length;
-        await assistant.send(conversationId, 'phone turn', [], [], [], { channel: 'telegram', strict: true });
-        assert.strictEqual(starts.length, before + 1, 'the runtime was started again for the fence');
-        assert.strictEqual(starts.at(-1).options.getSettings().approval, 'writes');
+        await assistant.send(conversationId, 'phone turn', [], [], [], { channel: 'telegram' });
+        assert.strictEqual(starts.length, before, 'the same runtime');
+        assert.strictEqual(starts.at(-1).options.getSettings().approval, 'full');
         starts.at(-1).options.onEvent({ type: 'result', subtype: 'success', isError: false, costUsd: 0 });
         assistant.settings.set({ approval: 'never' }, agentId);
     });
@@ -246,11 +240,11 @@ const eventsOf = (conversationId, type) => seen
     const takeDesktop = id => computer._test.drivers().set(id, { name: 'Acestes', pausedBy: '', counted: true });
 
     await check('a follow-up sent into a running turn lets go when it ends, though its run was closed by the first', async () => {
-        await assistant.send(conversationId, 'click through the installer', [], [], [], { channel: 'telegram', strict: true });
+        await assistant.send(conversationId, 'click through the installer', [], [], [], { channel: 'telegram' });
         takeDesktop(conversationId);
         // "and accept the licence too", sent while the first is running: the
         // same run, which the first turn's result closes.
-        await assistant.send(conversationId, 'and accept the licence too', [], [], [], { channel: 'telegram', strict: true });
+        await assistant.send(conversationId, 'and accept the licence too', [], [], [], { channel: 'telegram' });
         starts.at(-1).options.onEvent({ type: 'result', subtype: 'success', isError: false, costUsd: 0 });
         assert.ok(!computer._test.drivers().has(conversationId), 'the first turn let go');
         assert.strictEqual(conversation.runId, '', 'and its run is closed');
@@ -262,7 +256,7 @@ const eventsOf = (conversationId, type) => seen
     });
 
     await check('stopped from the phone, nothing still running takes the desktop back until the next message', async () => {
-        await assistant.send(conversationId, 'fill in the form', [], [], [], { channel: 'telegram', strict: true });
+        await assistant.send(conversationId, 'fill in the form', [], [], [], { channel: 'telegram' });
         takeDesktop(conversationId);
         const stopped = await assistant.interrupt(conversationId);
         assert.strictEqual(stopped.success, true);
@@ -284,7 +278,7 @@ const eventsOf = (conversationId, type) => seen
             assert.ok(!computer._test.drivers().has(conversationId), 'still not driving');
         }
 
-        await assistant.send(conversationId, 'ok, carry on', [], [], [], { channel: 'telegram', strict: true });
+        await assistant.send(conversationId, 'ok, carry on', [], [], [], { channel: 'telegram' });
         assert.ok(!computer._test.halted().has(conversationId), 'a new turn may drive again');
         starts.at(-1).options.onEvent({ type: 'result', subtype: 'success', isError: false, costUsd: 0 });
     });

@@ -4,8 +4,8 @@
  *
  * The assistant core is a stand-in here that records what the gateway asks
  * of it and lets the test play events back the way `emit` would. What the
- * real core does with a message from the phone (the tag, the stricter
- * approvals, `by` on a settled card) is channels-assistant.test.js.
+ * real core does with a message from the phone (the tag, the mode it runs
+ * in, `by` on a settled card) is channels-assistant.test.js.
  *
  * The cases that matter most are the trust rules: a stranger gets nothing,
  * pairing takes the code the desktop issued and no other, a message that
@@ -459,8 +459,8 @@ async function teardown(env) {
     });
 
     await check('junk in the file is dropped, not trusted', () => {
-        const clean = cleanSection({ approvals: 'yolo', owner: { userId: '' }, chats: { 'not a chat/x': {}, 12: { conversationId: 'conv-1' } }, offset: -5 });
-        assert.strictEqual(clean.approvals, 'ask');
+        const clean = cleanSection({ approvals: 'ask', owner: { userId: '' }, chats: { 'not a chat/x': {}, 12: { conversationId: 'conv-1' } }, offset: -5 });
+        assert.strictEqual('approvals' in clean, false, 'the old per-channel rule is gone');
         assert.strictEqual(clean.owner, null);
         assert.deepStrictEqual(Object.keys(clean.chats), ['12']);
         assert.strictEqual(clean.cursor, '');
@@ -553,7 +553,7 @@ async function teardown(env) {
         }
     });
 
-    await check('a message from the owner becomes a strict turn in a new conversation', async () => {
+    await check('a message from the owner becomes a turn in a new conversation', async () => {
         const env = await setup();
         try {
             await pairOwner(env);
@@ -561,7 +561,7 @@ async function teardown(env) {
             await until(() => env.ai.calls.send.length === 1, { label: 'send' });
             const [sent] = env.ai.calls.send;
             assert.strictEqual(sent.text, 'how full is the disk on web1?');
-            assert.deepStrictEqual(sent.options, { channel: 'telegram', strict: true });
+            assert.deepStrictEqual(sent.options, { channel: 'telegram' });
             assert.strictEqual(env.ai.calls.create[0].agentId, 'agent-1');
             await until(() => env.telegram.sent('sendChatAction').length >= 1, { label: 'typing' });
 
@@ -728,7 +728,7 @@ async function teardown(env) {
 
             env.telegram.message(OWNER, '/status');
             await until(() => env.telegram.sent('sendMessage').some(call => /Acestino<\/b> on test-pc/.test(call.body.text)), { label: 'status' });
-            assert.ok(env.telegram.sent('sendMessage').some(call => /every change asks here first/.test(call.body.text)));
+            assert.ok(!env.telegram.sent('sendMessage').some(call => /Approvals:/.test(call.body.text)), 'no channel rule to report');
 
             env.telegram.message(OWNER, '/agent night');
             await until(() => env.telegram.sent('sendMessage').some(call => /Talking to Night Shift/.test(call.body.text)), { label: 'agent' });
@@ -934,8 +934,8 @@ async function teardown(env) {
             await until(() => sentText(env, /Model:/), { label: 'status' });
             const status = sentText(env, /Model:/);
             assert.ok(/<b>Model:<\/b> Opus 5\.5 \(Claude Code\) · High effort/.test(status.body.text), status.body.text);
-            // Yolo on the agent, held to Workspace only for turns from the phone.
-            assert.ok(/<b>Mode:<\/b> Workspace only from here \(Yolo Mode on the desktop/.test(status.body.text), status.body.text);
+            // Yolo on the agent is Yolo from the phone too.
+            assert.ok(/<b>Mode:<\/b> Yolo Mode, nothing stops/.test(status.body.text), status.body.text);
             assert.deepStrictEqual(buttonsOf(status).map(button => button.text), ['Model', 'Effort', 'Mode']);
             assert.ok(buttonsOf(status).every(button => Buffer.byteLength(button.callback_data) <= 64));
         } finally {
@@ -943,7 +943,7 @@ async function teardown(env) {
         }
     });
 
-    await check('a mode picked on the phone is the chat\'s conversation\'s, and applies on the phone too', async () => {
+    await check('a mode picked on the phone is the chat\'s conversation\'s', async () => {
         const env = await setup({ settings: fakeSettings({ approval: 'never' }) });
         try {
             await pairOwner(env);
@@ -953,17 +953,16 @@ async function teardown(env) {
             await until(() => sentText(env, /do here without asking/), { label: 'mode menu' });
             const menu = sentText(env, /do here without asking/);
             assert.deepStrictEqual(buttonsOf(menu).map(button => button.text), ['Ask every time', 'Workspace only', '> Yolo Mode', 'Full Access']);
-            assert.ok(/held to Workspace only/.test(menu.body.text), menu.body.text);
+            assert.ok(!/held to/.test(menu.body.text), menu.body.text);
 
-            // The same mode, picked here: nothing to change, but the phone's
-            // hold is lifted so Yolo means Yolo here too. The chat gets a
+            // The same mode, picked here: nothing to change. The chat gets a
             // conversation to hold its mode.
             env.telegram.press(OWNER, 'p:never', menu.messageId);
             await until(() => editedText(env, /Yolo Mode/), { label: 'mode settled' });
-            assert.strictEqual(env.gateway.status().approvals, 'agent');
+            assert.strictEqual('approvals' in env.gateway.status(), false);
             assert.strictEqual(env.ai.calls.create.length, 1);
             assert.strictEqual(env.ai.calls.pin.length, 0, 'nothing moved');
-            assert.ok(env.audits.some(entry => entry.action === 'channels.telegram-approvals'));
+            assert.ok(!env.audits.some(entry => entry.action === 'channels.telegram-approvals'));
 
             env.telegram.clear();
             env.telegram.message(OWNER, '/status');

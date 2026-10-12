@@ -292,8 +292,9 @@ function setMessenger(fn) {
 
 /**
  * The channels a message can arrive through, other than a window. A turn
- * from one of them is marked on the message and may run under stricter
- * approvals: see `channelTurn` in `send` and `effectiveSettings`.
+ * from one of them is marked on the message, and its approval cards wait
+ * longer: see `channelTurn` in `send`. It runs in the conversation's own
+ * mode, which the chat changes with /mode.
  */
 const CHANNEL_LABELS = { telegram: 'Telegram', discord: 'Discord', slack: 'Slack', matrix: 'Matrix' };
 const CHANNELS = new Set(Object.keys(CHANNEL_LABELS));
@@ -620,21 +621,7 @@ async function runHooks(conversation, event, payload = {}) {
  * existing gate is the only gate.
  */
 function effectiveSettings(conversation) {
-    return channelSettings(conversation, policySettings(conversation));
-}
-
-/**
- * A turn sent from a chat app asks before every change, whatever the agent's
- * own mode, unless the user said otherwise for the channel. Holding a phone
- * that is signed in to a chat account is weaker proof of who is there than
- * sitting at the desk, and the card costs one tap there. Only ever tightens: a mode
- * that already asks keeps asking, and the blocked list applies either way.
- * Lifted by the next message typed at the desk. See `send`.
- */
-function channelSettings(conversation, current) {
-    if (!conversation.channelTurn?.strict) return current;
-    if (current.approval === 'never' || current.approval === 'full') return { ...current, approval: 'writes' };
-    return current;
+    return policySettings(conversation);
 }
 
 function policySettings(conversation) {
@@ -3595,8 +3582,8 @@ function summarise(input) {
  * change keeps the cached prefix intact for the turns where nothing moved.
  *
  * `options.channel` is a message from outside the app ('telegram'), which
- * is marked on the message and, with `options.strict`, asks before every
- * change for as long as the chat app is the one talking. See `channelSettings`.
+ * is marked on the message. It runs in the conversation's mode, like one
+ * typed at the desk; the chat changes that mode with /mode.
  */
 async function send(conversationId, text, attachments = [], tagged = [], attachedFiles = [], options = {}) {
     hydrate();
@@ -3686,28 +3673,17 @@ async function send(conversationId, text, attachments = [], tagged = [], attache
     // conversation's in the open from here (see `warm`).
     conversation.warmOnly = false;
 
-    // Whoever spoke last is who the turn answers to, and under whose rules
-    // it runs: a channel's stricter approvals hold until the desk speaks.
-    // The note-taking turn after a real one is the app's, not a person's,
-    // and changes neither. Full access moving with it changes the folder
-    // fence, which a runtime fixes when it starts, so it is restarted for
-    // it, between turns only.
+    // Whoever spoke last is who the turn answers to: a chat app's turn has
+    // its approval cards sent there. The note-taking turn after a real one
+    // is the app's, not a person's, and changes neither.
     let channelNote = '';
     if (!conversation.remembering) {
-        const fencedBefore = effectiveSettings(conversation).approval === 'full';
-        conversation.channelTurn = channel ? { channel, strict: options?.strict !== false } : null;
-        const fencedAfter = effectiveSettings(conversation).approval === 'full';
-        if (fencedBefore !== fencedAfter && !conversation.busy && (conversation.session || conversation.starting)) {
-            conversation.needsRestart = true;
-        }
+        conversation.channelTurn = channel ? { channel } : null;
         // Said to the model once per switch rather than with every message.
         if (channel && conversation.noteChannel !== channel) {
             const app = CHANNEL_LABELS[channel];
             channelNote = `The user is writing through ${app}, away from this computer, and reads your replies there. `
-                + 'Keep replies short. Chart blocks and wide tables do not show there: say what they would have shown. '
-                + (conversation.channelTurn.strict && ['never', 'full'].includes(policySettings(conversation).approval)
-                    ? `While they are on ${app}, every change asks for their approval there first.`
-                    : '');
+                + 'Keep replies short. Chart blocks and wide tables do not show there: say what they would have shown.';
         } else if (!channel && conversation.noteChannel) {
             channelNote = 'The user is back at the desktop app, reading your replies there.';
         }

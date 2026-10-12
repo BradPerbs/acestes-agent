@@ -1635,13 +1635,6 @@ export default {
     'settings.channels.agent': 'Who answers',
     'settings.channels.agentDesc': 'The agent a new conversation from {app} goes to. {command} changes it from the chat.',
     'settings.channels.agentSelected': 'The selected agent',
-    'settings.channels.approvals': 'Approvals from {app}',
-    'settings.channels.approvalsDesc': 'While you are talking from {app}, the agent can still change things '
-        + 'on your servers and this computer. Asking first means a lost phone or a stolen {app} account is '
-        + 'not enough to run anything: every change waits for your Approve, whatever the agent\'s own mode. '
-        + 'The blocked commands apply either way.',
-    'settings.channels.approvalsAsk': 'Ask before every change',
-    'settings.channels.approvalsAgent': 'Same as the desktop',
     'settings.channels.bot': 'Bot {bot}',
     'settings.channels.botDesc': 'Disconnecting forgets its credentials and the paired account on this computer. '
         + 'The bot itself stays yours in {app}.',

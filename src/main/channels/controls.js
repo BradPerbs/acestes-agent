@@ -170,19 +170,13 @@ function createControls({ ai, settings, record = () => {}, catalogWait = CATALOG
         };
     }
 
-    /**
-     * The three settings as a chat shows them. `strict` is the channel's
-     * own rule (approvals 'ask'): a mode that asks nothing is held to
-     * Workspace only for turns from the chat. See channelSettings in
-     * ai/index.js.
-     */
-    async function describe({ agentId, conversationId, strict = true }) {
+    /** The three settings as a chat shows them. */
+    async function describe({ agentId, conversationId }) {
         const now = current({ agentId, conversationId });
         const row = modelRow(await rowsFor(now.provider), now.model);
         const stops = effortStops(row);
         const effort = stops.length ? nearestEffort(stops, now.effort) : '';
         const mode = modeOf(now.approval);
-        const held = Boolean(strict) && (mode.value === 'never' || mode.value === 'full');
         return {
             agentId: now.agentId,
             provider: now.provider,
@@ -195,7 +189,6 @@ function createControls({ ai, settings, record = () => {}, catalogWait = CATALOG
             mode: mode.value,
             modeLabel: mode.label,
             modeHint: mode.hint,
-            heldTo: held ? { ...MODES[1] } : null,
             runtimes: now.providers.length,
         };
     }
@@ -251,7 +244,7 @@ function createControls({ ai, settings, record = () => {}, catalogWait = CATALOG
         const level = effort && stops.some(option => option.value === effort) ? effort : nearestEffort(stops, now.effort);
         const result = ai.setConversationModel(conversationId, { provider, model, ...(level ? { effort: level } : {}) });
         if (result?.error) return { error: result.error };
-        return describe({ conversationId, strict: false });
+        return describe({ conversationId });
     }
 
     /** A model as typed ("opus", "gpt-5 codex high"), matched like start_task's. */
@@ -269,7 +262,7 @@ function createControls({ ai, settings, record = () => {}, catalogWait = CATALOG
         if (!conversationId) return { error: 'There is no conversation to set it on.' };
         const level = readEffort(effort);
         if (!level) return { error: `"${effort}" is not an effort. Try low, medium, high, xhigh or max.` };
-        const shown = await describe({ conversationId, strict: false });
+        const shown = await describe({ conversationId });
         if (shown.efforts.length === 0) return { error: `${shown.modelLabel} has no effort setting.` };
         if (!shown.efforts.some(option => option.value === level)) {
             return { error: `${shown.modelLabel} takes ${shown.efforts.map(option => option.label.toLowerCase()).join(', ')}.` };
@@ -282,7 +275,7 @@ function createControls({ ai, settings, record = () => {}, catalogWait = CATALOG
     /**
      * Set a conversation's mode, as the approval chip does: on the chat's
      * conversation, so its desktop tab shows it too, logged like any
-     * widening. The chat's channel rule is the gateway's to lift.
+     * widening.
      */
     function setMode({ conversationId, mode, via = 'a chat' }) {
         if (!conversationId) return { error: 'There is no conversation to set it on.' };

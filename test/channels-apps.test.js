@@ -553,7 +553,7 @@ async function fakeMatrix() {
             discord.message(DISCORD_OWNER, 'how is web1?');
             await until(() => ai.calls.send.length === 1, { label: 'send' });
             assert.strictEqual(ai.calls.send[0].text, 'how is web1?');
-            assert.deepStrictEqual(ai.calls.send[0].options, { channel: 'discord', strict: true });
+            assert.deepStrictEqual(ai.calls.send[0].options, { channel: 'discord' });
             await until(() => discord.calls.some(call => call.route === '/channels/DM1/typing'), { label: 'typing' });
         } finally {
             gateway.stop();

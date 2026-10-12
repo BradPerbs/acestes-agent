@@ -85,8 +85,8 @@ const points = [
   {
     tag: "approvals",
     icon: CheckmarkBadge01Icon,
-    lead: "Changes wait for your Approve.",
-    body: "From a chat, every change asks first, whatever the agent's own mode, unless you choose otherwise. Blocked commands stay blocked.",
+    lead: "Approve from the chat.",
+    body: "When the conversation's mode asks before a change, the card comes to the chat with buttons. Blocked commands stay blocked.",
   },
   {
     tag: "controls",

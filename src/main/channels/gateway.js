@@ -27,10 +27,9 @@ const { MODES } = require('./controls');
  *   - A message older than ten minutes when it arrives (sent while the app
  *     was closed) is not run, it is offered: "restart nginx" sent last night
  *     should not run by itself this morning.
- *   - A turn from a channel asks before every change, whatever the agent's
- *     own approval mode, unless the user chose otherwise. A phone or a chat
- *     account is weaker proof of who is there than the desk is. See `strict`
- *     in ai/index.js.
+ *   - A turn from a channel runs in its conversation's mode, as one typed
+ *     at the desk does; /mode in the chat changes it. Its approval cards
+ *     come to the chat, and the blocked commands apply either way.
  *   - A question that wants a secret is never answered here. Bot chats are
  *     not end-to-end encrypted, Matrix rooms included as far as Acestes goes.
  *
@@ -279,7 +278,6 @@ function createGateway(deps = {}) {
                 expiresAt: open.expiresAt,
             } : null,
             agentId: current.agentId,
-            approvals: current.approvals,
             lastMessageAt,
         };
     }
@@ -726,10 +724,7 @@ function createGateway(deps = {}) {
         beginTurn(conversationId, chatId);
         let result;
         try {
-            result = await ai.send(conversationId, text, images, [], files, {
-                channel: adapter.name,
-                strict: config().approvals !== 'agent',
-            });
+            result = await ai.send(conversationId, text, images, [], files, { channel: adapter.name });
         } catch (error) {
             result = { success: false, message: error?.message || 'unknown error' };
         }
@@ -822,7 +817,6 @@ function createGateway(deps = {}) {
             return await controls.describe({
                 agentId: agentFor(chatId)?.id || '',
                 conversationId: existingConversation(chatId),
-                strict: config().approvals !== 'agent',
             });
         } catch (error) {
             log.error?.(`${label}: could not read the model:`, error?.message || error);
@@ -830,12 +824,8 @@ function createGateway(deps = {}) {
         }
     }
 
-    /** The mode line: the agent's, or what the channel holds it to here. */
+    /** The mode line: the conversation's, here and on the desktop alike. */
     function modeLine(shown) {
-        if (shown.heldTo) {
-            return `**Mode:** ${md(shown.heldTo.label)} from here (${md(shown.modeLabel)} on the desktop: `
-                + `turns from ${label} ask first, see Settings, Channels). Pick one with ${prefix}mode to use it here too.`;
-        }
         return `**Mode:** ${md(shown.modeLabel)}, ${md(shown.modeHint)}`;
     }
 
@@ -858,12 +848,7 @@ function createGateway(deps = {}) {
             lines.push('No conversation yet: the next message starts one.');
         }
         const shown = await settingsOf(chatId);
-        if (!shown) {
-            lines.push(config().approvals === 'agent'
-                ? 'Approvals: the same as on the desktop.'
-                : 'Approvals: every change asks here first.');
-            return { markdown: lines.join('\n') };
-        }
+        if (!shown) return { markdown: lines.join('\n') };
         lines.push('', modelLine(shown), modeLine(shown));
         const row = [{ text: 'Model', data: 's:model' }];
         if (shown.efforts.length > 0) row.push({ text: 'Effort', data: 's:effort' });
@@ -986,9 +971,6 @@ function createGateway(deps = {}) {
         const lines = [`What may **${md(agent?.name || 'the agent')}** do here without asking? Now **${md(shown.modeLabel)}**.`, ''];
         for (const mode of MODES) lines.push(`• **${md(mode.label)}**: ${md(mode.hint)}`);
         lines.push('', '_For this chat\'s conversation, as the mode chip is for a desktop tab. New conversations start in the mode last used._');
-        if (shown.heldTo) {
-            lines.push(`_Turns from ${label} are held to ${md(shown.heldTo.label)} now. Picking a mode here lifts that, so the mode you pick applies here too._`);
-        }
         const button = mode => ({ text: `${mode.value === shown.mode ? '> ' : ''}${mode.label}`, data: `p:${mode.value}` });
         const buttons = [MODES.slice(0, 2).map(button), MODES.slice(2).map(button)];
         await say(chatId, lines.join('\n'), { buttons });
@@ -1006,14 +988,8 @@ function createGateway(deps = {}) {
             await settleMenu(chatId, messageId, `Could not change the mode: ${md(result.error)} Send ${prefix}mode to pick one.`);
             return;
         }
-        // A mode picked from the chat is meant for the chat: the channel's
-        // own rule that holds chat turns to asking is lifted with it, or a
-        // Yolo picked here would go on asking here. Logged by `update`.
-        const lifted = config().approvals !== 'agent';
-        if (lifted) update({ approvals: 'agent' });
-        const note = lifted ? `\n_Turns from ${label} now follow the conversation's mode too (Settings, Channels)._` : '';
         await settleMenu(chatId, messageId,
-            `**Mode:** ${md(result.modeLabel)}, ${md(result.modeHint)}. From the next message in this conversation, here and on the desktop.${note}`);
+            `**Mode:** ${md(result.modeLabel)}, ${md(result.modeHint)}. From the next message in this conversation, here and on the desktop.`);
     }
 
     /** A picker's answer: the menu message turned into it, or a new message. */
@@ -1614,18 +1590,9 @@ function createGateway(deps = {}) {
     function update(patch = {}) {
         const next = {};
         if (patch.enabled !== undefined) next.enabled = Boolean(patch.enabled);
-        if (patch.approvals !== undefined) next.approvals = patch.approvals;
         if (patch.agentId !== undefined) next.agentId = String(patch.agentId || '');
         const before = config();
         const after = section.update(next);
-        if (before.approvals !== after.approvals) {
-            audit({
-                action: `channels.${adapter.name}-approvals`,
-                detail: after.approvals === 'agent'
-                    ? `Turns from ${label} now follow the agent's own approval mode`
-                    : `Turns from ${label} now ask before every change`,
-            });
-        }
         if (before.enabled !== after.enabled) {
             if (after.enabled) startLoop();
             else stopLoop();
