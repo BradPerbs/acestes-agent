@@ -644,15 +644,16 @@ contextBridge.exposeInMainWorld('api', {
         // Pin one conversation to a runtime, model and effort, or change the
         // pin it has. Answers `{ pinned }`, the patch as kept.
         setModel: (conversationId, patch) => ipcRenderer.invoke('ai-conversation-model', { conversationId, patch }),
-        // What new conversations start on, for the whole app: `{ starred,
-        // last, pick }`, `pick` being what this agent's next one gets.
+        // What new conversations start on: `{ starred, last, effort, mode,
+        // pick }`, `starred` being this agent's star and `pick` what its
+        // next one gets.
         startModel: (agentId) => ipcRenderer.invoke('ai-start-model', agentId || ''),
         // A model picked in a composer: the next conversation starts on it.
         rememberModel: (pin) => ipcRenderer.invoke('ai-start-model-remember', pin),
-        // The star in the model menu: `{ provider, model, effort, account }`,
-        // or null to let go of it.
-        starModel: (pin) => ipcRenderer.invoke('ai-start-model-star', pin || null),
-        // `{ starred, last }`, whenever either changes.
+        // The star in one agent's model menu: `{ provider, model, effort,
+        // approval, account }`, or null to let go of it.
+        starModel: (agentId, pin) => ipcRenderer.invoke('ai-start-model-star', { agentId: agentId || '', pin: pin || null }),
+        // Whenever the last-used start or any agent's star changes.
         onStartModel: (callback) => subscribe('ai-start-model', callback),
         // What a turn did to files, as lines: `{ found, reverted, files }`.
         turnChanges: (conversationId, turnId) =>

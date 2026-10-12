@@ -443,12 +443,11 @@ export default function AssistantConversation({
             : settings;
     }, [settings, agentSettings, agentId]);
 
-    // What a new conversation starts on, for the whole app rather than per
-    // agent: the starred model, else the last one picked or sent with, at
-    // the last effort and in the last mode, in any tab of any agent (see
-    // main's start-model.js). Main works out `pick` for this tab's agent and
-    // puts a conversation it makes on it; here it is what an empty tab
-    // shows, and the star in the menu.
+    // What a new conversation starts on: this agent's starred model, effort
+    // and mode, else the last ones picked or sent with in any tab of any
+    // agent (see main's start-model.js). Main works out `pick` for this
+    // tab's agent and puts a conversation it makes on it; here it is what an
+    // empty tab shows, and `starred` is this agent's star in the menu.
     const modelAgent = agentId || settings?.agentId || '';
     const [startModel, setStartModel] = useState(null);
     useEffect(() => {
@@ -599,7 +598,13 @@ export default function AssistantConversation({
         });
         return pinModel(patch);
     }, [shownSettings, pinModel]);
-    const starModel = useCallback((pin) => window.api.ai.starModel?.(pin), []);
+    // The star is this agent's: its new chats start on the model, at the
+    // effort the menu rounded for it, in the mode this chat is in now.
+    const starMode = shownSettings?.approval || '';
+    const starModel = useCallback((pin) => window.api.ai.starModel?.(
+        modelAgent,
+        pin ? { ...pin, approval: starMode } : null,
+    ), [modelAgent, starMode]);
 
     // The mode is this conversation's too, like the model: picking one here
     // leaves every other tab as it is, and is the mode the next conversation

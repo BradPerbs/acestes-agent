@@ -150,6 +150,14 @@ const DEFAULTS = {
     model: '',
     effort: 'high',
     approval: 'writes',
+    /**
+     * What this agent's new chats start on, pinned with the star in the
+     * composer's model menu: `{ provider, model, effort?, approval?,
+     * account? }`, or null. It beats the model, effort and mode last used
+     * anywhere in the app (see start-model.js); without it a new chat starts
+     * on those. Shown, and cleared, on the agent's settings page.
+     */
+    starred: null,
     commandMode: 'terminal',
     // A ceiling on tool calls per turn, so a loop that is not converging stops
     // on its own rather than when someone notices. 0 is no ceiling at all, for
@@ -380,6 +388,21 @@ function firstRunProviders() {
     }
 }
 
+/**
+ * A starred start for new chats, or null when it names no model on a runtime
+ * this build has. An effort or mode it does not know is dropped, not the star.
+ */
+function cleanStar(raw) {
+    if (!raw || typeof raw !== 'object' || !PROVIDERS.has(raw.provider)) return null;
+    const model = typeof raw.model === 'string' ? raw.model.trim().slice(0, 160) : '';
+    if (!model) return null;
+    const out = { provider: raw.provider, model };
+    if (EFFORTS.has(raw.effort)) out.effort = raw.effort;
+    if (APPROVALS.has(raw.approval)) out.approval = raw.approval;
+    if (typeof raw.account === 'string' && raw.account.trim()) out.account = raw.account.trim().slice(0, 80);
+    return out;
+}
+
 function sanitize(raw) {
     const next = {
         ...DEFAULTS,
@@ -414,6 +437,7 @@ function sanitize(raw) {
         if (typeof raw.model === 'string') next.model = raw.model.trim().slice(0, 160);
         if (EFFORTS.has(raw.effort)) next.effort = raw.effort;
         if (APPROVALS.has(raw.approval)) next.approval = raw.approval;
+        if ('starred' in raw) next.starred = cleanStar(raw.starred);
         if (COMMAND_MODES.has(raw.commandMode)) next.commandMode = raw.commandMode;
         // Exactly 0, not anything that reads as 0: a missing value is the
         // default and a null or "0" is clamped as before, so nothing becomes
@@ -564,7 +588,7 @@ function persist() {
  * and validated here on the way in and on the way out.
  */
 const PER_AGENT = [
-    'provider', 'model', 'effort', 'approval', 'commandMode', 'maxTurns',
+    'provider', 'model', 'effort', 'approval', 'starred', 'commandMode', 'maxTurns',
     'transcriptLines', 'allowLocalTools', 'autoApproveCommands',
     'blockedCommands', 'quickPrompts', 'instructions', 'memory', 'autoRemember', 'memoryTidy',
     'accounts', 'menuAccounts', 'computerUse', 'computerPace', 'browserUse',
@@ -746,8 +770,11 @@ function isGlobalSource(id) {
     return name === 'acestes' || name.startsWith('acestes-') || name.startsWith('acestes ');
 }
 
-/** Identity never propagates: a sign-in belongs to the agent that chose it. */
-const GLOBAL_EXCEPT = new Set(['accounts', 'menuAccounts']);
+/**
+ * Identity never propagates: a sign-in belongs to the agent that chose it.
+ * Nor does the star: it is what this agent's chats start on, by choice.
+ */
+const GLOBAL_EXCEPT = new Set(['accounts', 'menuAccounts', 'starred']);
 
 /** Order-insensitive equality for JSON-safe setting values. */
 function stable(value) {

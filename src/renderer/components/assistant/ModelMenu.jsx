@@ -51,8 +51,10 @@ import { useT } from '../../i18n';
  * account the conversation runs on as well as the model.
  *
  * A new conversation, in any tab of any agent, starts on the model last
- * picked or sent with. The star beside a row pins one instead: every new
- * conversation starts on the starred model until the star is taken off it.
+ * picked or sent with. The star beside a row pins one for this tab's agent
+ * instead: its new chats start on the starred model, at the effort and in
+ * the mode in use when it was starred, until the star is taken off. The
+ * agent's settings page shows the star and changes any of the three.
  */
 
 const WIDTH = 'w-[21rem]';

@@ -3297,13 +3297,40 @@ function setConversationModel(conversationId, patch = {}) {
 }
 
 /**
- * What a new conversation of this agent starts on: the starred model, else
- * the last one used, at the last effort and in the last mode used, anywhere
- * in the app (see start-model.js). Null leaves it on the agent's defaults.
+ * What a new conversation of this agent starts on: its starred model, effort
+ * and mode, else the last ones used anywhere in the app (see start-model.js).
+ * Null leaves it on the agent's defaults.
  */
 function startPick(agentId) {
     const current = settings.get(agentId);
     return startModel.pickFor(current, (provider, account) => Boolean(pinnedAccountFor(current, provider, account)));
+}
+
+/**
+ * Star a start for one agent's new chats (`{ provider, model, effort?,
+ * approval?, account? }`), or let go of it with null. Kept in the agent's
+ * settings, so its settings page shows it; every window's menu is told.
+ * Returns the agent's settings as they are now.
+ */
+function starModel(agentId, pin) {
+    const id = agents.get(agentId)?.id || agents.activeId();
+    const next = settings.set({ starred: pin && typeof pin === 'object' ? pin : null }, id);
+    startModel.announce();
+    return next;
+}
+
+/**
+ * An older build kept one star for the whole app. Handed to every agent that
+ * has none of its own, so each starts where it did, and from then on each
+ * agent's star is its own to change.
+ */
+function adoptLegacyStar() {
+    const star = startModel.takeLegacyStar();
+    if (!star) return;
+    for (const agent of agents.snapshot().agents || []) {
+        if (settings.get(agent.id).starred) continue;
+        settings.set({ starred: star }, agent.id);
+    }
 }
 
 /**
@@ -4443,6 +4470,8 @@ module.exports = {
     setConversationModel,
     startModel,
     startPick,
+    starModel,
+    adoptLegacyStar,
     startOnPick,
     rememberUsed,
     tidyMemory,

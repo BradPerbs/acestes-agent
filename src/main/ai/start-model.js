@@ -3,24 +3,27 @@ const path = require('path');
 const fs = require('fs');
 
 /**
- * What a new conversation starts on, for the whole app: the model, the
- * effort and the mode.
+ * What a new conversation starts on: the model, the effort and the mode.
  *
- * Kept apart from any agent's settings:
+ * Held for the whole app, apart from any agent's settings:
  *
- *   starred  the model someone pinned with the star in the model menu
  *   last     the model last picked in a composer, or last sent with
  *   effort   the effort last picked or sent with, on any model
  *   mode     the approval mode last picked or sent with
  *
- * A conversation someone opens (a new tab of any agent, a fresh chat in a
- * tab, a fork of another) starts on the starred model, else the last one,
- * else its agent's own default; at the last effort and in the last mode,
- * else the agent's. None is held per agent: what somebody is working with is
- * what they want in the next tab, whichever agent that is. The effort is the
- * last one used even under a star, since the star names a model and the
- * effort is how hard it is asked to think today; a level the model does not
- * take is rounded down by the runtime, as the chip shows it.
+ * And per agent, in its settings: `starred`, the model, effort and mode
+ * someone pinned with the star in that agent's model menu.
+ *
+ * A conversation someone opens (a new tab, a fresh chat in a tab, a fork of
+ * another) starts on its agent's star when it has one: that model, at that
+ * effort, in that mode. Otherwise on the last model used in any tab of any
+ * agent, at the last effort and in the last mode, since what somebody is
+ * working with is what they want in the next tab; and before anything has
+ * been used, on the agent's own defaults. A level the model does not take is
+ * rounded down by the runtime, as the chip shows it.
+ *
+ * Older builds kept one star for the whole app here. It is handed to the
+ * agents once (`takeLegacyStar`) and not kept.
  *
  * A model pick whose runtime has been switched off since is passed over, and
  * a sign-in the agent does not have ticked is dropped from it, so the
@@ -39,6 +42,8 @@ const MODES = new Set(['always', 'writes', 'never', 'full']);
 const file = () => path.join(app.getPath('userData'), 'start-model.json');
 
 let held = null;
+/** A whole-app star an older build left in the file, until it is handed on. */
+let legacyStar = null;
 const listeners = new Set();
 
 /** `{ provider, model, effort?, account? }`, or null when it does not name a model. */
@@ -57,12 +62,12 @@ const modeOf = value => (MODES.has(value) ? value : '');
 
 function load() {
     if (held) return held;
-    held = { starred: null, last: null, effort: '', mode: '' };
+    held = { last: null, effort: '', mode: '' };
     try {
         const raw = JSON.parse(fs.readFileSync(file(), 'utf8'));
         const last = clean(raw?.last);
+        legacyStar = clean(raw?.starred);
         held = {
-            starred: clean(raw?.starred),
             last,
             // A file from before the effort was kept on its own still has
             // the last one, on the last model.
@@ -91,22 +96,26 @@ const same = (a, b) => FIELDS.every(field => (a?.[field] || '') === (b?.[field] 
 /** Keep `next` and tell the listeners, unless it is what is held already. */
 function commit(next) {
     load();
-    const moved = !same(held.starred, next.starred) || !same(held.last, next.last)
+    const moved = !same(held.last, next.last)
         || held.effort !== next.effort || held.mode !== next.mode;
     if (!moved) return false;
     held = next;
     persist();
+    announce();
+    return true;
+}
+
+/** Tell the listeners what is held now. A star moving on an agent says so too. */
+function announce() {
     for (const listener of listeners) {
         try { listener(get()); } catch { /* a listener never fails the write */ }
     }
-    return true;
 }
 
 /** Everything held, as stored. */
 function get() {
     const current = load();
     return {
-        starred: current.starred ? { ...current.starred } : null,
         last: current.last ? { ...current.last } : null,
         effort: current.effort || '',
         mode: current.mode || '',
@@ -130,10 +139,17 @@ function remember(pin) {
     return commit(next);
 }
 
-/** Pin a default model for every new conversation, or let go of it with null. */
-function star(pin) {
+/**
+ * The whole-app star an older build kept, once, and then gone from the file:
+ * whoever asks hands it to the agents. Null when there was none.
+ */
+function takeLegacyStar() {
     load();
-    return commit({ ...held, starred: pin ? clean(pin) : null });
+    const star = legacyStar;
+    if (!star) return null;
+    legacyStar = null;
+    persist();
+    return { ...star };
 }
 
 /**
@@ -142,22 +158,29 @@ function star(pin) {
  * approval? }`), or null for the agent's own defaults throughout.
  * `accountOk(provider, account)` says whether the agent can run on that
  * sign-in.
+ *
+ * The agent's star, when its runtime is on, decides all three: its model,
+ * and its effort and mode where it names them, else the last ones used. A
+ * star on a runtime switched off is passed over whole.
  */
 function pickFor(current, accountOk = () => true) {
     // An empty list is nothing switched on, not "fall back to the selected one".
     const on = Array.isArray(current?.providers) ? current.providers : [current?.provider].filter(Boolean);
-    const { starred, last, effort, mode } = load();
+    const { last, effort, mode } = load();
+    const own = clean(current?.starred);
+    const star = own && on.includes(own.provider) ? own : null;
     const out = {};
-    for (const pin of [starred, last]) {
+    for (const pin of [star, last]) {
         if (!pin || !on.includes(pin.provider)) continue;
         out.provider = pin.provider;
         out.model = pin.model;
-        if (pin.effort) out.effort = pin.effort;
         if (pin.account && accountOk(pin.provider, pin.account)) out.account = pin.account;
         break;
     }
-    if (effort) out.effort = effort;
-    if (mode) out.approval = mode;
+    const chosenEffort = effortOf(star?.effort) || effort;
+    const chosenMode = (star && modeOf(current.starred.approval)) || mode;
+    if (chosenEffort) out.effort = chosenEffort;
+    if (chosenMode) out.approval = chosenMode;
     return Object.keys(out).length ? out : null;
 }
 
@@ -170,8 +193,9 @@ function onChange(listener) {
 module.exports = {
     get,
     remember,
-    star,
+    takeLegacyStar,
     pickFor,
     onChange,
-    _test: { reset: () => { held = null; listeners.clear(); } },
+    announce,
+    _test: { reset: () => { held = null; legacyStar = null; listeners.clear(); } },
 };

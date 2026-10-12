@@ -1,9 +1,9 @@
 /**
- * What a new conversation starts on, for the whole app.
+ * What a new conversation starts on.
  *
- * The model last picked or sent with, in any tab of any agent, unless one is
- * starred; the agent's own default only before either, or when the runtime
- * behind them is switched off. Checked through the main process the way the
+ * The agent's starred model, effort and mode when it has a star; else the
+ * ones last picked or sent with, in any tab of any agent; the agent's own
+ * default only before either, or when the runtime behind them is switched off. Checked through the main process the way the
  * window reaches it: a new conversation (`create` then `startOnPick`, as the
  * start handler does), a fork (`branch` then `startOnPick`), a send
  * (`rememberUsed`), and the star. `electron` is stubbed so it runs under node.
@@ -138,65 +138,138 @@ const forget = () => {
         assert.strictEqual(running.effort, 'max');
     });
 
-    console.log('\nthe star');
+    console.log('\nthe star, per agent');
 
-    await check('a starred model wins over the last one used, and unstarring hands back', () => {
+    // Each check starts with no star on either agent.
+    const unstar = () => {
+        assistant.starModel(first, null);
+        assistant.starModel(second, null);
+    };
+
+    await check('a starred model wins over the last one used, for its own agent only', () => {
         forget();
+        unstar();
         startModel.remember({ provider: 'claude-code', model: 'opus' });
-        startModel.star({ provider: 'codex', model: 'gpt-5.5', effort: 'xhigh' });
-        startModel.remember({ provider: 'claude-code', model: 'sonnet' });
-        assert.deepStrictEqual(openTab(second).pinned, { provider: 'codex', model: 'gpt-5.5', effort: 'xhigh' });
-        startModel.star(null);
-        assert.strictEqual(openTab(second).pinned.model, 'sonnet');
+        assistant.starModel(second, { provider: 'codex', model: 'gpt-5.5', effort: 'xhigh', approval: 'never' });
+        startModel.remember({ provider: 'claude-code', model: 'sonnet', effort: 'low', approval: 'writes' });
+        assert.deepStrictEqual(openTab(second).pinned, {
+            provider: 'codex', model: 'gpt-5.5', effort: 'xhigh', approval: 'never',
+        }, 'the star decides model, effort and mode');
+        assert.deepStrictEqual(openTab(first).pinned, {
+            provider: 'claude-code', model: 'sonnet', effort: 'low', approval: 'writes',
+        }, 'the other agent is on what was last used');
+        assistant.starModel(second, null);
+        assert.strictEqual(openTab(second).pinned.model, 'sonnet', 'unstarring hands back');
+    });
+
+    await check('the star is in the agent\'s settings, cleaned on the way in', () => {
+        forget();
+        unstar();
+        assistant.starModel(first, { provider: 'codex', model: 'gpt-5.5', effort: 'max', approval: 'full', junk: 'x' });
+        assert.deepStrictEqual(settings.get(first).starred, {
+            provider: 'codex', model: 'gpt-5.5', effort: 'max', approval: 'full',
+        });
+        assert.strictEqual(settings.get(second).starred, null);
+        // Set from the settings page, as any other setting.
+        settings.set({ starred: { ...settings.get(first).starred, effort: 'low', approval: 'reckless' } }, first);
+        assert.deepStrictEqual(settings.get(first).starred, { provider: 'codex', model: 'gpt-5.5', effort: 'low' },
+            'an unknown mode is dropped, the star is not');
+        settings.set({ starred: { provider: 'codex', model: '' } }, first);
+        assert.strictEqual(settings.get(first).starred, null, 'a star with no model is none');
+    });
+
+    await check('a star that leaves effort or mode to "last used" takes the last ones', () => {
+        forget();
+        unstar();
+        startModel.remember({ effort: 'medium', approval: 'always' });
+        assistant.starModel(first, { provider: 'codex', model: 'gpt-5.5' });
+        assert.deepStrictEqual(openTab(first).pinned, {
+            provider: 'codex', model: 'gpt-5.5', effort: 'medium', approval: 'always',
+        });
+    });
+
+    await check('a star on the Acestes agent stays its own', () => {
+        forget();
+        unstar();
+        // The first agent is the default one, whose settings fan out to the others.
+        assert.strictEqual(agents.get(first).name, agents.DEFAULT_NAME);
+        assistant.starModel(first, { provider: 'codex', model: 'gpt-5.5', effort: 'high' });
+        assert.strictEqual(settings.get(first).starred.model, 'gpt-5.5');
+        assert.strictEqual(settings.get(second).starred, null);
+        unstar();
     });
 
     await check('a runtime switched off is passed over: star, then last, then the agent default', () => {
         forget();
-        startModel.star({ provider: 'codex', model: 'gpt-5.5' });
+        unstar();
+        assistant.starModel(second, { provider: 'codex', model: 'gpt-5.5', approval: 'full' });
         startModel.remember({ provider: 'claude-code', model: 'opus' });
         settings.set({ providers: ['claude-code'] });
         try {
-            assert.strictEqual(openTab(second).pinned.model, 'opus', 'the star\'s runtime is off');
+            const pinned = openTab(second).pinned;
+            assert.strictEqual(pinned.model, 'opus', 'the star\'s runtime is off');
+            assert.strictEqual(pinned.approval, undefined, 'and its mode goes with it');
             startModel.remember({ provider: 'codex', model: 'gpt-5.5-mini' });
             assert.strictEqual(openTab(second).pinned, null, 'neither runtime is on');
         } finally {
             settings.set({ providers: ['claude-code', 'codex'] });
+            unstar();
         }
     });
 
-    await check('only a named model is kept, and both picks survive a restart', () => {
+    await check('a whole-app star from before becomes every agent\'s own, once', () => {
+        forget();
+        unstar();
+        assistant.starModel(second, { provider: 'claude-code', model: 'sonnet' });
+        fs.writeFileSync(path.join(userData, 'start-model.json'), JSON.stringify({
+            starred: { provider: 'codex', model: 'gpt-5.5', effort: 'xhigh' },
+            last: { provider: 'claude-code', model: 'opus', effort: 'high' },
+        }));
+        assistant.adoptLegacyStar();
+        assert.deepStrictEqual(settings.get(first).starred, { provider: 'codex', model: 'gpt-5.5', effort: 'xhigh' });
+        assert.strictEqual(settings.get(second).starred.model, 'sonnet', 'an agent\'s own star is kept');
+        const saved = JSON.parse(fs.readFileSync(path.join(userData, 'start-model.json'), 'utf8'));
+        assert.strictEqual(saved.starred, undefined, 'gone from the file');
+        assert.strictEqual(saved.last.model, 'opus', 'the last model stays');
+        startModel._test.reset();
+        assistant.starModel(first, null);
+        assistant.adoptLegacyStar();
+        assert.strictEqual(settings.get(first).starred, null, 'not handed out twice');
+        unstar();
+    });
+
+    await check('only a named model is kept, and the last pick survives a restart', () => {
         forget();
         assert.strictEqual(startModel.remember({ provider: 'claude-code', model: '' }), false);
         assert.strictEqual(startModel.get().last, null);
         startModel.remember({ provider: 'claude-code', model: 'opus', effort: 'max' });
-        startModel.star({ provider: 'codex', model: 'gpt-5.5' });
         startModel._test.reset();
         assert.deepStrictEqual(startModel.get(), {
-            starred: { provider: 'codex', model: 'gpt-5.5' },
             last: { provider: 'claude-code', model: 'opus', effort: 'max' },
             effort: 'max',
             mode: '',
         });
     });
 
-    await check('every change is announced, and a repeat is not', () => {
+    await check('every change is announced, a star too, and a repeat is not', () => {
         forget();
+        unstar();
         const heard = [];
         startModel.onChange(held => heard.push(held));
         startModel.remember({ provider: 'claude-code', model: 'opus' });
         startModel.remember({ provider: 'claude-code', model: 'opus' });
-        startModel.star({ provider: 'claude-code', model: 'opus' });
+        assistant.starModel(first, { provider: 'claude-code', model: 'opus' });
         assert.strictEqual(heard.length, 2);
-        assert.strictEqual(heard[1].starred.model, 'opus');
+        unstar();
     });
 
     console.log('\nthe effort and the mode');
 
-    await check('the last effort is what a new tab starts at, even under a star', () => {
+    await check('the last effort is what a new tab starts at, with no star', () => {
         forget();
-        startModel.star({ provider: 'codex', model: 'gpt-5.5', effort: 'xhigh' });
+        unstar();
         startModel.remember({ provider: 'claude-code', model: 'sonnet', effort: 'low' });
-        assert.deepStrictEqual(openTab(second).pinned, { provider: 'codex', model: 'gpt-5.5', effort: 'low' });
+        assert.deepStrictEqual(openTab(second).pinned, { provider: 'claude-code', model: 'sonnet', effort: 'low' });
         // An effort picked on its own counts too.
         startModel.remember({ effort: 'max' });
         assert.strictEqual(openTab(first).pinned.effort, 'max');

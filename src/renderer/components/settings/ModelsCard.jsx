@@ -3,11 +3,13 @@ import { Loading03Icon, Refresh01Icon, Tick02Icon } from 'hugeicons-react';
 import Dialog, { DialogButton } from '../ui/Dialog';
 import Button from '../ui/Button';
 import Checkbox from '../ui/Checkbox';
+import Select from '../ui/Select';
 import SettingCard from './ui/SettingCard';
 import SettingRow, { DIVIDED } from './ui/SettingRow';
 import AgentUpdatesRow from './AgentUpdatesRow';
+import { FIELD_CLASS } from './useAssistantSettings';
 import ProviderMark from '../../lib/provider-marks';
-import { PROVIDER_NAMES, PROVIDER_ORDER } from '../../lib/ai-catalog';
+import { EFFORTS, PROVIDER_NAMES, PROVIDER_ORDER, effortLabel, effortStops } from '../../lib/ai-catalog';
 import { useT } from '../../i18n';
 
 /**
@@ -136,17 +138,11 @@ function ModelsDialog({ provider, settings, onSettings, onKnown, onClose }) {
 }
 
 /**
- * The harness and model new conversations start on.
- *
- * This writes the agent's own `provider` and `model`, which nothing else in
- * the UI could reach: the composer's chip pins one conversation and never
- * moves the agent's settings, so without this the default was stuck on
- * whatever the runtime itself uses. It is what the agent runs on when nothing
- * else is chosen: its jobs, and new chats before any model has been used. A
- * chat someone opens starts on the starred model, else the one last used in
- * any tab (see main's start-model.js), and only then on this.
+ * One model out of every switched-on agent's list, for the two rows below
+ * that name one: the agent's default and its star. `current` is
+ * `provider:model`; `noneLabel`, when given, is a first row that names none.
  */
-function DefaultModelDialog({ activated, settings, onSettings, onClose }) {
+function ModelPickDialog({ activated, title, subtitle, current, noneLabel, onChoose, onClose }) {
     const t = useT();
     const [catalogs, setCatalogs] = useState(null);
     const key = activated.join(' ');
@@ -167,18 +163,14 @@ function DefaultModelDialog({ activated, settings, onSettings, onClose }) {
     useEffect(() => { load(false); }, [load]);
 
     const choose = (provider, model) => {
-        onSettings({ provider, model });
+        onChoose(provider, model);
         onClose();
     };
 
-    const current = settings.model
-        ? `${settings.provider}:${settings.model}`
-        : '';
-
     return (
         <Dialog
-            title={t('settings.assistant.defaultModelTitle')}
-            subtitle={t('settings.assistant.defaultModelSubtitle')}
+            title={title}
+            subtitle={subtitle}
             onClose={onClose}
             width="24rem"
             footer={
@@ -194,18 +186,20 @@ function DefaultModelDialog({ activated, settings, onSettings, onClose }) {
                 </div>
             ) : (
                 <>
-                    <button
-                        type="button"
-                        onClick={() => choose(settings.provider, '')}
-                        className={`w-full h-8 px-2.5 flex items-center gap-2 rounded-lg text-left transition-colors
-                            hover:bg-gray-100 dark:hover:bg-white/[0.06]`}
-                    >
-                        <span className="truncate text-[13px] font-medium text-gray-700 dark:text-gray-200">
-                            {t('settings.assistant.defaultModelAgent')}
-                        </span>
-                        <span className="flex-1" />
-                        {!settings.model && <Tick02Icon size={13} strokeWidth={2.5} className="shrink-0 text-gray-900 dark:text-white" />}
-                    </button>
+                    {noneLabel && (
+                        <button
+                            type="button"
+                            onClick={() => choose('', '')}
+                            className={`w-full h-8 px-2.5 flex items-center gap-2 rounded-lg text-left transition-colors
+                                hover:bg-gray-100 dark:hover:bg-white/[0.06]`}
+                        >
+                            <span className="truncate text-[13px] font-medium text-gray-700 dark:text-gray-200">
+                                {noneLabel}
+                            </span>
+                            <span className="flex-1" />
+                            {!current && <Tick02Icon size={13} strokeWidth={2.5} className="shrink-0 text-gray-900 dark:text-white" />}
+                        </button>
+                    )}
                     {key.split(' ').filter(Boolean).map(provider => {
                         const rows = catalogs[provider] || [];
                         if (rows.length === 0) return null;
@@ -262,10 +256,122 @@ function DefaultModelDialog({ activated, settings, onSettings, onClose }) {
     );
 }
 
+/** The approval modes, as the composer's menu names them. */
+const MODES = [
+    { value: 'always', labelKey: 'assistant.approvalAlways' },
+    { value: 'writes', labelKey: 'assistant.approvalWrites' },
+    { value: 'never', labelKey: 'assistant.approvalNever' },
+    { value: 'full', labelKey: 'assistant.approvalFull' },
+];
+
+/**
+ * What this agent's new chats start on, when a model is starred: the model,
+ * the effort and the mode. Set by the star in a chat's model menu, which
+ * takes all three as they are in that chat; here each can be changed on its
+ * own, or the star taken off. An effort or mode left on "Last used" is the
+ * one last picked in any tab, as without a star (see main's start-model.js).
+ */
+function StarredRow({ activated, settings, onSettings, onChoose }) {
+    const t = useT();
+    const starred = settings.starred || null;
+    const provider = starred?.provider || '';
+    const model = starred?.model || '';
+    // The starred model's row, for its name and the efforts it takes. One
+    // runtime's list, which main holds once it has been read.
+    const [row, setRow] = useState(null);
+    useEffect(() => {
+        setRow(null);
+        if (!provider || !model) return undefined;
+        let live = true;
+        window.api.ai.models({ provider })
+            .then((rows) => {
+                if (live) setRow((Array.isArray(rows) ? rows : []).find(entry => entry?.value === model) || null);
+            })
+            .catch(() => {});
+        return () => { live = false; };
+    }, [provider, model]);
+
+    const patch = (fields) => {
+        const next = { ...starred, ...fields };
+        for (const key of Object.keys(fields)) if (!next[key]) delete next[key];
+        onSettings({ starred: next });
+    };
+    const off = Boolean(starred) && !activated.includes(provider);
+    const lastUsed = { value: '', label: t('settings.assistant.starredLastUsed') };
+    // The model's own scale, and the saved level even where it is not on it
+    // (the runtime rounds that down), so the field never shows blank.
+    const stops = effortStops(row);
+    const efforts = starred?.effort && !stops.some(stop => stop.value === starred.effort)
+        ? EFFORTS.filter(stop => stop.value === starred.effort || stops.includes(stop))
+        : stops;
+
+    return (
+        <SettingRow
+            className={DIVIDED}
+            title={t('settings.assistant.starred')}
+            description={t('settings.assistant.starredDesc')}
+            control={
+                <div className="flex items-center gap-2 min-w-0">
+                    <span className="truncate max-w-[12rem] text-[13px] text-gray-500 dark:text-gray-400">
+                        {starred
+                            ? `${PROVIDER_NAMES[provider] || provider} · ${row?.short || row?.label || model}`
+                            : t('settings.assistant.starredNone')}
+                    </span>
+                    <Button size="sm" variant="secondary" onClick={onChoose}>
+                        {starred ? t('settings.assistant.defaultModelChange') : t('settings.assistant.starredChoose')}
+                    </Button>
+                    {starred && (
+                        <Button size="sm" variant="ghost" onClick={() => onSettings({ starred: null })}>
+                            {t('settings.assistant.starredClear')}
+                        </Button>
+                    )}
+                </div>
+            }
+        >
+            {starred && (
+                <>
+                    <div className="flex gap-3">
+                        <label className="flex-1 min-w-0">
+                            <span className="block mb-1.5 text-xs font-medium text-gray-500 dark:text-gray-400">
+                                {t('settings.assistant.starredEffort')}
+                            </span>
+                            <Select
+                                value={starred.effort || ''}
+                                onChange={value => patch({ effort: value })}
+                                className={FIELD_CLASS}
+                                aria-label={t('settings.assistant.starredEffort')}
+                                options={[lastUsed, ...efforts.map(stop => ({ value: stop.value, label: effortLabel(stop) }))]}
+                            />
+                        </label>
+                        <label className="flex-1 min-w-0">
+                            <span className="block mb-1.5 text-xs font-medium text-gray-500 dark:text-gray-400">
+                                {t('settings.assistant.starredMode')}
+                            </span>
+                            <Select
+                                value={starred.approval || ''}
+                                onChange={value => patch({ approval: value })}
+                                className={FIELD_CLASS}
+                                aria-label={t('settings.assistant.starredMode')}
+                                options={[lastUsed, ...MODES.map(mode => ({ value: mode.value, label: t(mode.labelKey) }))]}
+                            />
+                        </label>
+                    </div>
+                    {off && (
+                        <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+                            {t('settings.assistant.starredOff', { agent: PROVIDER_NAMES[provider] || provider })}
+                        </p>
+                    )}
+                </>
+            )}
+        </SettingRow>
+    );
+}
+
 export default function ModelsCard({ settings, onSettings }) {
     const t = useT();
     const [open, setOpen] = useState(null);
     const [defaultOpen, setDefaultOpen] = useState(false);
+    const [starOpen, setStarOpen] = useState(false);
     // Totals each dialog reports once its runtime has answered, so the rows
     // can say "3 of 12 shown". Unknown until opened: reading every runtime
     // just to render this card would start them all.
@@ -295,6 +401,12 @@ export default function ModelsCard({ settings, onSettings }) {
                             </Button>
                         </div>
                     }
+                />
+                <StarredRow
+                    activated={activated}
+                    settings={settings}
+                    onSettings={onSettings}
+                    onChoose={() => setStarOpen(true)}
                 />
                 <SettingRow
                     className={DIVIDED}
@@ -336,12 +448,38 @@ export default function ModelsCard({ settings, onSettings }) {
                 <AgentUpdatesRow className={DIVIDED} activated={activated} />
             </SettingCard>
 
+            {/* The agent's own default: its jobs, and new chats before
+                anything has been used or starred. Writes the agent's
+                `provider` and `model`, which the composer's chip never moves. */}
             {defaultOpen && (
-                <DefaultModelDialog
+                <ModelPickDialog
                     activated={activated}
-                    settings={settings}
-                    onSettings={onSettings}
+                    title={t('settings.assistant.defaultModelTitle')}
+                    subtitle={t('settings.assistant.defaultModelSubtitle')}
+                    current={settings.model ? `${settings.provider}:${settings.model}` : ''}
+                    noneLabel={t('settings.assistant.defaultModelAgent')}
+                    onChoose={(provider, model) => onSettings({ provider: provider || settings.provider, model })}
                     onClose={() => setDefaultOpen(false)}
+                />
+            )}
+
+            {/* The star, picked here rather than in a chat: a new model keeps
+                the effort and mode already starred. This list names no
+                accounts, so moving to another model drops the star's one. */}
+            {starOpen && (
+                <ModelPickDialog
+                    activated={activated}
+                    title={t('settings.assistant.starredTitle')}
+                    subtitle={t('settings.assistant.starredSubtitle')}
+                    current={settings.starred ? `${settings.starred.provider}:${settings.starred.model}` : ''}
+                    onChoose={(provider, model) => {
+                        const held = settings.starred || {};
+                        const same = held.provider === provider && held.model === model;
+                        const next = { ...held, provider, model };
+                        if (!same) delete next.account;
+                        onSettings({ starred: next });
+                    }}
+                    onClose={() => setStarOpen(false)}
                 />
             )}
 

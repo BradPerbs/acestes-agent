@@ -1760,16 +1760,32 @@ function register(getWindow) {
         const pinned = assistant.startOnPick(created.conversationId);
         return pinned ? { ...created, pinned } : created;
     });
-    // The starred and last-used models, and what this agent's next
-    // conversation starts on given them.
-    handle('ai-start-model', (event, agentId) => ({
-        ...assistant.startModel.get(),
-        pick: assistant.startPick(typeof agentId === 'string' ? agentId.slice(0, 80) : ''),
-    }));
+    // The last-used model, effort and mode, this agent's star, and what its
+    // next conversation starts on given them.
+    handle('ai-start-model', (event, agentId) => {
+        const id = typeof agentId === 'string' ? agentId.slice(0, 80) : '';
+        return {
+            ...assistant.startModel.get(),
+            starred: assistant.settings.get(id).starred || null,
+            pick: assistant.startPick(id),
+        };
+    });
     // A model picked in a composer, before or after there is a conversation.
     handle('ai-start-model-remember', (event, pin) => assistant.startModel.remember(pin));
-    // The star in the model menu: a pin, or null to let go of it.
-    handle('ai-start-model-star', (event, pin) => assistant.startModel.star(pin || null));
+    // The star in one agent's model menu: a pin, or null to let go of it.
+    // The settings page shows the star, so it hears about it like any other
+    // setting, as the selected agent's (the page shows that one).
+    handle('ai-start-model-star', (event, { agentId, pin } = {}) => {
+        const next = assistant.starModel(typeof agentId === 'string' ? agentId.slice(0, 80) : '', pin || null);
+        notify('ai-settings', assistant.settings.get());
+        return next;
+    });
+    // A whole-app star from an older build becomes every agent's own.
+    try {
+        assistant.adoptLegacyStar();
+    } catch (error) {
+        console.error('Could not hand the old star to the agents:', error.message);
+    }
     // Every window: a detached chat's menu shows the star too.
     assistant.startModel.onChange(held => broadcast('ai-start-model', held));
     handle('ai-conversation-list', (event, filter) => assistant.list(filter || {}));
