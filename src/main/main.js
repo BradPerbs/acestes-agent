@@ -18,6 +18,7 @@ const cloudSnapshot = require('./cloud-snapshot');
 const scheduler = require('./runs/scheduler');
 const tray = require('./tray');
 const failover = require('./failover');
+const channels = require('./channels');
 
 let mainWindow = null;
 // Set by the tray's Quit and by before-quit: the one way out once jobs
@@ -213,15 +214,17 @@ app.on('before-quit', () => {
     // effort: nothing here delays the quit waiting on the network.
     cloudSnapshot.flush();
     scheduler.stop();
+    channels.stop();
     transport.destroyAll();
 });
 
 app.on('window-all-closed', () => {
     ipc.cancelPendingPrompts();
     // With a job on the books the process stays up, sessions and all: a
-    // scheduled run may need the one the agent left open. Without one the
-    // app quits as it always did, everywhere but macOS.
-    if (!quitting && scheduler.keepAlive()) return;
+    // scheduled run may need the one the agent left open. So it does with a
+    // paired phone, which expects an answer with the window closed. Without
+    // either the app quits as it always did, everywhere but macOS.
+    if (!quitting && (scheduler.keepAlive() || channels.keepAlive())) return;
     transport.destroyAll();
     if (process.platform !== 'darwin') app.quit();
 });

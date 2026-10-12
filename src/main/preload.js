@@ -501,6 +501,26 @@ contextBridge.exposeInMainWorld('api', {
         setEnabled: (enabled) => ipcRenderer.invoke('failover-set-enabled', enabled),
     },
 
+    /**
+     * Channels: the agent reached from the user's phone, through their own
+     * Telegram bot. The token goes in once and never comes back out; what
+     * comes back is the status, pushed on `channels-changed` as it moves.
+     * See src/main/channels.
+     */
+    channels: {
+        status: () => ipcRenderer.invoke('channels-status'),
+        onChanged: (callback) => subscribe('channels-changed', callback),
+        telegram: {
+            connect: (token) => ipcRenderer.invoke('channels-telegram-connect', token),
+            disconnect: () => ipcRenderer.invoke('channels-telegram-disconnect'),
+            pair: () => ipcRenderer.invoke('channels-telegram-pair'),
+            cancelPair: () => ipcRenderer.invoke('channels-telegram-pair-cancel'),
+            unpair: () => ipcRenderer.invoke('channels-telegram-unpair'),
+            update: (patch) => ipcRenderer.invoke('channels-telegram-update', patch || {}),
+            test: () => ipcRenderer.invoke('channels-telegram-test'),
+        },
+    },
+
     dialog: {
         save: (options) => ipcRenderer.invoke('show-save-dialog', options || {}),
         open: (options) => ipcRenderer.invoke('show-open-dialog', options || {}),

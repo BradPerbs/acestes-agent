@@ -51,6 +51,7 @@ const runs = require('./runs');
 const jobs = require('./runs/jobs');
 const jobTemplates = require('./runs/job-templates');
 const scheduler = require('./runs/scheduler');
+const channels = require('./channels');
 const mcpLibrary = require('./ai/mcp-library');
 const mcpProbe = require('./ai/mcp-probe');
 const proxy = require('./proxy');
@@ -414,7 +415,12 @@ function register(getWindow) {
         probe: (job, probe) => assistant.probeForJob(job, probe),
         notifyUser: toastFromAssistant,
         jobsNotifier: broadcast,
+        // A job whose delivery asks for the paired phone.
+        deliverToChannel: (job, run) => channels.deliverJob(job, run),
     });
+    // Talking to the agent from the phone: the Telegram gateway, polling in
+    // this process whether or not a window is up. See channels/.
+    channels.start(broadcast);
     // A monitored host crossing is a door a job can wait on.
     monitor.onAlert((alert) => scheduler.event(alert.event, {
         hostId: alert.hostId,
@@ -1818,6 +1824,19 @@ function register(getWindow) {
     });
     handle('ai-interrupt', (event, conversationId) => assistant.interrupt(conversationId));
 
+    /* ---------------- Channels ---------------- */
+
+    // The bot token crosses the bridge once, renderer to main, when it is
+    // pasted; it is never sent back. See channels/config.js.
+    handle('channels-status', () => channels.status());
+    handle('channels-telegram-connect', (event, token) => channels.telegram.connect(token));
+    handle('channels-telegram-disconnect', () => channels.telegram.disconnect());
+    handle('channels-telegram-pair', () => channels.telegram.pair());
+    handle('channels-telegram-pair-cancel', () => channels.telegram.cancelPair());
+    handle('channels-telegram-unpair', () => channels.telegram.unpair());
+    handle('channels-telegram-update', (event, patch) => channels.telegram.update(patch));
+    handle('channels-telegram-test', () => channels.telegram.test());
+
     // The two answers the window owes the main process: whether a tool call may
     // go ahead, and whether it managed to open or close the session it was
     // asked to.
@@ -2276,6 +2295,9 @@ function cancelPendingPrompts() {
     pendingKeys.clear();
     // Decrypted credentials from a backup nobody is going to restore now.
     pendingBackups.clear();
+    // A turn the phone is following is ended by this too, and the phone is
+    // told so rather than left watching a typing indicator.
+    channels.appClosing();
     // A tool call waiting on an approval nobody can give any more. Ending the
     // conversations denies them, which is the right answer once the window
     // that would have said yes has gone.
