@@ -276,6 +276,7 @@ export default {
     'settings.nav.permissions': 'Quyền hạn',
     'settings.nav.agentic': 'Tác vụ tự động',
     'settings.nav.chat': 'Trò chuyện',
+    'settings.nav.channels': 'Kênh',
     'settings.nav.security': 'Bảo mật',
     'settings.nav.backup': 'Sao lưu',
     'settings.nav.about': 'Giới thiệu',

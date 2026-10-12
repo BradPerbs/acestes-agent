@@ -286,6 +286,7 @@ export default {
     'settings.nav.permissions': 'Permissões',
     'settings.nav.agentic': 'Uso agêntico',
     'settings.nav.chat': 'Conversa e voz',
+    'settings.nav.channels': 'Canais',
     'settings.nav.security': 'Segurança',
     'settings.nav.backup': 'Cópia de segurança',
     'settings.nav.about': 'Acerca',

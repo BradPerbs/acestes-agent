@@ -897,6 +897,7 @@ export default {
     'settings.nav.permissions': 'Permissions',
     'settings.nav.agentic': 'Agentic Use',
     'settings.nav.chat': 'Chat & Voice',
+    'settings.nav.channels': 'Channels',
     'settings.nav.security': 'Security',
     'settings.nav.backup': 'Backup',
     'settings.nav.about': 'About',
@@ -1584,6 +1585,89 @@ export default {
     'settings.chat.title': 'Chat & Voice',
     'settings.chat.desc': 'The conversation with {name}: the questions an empty chat offers, '
         + 'speaking instead of typing, and whether it writes down what it learned.',
+
+    /* ---------------------------------------------------------------- *
+     * Settings: Channels
+     * ---------------------------------------------------------------- */
+    'settings.channels.title': 'Channels',
+    'settings.channels.desc': 'Talk to your agent from your phone. It does the work here, on this '
+        + 'computer, and answers you there.',
+    'settings.channels.telegram': 'Telegram',
+    'settings.channels.telegramDesc': 'Through a Telegram bot of your own, which only your account can talk to. '
+        + 'It answers while Acestes is running on this computer.',
+    'settings.channels.unavailable': 'Channels could not be read. Restart the app and try again.',
+    'settings.channels.failed': 'That did not work.',
+    'settings.channels.step1': '1. In Telegram, open @BotFather, send /newbot, and answer its two questions: '
+        + 'a name for the bot and a username ending in "bot".',
+    'settings.channels.openBotFather': 'Open @BotFather',
+    'settings.channels.step2': '2. Paste the token it gives you.',
+    'settings.channels.token': 'Bot token',
+    'settings.channels.tokenNote': 'Encrypted on this computer and never shown to the agent. '
+        + 'It stays out of backups, so a restored copy elsewhere cannot answer as this bot.',
+    'settings.channels.connect': 'Connect',
+    'settings.channels.connecting': 'Checking…',
+    'settings.channels.connected': 'Bot connected. Pair your Telegram account next.',
+    'settings.channels.pairTitle': 'Pair your Telegram account',
+    'settings.channels.pairDesc': 'Only the account you pair can talk to {bot}. Messages from anyone else '
+        + 'are ignored without an answer.',
+    'settings.channels.pair': 'Pair',
+    'settings.channels.pairHow': 'Open the link where you use Telegram, on your phone or this computer, '
+        + 'and press Start.',
+    'settings.channels.openTelegram': 'Open in Telegram',
+    'settings.channels.cancel': 'Cancel',
+    'settings.channels.pairManual': 'Or send this to {bot}:',
+    'settings.channels.pairExpires_one': 'The link works once, for the next minute.',
+    'settings.channels.pairExpires_other': 'The link works once, for the next {count} minutes.',
+    'settings.channels.pairedWith': 'Paired with {name}',
+    'settings.channels.pairedDesc': 'This account can talk to the agent through {bot}. Paired {when}.',
+    'settings.channels.test': 'Send a test',
+    'settings.channels.testSent': 'Sent. Check Telegram.',
+    'settings.channels.unpair': 'Unpair',
+    'settings.channels.unpaired': 'Unpaired. The bot ignores that account now.',
+    'settings.channels.unpairTitle': 'Unpair this Telegram account?',
+    'settings.channels.unpairMessage': 'The bot stops answering it straight away. You can pair again at any time.',
+    'settings.channels.enabled': 'Answer messages',
+    'settings.channels.enabledDesc': 'Off, the bot stays connected but Acestes stops reading its messages. '
+        + 'They wait in Telegram for up to a day.',
+    'settings.channels.agent': 'Who answers',
+    'settings.channels.agentDesc': 'The agent a new conversation from Telegram goes to. /agent changes it from the phone.',
+    'settings.channels.agentSelected': 'The selected agent',
+    'settings.channels.approvals': 'Approvals from the phone',
+    'settings.channels.approvalsDesc': 'While you are talking from Telegram, the agent can still change things '
+        + 'on your servers and this computer. Asking first means a lost phone or a stolen Telegram account is '
+        + 'not enough to run anything: every change waits for your Approve, whatever the agent\'s own mode. '
+        + 'The blocked commands apply either way.',
+    'settings.channels.approvalsAsk': 'Ask before every change',
+    'settings.channels.approvalsAgent': 'Same as the desktop',
+    'settings.channels.bot': 'Bot {bot}',
+    'settings.channels.botDesc': 'Disconnecting forgets the token and the paired account on this computer. '
+        + 'The bot itself stays yours in Telegram.',
+    'settings.channels.disconnect': 'Disconnect',
+    'settings.channels.disconnected': 'Bot disconnected.',
+    'settings.channels.disconnectTitle': 'Disconnect the bot?',
+    'settings.channels.disconnectMessage': 'Acestes forgets the token for {bot} and the paired account. '
+        + 'To use it again, paste the token and pair again.',
+    'settings.channels.howTitle': 'How it works',
+    'settings.channels.howDesc': 'Each Telegram chat is a conversation in Acestes, which you can open on the '
+        + 'desktop and carry on from either side.',
+    'settings.channels.howCommands': '/new starts a conversation, /list picks up a recent one, /stop stops the '
+        + 'agent, /status says what it is doing, /agent chooses who answers.',
+    'settings.channels.howTray': 'Closing the window keeps Acestes in the tray, answering. Quitting it, or the '
+        + 'computer sleeping, stops it until it is back.',
+    'settings.channels.howStale': 'A message that reaches Acestes more than ten minutes after you sent it is '
+        + 'not run by itself: you are asked first.',
+    'settings.channels.howSecrets': 'A question that wants a password or a key is answered on the desktop only. '
+        + 'Telegram bot chats are not end-to-end encrypted.',
+    'settings.channels.howJobs': 'Jobs can send their results here too: switch on "Send to Telegram" in a job\'s delivery.',
+    'settings.channels.state.running': 'Listening',
+    'settings.channels.state.starting': 'Starting',
+    'settings.channels.state.locked': 'Paused while locked',
+    'settings.channels.state.offline': 'Cannot reach Telegram',
+    'settings.channels.state.conflict': 'In use elsewhere',
+    'settings.channels.state.webhook': 'Webhook set',
+    'settings.channels.state.unauthorized': 'Token no longer works',
+    'settings.channels.state.error': 'Not working',
+    'settings.channels.state.off': 'Off',
 
     /* ---------------------------------------------------------------- *
      * Settings: Monitoring

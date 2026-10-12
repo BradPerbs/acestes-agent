@@ -9,6 +9,7 @@ import {
     UserShield01Icon,
     CursorMagicSelection01Icon,
     BubbleChatIcon,
+    SmartPhone01Icon,
 } from 'hugeicons-react';
 import AgentMark from '../assistant/AgentMark';
 import Tooltip from '../ui/Tooltip';
@@ -46,6 +47,8 @@ export const SETTINGS_CATEGORIES = [
     { id: 'permissions', icon: UserShield01Icon, group: 'agent' },
     { id: 'agentic', icon: CursorMagicSelection01Icon, group: 'agent' },
     { id: 'chat', icon: BubbleChatIcon, group: 'agent' },
+    // Reaching the agent from the phone: a Telegram bot of the user's own.
+    { id: 'channels', icon: SmartPhone01Icon, group: 'agent' },
     // Everything to do with terminals, sessions and servers is one category,
     // as tabs of a single page.
     { id: 'appearance', icon: PaintBoardIcon, group: 'machine' },

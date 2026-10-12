@@ -270,6 +270,7 @@ export default {
     'settings.nav.permissions': '权限',
     'settings.nav.agentic': '代理操作',
     'settings.nav.chat': '对话与语音',
+    'settings.nav.channels': '渠道',
     'settings.nav.security': '安全',
     'settings.nav.backup': '备份',
     'settings.nav.about': '关于',

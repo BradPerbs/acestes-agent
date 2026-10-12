@@ -302,6 +302,7 @@ export default {
     'settings.nav.permissions': 'Разрешения',
     'settings.nav.agentic': 'Агентная работа',
     'settings.nav.chat': 'Чат и голос',
+    'settings.nav.channels': 'Каналы',
     'settings.nav.security': 'Безопасность',
     'settings.nav.backup': 'Резервные копии',
     'settings.nav.about': 'О программе',
