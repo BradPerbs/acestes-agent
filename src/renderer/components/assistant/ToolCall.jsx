@@ -67,6 +67,7 @@ const TITLES = {
     search_conversations: 'assistant.didSearchConversations',
     read_conversation: 'assistant.didReadConversation',
     ask_user: 'assistant.didAsk',
+    message_user: 'assistant.didMessageUser',
     delegate: 'assistant.didDelegate',
     fan_out: 'assistant.didFanOut',
     start_task: 'assistant.didStartTask',
@@ -234,6 +235,8 @@ export function describeCall(name, input = {}) {
             return { mono: true, text: input.conversationId || '' };
         case 'ask_user':
             return { mono: false, text: input.question || '' };
+        case 'message_user':
+            return { mono: false, text: input.text || '' };
         case 'Agent':
         case 'Task':
             return { mono: false, text: input.description || input.prompt || '' };

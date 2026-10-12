@@ -1156,6 +1156,28 @@ const TOOLS = [
     },
 
     {
+        name: 'message_user',
+        title: 'Message the user on their phone',
+        // It changes nothing on any system: it tells the user something,
+        // through the channel they paired themselves.
+        readOnly: true,
+        description:
+            'Send the user a message on their phone, through the Telegram chat they paired with Acestes. '
+            + 'For news they asked to hear as it happens ("tell me when the build finishes"), or something a '
+            + 'scheduled run found that cannot wait. Not for your replies in this conversation, which reach them '
+            + 'wherever they wrote from. Fails when no phone is paired.',
+        shape: {
+            text: z.string().min(1).max(3500).describe('The message: short, plain text or light Markdown.'),
+        },
+        handler: async (input, ctx) => {
+            if (typeof ctx.messageUser !== 'function') return fail('There is no way to message the user from here.');
+            const result = await ctx.messageUser(input.text);
+            if (!result || result.error) return fail(result?.error || 'The message did not go.');
+            return ok({ sent: true, channel: result.channel || 'telegram' });
+        },
+    },
+
+    {
         name: 'save_secret',
         title: 'Store a secret',
         // Auto-approved, and still a write. The two are usually the same
@@ -1367,8 +1389,10 @@ const BUNDLE_OF = {
     send_inventory_file: 'inventory',
     delete_inventory_file: 'inventory',
     list_agents: 'inventory',
-    // Automation: background tasks and scheduled jobs.
+    // Automation: background tasks and scheduled jobs, and telling the
+    // user's phone what one of them found.
     start_task: 'automation',
+    message_user: 'automation',
     list_job_templates: 'automation',
     schedule_job: 'automation',
     list_jobs: 'automation',
