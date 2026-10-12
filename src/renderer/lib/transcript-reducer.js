@@ -144,6 +144,8 @@ function step(state, event, owned) {
                 files: event.files || [],
                 mentions: event.mentions
                     || (event.specs || []).map(spec => ({ ...spec, kind: 'snippet' })),
+                // Written somewhere other than the app (Telegram), when it was.
+                channel: event.channel || '',
             });
             busy = true;
             draft = emptyDraft();
@@ -329,15 +331,17 @@ function step(state, event, owned) {
                 // and once by the main process when it resolves. Only the
                 // first carries what the user typed, so it is kept.
                 const feedback = event.feedback || item.approval?.feedback || item.feedback || '';
+                // Where it was answered, when not in a window (Telegram).
+                const by = event.by || item.approval?.by || item.by || '';
                 edit()[index] = item.kind === 'approval'
-                    ? { ...item, status: event.status, feedback }
+                    ? { ...item, status: event.status, feedback, by }
                     : {
                         ...item,
                         // Answered, so the row goes back to reporting the call.
                         // A refused one never runs, and `tool-result` closes it
                         // out either way.
                         status: event.status === 'approved' ? 'running' : item.status,
-                        approval: { ...item.approval, status: event.status, feedback },
+                        approval: { ...item.approval, status: event.status, feedback, by },
                     };
             }
             break;

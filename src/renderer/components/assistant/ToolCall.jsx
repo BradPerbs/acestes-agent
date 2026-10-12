@@ -384,7 +384,10 @@ export default function ToolCall({ item, conversationId = '', onOpenConversation
     // having to click to see what was done to a file is one click too many.
     const [open, setOpen] = useState(item.status === 'error' || Boolean(item.diff));
     const summary = describeCall(item.name, item.input);
-    const refused = REFUSED[item.approval?.status];
+    // A refusal given on the phone says so: nobody at the desk said no.
+    const refused = item.approval?.status === 'denied' && item.approval?.by === 'telegram'
+        ? 'assistant.declinedOnTelegram'
+        : REFUSED[item.approval?.status];
     const known = refused || TITLES[item.name];
     const title = known
         ? t(known)

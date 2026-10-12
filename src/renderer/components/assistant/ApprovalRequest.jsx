@@ -161,7 +161,7 @@ export default function ApprovalRequest({ group, sessions = [], onRespond }) {
             <div className="h-8 px-2.5 flex items-center gap-2 rounded-lg bg-gray-50 dark:bg-white/[0.035]">
                 <span aria-hidden="true" className={`w-1.5 h-1.5 rounded-full shrink-0 ${settled.dot}`} />
                 <span className="text-[11px] font-medium text-gray-600 dark:text-gray-400 shrink-0">
-                    {t(settled.labelKey)}
+                    {t(item.by === 'telegram' && item.status !== 'expired' ? `${settled.labelKey}OnTelegram` : settled.labelKey)}
                 </span>
                 <span
                     className={`min-w-0 flex-1 truncate text-[11px] text-gray-500 dark:text-gray-500 ${

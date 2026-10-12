@@ -77,7 +77,7 @@ function RowContent({ item, conversationId, onRespond, onAnswer, onRevert, onOpe
     const t = useT();
     if (item.kind === 'user') {
         return (
-            <div key={item.id} className="flex justify-end">
+            <div key={item.id} className="flex flex-col items-end">
                 <div className="assistant-bubble max-w-[88%] px-3 py-2 rounded-2xl rounded-br-md
                     bg-gray-900 dark:bg-white text-white dark:text-black
                     text-[13px] leading-relaxed whitespace-pre-wrap break-words">
@@ -139,6 +139,13 @@ function RowContent({ item, conversationId, onRespond, onAnswer, onRevert, onOpe
                     )}
                     {item.text}
                 </div>
+                {/* Sent from the phone: said under the bubble, so a turn that
+                    ran while nobody was at the desk reads as what it was. */}
+                {item.channel === 'telegram' && (
+                    <span className="mt-1 mr-1 text-[10px] text-gray-400 dark:text-gray-500">
+                        {t('assistant.fromTelegram')}
+                    </span>
+                )}
             </div>
         );
     }
