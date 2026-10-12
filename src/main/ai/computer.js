@@ -295,6 +295,12 @@ async function call(cmd, payload = {}, timeout = 30000) {
 
 // conversationId -> { name, pausedBy }
 const drivers = new Map();
+// Conversations whose turn the user stopped. An action already under way
+// when the stop came (a batch half done, one queued for the mouse) would
+// otherwise take the desktop back after it was let go, and with the turn
+// over nothing would ever let go of it again: the badge and the corner card
+// stayed up for good. Cleared by the next turn (see `resume`).
+const halted = new Set();
 // Whether the helper's badge and hooks are on, and whether it has paused
 // itself on the user's hand since they were last switched on.
 let driving = false;
@@ -450,8 +456,25 @@ function release(conversationId) {
     }
 }
 
+/**
+ * The user stopped a conversation's turn: it lets go now, and nothing still
+ * running from that turn takes the desktop again.
+ */
+function halt(conversationId) {
+    halted.add(conversationId);
+    release(conversationId);
+}
+
+/** A new turn: the conversation may take the desktop again. */
+function resume(conversationId) {
+    halted.delete(conversationId);
+}
+
+const STOPPED = 'The user stopped this turn, so this was not done. Stop here and wait for them.';
+
 /** A conversation thrown away forgets what it was allowed, and its numbers. */
 function forget(conversationId) {
+    halted.delete(conversationId);
     release(conversationId);
     consents.delete(conversationId);
     frames.delete(conversationId);
@@ -506,6 +529,8 @@ function apiFor(state) {
      * back after the user's hand paused it and this is a new turn.
      */
     const drive = async () => {
+        // Late, from a turn the user stopped: not taken back.
+        if (halted.has(state.id)) return STOPPED;
         let me = drivers.get(state.id);
         if (!me) {
             me = { name: state.agentName() || 'The agent', pausedBy: '', counted: false };
@@ -1525,6 +1550,8 @@ function apiFor(state) {
         const refused = await begin();
         if (refused) return { error: refused };
         const done = await withMouse(async () => {
+            // Stopped while it waited for another agent's action to finish.
+            if (halted.has(state.id)) return { result: { error: STOPPED } };
             const result = await step(input);
             if (result.error) return { result };
             await remember();
@@ -1549,6 +1576,7 @@ function apiFor(state) {
         const refused = await begin();
         if (refused) return { error: refused };
         return withMouse(async () => {
+            if (halted.has(state.id)) return { error: STOPPED };
             const result = await doHover(input);
             if (result.error) return result;
             await remember();
@@ -1577,6 +1605,7 @@ function apiFor(state) {
         const refused = await begin();
         if (refused) return { error: refused };
         return withMouse(async () => {
+            if (halted.has(state.id)) return { error: STOPPED };
             const result = await work(input);
             if (!result.error) await remember();
             return result;
@@ -1807,15 +1836,25 @@ function apiFor(state) {
             const refused = await begin();
             if (refused) return { error: refused };
             const done = [];
+            // A stop between steps ends the batch there: the rest of it would
+            // otherwise go on moving the mouse after the user said stop.
+            const stopped = () => ({
+                error: done.length
+                    ? `${STOPPED} The ${done.length} step${done.length === 1 ? '' : 's'} before it were done.`
+                    : STOPPED,
+            });
             for (const [index, step] of steps.entries()) {
                 const run = STEPS[step?.do];
                 if (!run) return { error: `Step ${index + 1}: there is no action "${step?.do}".` };
+                if (halted.has(state.id)) return stopped();
                 const idle = step.do === 'pause' || step.do === 'wait_for';
                 const result = idle ? await run(step) : await withMouse(async () => {
+                    if (halted.has(state.id)) return { halted: true };
                     const outcome = await run(step);
                     if (!outcome.error) await remember();
                     return outcome;
                 });
+                if (result.halted) return stopped();
                 if (result.error) {
                     // The whole window, not what changed: a failed batch is
                     // planned again from what is there.
@@ -1940,6 +1979,8 @@ module.exports = {
     configure,
     apiFor,
     release,
+    halt,
+    resume,
     forget,
     shutdown,
     formatTree,
@@ -1954,10 +1995,12 @@ module.exports = {
         helperPid: () => helper?.child.pid,
         changesBetween,
         drivers: () => drivers,
+        halted: () => halted,
         homes: () => homes,
         reset: () => {
             shutdown();
             drivers.clear();
+            halted.clear();
             homes.clear();
             driving = false;
             helperPaused = false;

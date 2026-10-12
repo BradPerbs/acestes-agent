@@ -239,6 +239,56 @@ const eventsOf = (conversationId, type) => seen
         assert.strictEqual(typeof told[0].from, 'string');
     });
 
+    console.log('\nthe desktop, let go when a turn from the phone ends');
+
+    const computer = require(path.join(ROOT, 'ai', 'computer'));
+    // What computer.js's drive() records when an action takes the desktop.
+    const takeDesktop = id => computer._test.drivers().set(id, { name: 'Acestes', pausedBy: '', counted: true });
+
+    await check('a follow-up sent into a running turn lets go when it ends, though its run was closed by the first', async () => {
+        await assistant.send(conversationId, 'click through the installer', [], [], [], { channel: 'telegram', strict: true });
+        takeDesktop(conversationId);
+        // "and accept the licence too", sent while the first is running: the
+        // same run, which the first turn's result closes.
+        await assistant.send(conversationId, 'and accept the licence too', [], [], [], { channel: 'telegram', strict: true });
+        starts.at(-1).options.onEvent({ type: 'result', subtype: 'success', isError: false, costUsd: 0 });
+        assert.ok(!computer._test.drivers().has(conversationId), 'the first turn let go');
+        assert.strictEqual(conversation.runId, '', 'and its run is closed');
+
+        // The follow-up's turn takes the desktop again, then ends with no run open.
+        takeDesktop(conversationId);
+        starts.at(-1).options.onEvent({ type: 'result', subtype: 'success', isError: false, costUsd: 0 });
+        assert.ok(!computer._test.drivers().has(conversationId), 'the follow-up let go too');
+    });
+
+    await check('stopped from the phone, nothing still running takes the desktop back until the next message', async () => {
+        await assistant.send(conversationId, 'fill in the form', [], [], [], { channel: 'telegram', strict: true });
+        takeDesktop(conversationId);
+        const stopped = await assistant.interrupt(conversationId);
+        assert.strictEqual(stopped.success, true);
+        assert.ok(!computer._test.drivers().has(conversationId), 'let go');
+        assert.ok(computer._test.halted().has(conversationId), 'held off');
+
+        // A late action from the stopped turn is turned away before it moves anything.
+        const late = computer.apiFor({
+            id: conversationId,
+            title: () => '',
+            runKind: () => 'interactive',
+            settings: () => ({ computerUse: true }),
+            agentName: () => 'Acestes',
+            canSee: () => true,
+        });
+        if (process.platform === 'win32' || process.platform === 'darwin') {
+            const result = await late.click({ element: 3 });
+            assert.ok(/stopped this turn/.test(result.error || ''), JSON.stringify(result));
+            assert.ok(!computer._test.drivers().has(conversationId), 'still not driving');
+        }
+
+        await assistant.send(conversationId, 'ok, carry on', [], [], [], { channel: 'telegram', strict: true });
+        assert.ok(!computer._test.halted().has(conversationId), 'a new turn may drive again');
+        starts.at(-1).options.onEvent({ type: 'result', subtype: 'success', isError: false, costUsd: 0 });
+    });
+
     console.log(`\n${passed} passed, ${failed} failed`);
     await assistant.shutdown().catch(() => {});
     process.exit(failed > 0 ? 1 : 0);

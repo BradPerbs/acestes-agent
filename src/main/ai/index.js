@@ -1947,11 +1947,21 @@ function handleProviderEvent(conversation, event) {
     if (event.type === 'error' || event.type === 'closed') {
         conversation.busy = false;
     }
+    // The turn is over, so the desktop is let go whether or not a run is
+    // still open to close. endRun does it too, but only for a turn with a
+    // run of its own: a message sent into a turn still going shares the
+    // first one's run, which the first result closes, so the second turn's
+    // result found no run, nothing let go, and the badge and the corner
+    // card stayed up after it had finished.
+    if (event.type === 'result' || event.type === 'error' || event.type === 'closed') {
+        computer.release(conversation.id);
+    }
     // A turn the runtime started by itself, to pass on what a subagent
     // brought back after the turn that sent it had ended. It is work like
     // any other, so it is shown as work and logged as a run.
     if (event.type === 'turn-resumed') {
         conversation.busy = true;
+        computer.resume(conversation.id);
         if (!conversation.runId) {
             beginRun(conversation, {
                 kind: conversation.runKind || 'interactive',
@@ -3661,6 +3671,8 @@ async function send(conversationId, text, attachments = [], tagged = [], attache
     // header say what the list says from the first moment.
     if (drafted) emit(conversation, { type: 'title', title: conversation.title });
     conversation.busy = true;
+    // A new turn may take the desktop again after one that was stopped.
+    computer.resume(conversation.id);
     nameConversation(conversation);
 
     // A message sent into a turn still going is a new turn of the same run
@@ -3829,6 +3841,9 @@ function nameConversation(conversation) {
 
 async function interrupt(conversationId) {
     const conversation = conversations.get(conversationId);
+    // The desktop first, before the runtime is asked to stop: an action
+    // still under way must not take it back once it is let go. See halt.
+    if (conversation) computer.halt(conversationId);
     if (!conversation?.session) return { success: false };
 
     // Anything this conversation is waiting on a person for is refused first.

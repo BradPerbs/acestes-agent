@@ -347,6 +347,54 @@ function conversation(id, overrides = {}) {
         computer.release('c-esc');
     });
 
+    await check('a stopped turn lets go, and what was still running does not take the desktop back', async () => {
+        const announced = [];
+        computer.configure({ driversChanged: ids => announced.push(ids) });
+        const { api } = conversation('c-halt');
+        busy.add('c-halt');
+        assert.ok(!(await api.click({ element: 3 })).error);
+        assert.ok(computer._test.drivers().has('c-halt'));
+        clearLog();
+
+        // Stopped (from the phone, say) while a batch is half done.
+        const batch = api.steps({
+            steps: [
+                { do: 'click', element: 3 },
+                { do: 'pause', seconds: 0.3 },
+                { do: 'type', text: 'never typed' },
+                { do: 'click', element: 3 },
+            ],
+        });
+        for (let tries = 0; tries < 200 && !sent().some(request => request.cmd === 'click'); tries += 1) {
+            await new Promise(resolve => setTimeout(resolve, 10));
+        }
+        busy.delete('c-halt');
+        computer.halt('c-halt');
+        const result = await batch;
+        assert.ok(/stopped this turn/.test(result.error), result.error);
+        assert.ok(/The [12] steps? before it were done/.test(result.error), result.error);
+        assert.ok(!sent().some(request => request.cmd === 'type'), 'nothing after the stop ran');
+        assert.strictEqual(sent().filter(request => request.cmd === 'click').length, 1, 'only the click before the stop');
+
+        // A late action from the same turn is turned away, and the corner
+        // card was last told nobody is driving.
+        assert.ok(/stopped this turn/.test((await api.click({ element: 3 })).error));
+        assert.ok(!computer._test.drivers().has('c-halt'), 'not driving after the stop');
+        assert.ok(!announced.at(-1).includes('c-halt'), 'the overlay was told it let go');
+        await new Promise(resolve => setTimeout(resolve, 50));
+        assert.ok(sent().some(request => request.cmd === 'drive' && request.on === false), 'the badge went');
+
+        // The next turn may drive again.
+        computer.resume('c-halt');
+        busy.add('c-halt');
+        assert.ok(!(await api.click({ element: 3 })).error, 'a new turn starts clean');
+        assert.ok(announced.at(-1).includes('c-halt'));
+        busy.delete('c-halt');
+        computer.release('c-halt');
+        assert.ok(!announced.at(-1).includes('c-halt'));
+        computer.configure({ driversChanged: () => {} });
+    });
+
     await check('a secret is typed from its reference, and never handed back', async () => {
         clearLog();
         const { api } = conversation('c-type');
