@@ -15,8 +15,9 @@ const runs = require('./index');
  * What it owns beyond the tick: the overlap rule (a job whose last run is
  * still going is skipped, not stacked), the heartbeat probe (a command run
  * first, so a quiet check costs no tokens), the event and webhook doors,
- * and delivery of a finished run's result to a notification, a webhook or
- * a file. The backoff and the ten-strikes rule are the jobs module's.
+ * and delivery of a finished run's result to a notification, a webhook, a
+ * file or the paired phone. The backoff and the ten-strikes rule are the
+ * jobs module's.
  */
 
 const TICK_MS = 5000;
@@ -242,6 +243,14 @@ function deliver(job, run) {
         });
     }
 
+    if (delivery.channel) {
+        try {
+            deps.deliverToChannel?.(job, run);
+        } catch (error) {
+            console.error(`Delivery of ${job.name} to the phone failed:`, error.message);
+        }
+    }
+
     if (delivery.file) {
         const line = [
             `## ${job.name} · ${new Date(run.endedAt || Date.now()).toISOString()} · ${status}`,
@@ -285,6 +294,7 @@ function runEnded(run) {
  *   probe       (job, probe) => { success, exitCode, stdout, stderr }
  *   notifyUser  ({ title, body, jobId, runId }) => void
  *   resumeRun   (run) => void, for runs re-queued on launch
+ *   deliverToChannel (job, run) => void, for a job sent to the paired phone
  */
 function start(options = {}) {
     deps = { ...deps, ...options };

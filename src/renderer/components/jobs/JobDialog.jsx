@@ -83,6 +83,7 @@ function draftFrom(job) {
         notify: job.delivery?.notify !== false,
         webhook: job.delivery?.webhook || '',
         file: job.delivery?.file || '',
+        channel: job.delivery?.channel === true,
         missed: job.missed || 'skip',
         keepAfterRun: Boolean(job.keepAfterRun),
         template: job.template || '',
@@ -115,7 +116,7 @@ export function specFrom(draft, agentId) {
             tools: draft.tools.split(',').map(entry => entry.trim()).filter(Boolean),
             budget: { maxToolCalls: number(draft.maxToolCalls), maxCostUsd: number(draft.maxCostUsd), maxMinutes: number(draft.maxMinutes) },
         },
-        delivery: { notify: draft.notify, webhook: draft.webhook, file: draft.file },
+        delivery: { notify: draft.notify, webhook: draft.webhook, file: draft.file, channel: draft.channel },
         missed: draft.missed,
         keepAfterRun: draft.keepAfterRun,
         template: draft.template,
@@ -240,6 +241,7 @@ export default function JobDialog({ job, seed, agentId, hosts, onClose, onSaved 
     ].filter(Boolean).join(' · ');
     const delivery = [
         draft.notify && t('jobs.summary.notify'),
+        draft.channel && t('jobs.summary.telegram'),
         draft.webhook && t('jobs.summary.webhook'),
         draft.file && t('jobs.summary.file'),
     ].filter(Boolean).join(' · ');
@@ -415,10 +417,17 @@ export default function JobDialog({ job, seed, agentId, hosts, onClose, onSaved 
                     </div>
                 </Disclosure>
 
-                <Disclosure title={t('jobs.section.delivery')} summary={delivery || t('jobs.summary.silent')} defaultOpen={Boolean(draft.webhook || draft.file)}>
+                <Disclosure title={t('jobs.section.delivery')} summary={delivery || t('jobs.summary.silent')} defaultOpen={Boolean(draft.webhook || draft.file || draft.channel)}>
                     <label className="flex items-center justify-between gap-3 text-sm text-gray-800 dark:text-gray-200">
                         <span>{t('jobs.notify')}</span>
                         <Toggle checked={draft.notify} onChange={value => set('notify', value)} />
+                    </label>
+                    <label className="flex items-center justify-between gap-3 text-sm text-gray-800 dark:text-gray-200">
+                        <span className="min-w-0">
+                            {t('jobs.telegram')}
+                            <span className="block text-xs text-gray-500 dark:text-gray-400">{t('jobs.telegramHint')}</span>
+                        </span>
+                        <Toggle checked={draft.channel} onChange={value => set('channel', value)} />
                     </label>
                     <Field label={t('jobs.webhookOut')}>
                         <input type="text" value={draft.webhook} onChange={e => set('webhook', e.target.value)} className={FIELD_CLASS} placeholder="https://" />

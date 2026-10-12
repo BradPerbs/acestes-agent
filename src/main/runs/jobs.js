@@ -294,6 +294,9 @@ function normalizeDelivery(raw) {
         notify: source.notify === undefined ? true : Boolean(source.notify),
         webhook: /^https?:\/\//i.test(webhook) ? webhook : '',
         file: clean(source.file, 1000),
+        // The paired phone (channels/telegram.js): the result, and any
+        // approval the run stops on, with buttons to answer it there.
+        channel: Boolean(source.channel),
     };
 }
 
