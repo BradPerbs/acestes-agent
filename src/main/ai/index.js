@@ -3098,9 +3098,6 @@ async function resumeCutShort(run, queuedIds) {
         return close(`Failover stopped resuming it after the app stopped during it ${count} times.`);
     }
 
-    // Read back from disk, a conversation carries no run kind, and one with
-    // none is put down after its turn as if it were a job's.
-    conversation.runKind = 'interactive';
     emit(conversation, {
         type: 'notice',
         tone: 'info',

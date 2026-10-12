@@ -340,6 +340,17 @@ function unpackMeta(record, currentProvider) {
         carryOver: typeof record.carryOver === 'string' ? record.carryOver : '',
         pendingNote: typeof record.pendingNote === 'string' ? record.pendingNote : '',
         agentId: typeof record.agentId === 'string' ? record.agentId : '',
+        // A person's chat, as every conversation is until a job or a
+        // delegation says otherwise when it starts a run. None of the run
+        // fields is stored: a job sets its own again each time it runs, and
+        // left out, a chat read back after a restart counted as a background
+        // run, so computer use and the job tools refused it and its runtime
+        // was put down after every turn.
+        runId: '',
+        runKind: 'interactive',
+        runTrigger: null,
+        runPolicy: null,
+        jobId: '',
         createdAt: Number.isFinite(record.createdAt) ? record.createdAt : at,
         updatedAt: at,
     };

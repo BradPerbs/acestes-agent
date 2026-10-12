@@ -385,6 +385,22 @@ const PNG = Buffer.from('89504e470d0a1a0a0000000d4948445200000001000000010806000
         assert.ok(found.results[0].snippets[0].text.includes('payroll'));
     });
 
+    // Left out, a chat reopened after a restart counted as a background run:
+    // computer use refused it, the job tools refused it, and its runtime was
+    // put down after every turn as a job's is.
+    await checkAsync('after a restart, a conversation is the person\'s chat, not a background run', async () => {
+        const reopened = fresh('ai/archive');
+        const stubs = reopened.load().map(meta => reopened.stub(meta, ''));
+        assert.ok(stubs.length > 0);
+        for (const entry of stubs) {
+            assert.strictEqual(entry.runKind, 'interactive', `${entry.id} read back as a person's chat`);
+            assert.strictEqual(entry.runId, '');
+            assert.strictEqual(entry.jobId, '');
+        }
+        const live = assistant._test.conversation('conv-a-1');
+        assert.strictEqual(live.runKind, 'interactive', 'the one in the live map too');
+    });
+
     await checkAsync('a period the user chose deletes what is older, but never a pinned one', async () => {
         const before = assistant.settings.get();
         const after = assistant.settings.set({ historyDays: 30 });
