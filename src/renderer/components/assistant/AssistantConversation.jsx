@@ -425,8 +425,8 @@ export default function AssistantConversation({
     // not picked runs on, are this tab's agent's, not the selected agent's.
     // Picking an account only the selected agent had ticked used to pin a
     // conversation that main then ran on its own agent's account regardless.
-    // The default runtime, model and effort too: an unpinned conversation
-    // runs on its own agent's, which is what the chip has to show.
+    // The default runtime, model, effort and mode too: an unpinned
+    // conversation runs on its own agent's, which is what the chips show.
     const accountSettings = useMemo(() => {
         if (!settings) return settings;
         const own = agentSettings && (!agentId || agentSettings.agentId === agentId) ? agentSettings : null;
@@ -436,6 +436,7 @@ export default function AssistantConversation({
                 provider: own.provider,
                 model: own.model,
                 effort: own.effort,
+                approval: own.approval,
                 accounts: own.accounts,
                 menuAccounts: own.menuAccounts,
             }
@@ -443,10 +444,11 @@ export default function AssistantConversation({
     }, [settings, agentSettings, agentId]);
 
     // What a new conversation starts on, for the whole app rather than per
-    // agent: the starred model, else the last one picked or sent with, in
-    // any tab of any agent (see main's start-model.js). Main works out
-    // `pick` for this tab's agent and puts a conversation it makes on it;
-    // here it is what an empty tab shows, and the star in the menu.
+    // agent: the starred model, else the last one picked or sent with, at
+    // the last effort and in the last mode, in any tab of any agent (see
+    // main's start-model.js). Main works out `pick` for this tab's agent and
+    // puts a conversation it makes on it; here it is what an empty tab
+    // shows, and the star in the menu.
     const modelAgent = agentId || settings?.agentId || '';
     const [startModel, setStartModel] = useState(null);
     useEffect(() => {
@@ -574,11 +576,6 @@ export default function AssistantConversation({
             .catch(() => {});
     }), [agentId]);
 
-    const changeSettings = useCallback(async (patch) => {
-        const next = await window.api.ai.setSettings(patch);
-        setSettings(next);
-    }, []);
-
     // The model belongs to the conversation. A new one starts on the model
     // the chip was last left on, or the agent's default before it ever was;
     // from then on it is pinned to what was picked, and coming back to it
@@ -603,6 +600,16 @@ export default function AssistantConversation({
         return pinModel(patch);
     }, [shownSettings, pinModel]);
     const starModel = useCallback((pin) => window.api.ai.starModel?.(pin), []);
+
+    // The mode is this conversation's too, like the model: picking one here
+    // leaves every other tab as it is, and is the mode the next conversation
+    // starts in. It used to be the agent's one switch, which moved every tab
+    // of the agent at once and was read off whichever agent was selected.
+    const changeMode = useCallback(({ approval }) => {
+        if (!approval) return undefined;
+        window.api.ai.rememberModel?.({ approval });
+        return pinModel({ approval });
+    }, [pinModel]);
 
     // The effort dial wears this chat's project colour. White and black have
     // no hue to wear, so they get slate; everything else wears its `from`.
@@ -1545,8 +1552,8 @@ export default function AssistantConversation({
                     <div className="flex items-center gap-1 pl-2 pr-2 pb-2">
                         {/* The standing state of the panel: what it will do
                             before asking, and where it is changed. */}
-                        {settings && (
-                            <ApprovalMenu settings={settings} onChange={changeSettings} runPolicy={assistant.runPolicy} />
+                        {shownSettings && (
+                            <ApprovalMenu settings={shownSettings} onChange={changeMode} runPolicy={assistant.runPolicy} />
                         )}
 
                         {/* Anything in the inventory can be named in a message.

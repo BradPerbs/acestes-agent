@@ -3,7 +3,9 @@ import PanelMenu from './PanelMenu';
 import { useT } from '../../i18n';
 
 /**
- * What the assistant will do before asking, as a chip in the composer.
+ * What the assistant will do before asking, as a chip in the composer. It is
+ * the conversation's, like the model: a pick moves this tab only, and is the
+ * mode the next conversation starts in (see main's start-model.js).
  *
  * This is the setting people reach for mid-conversation more than any other:
  * loosen it because the approvals are getting in the way of an investigation,
@@ -55,7 +57,7 @@ export default function ApprovalMenu({ settings, onChange, runPolicy }) {
         hint: t(option.hintKey),
     }));
 
-    // A run policy overrides the agent's own mode (see effectiveSettings in
+    // A run policy overrides the conversation's mode (see effectiveSettings in
     // main): the menu would be a control that changes nothing, so the chip
     // shows the effective state instead and stays shut while it is set.
     if (runPolicy && runPolicy !== 'inherit') {

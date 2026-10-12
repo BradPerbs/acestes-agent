@@ -646,7 +646,14 @@ function policySettings(conversation) {
     const agentSettings = patch.provider && PROVIDERS[patch.provider]
         ? resolvedFor(patch.provider, conversation.agentId, patch.account)
         : resolvedFor(settings.get(conversation.agentId).provider, conversation.agentId, patch.account);
-    const base = { ...agentSettings, ...(patch.model ? { model: patch.model } : {}), ...(patch.effort ? { effort: patch.effort } : {}) };
+    // The mode is the conversation's too, once it has one: what the composer's
+    // chip shows and changes. A run policy below still overrides it.
+    const base = {
+        ...agentSettings,
+        ...(patch.model ? { model: patch.model } : {}),
+        ...(patch.effort ? { effort: patch.effort } : {}),
+        ...(patch.approval ? { approval: patch.approval } : {}),
+    };
     const policy = conversation.runPolicy;
     if (!policy || !policy.approvals || policy.approvals === 'inherit') return base;
     switch (policy.approvals) {
@@ -1310,7 +1317,8 @@ function reconfigure(before, after, agentId = '') {
         // Into or out of Full access: the prompt says where the fence is and
         // some runtimes (Codex) fix their sandbox when the query starts. The
         // other approval moves are read live on every call and need nothing.
-        const fenceChanged = (before.approval === 'full') !== (after.approval === 'full');
+        // A conversation with a mode of its own is not moved by the agent's.
+        const fenceChanged = !own.approval && (before.approval === 'full') !== (after.approval === 'full');
         if (RESTART_ON.some(field => field === 'toolBundles' ? toolBundlesChanged : before[field] !== after[field])
             || accountChanged || fenceChanged) {
             if (session || conversation.starting) conversation.needsRestart = true;
@@ -2675,12 +2683,14 @@ function conversationsApiFor(conversation) {
             });
             const child = conversations.get(created.conversationId);
             adopt(child, title);
-            // On this chat's model when it is the same agent's; otherwise on
-            // the model new conversations start on, like a tab opened by hand.
+            // On this chat's model and mode when it is the same agent's;
+            // otherwise on the model new conversations start on, like a tab
+            // opened by hand, but in its own agent's mode: the last mode a
+            // person picked is theirs to carry, not an agent's to hand on.
             if (target.id === conversation.agentId && conversation.settingsPatch) {
                 child.settingsPatch = { ...conversation.settingsPatch };
             } else {
-                startOnPick(child.id);
+                startOnPick(child.id, { mode: false });
             }
             return launch(child, { message, open, focus, wait });
         },
@@ -3004,6 +3014,9 @@ async function startJobRun(job, { context = '', source = 'schedule', resumeRun =
         ...(job.provider ? { provider: job.provider } : {}),
         ...(job.model ? { model: job.model } : {}),
         ...(job.effort ? { effort: job.effort } : {}),
+        // A conversation the job continues keeps the mode it was left in;
+        // the job's own policy still decides over it.
+        ...(conversation.settingsPatch?.approval ? { approval: conversation.settingsPatch.approval } : {}),
     };
     // A pinned model applies from the next query; a conversation continued
     // by a job may be holding a session on another one.
@@ -3206,12 +3219,13 @@ async function resolveModel(agentId, query) {
 }
 
 /**
- * Pin a conversation to a runtime, a model and an effort, or change the pin
- * it has. This is what the composer's chip changes: the pin, not the agent's
- * default behind it, so each conversation keeps the model it was left on.
- * Like a change of settings, a new model or effort on the same runtime is
- * pushed at the running session, and another runtime restarts the query on
- * the next message.
+ * Pin a conversation to a runtime, a model, an effort and a mode, or change
+ * the pin it has. This is what the composer's chips change: the pin, not the
+ * agent's default behind it, so each conversation keeps the model and the
+ * mode it was left on. Like a change of settings, a new model or effort on
+ * the same runtime is pushed at the running session, and another runtime
+ * restarts the query on the next message. A mode is read on every tool call,
+ * except Full access, whose folder fence a runtime fixes when it starts.
  */
 function setConversationModel(conversationId, patch = {}) {
     hydrate();
@@ -3226,6 +3240,9 @@ function setConversationModel(conversationId, patch = {}) {
     if (model) next.model = String(model).slice(0, 120);
     const effort = patch.effort !== undefined ? patch.effort : current.effort;
     if (effort) next.effort = String(effort).slice(0, 20);
+    // The mode; an empty one hands it back to the agent's own.
+    const approval = patch.approval !== undefined ? patch.approval : current.approval;
+    if (approval && settings.APPROVALS.has(approval)) next.approval = approval;
     // Which sign-in, when the menu offered the runtime under more than one.
     // An account belongs to its runtime, so a change of runtime that does not
     // name one drops it, and an empty one goes back to the agent's choice.
@@ -3267,13 +3284,22 @@ function setConversationModel(conversationId, patch = {}) {
         if (before.model !== after.model) session.setModel?.(after.model);
         if (before.effort !== after.effort) session.setEffort?.(after.effort);
     }
-    return { pinned: conversation.settingsPatch };
+    // Into or out of Full access: the prompt says where the fence is and some
+    // runtimes (Codex) fix their sandbox when the query starts.
+    if ((before.approval === 'full') !== (after.approval === 'full') && (session || conversation.starting)) {
+        conversation.needsRestart = true;
+    }
+    // A mode that moved is said, so whoever made the change can log it as
+    // the settings page's approvals are logged.
+    return before.approval !== after.approval
+        ? { pinned: conversation.settingsPatch, mode: { from: before.approval, to: after.approval } }
+        : { pinned: conversation.settingsPatch };
 }
 
 /**
  * What a new conversation of this agent starts on: the starred model, else
- * the last one used, anywhere in the app (see start-model.js). Null leaves
- * it on the agent's own default.
+ * the last one used, at the last effort and in the last mode used, anywhere
+ * in the app (see start-model.js). Null leaves it on the agent's defaults.
  */
 function startPick(agentId) {
     const current = settings.get(agentId);
@@ -3281,20 +3307,23 @@ function startPick(agentId) {
 }
 
 /**
- * Put a conversation someone just opened on the model new ones start on.
+ * Put a conversation someone just opened on the model, effort and mode new
+ * ones start on. `mode: false` leaves the mode to its agent, for one an
+ * agent opened.
  * For the conversations a person opens (a tab, a fork); the ones an agent
  * or a job makes keep the model they were made with.
  */
-function startOnPick(conversationId) {
+function startOnPick(conversationId, { mode = true } = {}) {
     hydrate();
     const conversation = conversations.get(conversationId);
     if (!conversation) return null;
     const pick = startPick(conversation.agentId);
-    if (!pick) return conversation.settingsPatch || null;
+    if (pick && !mode) delete pick.approval;
+    if (!pick || Object.keys(pick).length === 0) return conversation.settingsPatch || null;
     return setConversationModel(conversationId, pick).pinned || null;
 }
 
-/** The model a person just sent a message with is the one the next tab starts on. */
+/** What a person just sent a message with (model, effort, mode) is what the next tab starts on. */
 function rememberUsed(conversationId) {
     const conversation = conversations.get(conversationId);
     if (!conversation) return;
@@ -3310,10 +3339,15 @@ function rememberUsed(conversationId) {
         model,
         effort: current.effort,
         account: patch.account || '',
+        // The mode it was sent in: its own, else its agent's. Not a run
+        // policy's or a chat app's hold, which are the run's, not a choice.
+        approval: patch.approval || own.approval,
     });
 }
 
 const EFFORT_NAMES ={ low: 'low', medium: 'medium', high: 'high', xhigh: 'extra high', max: 'max', ultra: 'ultra' };
+/** As the composer's approval menu names them (assistant.approval* in the locales). */
+const MODE_NAMES = { always: 'Ask every time', writes: 'Workspace only', never: 'Yolo Mode', full: 'Full Access' };
 
 /**
  * What a pick in the composer changed, as one short line for the chat:
@@ -3330,6 +3364,9 @@ function describeModelChange(before, after) {
     }
     if ((before.effort || '') !== (after.effort || '') && after.effort) {
         parts.push(`${EFFORT_NAMES[after.effort] || after.effort} effort`);
+    }
+    if ((before.approval || '') !== (after.approval || '') && MODE_NAMES[after.approval]) {
+        parts.push(MODE_NAMES[after.approval]);
     }
     if (before.provider === after.provider && (before.accountId || '') !== (after.accountId || '')) {
         const account = accounts.resolve(after.provider, after.accountId);

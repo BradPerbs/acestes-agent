@@ -1691,6 +1691,9 @@ function register(getWindow) {
         for (const moved of assistant.settings.takePropagation()) {
             if (moved.agentId !== next.agentId) assistant.reconfigure(moved.before, moved.after, moved.agentId);
         }
+        // A mode chosen here is the latest one chosen: new conversations
+        // start in it, as they do after a pick on a composer's chip.
+        if (before.approval !== next.approval) assistant.startModel.remember({ approval: next.approval });
 
         // Only the settings that widen what the assistant may do are logged. The model and the effort are changed from a chip in the
         // composer several times an hour, and a security log that fills up
@@ -1777,9 +1780,22 @@ function register(getWindow) {
     handle('ai-conversation-pin', (event, { conversationId, pinned } = {}) =>
         assistant.pin(String(conversationId || ''), Boolean(pinned)));
     handle('ai-conversation-close', (event, conversationId) => assistant.close(conversationId));
-    // The runtime, model and effort one conversation is pinned to.
-    handle('ai-conversation-model', (event, { conversationId, patch } = {}) =>
-        assistant.setConversationModel(String(conversationId || ''), patch || {}));
+    // The runtime, model, effort and mode one conversation is pinned to. A
+    // mode moved from the chip is logged as one moved on the settings page.
+    handle('ai-conversation-model', (event, { conversationId, patch } = {}) => {
+        const result = assistant.setConversationModel(String(conversationId || ''), patch || {});
+        if (result?.mode) {
+            activity.record({
+                category: 'security',
+                action: 'assistant.configure',
+                outcome: 'info',
+                target: 'Assistant',
+                detail: `Approvals: ${result.mode.to}, for one conversation`,
+                changes: [{ field: 'approvals', from: result.mode.from, to: result.mode.to }],
+            });
+        }
+        return result;
+    });
     // What one turn did to files: the lines, for the card's review, and
     // undoing it. See ai/checkpoints.js.
     handle('ai-turn-changes', (event, { conversationId, turnId } = {}) =>

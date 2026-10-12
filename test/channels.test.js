@@ -287,7 +287,7 @@ function fakeSettings(overrides = {}) {
         'agent-1': { provider: 'claude-code', model: '', effort: 'high', approval: 'writes', providers: ['claude-code', 'codex'], hiddenModels: {}, ...overrides },
         'agent-2': { provider: 'claude-code', model: 'sonnet', effort: 'medium', approval: 'always', providers: ['claude-code'], hiddenModels: {} },
     };
-    const calls = { set: [], reconfigure: [], record: [], notify: [] };
+    const calls = { set: [], record: [] };
     return {
         agents,
         calls,
@@ -317,8 +317,6 @@ async function setup({ locked = { value: false }, jobs, settings = null } = {}) 
     const controls = settings ? createControls({
         ai,
         settings,
-        reconfigure: (before, after, agentId) => settings.calls.reconfigure.push({ before: before.approval, after: after.approval, agentId }),
-        notify: (channel, payload) => settings.calls.notify.push({ channel, payload }),
         record: entry => settings.calls.record.push(entry),
         catalogWait: 200,
     }) : null;
@@ -945,24 +943,26 @@ async function teardown(env) {
         }
     });
 
-    await check('a mode picked on the phone is the agent\'s, and applies on the phone too', async () => {
+    await check('a mode picked on the phone is the chat\'s conversation\'s, and applies on the phone too', async () => {
         const env = await setup({ settings: fakeSettings({ approval: 'never' }) });
         try {
             await pairOwner(env);
             env.telegram.message(OWNER, '/status');
             await until(() => sentText(env, /Model:/), { label: 'status' });
             env.telegram.press(OWNER, 's:mode', sentText(env, /Model:/).messageId);
-            await until(() => sentText(env, /do without asking/), { label: 'mode menu' });
-            const menu = sentText(env, /do without asking/);
+            await until(() => sentText(env, /do here without asking/), { label: 'mode menu' });
+            const menu = sentText(env, /do here without asking/);
             assert.deepStrictEqual(buttonsOf(menu).map(button => button.text), ['Ask every time', 'Workspace only', '> Yolo Mode', 'Full Access']);
             assert.ok(/held to Workspace only/.test(menu.body.text), menu.body.text);
 
-            // The same mode, picked here: nothing to change on the agent,
-            // but the phone's hold is lifted so Yolo means Yolo here too.
+            // The same mode, picked here: nothing to change, but the phone's
+            // hold is lifted so Yolo means Yolo here too. The chat gets a
+            // conversation to hold its mode.
             env.telegram.press(OWNER, 'p:never', menu.messageId);
             await until(() => editedText(env, /Yolo Mode/), { label: 'mode settled' });
             assert.strictEqual(env.gateway.status().approvals, 'agent');
-            assert.strictEqual(env.settings.calls.set.length, 0);
+            assert.strictEqual(env.ai.calls.create.length, 1);
+            assert.strictEqual(env.ai.calls.pin.length, 0, 'nothing moved');
             assert.ok(env.audits.some(entry => entry.action === 'channels.telegram-approvals'));
 
             env.telegram.clear();
@@ -970,18 +970,24 @@ async function teardown(env) {
             await until(() => sentText(env, /Model:/), { label: 'status after' });
             assert.ok(/<b>Mode:<\/b> Yolo Mode, nothing stops/.test(sentText(env, /Model:/).body.text));
 
-            // Typed, and a real change: the agent's setting, logged, and the
-            // panels told with the selected agent's settings.
+            // Typed, and a real change: pinned on the conversation and
+            // logged, with the agent's own setting left alone.
+            const id = env.ai.calls.create[0].id;
             env.telegram.message(OWNER, '/mode full access');
             await until(() => sentText(env, /<b>Mode:<\/b> Full Access/), { label: 'full access' });
-            assert.deepStrictEqual(env.settings.calls.set[0], { patch: { approval: 'full' }, id: 'agent-1' });
-            assert.deepStrictEqual(env.settings.calls.reconfigure[0], { before: 'never', after: 'full', agentId: 'agent-1' });
+            assert.deepStrictEqual(env.ai.pins.get(id), { approval: 'full' });
             assert.deepStrictEqual(env.settings.calls.record[0].changes, [{ field: 'approvals', from: 'never', to: 'full' }]);
-            assert.strictEqual(env.settings.calls.notify[0].channel, 'ai-settings');
+            assert.strictEqual(env.settings.calls.set.length, 0);
+            assert.strictEqual(env.settings.agents['agent-1'].approval, 'never');
+
+            env.telegram.clear();
+            env.telegram.message(OWNER, '/status');
+            await until(() => sentText(env, /Model:/), { label: 'status in full access' });
+            assert.ok(/<b>Mode:<\/b> Full Access/.test(sentText(env, /Model:/).body.text), sentText(env, /Model:/).body.text);
 
             env.telegram.message(OWNER, '/mode reckless');
             await until(() => sentText(env, /is not a mode/), { label: 'unknown mode' });
-            assert.strictEqual(env.settings.agents['agent-1'].approval, 'full');
+            assert.strictEqual(env.ai.pins.get(id).approval, 'full');
         } finally {
             await teardown(env);
         }

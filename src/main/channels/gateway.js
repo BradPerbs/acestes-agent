@@ -983,9 +983,9 @@ function createGateway(deps = {}) {
         const shown = await settingsOf(chatId);
         if (!shown) return;
         const agent = agentFor(chatId);
-        const lines = [`What may **${md(agent?.name || 'the agent')}** do without asking? Now **${md(shown.modeLabel)}**.`, ''];
+        const lines = [`What may **${md(agent?.name || 'the agent')}** do here without asking? Now **${md(shown.modeLabel)}**.`, ''];
         for (const mode of MODES) lines.push(`• **${md(mode.label)}**: ${md(mode.hint)}`);
-        lines.push('', '_The same switch as the one in the desktop composer: it is the agent\'s, not only this chat\'s._');
+        lines.push('', '_For this chat\'s conversation, as the mode chip is for a desktop tab. New conversations start in the mode last used._');
         if (shown.heldTo) {
             lines.push(`_Turns from ${label} are held to ${md(shown.heldTo.label)} now. Picking a mode here lifts that, so the mode you pick applies here too._`);
         }
@@ -995,10 +995,10 @@ function createGateway(deps = {}) {
     }
 
     async function pickMode(chatId, wanted, messageId = '') {
-        const agent = agentFor(chatId);
         let result;
         try {
-            result = controls.setMode({ agentId: agent?.id || '', mode: wanted, via: label });
+            // The mode is the conversation's, so a chat without one gets one.
+            result = controls.setMode({ conversationId: conversationFor(chatId), mode: wanted, via: label });
         } catch (error) {
             result = { error: error?.message || 'unknown error' };
         }
@@ -1011,9 +1011,9 @@ function createGateway(deps = {}) {
         // Yolo picked here would go on asking here. Logged by `update`.
         const lifted = config().approvals !== 'agent';
         if (lifted) update({ approvals: 'agent' });
-        const note = lifted ? `\n_Turns from ${label} now follow the agent's mode too (Settings, Channels)._` : '';
+        const note = lifted ? `\n_Turns from ${label} now follow the conversation's mode too (Settings, Channels)._` : '';
         await settleMenu(chatId, messageId,
-            `**Mode:** ${md(result.modeLabel)}, ${md(result.modeHint)}. From the next message, here and on the desktop.${note}`);
+            `**Mode:** ${md(result.modeLabel)}, ${md(result.modeHint)}. From the next message in this conversation, here and on the desktop.${note}`);
     }
 
     /** A picker's answer: the menu message turned into it, or a new message. */

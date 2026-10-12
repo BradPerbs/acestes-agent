@@ -3,13 +3,10 @@ const modelMatch = require('../ai/model-match');
 /**
  * What a chat can see and change of how its conversation runs: the model,
  * how hard it thinks, and what it may do before asking. The same three
- * things the composer's chips hold, held the same way:
- *
- *   - the model and the effort are pinned on the conversation
- *     (setConversationModel), so the chat moving them leaves every other
- *     conversation on its own, as a pick in one tab does
- *   - the mode is the agent's, one switch the desktop and the phone both
- *     read, as the approval chip is
+ * things the composer's chips hold, held the same way: pinned on the chat's
+ * conversation (setConversationModel), so the chat moving them leaves every
+ * other conversation on its own, as a pick in one tab does. The desktop tab
+ * showing that conversation moves with it.
  *
  * Built on the assistant core and its settings, given rather than required,
  * so the tests can stand them in.
@@ -123,12 +120,10 @@ const effortOf = value => EFFORTS.find(option => option.value === value) || null
  * The controls, given what they drive.
  *
  *   ai          history, startPick, models, setConversationModel: the core
- *   settings    get(agentId), set(patch, agentId), takePropagation()
- *   reconfigure the core's, told when a mode changes so live runs follow it
- *   notify      the window's broadcast, so the composer's chip moves too
+ *   settings    get(agentId)
  *   record      an activity-log entry, for a mode changed from a chat
  */
-function createControls({ ai, settings, reconfigure = () => {}, notify = () => {}, record = () => {}, catalogWait = CATALOG_WAIT } = {}) {
+function createControls({ ai, settings, record = () => {}, catalogWait = CATALOG_WAIT } = {}) {
     const runtimeName = provider => PROVIDER_NAMES[provider] || provider || 'the agent';
 
     /** One runtime's model rows, or null when it has not said in time. */
@@ -169,7 +164,7 @@ function createControls({ ai, settings, reconfigure = () => {}, notify = () => {
             provider,
             model: model || '',
             effort: pin.effort || own.effort || '',
-            approval: own.approval,
+            approval: pin.approval || own.approval,
             providers: Array.isArray(own.providers) && own.providers.length ? own.providers : [provider],
             hiddenModels: own.hiddenModels || {},
         };
@@ -285,31 +280,25 @@ function createControls({ ai, settings, reconfigure = () => {}, notify = () => {
     }
 
     /**
-     * Change the agent's mode, as the approval chip does: the agent's own
-     * setting, so the desktop shows it too, logged like any widening.
+     * Set a conversation's mode, as the approval chip does: on the chat's
+     * conversation, so its desktop tab shows it too, logged like any
+     * widening. The chat's channel rule is the gateway's to lift.
      */
-    function setMode({ agentId, mode, via = 'a chat' }) {
+    function setMode({ conversationId, mode, via = 'a chat' }) {
+        if (!conversationId) return { error: 'There is no conversation to set it on.' };
         const value = readMode(mode) || (MODES.some(entry => entry.value === mode) ? mode : '');
         if (!value) return { error: `"${mode}" is not a mode. Try ask, workspace, yolo or full.` };
-        const before = settings.get(agentId);
-        if (before.approval !== value) {
-            const next = settings.set({ approval: value }, before.agentId);
-            reconfigure(before, next, next.agentId);
-            // A change on the Acestes agent fans out to the agents that
-            // follow it (see settings.set); their live runs are told too.
-            for (const moved of settings.takePropagation?.() || []) {
-                if (moved.agentId !== next.agentId) reconfigure(moved.before, moved.after, moved.agentId);
-            }
+        const before = current({ conversationId }).approval;
+        if (before !== value) {
+            const result = ai.setConversationModel(conversationId, { approval: value });
+            if (result?.error) return { error: result.error };
             record({
-                detail: `Approvals: ${next.approval}, changed from ${via}`,
-                changes: [{ field: 'approvals', from: before.approval, to: next.approval }],
+                detail: `Approvals: ${value}, for one conversation, changed from ${via}`,
+                changes: [{ field: 'approvals', from: before, to: value }],
             });
-            // The selected agent's, which is what the panels hold; each
-            // re-reads its own agent's on hearing it.
-            notify('ai-settings', settings.get());
         }
         const shown = modeOf(value);
-        return { mode: shown.value, modeLabel: shown.label, modeHint: shown.hint, changed: before.approval !== value };
+        return { mode: shown.value, modeLabel: shown.label, modeHint: shown.hint, changed: before !== value };
     }
 
     return { describe, models, setModel, findModel, setEffort, setMode, runtimeName };

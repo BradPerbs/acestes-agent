@@ -62,8 +62,6 @@ function build() {
         controls: createControls({
             ai: assistant,
             settings: assistant.settings,
-            reconfigure: (before, after, agentId) => assistant.reconfigure(before, after, agentId),
-            notify: (channel, payload) => notify(channel, payload),
             record: ({ detail, changes }) => activity.record({
                 category: 'security',
                 action: 'assistant.configure',

@@ -3,26 +3,39 @@ const path = require('path');
 const fs = require('fs');
 
 /**
- * The model a new conversation starts on, for the whole app.
+ * What a new conversation starts on, for the whole app: the model, the
+ * effort and the mode.
  *
- * Two picks, kept apart from any agent's settings:
+ * Kept apart from any agent's settings:
  *
- *   starred  the default someone pinned with the star in the model menu
+ *   starred  the model someone pinned with the star in the model menu
  *   last     the model last picked in a composer, or last sent with
+ *   effort   the effort last picked or sent with, on any model
+ *   mode     the approval mode last picked or sent with
  *
  * A conversation someone opens (a new tab of any agent, a fresh chat in a
- * tab, a fork of another) starts on the starred one, else the last one, else
- * its agent's own default. Neither is held per agent: the model somebody is
- * working with is the one they want in the next tab, whichever agent that is.
- * A pick whose runtime has been switched off since is passed over, and a
- * sign-in the agent does not have ticked is dropped from it, so the
- * conversation runs on that runtime under the agent's own account instead.
+ * tab, a fork of another) starts on the starred model, else the last one,
+ * else its agent's own default; at the last effort and in the last mode,
+ * else the agent's. None is held per agent: what somebody is working with is
+ * what they want in the next tab, whichever agent that is. The effort is the
+ * last one used even under a star, since the star names a model and the
+ * effort is how hard it is asked to think today; a level the model does not
+ * take is rounded down by the runtime, as the chip shows it.
  *
- * Only a named model is kept. A pin with no model would take the agent's
- * default model, which can belong to another runtime altogether.
+ * A model pick whose runtime has been switched off since is passed over, and
+ * a sign-in the agent does not have ticked is dropped from it, so the
+ * conversation runs on that runtime under the agent's own account instead.
+ * Only a named model is kept as a pick: a pin with no model would take the
+ * agent's default model, which can belong to another runtime altogether.
+ *
+ * Conversations a job makes are not started here: a job runs under its own
+ * policy. One an agent opens takes the mode of the conversation it came from
+ * when it is the same agent's, and its own agent's mode otherwise.
  */
 
 const FIELDS = ['provider', 'model', 'effort', 'account'];
+const EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
+const MODES = new Set(['always', 'writes', 'never', 'full']);
 const file = () => path.join(app.getPath('userData'), 'start-model.json');
 
 let held = null;
@@ -39,12 +52,23 @@ function clean(pin) {
     return out.provider && out.model ? out : null;
 }
 
+const effortOf = value => (EFFORTS.has(value) ? value : '');
+const modeOf = value => (MODES.has(value) ? value : '');
+
 function load() {
     if (held) return held;
-    held = { starred: null, last: null };
+    held = { starred: null, last: null, effort: '', mode: '' };
     try {
         const raw = JSON.parse(fs.readFileSync(file(), 'utf8'));
-        held = { starred: clean(raw?.starred), last: clean(raw?.last) };
+        const last = clean(raw?.last);
+        held = {
+            starred: clean(raw?.starred),
+            last,
+            // A file from before the effort was kept on its own still has
+            // the last one, on the last model.
+            effort: effortOf(raw?.effort) || effortOf(last?.effort),
+            mode: modeOf(raw?.mode),
+        };
     } catch {
         // Nothing yet, or unreadable: every agent starts on its own default.
     }
@@ -64,10 +88,13 @@ function persist() {
 
 const same = (a, b) => FIELDS.every(field => (a?.[field] || '') === (b?.[field] || ''));
 
-function change(field, pin) {
+/** Keep `next` and tell the listeners, unless it is what is held already. */
+function commit(next) {
     load();
-    if (same(held[field], pin)) return false;
-    held = { ...held, [field]: pin };
+    const moved = !same(held.starred, next.starred) || !same(held.last, next.last)
+        || held.effort !== next.effort || held.mode !== next.mode;
+    if (!moved) return false;
+    held = next;
     persist();
     for (const listener of listeners) {
         try { listener(get()); } catch { /* a listener never fails the write */ }
@@ -75,43 +102,66 @@ function change(field, pin) {
     return true;
 }
 
-/** Both picks, as stored. */
+/** Everything held, as stored. */
 function get() {
     const current = load();
-    return { starred: current.starred ? { ...current.starred } : null, last: current.last ? { ...current.last } : null };
-}
-
-/** The model just picked or sent with. A pin naming no model leaves the last one. */
-function remember(pin) {
-    const next = clean(pin);
-    return next ? change('last', next) : false;
-}
-
-/** Pin a default for every new conversation, or let go of it with null. */
-function star(pin) {
-    return change('starred', pin ? clean(pin) : null);
+    return {
+        starred: current.starred ? { ...current.starred } : null,
+        last: current.last ? { ...current.last } : null,
+        effort: current.effort || '',
+        mode: current.mode || '',
+    };
 }
 
 /**
- * What a new conversation of an agent with these settings starts on, or null
- * for the agent's own default. `accountOk(provider, account)` says whether
- * the agent can run on that sign-in.
+ * What was just picked or sent with: `{ provider, model, effort, account,
+ * approval }`, any of them. A named model becomes the last model; an effort
+ * and a mode are kept on their own, so a pick of either alone counts too.
+ */
+function remember(pin) {
+    load();
+    const next = { ...held };
+    const model = clean(pin);
+    if (model) next.last = model;
+    const effort = effortOf(pin?.effort);
+    if (effort) next.effort = effort;
+    const mode = modeOf(pin?.approval);
+    if (mode) next.mode = mode;
+    return commit(next);
+}
+
+/** Pin a default model for every new conversation, or let go of it with null. */
+function star(pin) {
+    load();
+    return commit({ ...held, starred: pin ? clean(pin) : null });
+}
+
+/**
+ * What a new conversation of an agent with these settings starts on, as a
+ * pin for setConversationModel (`{ provider?, model?, effort?, account?,
+ * approval? }`), or null for the agent's own defaults throughout.
+ * `accountOk(provider, account)` says whether the agent can run on that
+ * sign-in.
  */
 function pickFor(current, accountOk = () => true) {
     // An empty list is nothing switched on, not "fall back to the selected one".
     const on = Array.isArray(current?.providers) ? current.providers : [current?.provider].filter(Boolean);
-    const { starred, last } = load();
+    const { starred, last, effort, mode } = load();
+    const out = {};
     for (const pin of [starred, last]) {
         if (!pin || !on.includes(pin.provider)) continue;
-        const out = { provider: pin.provider, model: pin.model };
+        out.provider = pin.provider;
+        out.model = pin.model;
         if (pin.effort) out.effort = pin.effort;
         if (pin.account && accountOk(pin.provider, pin.account)) out.account = pin.account;
-        return out;
+        break;
     }
-    return null;
+    if (effort) out.effort = effort;
+    if (mode) out.approval = mode;
+    return Object.keys(out).length ? out : null;
 }
 
-/** Told `{ starred, last }` whenever either changes. Returns the way to stop. */
+/** Told what `get` says whenever any of it changes. Returns the way to stop. */
 function onChange(listener) {
     listeners.add(listener);
     return () => listeners.delete(listener);
