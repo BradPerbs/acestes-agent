@@ -2522,6 +2522,7 @@ export default {
     'assistant.localTerminalDefault': 'Default',
     'assistant.localTerminalRescan': 'Look for shells again',
     'assistant.localTerminalRestart': 'Restart this shell',
+    'assistant.localTerminalSnippets': 'Snippets',
     'assistant.localTerminalCloseTab': 'Close this terminal',
     'assistant.localTerminalFailed': 'The shell could not be started.',
     'assistant.localTerminalWhere': 'Where should this terminal start?',

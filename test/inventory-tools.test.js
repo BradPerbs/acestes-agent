@@ -147,6 +147,44 @@ const parse = (result) => JSON.parse(result.text);
         assert.strictEqual(result.isError, true);
     });
 
+    await check('save_snippet makes a command that runs at once, for a terminal\'s Snippets button', async () => {
+        const result = parse(await call('save_snippet', { name: 'Tail the log', text: 'tail -f {{file}}', runImmediately: true }, ctx(mine)));
+        const record = store.getSnippets().find(entry => entry.id === result.id);
+        assert.strictEqual(record.kind, 'command');
+        assert.strictEqual(record.runImmediately, true);
+        assert.strictEqual(record.command, 'tail -f {{file}}');
+    });
+
+    await check('save_snippet makes a package of steps, from snippets it has and commands of its own', async () => {
+        const result = parse(await call('save_snippet', {
+            name: 'Check and deploy',
+            steps: [{ ref: 'snip-shared' }, { command: 'git pull' }, { command: 'npm run build' }],
+            chain: true,
+        }, ctx(mine)));
+        assert.strictEqual(result.kind, 'package');
+        assert.strictEqual(result.steps, 3);
+        const record = store.getSnippets().find(entry => entry.id === result.id);
+        assert.strictEqual(record.chain, true);
+        assert.deepStrictEqual(record.steps.map(step => step.ref || step.command), ['snip-shared', 'git pull', 'npm run build']);
+        const read = parse(await call('read_snippet', { id: result.id }, ctx(mine)));
+        assert.strictEqual(read.text, 'uptime && git pull && npm run build');
+
+        // Its steps can be replaced; its text cannot be set as if it were a command.
+        parse(await call('save_snippet', { id: result.id, steps: [{ command: 'make' }] }, ctx(mine)));
+        assert.deepStrictEqual(store.getSnippets().find(entry => entry.id === result.id).steps.map(step => step.command), ['make']);
+        assert.strictEqual((await call('save_snippet', { id: result.id, text: 'make all' }, ctx(mine))).isError, true);
+    });
+
+    await check('save_snippet refuses a step it cannot see, and steps on a command', async () => {
+        const hidden = await call('save_snippet', { name: 'Sneaky', steps: [{ ref: 'snip-theirs' }] }, ctx(mine));
+        assert.strictEqual(hidden.isError, true);
+        assert.ok(/no snippet with the id "snip-theirs"/.test(hidden.text), hidden.text);
+        const mixed = await call('save_snippet', { name: 'Both', steps: [{ ref: 'snip-shared', command: 'ls' }] }, ctx(mine));
+        assert.strictEqual(mixed.isError, true);
+        const wrong = await call('save_snippet', { name: 'Wrong', kind: 'command', text: 'ls', steps: [{ command: 'pwd' }] }, ctx(mine));
+        assert.strictEqual(wrong.isError, true);
+    });
+
     await check('list_inventory shows keys without their material and proxies without passwords', async () => {
         const { keys } = parse(await call('list_inventory', { kind: 'keys' }, ctx(mine)));
         assert.strictEqual(keys.length, 1);

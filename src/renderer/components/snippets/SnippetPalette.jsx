@@ -98,8 +98,14 @@ function SnippetRow({ snippet, body, steps, broken, active, onPick, onHover }) {
     );
 }
 
-export default function SnippetPalette({ hostId, hostName, onInsert, onClose }) {
-    const { snippets, loading } = useSnippets();
+export default function SnippetPalette({ hostId, hostName, agentId, onInsert, onClose }) {
+    const { snippets: library, loading } = useSnippets();
+    // Beside an agent's chat, the snippets in that agent's bag, as its
+    // Snippets panel shows them: its own and the ones every agent shares.
+    const snippets = useMemo(
+        () => (agentId ? library.filter(snippet => !snippet.agentId || snippet.agentId === agentId) : library),
+        [library, agentId]
+    );
     const [query, setQuery] = useState('');
     const [activeIndex, setActiveIndex] = useState(0);
     // Set once a snippet with placeholders is chosen; null while browsing.
@@ -119,11 +125,13 @@ export default function SnippetPalette({ hostId, hostName, onInsert, onClose }) 
      * uses exactly the text the row previewed.
      */
     const matches = useMemo(
+        // Composed against the whole library: a package's step is its text
+        // wherever that snippet is kept.
         () => filterSnippets(snippets, { hostId, query }).map((snippet) => {
-            const { text, missing, steps } = composeSnippet(snippet, snippets);
+            const { text, missing, steps } = composeSnippet(snippet, library);
             return { snippet, text, steps: steps.length, broken: missing.length > 0 };
         }),
-        [snippets, hostId, query]
+        [snippets, library, hostId, query]
     );
 
     // Typing changes the list under the cursor, so the cursor goes back to the

@@ -47,13 +47,14 @@ export const HAIRLINE = 'border-black/[0.06] dark:border-white/[0.06]';
  * headers in this app use 32px buttons with a 12px radius and `IconButton`'s
  * small size is 8px.
  */
-export function HeaderButton({ title, hint, icon, onClick, placement = 'bottom' }) {
+export function HeaderButton({ title, hint, icon, onClick, placement = 'bottom', buttonProps }) {
     return (
         <Tooltip label={title} hint={hint} placement={placement}>
             <button
                 type="button"
                 aria-label={title}
                 onClick={onClick}
+                {...buttonProps}
                 className="w-8 h-8 shrink-0 flex items-center justify-center rounded-xl transition-colors
                     outline-none text-gray-500 dark:text-gray-400
                     hover:bg-gray-100 hover:text-gray-900

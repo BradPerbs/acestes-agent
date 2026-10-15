@@ -2,12 +2,13 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
-import { ArrowDown01Icon, ArrowDownDoubleIcon, ArrowLeft01Icon, ArrowRight01Icon, ArrowRightDoubleIcon, Cancel01Icon, CommandLineIcon, Folder01Icon, PlusSignIcon, Refresh01Icon } from 'hugeicons-react';
+import { ArrowDown01Icon, ArrowDownDoubleIcon, ArrowLeft01Icon, ArrowRight01Icon, ArrowRightDoubleIcon, Cancel01Icon, CommandLineIcon, FlashIcon, Folder01Icon, PlusSignIcon, Refresh01Icon } from 'hugeicons-react';
 import { resolveTerminalTheme, useTerminalTheme } from '../../hooks/useTerminalTheme';
 import { resolveFontFamily, useTerminalSettings } from '../../hooks/useTerminalSettings';
 import { readDefaultShell, useShells, writeDefaultShell } from '../../hooks/useLocalTerminals';
 import MenuButton from '../ui/MenuButton';
 import Tooltip from '../ui/Tooltip';
+import SnippetPalette from '../snippets/SnippetPalette';
 import { HAIRLINE, HeaderButton } from './AssistantConversation';
 import { PANE_HEADER_HEIGHT } from '../../lib/layout';
 import { useT } from '../../i18n';
@@ -123,6 +124,8 @@ const LocalTerminalView = memo(function LocalTerminalView({
     onStarted,
     onExited,
     onClose,
+    onSnippets,
+    register,
 }) {
     const t = useT();
     const hostRef = useRef(null);
@@ -142,8 +145,8 @@ const LocalTerminalView = memo(function LocalTerminalView({
     // Read when the terminal is built; a change applies to the next one.
     const optionsRef = useRef(options);
     optionsRef.current = options;
-    const callbacks = useRef({ onStarted, onExited });
-    callbacks.current = { onStarted, onExited };
+    const callbacks = useRef({ onStarted, onExited, onSnippets, register });
+    callbacks.current = { onStarted, onExited, onSnippets, register };
     const visibleRef = useRef(visible);
     visibleRef.current = visible;
 
@@ -225,10 +228,29 @@ const LocalTerminalView = memo(function LocalTerminalView({
                     });
                     return false;
                 }
+                // The snippets, on the same keys as a host's terminal.
+                if (event.code === 'KeyK') {
+                    event.preventDefault();
+                    callbacks.current.onSnippets?.();
+                    return false;
+                }
                 return true;
             });
 
             term.onData((data) => window.api.ssh.sendInput(id, data));
+
+            // How a snippet gets in: pasted, as a host's terminal does it, so a
+            // multi-line one lands in the line editor as one edit, and the
+            // Enter that runs it sent apart, since a newline inside a
+            // bracketed paste is text, not a keypress.
+            callbacks.current.register?.(id, {
+                insert: (text, run) => {
+                    term.paste(text);
+                    if (run) window.api.ssh.sendInput(id, '\r');
+                    term.focus();
+                },
+                focus: () => term.focus(),
+            });
 
             const unsubscribe = window.api.ssh.onData(id, (message) => {
                 if (message.type === 'data') term.write(message.data);
@@ -265,6 +287,7 @@ const LocalTerminalView = memo(function LocalTerminalView({
                 clearTimeout(timer);
                 observer.disconnect();
                 unsubscribe?.();
+                callbacks.current.register?.(id, null);
                 // The port only: the shell keeps running for the next mount.
                 window.api.ssh.release(id);
                 term.dispose();
@@ -507,6 +530,27 @@ function LocalTerminalPanel({ terminals, agentId = '', visible = true, settled =
     const { add, select, remove, restart, settle, chooseFolder, hide } = terminals;
     const defaultShell = readDefaultShell() || shells[0]?.id || '';
 
+    // The snippets, put into the shell in front. Each shell's screen says how
+    // to reach it once it is built, and forgets it when it goes.
+    const [snippetsOpen, setSnippetsOpen] = useState(false);
+    const shellsById = useRef(new Map());
+    const register = useCallback((id, reach) => {
+        if (reach) shellsById.current.set(id, reach);
+        else shellsById.current.delete(id);
+    }, []);
+    const openSnippets = useCallback(() => setSnippetsOpen(true), []);
+    const closeSnippets = useCallback(() => {
+        setSnippetsOpen(false);
+        shellsById.current.get(terminals.activeId)?.focus();
+    }, [terminals.activeId]);
+    const insertSnippet = useCallback((text, run) => {
+        shellsById.current.get(terminals.activeId)?.insert(text, run);
+    }, [terminals.activeId]);
+    // Nothing to put a snippet into: no shell in front, or the panel put away.
+    useEffect(() => {
+        if (!terminals.activeId || !visible) setSnippetsOpen(false);
+    }, [terminals.activeId, visible]);
+
     // A tab is named for its shell and the folder it is in, `~` for home, so
     // a shell that is not where it was meant to be says so; numbered when
     // two are otherwise the same.
@@ -657,6 +701,18 @@ function LocalTerminalPanel({ terminals, agentId = '', visible = true, settled =
                 </div>
                 {terminals.activeId && (
                     <HeaderButton
+                        title={t('assistant.localTerminalSnippets')}
+                        hint="Ctrl+Shift+K"
+                        icon={<FlashIcon size={16} strokeWidth={1.75} />}
+                        // The palette closes on a click outside it, and skips
+                        // this button so it can toggle rather than close and
+                        // open again.
+                        onClick={() => setSnippetsOpen(open => !open)}
+                        buttonProps={{ 'data-snippet-trigger': true }}
+                    />
+                )}
+                {terminals.activeId && (
+                    <HeaderButton
                         title={t('assistant.localTerminalRestart')}
                         icon={<Refresh01Icon size={16} strokeWidth={1.75} />}
                         onClick={() => restart(terminals.activeId)}
@@ -711,12 +767,24 @@ function LocalTerminalPanel({ terminals, agentId = '', visible = true, settled =
                                     onStarted={(result) => settle(term.id, result)}
                                     onExited={() => remove(term.id)}
                                     onClose={() => remove(term.id)}
+                                    onSnippets={openSnippets}
+                                    register={register}
                                 />
                             )}
                         </div>
                     );
                 })}
             </div>
+            {/* Hangs from the panel's own header, like a host terminal's, and
+                lists the snippets meant for any machine: one kept for a
+                particular server is not offered for this computer's shells. */}
+            {snippetsOpen && visible && terminals.activeId && (
+                <SnippetPalette
+                    agentId={agentId}
+                    onInsert={insertSnippet}
+                    onClose={closeSnippets}
+                />
+            )}
         </div>
     );
 }

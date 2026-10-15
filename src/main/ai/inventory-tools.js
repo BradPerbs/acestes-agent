@@ -50,7 +50,7 @@ const vaultCredentials = agents.vaultCredentials;
 const inAgent = (ctx) => (record) => !record.agentId || !ctx?.agentId || record.agentId === ctx.agentId;
 
 const KINDS = ['host', 'snippet', 'proxy', 'key', 'server', 'folder'];
-const SNIPPET_KINDS = ['command', 'spec'];
+const SNIPPET_KINDS = ['command', 'package', 'spec'];
 const AUTH_METHODS = ['password', 'key', 'keychain', 'agent'];
 const HOST_PROTOCOLS = ['ssh', 'telnet'];
 
@@ -246,17 +246,29 @@ function build({ z, ok, fail, hostInScope, publicHost, agentHosts }) {
             title: 'Save a snippet',
             readOnly: false,
             description:
-                'Create or update a snippet in your inventory: a command worth keeping, or a spec, which '
-                + 'is a document such as a runbook or a procedure you worked out. Give an id to update an '
-                + 'existing one; omit it to create. Save a procedure as a spec once it has worked, so it '
-                + 'can be found next time with list_snippets.',
+                'Create or update a snippet in your inventory: a command worth keeping, a package of '
+                + 'commands run as one series, or a spec, which is a document such as a runbook or a '
+                + 'procedure you worked out. Commands and packages are what the user runs from the '
+                + 'Snippets button of a terminal; {{name}} in the text becomes a field they fill in first. '
+                + 'Give an id to update an existing one; omit it to create. Save a procedure as a spec '
+                + 'once it has worked, so it can be found next time with list_snippets.',
             shape: {
                 id: z.string().optional().describe('The id of the snippet to update. Omit to create a new one.'),
                 name: z.string().min(1).max(snippetConfig.MAX_NAME_LENGTH).optional()
                     .describe('The name. Required when creating.'),
                 kind: z.enum(SNIPPET_KINDS).optional()
-                    .describe('"command" for shell text, "spec" for a document. Defaults to command when creating.'),
+                    .describe('"command" for shell text, "package" for a series of steps, "spec" for a document. '
+                        + 'Defaults to command when creating, or package when steps are given.'),
                 text: z.string().optional().describe('The command text, or the document for a spec.'),
+                steps: z.array(z.object({
+                    ref: z.string().optional().describe('The id of a snippet in your inventory to run as this step.'),
+                    command: z.string().optional().describe('Or the command for this step, written here.'),
+                })).min(1).max(snippetConfig.MAX_STEPS).optional()
+                    .describe('For a package: its steps in order, replacing the current ones.'),
+                chain: z.boolean().optional()
+                    .describe('For a package: stop at the first step that fails (joined with &&) rather than run every step.'),
+                runImmediately: z.boolean().optional()
+                    .describe('Run as soon as the user picks it, rather than put in the prompt for them to press Enter.'),
                 description: z.string().max(snippetConfig.MAX_NAME_LENGTH * 4).optional()
                     .describe('One line on what it is for.'),
                 tags: z.array(z.string()).optional().describe('Tags, replacing the current set.'),
@@ -268,20 +280,34 @@ function build({ z, ok, fail, hostInScope, publicHost, agentHosts }) {
                 if (input.id && !existing) {
                     return fail(`There is no snippet with the id "${input.id}" in your inventory.`);
                 }
-                if (existing?.kind === 'package' && input.text !== undefined) {
-                    return fail('That snippet is a package of steps. Its steps are edited by the user in the library.');
+                const kind = input.kind || existing?.kind || (input.steps ? 'package' : 'command');
+                if (kind === 'package' && input.text !== undefined) {
+                    return fail('A package is its steps: give them as steps, each a ref to a snippet or a command.');
+                }
+                if (kind !== 'package' && (input.steps !== undefined || input.chain !== undefined)) {
+                    return fail('steps and chain are for a package. Give kind "package", or the command as text.');
+                }
+                // A step that runs another snippet must run one this agent has:
+                // a ref it cannot see would be a step that silently does nothing.
+                const mine = new Set(agentSnippets(ctx).map(entry => entry.id));
+                const unknown = (input.steps || []).find(step => step.ref && !mine.has(step.ref));
+                if (unknown) return fail(`There is no snippet with the id "${unknown.ref}" in your inventory to use as a step.`);
+                if ((input.steps || []).some(step => step.ref && step.command)) {
+                    return fail('Each step is either a ref to a snippet or a command, not both.');
                 }
 
                 const draft = {
                     ...(existing || { agentId: ctx.agentId || '' }),
                     ...(input.name !== undefined ? { name: input.name } : {}),
-                    ...(input.kind !== undefined ? { kind: input.kind } : {}),
+                    kind,
                     ...(input.text !== undefined ? { command: input.text } : {}),
+                    ...(input.steps !== undefined ? { steps: input.steps } : {}),
+                    ...(input.chain !== undefined ? { chain: input.chain } : {}),
+                    ...(input.runImmediately !== undefined ? { runImmediately: input.runImmediately } : {}),
                     ...(input.description !== undefined ? { description: input.description } : {}),
                     ...(input.tags !== undefined ? { tags: input.tags } : {}),
                     ...(input.hostIds !== undefined ? { hostIds: input.hostIds } : {}),
                 };
-                if (!existing && !draft.kind) draft.kind = 'command';
 
                 const record = snippetConfig.normalizeSnippet(draft);
                 const problem = snippetConfig.validateSnippet(record);
