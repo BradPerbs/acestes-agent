@@ -233,6 +233,8 @@ static partial class DesktopHelper
     static Dictionary<string, object> Forget(string owner)
     {
         Books.Remove(owner);
+        Befores.Remove(owner);
+        Watches.Remove(owner);
         return new Dictionary<string, object>();
     }
 

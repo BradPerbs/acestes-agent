@@ -903,6 +903,27 @@ function conversation(id, overrides = {}) {
         }
     });
 
+    await check('scrolling to the end goes on until nothing moves or loads, in one call', async () => {
+        const { api } = conversation('c-scroll-end');
+        busy.add('c-scroll-end');
+        try {
+            await api.keys({ keys: 'f6', read: false });
+            clearLog();
+            const result = await api.scroll({ direction: 'down', toEnd: true });
+            assert.ok(!result.error, result.error);
+            assert.ok(/down 4 times, to the end/.test(result.scrolled), result.scrolled);
+            const rounds = sent().filter(request => request.cmd === 'scroll');
+            assert.strictEqual(rounds.length, 4, 'three that moved, and one that found the end');
+            assert.ok(rounds.every(request => request.amount === 25 && request.gap === 15 && request.watch === true), 'a long way each round, quickly, each set against the moment before it');
+            const waits = sent().filter(request => request.cmd === 'settle' && request.fresh).slice(0, 4);
+            assert.ok(waits.every(request => request.wait === 2000), 'each round waits longer for more to load in');
+        } finally {
+            await api.keys({ keys: 'f6', read: false });
+            busy.delete('c-scroll-end');
+            computer.release('c-scroll-end');
+        }
+    });
+
     await check('a change is said as new controls, changed ones with what they were, and those gone', () => {
         const before = [{ id: 1, d: 0, r: 'window', n: 'App' }, { id: 2, d: 1, r: 'button', n: 'Play' }, { id: 3, d: 1, r: 'text', n: 'Ready' }];
         const after = [{ id: 1, d: 0, r: 'window', n: 'App' }, { id: 2, d: 1, r: 'button', n: 'Pause', s: 'focused' }, { id: 4, d: 1, r: 'text', n: 'Playing' }];
@@ -1141,6 +1162,15 @@ function conversation(id, overrides = {}) {
                     const scanned = await ask(5, 'captcha', { hwnd: listed.windows[listed.windows.length - 1].hwnd });
                     assert.strictEqual(scanned.ok, true, scanned.error);
                     assert.ok(Array.isArray(scanned.widgets) && Array.isArray(scanned.images));
+                    // Watching a window settle moves nothing: a pause's watch,
+                    // asked a slice at a time until it says it is done.
+                    let watched = await ask(20, 'settle', { owner: 't', hwnd: listed.windows[0].hwnd, from: 'now', wait: 600, quiet: 100, limit: 600, slice: 200, fresh: true });
+                    for (let id = 21; watched.ok && !watched.done && id < 40; id += 1) {
+                        watched = await ask(id, 'settle', { owner: 't', hwnd: listed.windows[0].hwnd, from: 'now', wait: 600, quiet: 100, limit: 600, slice: 200 });
+                    }
+                    assert.strictEqual(watched.ok, true, watched.error);
+                    assert.strictEqual(watched.done, true);
+                    assert.ok(watched.ms <= 1200, `within its limit: ${watched.ms}ms`);
                 }
                 // Reading moves nothing either. Two apps' windows, read one,
                 // the other, then the first again: a control keeps its number,

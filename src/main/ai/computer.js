@@ -350,6 +350,15 @@ const IMAGE = { maxLong: 1568, maxPixels: 1150000 };
  */
 const SETTLE = { after: 1500, between: 800 };
 
+/**
+ * A round of scrolling to the end, in milliseconds: up to `wait` for the
+ * next rows to come in (none coming is how the end is known), then until the
+ * window has held still for `quiet`, never past `limit`. Asked of the helper
+ * a slice at a time, so another agent's request can come in between.
+ */
+const SCROLL_ROUND = { wait: 2000, quiet: 300, limit: 5000 };
+const WATCH_SLICE = 400;
+
 // conversationId -> Map of hwnd -> { nodes, limit }: the last read this agent
 // had of each window, which the read after an action is set against so that
 // only what changed goes back.
@@ -1007,8 +1016,9 @@ function apiFor(state) {
         return settled(answer, action === 'down' ? { pressed: `the ${button} button${where}, held down` } : { released: `the ${button} button${where}` });
     };
 
-    const doScroll = async ({ element, x, y, direction, amount }) => {
+    const doScroll = async ({ element, x, y, direction, amount, toEnd, seconds }) => {
         if (!direction) return { error: 'Say which way to scroll.' };
+        if (toEnd && !windowsOnly()) return { error: WINDOWS_ONLY };
         let target;
         if (element || (Number.isFinite(x) && Number.isFinite(y))) {
             const aimed = await aim({ element, x, y });
@@ -1018,11 +1028,69 @@ function apiFor(state) {
             const shown = await front();
             if (shown.error) return shown;
             const w = shown.window;
-            target = { x: Math.round(w.x + w.width / 2), y: Math.round(w.y + w.height / 2) };
+            target = { x: Math.round(w.x + w.width / 2), y: Math.round(w.y + w.height / 2), window: w };
         }
+        if (toEnd) return scrollToEnd(target, { direction, amount, seconds });
         const answer = await callFor('scroll', { x: target.x, y: target.y, rect: target.rect, direction, amount, glide: pace().glide });
         if (!answer.ok) return { error: explain(answer) };
         return settled(answer, { scrolled: `${direction} ${amount || 3}` });
+    };
+
+    /** Whether a round of scrolling to the end brought anything: the helper's watch, asked a slice at a time. */
+    const watchRound = async (hwnd) => {
+        let fresh = true;
+        for (let slice = 0; slice < 100; slice += 1) {
+            const answer = await callFor('settle', { hwnd: hwnd || 0, from: 'action', ...SCROLL_ROUND, slice: WATCH_SLICE, fresh }, WATCH_SLICE + 5000);
+            fresh = false;
+            if (!answer.ok || answer.done) return answer;
+        }
+        return null;
+    };
+
+    /**
+     * Scrolling on to the end of a list, a feed or a page in one go: until
+     * the view no longer moves and nothing more loads in. Each round scrolls
+     * a long way and waits for the window to hold still. A round that moves
+     * nothing waits a moment longer for the list to grow, as a feed or a
+     * catalog does near its end, and when nothing comes, that is the end.
+     * Nothing moved but something changed anyway, three rounds running, is
+     * an animation where the list ends, not more of it. On foodpanda this
+     * loaded the whole list in 9 s, where End and a pause, eight times over,
+     * took 23 s and loaded nothing.
+     */
+    const scrollToEnd = async (target, { direction, amount, seconds }) => {
+        const limit = Math.min(60, Math.max(1, Number(seconds) || 20)) * 1000;
+        const started = Date.now();
+        const hwnd = target.window?.hwnd || homes.get(state.id)?.hwnd || 0;
+        let rounds = 0;
+        let restless = 0;
+        const said = () => `${direction} ${rounds} time${rounds === 1 ? '' : 's'}`;
+        for (;;) {
+            if (halted.has(state.id)) return { error: STOPPED };
+            const answer = await callFor('scroll', {
+                x: target.x,
+                y: target.y,
+                ...(rounds === 0 && target.rect ? { rect: target.rect } : {}),
+                direction,
+                amount: amount || 25,
+                gap: 15,
+                watch: true,
+                glide: pace().glide,
+            });
+            if (!answer.ok) {
+                const error = explain(answer);
+                return { error: rounds ? `${error} It had scrolled ${said()} before that.` : error };
+            }
+            rounds += 1;
+            const after = await watchRound(hwnd);
+            if (!after?.ok) return { scrolled: said() };
+            if (!after.changed) return { scrolled: `${said()}, to the end: nothing moved and nothing more loaded` };
+            restless = after.changedAt > 150 ? restless + 1 : 0;
+            if (restless >= 3) return { scrolled: `${said()}: it stopped moving, though something there keeps changing` };
+            if (Date.now() - started >= limit) {
+                return { scrolled: `${said()} in ${Math.round(limit / 1000)}s and was still going: there may be more` };
+            }
+        }
     };
 
     const doDrag = async ({ fromElement, fromX, fromY, toElement, toX, toY, path }) => {

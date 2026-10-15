@@ -183,6 +183,11 @@ const ELSEWHERE = [
 ];
 const nodesNow = () => (swapped ? ELSEWHERE : [...NODES, ...(opened ? DIALOG : [])]);
 
+// Scrolling to the end: how many rounds so far (the list moves for three,
+// then ends), and whether the last thing done was one.
+let endRounds = 0;
+let afterEndRound = false;
+
 readline.createInterface({ input: process.stdin }).on('line', (line) => {
     const request = JSON.parse(line);
     fs.appendFileSync(log, `${line}\n`);
@@ -278,10 +283,19 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
             if (request.keys === 'f6') {
                 swapped = false;
                 opened = false;
+                endRounds = 0;
             }
             return reply({ window: WINDOWS[0] });
         }
-        case 'settle': return reply({ settled: true, ms: 1 });
+        // Settled at once. A round of scrolling to the end asks for a watch
+        // instead (from "action"), answered as the list moving for three
+        // rounds and then nothing more coming.
+        case 'settle': {
+            if (!request.from) return reply({ settled: true, ms: 1 });
+            const moved = afterEndRound && endRounds <= 3;
+            afterEndRound = false;
+            return reply({ done: true, settled: true, changed: moved, ...(moved ? { changedAt: 0 } : {}), ms: moved ? 300 : request.wait });
+        }
         case 'move': return reply({ under: 'button "Save"', window: WINDOWS[0] });
         case 'button': return reply({ under: 'pane "Canvas"', window: WINDOWS[0] });
         case 'letgo': return reply({});
@@ -289,7 +303,14 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
             if (fs.existsSync(`${log}.private`)) return reply({ private: true });
             return reply({ text: 'copied words', files: ['C:\\notes.txt'] });
         }
-        case 'scroll': return reply({ under: 'document "Text editor"', window: WINDOWS[0] });
+        case 'scroll': {
+            // A round of scrolling to the end, which a watch follows.
+            if (request.watch) {
+                endRounds += 1;
+                afterEndRound = true;
+            }
+            return reply({ under: 'document "Text editor"', window: WINDOWS[0] });
+        }
         case 'drag': {
             captchaDrag(request.x, request.y);
             return reply({ under: 'pane "Canvas"', window: WINDOWS[0] });

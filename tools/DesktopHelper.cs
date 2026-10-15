@@ -1148,6 +1148,8 @@ static partial class DesktopHelper
     /// </summary>
     static Dictionary<string, object> Settle(Dictionary<string, object> request)
     {
+        // A round of scrolling to the end asks for a watch instead (below).
+        if (Text(request, "from").Length > 0) return Follow(request);
         IntPtr window = Handle(request, "hwnd");
         int max = Math.Max(100, Math.Min(5000, Number(request, "max", 1500)));
         var clock = Stopwatch.StartNew();
@@ -1238,6 +1240,344 @@ static partial class DesktopHelper
             }
         }
         return grey;
+    }
+
+    /* ---------------------------------------------------------------- *
+     * Seeing: whether a round of scrolling to the end brought anything
+     * ---------------------------------------------------------------- */
+
+    // Finer than the thumbnail above: a list's next rows or a spinner show
+    // on a window the size of a screen.
+    const int FineWidth = 192;
+    const int FineHeight = 128;
+
+    /// <summary>A window as it looked the moment before an agent's last scroll.</summary>
+    class Before
+    {
+        public IntPtr Window;
+        public int[] Thumb;
+        public long At;
+    }
+
+    /// <summary>An agent's watch on its window, kept from one request to the next.</summary>
+    class Lookout
+    {
+        public IntPtr Window;
+        public long Started;
+        public int[] Reference;
+        public int[] Last;
+        public bool Changed;
+        public long ChangedAt = -1;
+        public long LastMoved;
+    }
+
+    static readonly Dictionary<string, Before> Befores = new Dictionary<string, Before>();
+    static readonly Dictionary<string, Lookout> Watches = new Dictionary<string, Lookout>();
+
+    // A moment before is only worth setting a watch against while it is fresh.
+    const long BeforeFreshMs = 15000;
+
+    /// <summary>The window a scroll is about to move, as it looks the moment before.</summary>
+    static void TakeBefore(Dictionary<string, object> request, IntPtr window)
+    {
+        string owner = Text(request, "owner");
+        int[] thumb = null;
+        try
+        {
+            if (window != IntPtr.Zero) thumb = FineThumbnail(window);
+        }
+        catch (Exception)
+        {
+            thumb = null;
+        }
+        if (thumb == null) Befores.Remove(owner);
+        else Befores[owner] = new Before { Window = window, Thumb = thumb, At = Clock.ElapsedMilliseconds };
+    }
+
+    /// <summary>The window watched: the one named while it is there and shown, the one in front otherwise.</summary>
+    static IntPtr Watched(IntPtr window)
+    {
+        return window != IntPtr.Zero && Native.IsWindow(window) && !Native.IsIconic(window) ? window : Native.GetForegroundWindow();
+    }
+
+    /// <summary>
+    /// After a round of scrolling to the end: whether it brought anything,
+    /// and once it has, until it holds still. Set against the window as it
+    /// was the moment before the scroll (from "action") or as it is now (from
+    /// "now"). Until it has changed from that, the wait is for a change to
+    /// begin, up to `wait` ms: at the foot of a list, the next rows take a
+    /// moment to come in, and none coming is how the end is known. Once it
+    /// has changed, the wait is for it to hold still for `quiet` ms; a busy
+    /// cursor counts as still changing. Never past `limit` ms in all.
+    ///
+    /// One request watches for `slice` ms at most and says whether the watch
+    /// is done, so it never holds up another agent's request: the caller asks
+    /// again, without `fresh`, until it is.
+    /// </summary>
+    static Dictionary<string, object> Follow(Dictionary<string, object> request)
+    {
+        string owner = Text(request, "owner");
+        int wait = Math.Max(0, Math.Min(60000, Number(request, "wait", 0)));
+        int quiet = Math.Max(50, Math.Min(5000, Number(request, "quiet", 300)));
+        int limit = Math.Max(100, Math.Min(60000, Number(request, "limit", 1500)));
+        int slice = Math.Max(100, Math.Min(5000, Number(request, "slice", limit)));
+
+        Lookout watch;
+        if (Flag(request, "fresh") || !Watches.TryGetValue(owner, out watch))
+        {
+            watch = new Lookout { Started = Clock.ElapsedMilliseconds, Window = Watched(Handle(request, "hwnd")) };
+            if (Text(request, "from") != "now")
+            {
+                Before before;
+                if (Befores.TryGetValue(owner, out before)) Befores.Remove(owner);
+                if (before == null || Clock.ElapsedMilliseconds - before.At > BeforeFreshMs || before.Window != watch.Window)
+                {
+                    // Nothing to set it against: only the stillness is waited for.
+                    watch.Changed = true;
+                    watch.ChangedAt = 0;
+                }
+                else
+                {
+                    watch.Reference = before.Thumb;
+                }
+            }
+            Watches[owner] = watch;
+        }
+
+        var clock = Stopwatch.StartNew();
+        bool done = false;
+        bool settled = false;
+        bool busy = false;
+        long elapsed = 0;
+        while (true)
+        {
+            elapsed = Clock.ElapsedMilliseconds - watch.Started;
+            IntPtr target = Watched(watch.Window);
+            int[] now = FineThumbnail(target);
+            if (now == null)
+            {
+                done = true;
+                settled = true;
+                break;
+            }
+            if (target != watch.Window)
+            {
+                watch.Window = target;
+                watch.Last = null;
+                if (!watch.Changed)
+                {
+                    watch.Changed = true;
+                    watch.ChangedAt = elapsed;
+                }
+                watch.LastMoved = elapsed;
+            }
+            busy = Busy();
+            if (watch.Last != null && !Still(watch.Last, now)) watch.LastMoved = elapsed;
+            if (!watch.Changed)
+            {
+                if (watch.Reference == null)
+                {
+                    watch.Reference = now;
+                }
+                else if (Differs(watch.Reference, now))
+                {
+                    watch.Changed = true;
+                    watch.ChangedAt = elapsed;
+                    watch.LastMoved = elapsed;
+                }
+            }
+            watch.Last = now;
+
+            if (!busy && watch.Changed && elapsed - watch.LastMoved >= quiet)
+            {
+                done = true;
+                settled = true;
+                break;
+            }
+            if (!busy && !watch.Changed && elapsed >= wait)
+            {
+                done = true;
+                settled = true;
+                break;
+            }
+            if (elapsed >= limit)
+            {
+                done = true;
+                break;
+            }
+            if (clock.ElapsedMilliseconds >= slice) break;
+            Thread.Sleep(50);
+        }
+        if (done) Watches.Remove(owner);
+
+        var answer = new Dictionary<string, object>();
+        answer["done"] = done;
+        answer["settled"] = settled;
+        answer["changed"] = watch.Changed;
+        if (watch.ChangedAt >= 0) answer["changedAt"] = (int)watch.ChangedAt;
+        if (busy) answer["busy"] = true;
+        answer["ms"] = (int)elapsed;
+        return answer;
+    }
+
+    static readonly IntPtr WaitCursor = Native.LoadCursor(IntPtr.Zero, 32514);
+    static readonly IntPtr StartingCursor = Native.LoadCursor(IntPtr.Zero, 32650);
+
+    /// <summary>Whether the cursor is the spinning circle, alone or beside the arrow: Windows's own sign that an app is busy.</summary>
+    static bool Busy()
+    {
+        var info = new Native.CURSORINFO();
+        info.cbSize = Marshal.SizeOf(typeof(Native.CURSORINFO));
+        if (!Native.GetCursorInfo(ref info) || (info.flags & 1) == 0) return false;
+        return info.hCursor == WaitCursor || info.hCursor == StartingCursor;
+    }
+
+    /// <summary>
+    /// The finer thumbnail, with Acestes's windows and the window's own
+    /// blinking text cursor left out (as -1): a blink is not the list growing.
+    /// Null when it is on no screen.
+    /// </summary>
+    static int[] FineThumbnail(IntPtr window)
+    {
+        if (window == IntPtr.Zero) return null;
+        object[] edges = Bounds(window);
+        var area = new Rectangle((int)edges[0], (int)edges[1], (int)edges[2], (int)edges[3]);
+        area.Intersect(new Rectangle(Native.GetSystemMetrics(76), Native.GetSystemMetrics(77), Native.GetSystemMetrics(78), Native.GetSystemMetrics(79)));
+        if (area.Width < 8 || area.Height < 8) return null;
+
+        var grey = new int[FineWidth * FineHeight];
+        using (var small = new Bitmap(FineWidth, FineHeight, PixelFormat.Format32bppRgb))
+        {
+            using (var g = Graphics.FromImage(small))
+            {
+                IntPtr into = g.GetHdc();
+                IntPtr from = Native.GetDC(IntPtr.Zero);
+                try
+                {
+                    Native.SetStretchBltMode(into, 4);
+                    Native.SetBrushOrgEx(into, 0, 0, IntPtr.Zero);
+                    Native.StretchBlt(into, 0, 0, FineWidth, FineHeight, from, area.X, area.Y, area.Width, area.Height, 0x00CC0020);
+                }
+                finally
+                {
+                    Native.ReleaseDC(IntPtr.Zero, from);
+                    g.ReleaseHdc(into);
+                }
+            }
+            BitmapData bits = small.LockBits(new Rectangle(0, 0, FineWidth, FineHeight), ImageLockMode.ReadOnly, PixelFormat.Format32bppRgb);
+            try
+            {
+                var row = new byte[bits.Stride];
+                for (int y = 0; y < FineHeight; y++)
+                {
+                    Marshal.Copy(new IntPtr(bits.Scan0.ToInt64() + (long)y * bits.Stride), row, 0, bits.Stride);
+                    for (int x = 0; x < FineWidth; x++)
+                    {
+                        int at = x * 4;
+                        grey[y * FineWidth + x] = (row[at] * 29 + row[at + 1] * 150 + row[at + 2] * 77) >> 8;
+                    }
+                }
+            }
+            finally
+            {
+                small.UnlockBits(bits);
+            }
+        }
+        foreach (IntPtr other in ProtectedWindows())
+        {
+            object[] bounds = Bounds(other);
+            MaskOut(grey, area, new Rectangle((int)bounds[0], (int)bounds[1], (int)bounds[2], (int)bounds[3]));
+        }
+        Rectangle caret = CaretOf(window);
+        if (!caret.IsEmpty) MaskOut(grey, area, caret);
+        return grey;
+    }
+
+    /// <summary>Part of the screen left out of a fine thumbnail, as -1.</summary>
+    static void MaskOut(int[] grey, Rectangle area, Rectangle cover)
+    {
+        cover.Intersect(area);
+        if (cover.Width <= 0 || cover.Height <= 0) return;
+        int x0 = (cover.Left - area.Left) * FineWidth / area.Width;
+        int x1 = ((cover.Right - area.Left) * FineWidth + area.Width - 1) / area.Width;
+        int y0 = (cover.Top - area.Top) * FineHeight / area.Height;
+        int y1 = ((cover.Bottom - area.Top) * FineHeight + area.Height - 1) / area.Height;
+        for (int y = Math.Max(0, y0); y < Math.Min(FineHeight, y1); y++)
+        {
+            for (int x = Math.Max(0, x0); x < Math.Min(FineWidth, x1); x++) grey[y * FineWidth + x] = -1;
+        }
+    }
+
+    /// <summary>
+    /// Where a window's text cursor is on the screen, as its app tells
+    /// Windows, with a little room around it; empty when it has none.
+    /// </summary>
+    static Rectangle CaretOf(IntPtr window)
+    {
+        uint pid;
+        uint thread = Native.GetWindowThreadProcessId(window, out pid);
+        foreach (uint asked in new[] { thread, 0u })
+        {
+            if (asked == 0 && thread == 0) break;
+            var info = new Native.GUITHREADINFO();
+            info.cbSize = Marshal.SizeOf(typeof(Native.GUITHREADINFO));
+            if (!Native.GetGUIThreadInfo(asked, ref info) || info.hwndCaret == IntPtr.Zero) continue;
+            if (Native.GetAncestor(info.hwndCaret, 2) != window) continue;
+            Native.RECT rect = info.rcCaret;
+            if (rect.Right < rect.Left || rect.Bottom <= rect.Top) continue;
+            // In its window's own pixels, which for an app not aware of
+            // scaling are not the screen's: measured from the window's corner
+            // on the screen, at the scale Windows draws the app at.
+            var corner = new Native.RECT();
+            Native.MapWindowPoints(info.hwndCaret, IntPtr.Zero, ref corner, 2);
+            double scale = ScaleOf(info.hwndCaret);
+            return Rectangle.FromLTRB(
+                corner.Left + (int)Math.Floor(rect.Left * scale) - 4,
+                corner.Top + (int)Math.Floor(rect.Top * scale) - 4,
+                corner.Left + (int)Math.Ceiling(Math.Max(rect.Right, rect.Left + 2) * scale) + 4,
+                corner.Top + (int)Math.Ceiling(rect.Bottom * scale) + 4);
+        }
+        return Rectangle.Empty;
+    }
+
+    /// <summary>How much larger than its own pixels Windows draws a window: 1 for an app aware of scaling, 1.25 for one that is not on a 125% screen.</summary>
+    static double ScaleOf(IntPtr window)
+    {
+        try
+        {
+            uint own = Native.GetDpiForWindow(window);
+            uint dpiX;
+            uint dpiY;
+            if (own == 0 || Native.GetDpiForMonitor(Native.MonitorFromWindow(window, 2), 0, out dpiX, out dpiY) != 0) return 1;
+            return dpiX / (double)own;
+        }
+        catch (EntryPointNotFoundException)
+        {
+            return 1;
+        }
+    }
+
+    /// <summary>Two fine thumbnails alike: at most one pixel changed by more than a shade.</summary>
+    static bool Still(int[] before, int[] after)
+    {
+        int changed = 0;
+        for (int index = 0; index < before.Length; index++)
+        {
+            if (before[index] < 0 || after[index] < 0) continue;
+            if (Math.Abs(before[index] - after[index]) > 12 && ++changed > 1) return false;
+        }
+        return true;
+    }
+
+    /// <summary>Anything at all different from the moment before.</summary>
+    static bool Differs(int[] before, int[] after)
+    {
+        for (int index = 0; index < before.Length; index++)
+        {
+            if (before[index] < 0 || after[index] < 0) continue;
+            if (Math.Abs(before[index] - after[index]) > 6) return true;
+        }
+        return false;
     }
 
     /// <summary>The visible top-level windows of the protected processes: Acestes, and this helper's own overlays.</summary>
@@ -1385,17 +1725,21 @@ static partial class DesktopHelper
         int y = Number(request, "y", 0);
         string direction = Text(request, "direction");
         int amount = Math.Max(1, Math.Min(30, Number(request, "amount", 3)));
+        // Between notches: a hand's pace, or quicker when scrolling to the end.
+        int gap = Math.Max(10, Math.Min(200, Number(request, "gap", 40)));
 
         ShowOutline(request);
         Glide(x, y, Number(request, "glide", 300));
         Allowed(RootAt(x, y));
+        // Scrolling to the end sets each round against the moment before it.
+        if (Flag(request, "watch")) TakeBefore(request, RootAt(x, y));
         bool sideways = direction == "left" || direction == "right";
         int delta = direction == "down" || direction == "left" ? -120 : 120;
         for (int notch = 0; notch < amount; notch++)
         {
             Guard();
             MouseEvent(sideways ? 0x01000u : 0x0800u, delta);
-            Thread.Sleep(40);
+            Thread.Sleep(gap);
         }
         Ui(delegate { overlay.FadeOutline(); });
         Thread.Sleep(100);
@@ -2427,6 +2771,15 @@ static class Native
     }
 
     [StructLayout(LayoutKind.Sequential)]
+    public struct CURSORINFO
+    {
+        public int cbSize;
+        public int flags;
+        public IntPtr hCursor;
+        public POINT ptScreenPos;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
     public struct KBDLLHOOKSTRUCT
     {
         public uint vkCode;
@@ -2447,6 +2800,8 @@ static class Native
     [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
     [DllImport("user32.dll", SetLastError = true)] public static extern uint SendInput(uint count, INPUT[] inputs, int size);
     [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT point);
+    [DllImport("user32.dll")] public static extern bool GetCursorInfo(ref CURSORINFO info);
+    [DllImport("user32.dll")] public static extern IntPtr LoadCursor(IntPtr instance, int name);
     [DllImport("user32.dll")] public static extern int GetSystemMetrics(int index);
     [DllImport("user32.dll")] public static extern uint MapVirtualKey(uint code, uint mapType);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern short VkKeyScan(char letter);
@@ -2473,6 +2828,8 @@ static class Native
     [DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr parent, EnumProc proc, IntPtr parameter);
     [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(POINT point);
     [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr window, uint flags);
+    [DllImport("user32.dll")] public static extern int MapWindowPoints(IntPtr from, IntPtr to, ref RECT rect, int count);
+    [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr window);
     [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint attach, uint to, bool on);
     [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
     [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(IntPtr window, int attribute, out int value, int size);

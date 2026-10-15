@@ -242,13 +242,23 @@ function build({ z, ok, fail }) {
             title: 'Scroll',
             readOnly: true,
             writes: true,
-            description: `Scroll with the mouse wheel over an element, a point, or the middle of the window in front.${AFTER}`,
+            description: 'Scroll with the mouse wheel over an element, a point, or the middle of the window in front.'
+                + (mac ? '' : ' With toEnd, it keeps going that way until the end: until the view stops moving and nothing '
+                    + 'more loads in, waiting each time for a feed or a catalog that loads as it scrolls. Use it for a list '
+                    + 'that loads as it scrolls, rather than End or scrolling with pauses, which often load nothing.')
+                + AFTER,
             shape: {
                 direction: z.enum(['up', 'down', 'left', 'right']),
-                amount: z.number().int().min(1).max(30).optional().describe('Notches of the wheel. Defaults to 3.'),
+                amount: z.number().int().min(1).max(30).optional().describe(mac
+                    ? 'Notches of the wheel. Defaults to 3.'
+                    : 'Notches of the wheel. Defaults to 3, or 25 a time with toEnd.'),
                 element,
                 x,
                 y,
+                ...(mac ? {} : {
+                    toEnd: z.boolean().optional().describe('Keep scrolling until nothing moves and nothing more loads.'),
+                    seconds: z.number().min(1).max(60).optional().describe('With toEnd: the most time to spend. Defaults to 20.'),
+                }),
                 read,
             },
             handler: (input, ctx) => run(ctx, 'scroll', input),
@@ -337,10 +347,12 @@ function build({ z, ok, fail }) {
                     ...(mac ? {} : {
                         path,
                         gone: z.boolean().optional().describe('For wait_for: wait until it has gone.'),
+                        toEnd: z.boolean().optional().describe('For scroll: keep going until nothing moves and nothing more loads.'),
                     }),
                     seconds: z.number().min(0).max(60).optional().describe(mac
                         ? 'For pause: how long. For wait_for: the most to wait.'
-                        : 'For pause: how long. For wait_for: the most to wait. For hover: how long to rest. For hold_key: how long to hold.'),
+                        : 'For pause: how long. For wait_for: the most to wait. For scroll with toEnd: the most to spend. '
+                            + 'For hover: how long to rest. For hold_key: how long to hold.'),
                 })).min(1).max(25),
             },
             handler: (input, ctx) => run(ctx, 'steps', input),
