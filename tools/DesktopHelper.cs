@@ -96,6 +96,19 @@ static partial class DesktopHelper
     static string labelPaused = "Paused · you have control";
     static string labelStopped = "Stopped";
 
+    // Whether the badge at the top of the screen is shown while driving. The
+    // app draws a card of its own in a corner and asks for this one off.
+    static volatile bool showBadge = true;
+    // The voice shortcut: a virtual-key code and the modifiers held with it
+    // (1 Ctrl, 2 Shift, 4 Alt, 8 Win), 0 for none. Pressed while driving it
+    // is told to the app as a "voice" event and kept from the app in front,
+    // and neither it nor its modifiers count as the person taking over.
+    static volatile int voiceVk;
+    static volatile int voiceMods;
+    // Set while a press of the voice key is being kept, so its repeats and
+    // its release are kept too, whatever was let go first.
+    static volatile bool voiceHeld;
+
     [STAThread]
     static int Main(string[] args)
     {
@@ -317,17 +330,21 @@ static partial class DesktopHelper
             if (Text(request, "label").Length > 0) labelDriving = Text(request, "label");
             if (Text(request, "paused").Length > 0) labelPaused = Text(request, "paused");
             if (Text(request, "stopped").Length > 0) labelStopped = Text(request, "stopped");
+            showBadge = !request.ContainsKey("badge") || Flag(request, "badge");
+            SetVoice(Text(request, "voiceKey"), Text(request, "voiceMods"));
             Native.POINT point;
             Native.GetCursorPos(out point);
             lastX = point.X;
             lastY = point.Y;
             paused = false;
             pauseCode = "";
+            voiceHeld = false;
             driving = true;
             Ui(delegate
             {
                 InstallHooks();
-                overlay.Badge(labelDriving, Overlay.Tone.Driving);
+                if (showBadge) overlay.Badge(labelDriving, Overlay.Tone.Driving);
+                else overlay.HideBadge();
             });
         }
         else
@@ -344,6 +361,48 @@ static partial class DesktopHelper
             });
         }
         return new Dictionary<string, object>();
+    }
+
+    /// <summary>The voice shortcut from its name ("s") and modifiers ("ctrl"). A key with no modifier is refused: it would eat that letter from every app.</summary>
+    static void SetVoice(string key, string mods)
+    {
+        int vk = 0;
+        key = (key ?? "").Trim().ToLowerInvariant();
+        if (key.Length == 1 && ((key[0] >= 'a' && key[0] <= 'z') || (key[0] >= '0' && key[0] <= '9'))) vk = char.ToUpperInvariant(key[0]);
+        else if (key == "space") vk = 0x20;
+        int held = 0;
+        foreach (string part in (mods ?? "").ToLowerInvariant().Split(new[] { '+', ',', ' ' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (part == "ctrl" || part == "control") held |= 1;
+            else if (part == "shift") held |= 2;
+            else if (part == "alt") held |= 4;
+            else if (part == "win" || part == "meta") held |= 8;
+        }
+        if (held == 0) vk = 0;
+        voiceVk = vk;
+        voiceMods = held;
+    }
+
+    /// <summary>Which modifiers are down now, as SetVoice counts them.</summary>
+    static int ModifiersDown()
+    {
+        int held = 0;
+        if ((Native.GetAsyncKeyState(0x11) & 0x8000) != 0) held |= 1;
+        if ((Native.GetAsyncKeyState(0x10) & 0x8000) != 0) held |= 2;
+        if ((Native.GetAsyncKeyState(0x12) & 0x8000) != 0) held |= 4;
+        if ((Native.GetAsyncKeyState(0x5B) & 0x8000) != 0 || (Native.GetAsyncKeyState(0x5C) & 0x8000) != 0) held |= 8;
+        return held;
+    }
+
+    /// <summary>Whether a key is one of the voice shortcut's modifiers: pressed on its own, on the way to the shortcut, it is not taking over.</summary>
+    static bool IsVoiceModifier(int vk)
+    {
+        int held = voiceMods;
+        if ((held & 1) != 0 && (vk == 0x11 || vk == 0xA2 || vk == 0xA3)) return true;
+        if ((held & 2) != 0 && (vk == 0x10 || vk == 0xA0 || vk == 0xA1)) return true;
+        if ((held & 4) != 0 && (vk == 0x12 || vk == 0xA4 || vk == 0xA5)) return true;
+        if ((held & 8) != 0 && (vk == 0x5B || vk == 0x5C)) return true;
+        return false;
     }
 
     static void InstallHooks()
@@ -455,6 +514,30 @@ static partial class DesktopHelper
                     // so nothing on screen can use it to dismiss a dialog.
                     return new IntPtr(1);
                 }
+                int vk = (int)info.vkCode;
+                if (voiceVk != 0 && vk == voiceVk)
+                {
+                    if (down && (voiceHeld || ModifiersDown() == voiceMods))
+                    {
+                        // Told once per press; the repeats of a held key are the same press.
+                        if (!voiceHeld)
+                        {
+                            voiceHeld = true;
+                            var said = new Dictionary<string, object>();
+                            said["event"] = "voice";
+                            EmitLater(said);
+                        }
+                        // Kept from the app in front: not a save there.
+                        return new IntPtr(1);
+                    }
+                    if (!down && voiceHeld)
+                    {
+                        voiceHeld = false;
+                        return new IntPtr(1);
+                    }
+                }
+                // Ctrl on its way to the shortcut: passed on, and not the person taking over.
+                if (voiceVk != 0 && IsVoiceModifier(vk)) return Native.CallNextHookEx(IntPtr.Zero, code, message, data);
                 if (down)
                 {
                     if (Protected.Contains(PidOf(Native.GetForegroundWindow()))) StartGrace();
@@ -470,7 +553,7 @@ static partial class DesktopHelper
         if (paused) return;
         paused = true;
         pauseCode = "took-over";
-        overlay.Badge(labelPaused, Overlay.Tone.Paused);
+        if (showBadge) overlay.Badge(labelPaused, Overlay.Tone.Paused);
         LetGoLater();
         var message = new Dictionary<string, object>();
         message["event"] = "took-over";
@@ -483,7 +566,7 @@ static partial class DesktopHelper
         if (paused && pauseCode == "escape") return;
         paused = true;
         pauseCode = "escape";
-        overlay.Badge(labelStopped, Overlay.Tone.Stopped);
+        if (showBadge) overlay.Badge(labelStopped, Overlay.Tone.Stopped);
         LetGoLater();
         var message = new Dictionary<string, object>();
         message["event"] = "escape";
@@ -2584,6 +2667,11 @@ class Overlay
                 badge.Show(bitmap, area.X + (area.Width - width) / 2, area.Y + (int)(10 * scale), 255);
             }
         }
+    }
+
+    public void HideBadge()
+    {
+        badge.Hide();
     }
 
     public void HideAll()

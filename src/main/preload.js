@@ -733,6 +733,15 @@ contextBridge.exposeInMainWorld('api', {
         onAdoptTabs: (callback) => subscribe('ai-tabs-adopt', callback),
         // The corner overlay's rows: the agents at work on the desktop.
         onActivity: (callback) => subscribe('ai-activity', callback),
+        // The overlay told the cursor is over its cards (to fade), and told to
+        // start or stop listening when the voice shortcut is pressed.
+        onActivityHover: (callback) => subscribe('ai-activity-hover', callback),
+        onActivityVoice: (callback) => subscribe('ai-activity-voice', callback),
+        // The overlay's own state for main: where its cards are, whether it
+        // is listening. See main/ai/overlay.js.
+        activityUi: (state) => ipcRenderer.send('ai-activity-ui', state),
+        // Words said while an agent works, steering its turn without stopping it.
+        steer: (conversationId, text) => ipcRenderer.invoke('ai-steer', { conversationId, text }),
         // The composer's microphone: 16 kHz mono samples in, the words out,
         // transcribed on this machine. `onSpeech` hears how the first use's
         // model download is going. See main/ai/speech.js.

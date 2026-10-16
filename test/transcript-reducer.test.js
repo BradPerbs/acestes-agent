@@ -259,6 +259,24 @@ async function main() {
         assert.strictEqual(resumed.items, state.items, 'no row for it');
     });
 
+    check('a steer said mid-turn is a row of its own, and the turn and its draft go on', () => {
+        const state = replay([
+            { type: 'user-message', text: 'Fill in the form', at: 1 },
+            { type: 'tool-call', id: 't1', name: 'click', input: { element: 3 }, at: 2 },
+            { type: 'text-delta', text: 'Typing the ', at: 3 },
+            { type: 'steer', text: 'use the work address', at: 4 },
+        ]);
+        assert.strictEqual(state.busy, true, 'still working');
+        assert.strictEqual(state.draft.text, 'Typing the ', 'the reply being written is kept');
+        const row = state.items.at(-1);
+        assert.strictEqual(row.kind, 'steer');
+        assert.strictEqual(row.text, 'use the work address');
+        assert.strictEqual(state.turnStartAt, 1, 'not the start of a new turn');
+
+        const spoken = replay([{ type: 'user-message', text: 'carry on', spoken: true, at: 1 }]);
+        assert.strictEqual(spoken.items[0].spoken, true, 'a message said to the card says so');
+    });
+
     check('a runtime that is not signed in leaves a notice with a sign-in on it', () => {
         const state = replay([
             { type: 'user-message', text: 'hi', at: 1 },

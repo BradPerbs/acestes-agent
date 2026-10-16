@@ -721,6 +721,10 @@ video {
   bottom: 0px;
 }
 
+.bottom-1 {
+  bottom: 0.25rem;
+}
+
 .bottom-4 {
   bottom: 1rem;
 }
@@ -817,6 +821,10 @@ video {
   top: 2.75rem;
 }
 
+.top-2 {
+  top: 0.5rem;
+}
+
 .top-3 {
   top: 0.75rem;
 }
@@ -895,6 +903,10 @@ video {
 
 .m-2 {
   margin: 0.5rem;
+}
+
+.m-\[a-z0-9\] {
+  margin: a-z0-9;
 }
 
 .m-auto {
@@ -985,6 +997,10 @@ video {
   margin-right: -0.375rem;
 }
 
+.-mt-0\.5 {
+  margin-top: -0.125rem;
+}
+
 .-mt-1 {
   margin-top: -0.25rem;
 }
@@ -995,6 +1011,10 @@ video {
 
 .-mt-3 {
   margin-top: -0.75rem;
+}
+
+.mb-0\.5 {
+  margin-bottom: 0.125rem;
 }
 
 .mb-1 {
@@ -1061,12 +1081,20 @@ video {
   margin-left: 1.75rem;
 }
 
+.ml-\[1\.75rem\] {
+  margin-left: 1.75rem;
+}
+
 .ml-auto {
   margin-left: auto;
 }
 
 .mr-0\.5 {
   margin-right: 0.125rem;
+}
+
+.mr-1 {
+  margin-right: 0.25rem;
 }
 
 .mr-1\.5 {
@@ -1190,6 +1218,10 @@ video {
   display: inline-flex;
 }
 
+.\!table {
+  display: table !important;
+}
+
 .table {
   display: table;
 }
@@ -1264,6 +1296,10 @@ video {
 
 .h-24 {
   height: 6rem;
+}
+
+.h-28 {
+  height: 7rem;
 }
 
 .h-3 {
@@ -1390,12 +1426,20 @@ video {
   max-height: 280px;
 }
 
+.max-h-\[320px\] {
+  max-height: 320px;
+}
+
 .max-h-\[42vh\] {
   max-height: 42vh;
 }
 
 .max-h-\[55\%\] {
   max-height: 55%;
+}
+
+.max-h-\[60vh\] {
+  max-height: 60vh;
 }
 
 .max-h-full {
@@ -1448,6 +1492,10 @@ video {
 
 .\!w-6 {
   width: 1.5rem !important;
+}
+
+.w-0 {
+  width: 0px;
 }
 
 .w-1 {
@@ -1594,6 +1642,10 @@ video {
   width: 26rem;
 }
 
+.w-\[28\%\] {
+  width: 28%;
+}
+
 .w-\[2px\] {
   width: 2px;
 }
@@ -1639,6 +1691,10 @@ video {
   min-width: 1.9em;
 }
 
+.min-w-\[112px\] {
+  min-width: 112px;
+}
+
 .min-w-\[11rem\] {
   min-width: 11rem;
 }
@@ -1673,6 +1729,18 @@ video {
 
 .min-w-\[260px\] {
   min-width: 260px;
+}
+
+.min-w-\[36px\] {
+  min-width: 36px;
+}
+
+.min-w-\[44px\] {
+  min-width: 44px;
+}
+
+.min-w-\[4rem\] {
+  min-width: 4rem;
 }
 
 .min-w-\[6rem\] {
@@ -1715,6 +1783,10 @@ video {
   max-width: 132px;
 }
 
+.max-w-\[140px\] {
+  max-width: 140px;
+}
+
 .max-w-\[14rem\] {
   max-width: 14rem;
 }
@@ -1723,8 +1795,16 @@ video {
   max-width: 16rem;
 }
 
+.max-w-\[230px\] {
+  max-width: 230px;
+}
+
 .max-w-\[26rem\] {
   max-width: 26rem;
+}
+
+.max-w-\[360px\] {
+  max-width: 360px;
 }
 
 .max-w-\[40\%\] {
@@ -1743,16 +1823,20 @@ video {
   max-width: 60%;
 }
 
+.max-w-\[70\%\] {
+  max-width: 70%;
+}
+
 .max-w-\[7rem\] {
   max-width: 7rem;
 }
 
-.max-w-\[88\%\] {
-  max-width: 88%;
+.max-w-\[80\%\] {
+  max-width: 80%;
 }
 
-.max-w-\[90px\] {
-  max-width: 90px;
+.max-w-\[88\%\] {
+  max-width: 88%;
 }
 
 .max-w-\[calc\(100\%-1\.5rem\)\] {
@@ -1777,6 +1861,10 @@ video {
 
 .max-w-sm {
   max-width: 24rem;
+}
+
+.max-w-xl {
+  max-width: 36rem;
 }
 
 .max-w-xs {
@@ -1828,16 +1916,6 @@ video {
 
 .translate-x-5 {
   --tw-translate-x: 1.25rem;
-  transform: translate(var(--tw-translate-x), var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y));
-}
-
-.translate-y-0 {
-  --tw-translate-y: 0px;
-  transform: translate(var(--tw-translate-x), var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y));
-}
-
-.translate-y-1\.5 {
-  --tw-translate-y: 0.375rem;
   transform: translate(var(--tw-translate-x), var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y));
 }
 
@@ -2132,9 +2210,19 @@ video {
        column-gap: 0.25rem;
 }
 
+.gap-x-2 {
+  -moz-column-gap: 0.5rem;
+       column-gap: 0.5rem;
+}
+
 .gap-x-3 {
   -moz-column-gap: 0.75rem;
        column-gap: 0.75rem;
+}
+
+.gap-x-3\.5 {
+  -moz-column-gap: 0.875rem;
+       column-gap: 0.875rem;
 }
 
 .gap-x-4 {
@@ -2202,6 +2290,12 @@ video {
   margin-bottom: calc(0.75rem * var(--tw-space-y-reverse));
 }
 
+.space-y-3\.5 > :not([hidden]) ~ :not([hidden]) {
+  --tw-space-y-reverse: 0;
+  margin-top: calc(0.875rem * calc(1 - var(--tw-space-y-reverse)));
+  margin-bottom: calc(0.875rem * var(--tw-space-y-reverse));
+}
+
 .space-y-5 > :not([hidden]) ~ :not([hidden]) {
   --tw-space-y-reverse: 0;
   margin-top: calc(1.25rem * calc(1 - var(--tw-space-y-reverse)));
@@ -2227,6 +2321,10 @@ video {
   align-self: flex-end;
 }
 
+.self-center {
+  align-self: center;
+}
+
 .self-stretch {
   align-self: stretch;
 }
@@ -2237,6 +2335,10 @@ video {
 
 .overflow-hidden {
   overflow: hidden;
+}
+
+.overflow-visible {
+  overflow: visible;
 }
 
 .overflow-x-auto {
@@ -2317,8 +2419,16 @@ video {
   border-radius: 14px;
 }
 
+.rounded-\[2px\] {
+  border-radius: 2px;
+}
+
 .rounded-\[3px\] {
   border-radius: 3px;
+}
+
+.rounded-\[4px\] {
+  border-radius: 4px;
 }
 
 .rounded-\[5px\] {
@@ -2343,6 +2453,10 @@ video {
 
 .rounded-md {
   border-radius: 0.375rem;
+}
+
+.rounded-sm {
+  border-radius: 0.125rem;
 }
 
 .rounded-xl {
@@ -2444,8 +2558,20 @@ video {
   border-color: rgb(0 0 0 / 0.1);
 }
 
+.border-black\/\[0\.05\] {
+  border-color: rgb(0 0 0 / 0.05);
+}
+
 .border-black\/\[0\.06\] {
   border-color: rgb(0 0 0 / 0.06);
+}
+
+.border-black\/\[0\.07\] {
+  border-color: rgb(0 0 0 / 0.07);
+}
+
+.border-black\/\[0\.08\] {
+  border-color: rgb(0 0 0 / 0.08);
 }
 
 .border-blue-200 {
@@ -2543,6 +2669,14 @@ video {
   border-color: transparent;
 }
 
+.bg-\[color\:var\(--chart-grid\)\] {
+  background-color: var(--chart-grid);
+}
+
+.bg-\[color\:var\(--chart-track\)\] {
+  background-color: var(--chart-track);
+}
+
 .bg-amber-100 {
   --tw-bg-opacity: 1;
   background-color: rgb(254 243 199 / var(--tw-bg-opacity, 1));
@@ -2550,6 +2684,11 @@ video {
 
 .bg-amber-200\/70 {
   background-color: rgb(253 230 138 / 0.7);
+}
+
+.bg-amber-400 {
+  --tw-bg-opacity: 1;
+  background-color: rgb(251 191 36 / var(--tw-bg-opacity, 1));
 }
 
 .bg-amber-50 {
@@ -2564,6 +2703,10 @@ video {
 
 .bg-amber-500\/10 {
   background-color: rgb(245 158 11 / 0.1);
+}
+
+.bg-amber-500\/15 {
+  background-color: rgb(245 158 11 / 0.15);
 }
 
 .bg-amber-500\/40 {
@@ -2623,6 +2766,10 @@ video {
 
 .bg-emerald-500\/10 {
   background-color: rgb(16 185 129 / 0.1);
+}
+
+.bg-emerald-500\/15 {
+  background-color: rgb(16 185 129 / 0.15);
 }
 
 .bg-emerald-500\/\[0\.10\] {
@@ -2717,12 +2864,20 @@ video {
   background-color: rgb(17 24 39 / 0.25);
 }
 
+.bg-gray-900\/\[0\.025\] {
+  background-color: rgb(17 24 39 / 0.025);
+}
+
 .bg-gray-900\/\[0\.03\] {
   background-color: rgb(17 24 39 / 0.03);
 }
 
 .bg-gray-900\/\[0\.04\] {
   background-color: rgb(17 24 39 / 0.04);
+}
+
+.bg-gray-900\/\[0\.05\] {
+  background-color: rgb(17 24 39 / 0.05);
 }
 
 .bg-gray-900\/\[0\.06\] {
@@ -2802,6 +2957,10 @@ video {
   background-color: rgb(244 63 94 / var(--tw-bg-opacity, 1));
 }
 
+.bg-rose-500\/25 {
+  background-color: rgb(244 63 94 / 0.25);
+}
+
 .bg-rose-600 {
   --tw-bg-opacity: 1;
   background-color: rgb(225 29 72 / var(--tw-bg-opacity, 1));
@@ -2849,6 +3008,11 @@ video {
   background-color: rgb(245 243 255 / var(--tw-bg-opacity, 1));
 }
 
+.bg-violet-500 {
+  --tw-bg-opacity: 1;
+  background-color: rgb(139 92 246 / var(--tw-bg-opacity, 1));
+}
+
 .bg-violet-500\/10 {
   background-color: rgb(139 92 246 / 0.1);
 }
@@ -2890,6 +3054,14 @@ video {
 .bg-yellow-500 {
   --tw-bg-opacity: 1;
   background-color: rgb(234 179 8 / var(--tw-bg-opacity, 1));
+}
+
+.fill-gray-400 {
+  fill: #9ca3af;
+}
+
+.fill-gray-500 {
+  fill: #6b7280;
 }
 
 .object-contain {
@@ -2952,6 +3124,10 @@ video {
 
 .p-\[3px\] {
   padding: 3px;
+}
+
+.p-px {
+  padding: 1px;
 }
 
 .\!py-1\.5 {
@@ -3084,6 +3260,11 @@ video {
   padding-bottom: 2rem;
 }
 
+.py-\[1px\] {
+  padding-top: 1px;
+  padding-bottom: 1px;
+}
+
 .py-px {
   padding-top: 1px;
   padding-bottom: 1px;
@@ -3183,6 +3364,10 @@ video {
 
 .pl-\[10px\] {
   padding-left: 10px;
+}
+
+.pl-\[30px\] {
+  padding-left: 30px;
 }
 
 .pr-0\.5 {
@@ -3346,8 +3531,16 @@ video {
   font-size: 15px;
 }
 
+.text-\[18px\] {
+  font-size: 18px;
+}
+
 .text-\[20px\] {
   font-size: 20px;
+}
+
+.text-\[24px\] {
+  font-size: 24px;
 }
 
 .text-\[9\.5px\] {
@@ -3449,6 +3642,10 @@ video {
   line-height: 14px;
 }
 
+.leading-\[16px\] {
+  line-height: 16px;
+}
+
 .leading-none {
   line-height: 1;
 }
@@ -3469,6 +3666,10 @@ video {
   letter-spacing: -0.01em;
 }
 
+.tracking-\[-0\.02em\] {
+  letter-spacing: -0.02em;
+}
+
 .tracking-\[0\.06em\] {
   letter-spacing: 0.06em;
 }
@@ -3487,11 +3688,6 @@ video {
 
 .tracking-wider {
   letter-spacing: 0.05em;
-}
-
-.text-\[\#2f7bf6\] {
-  --tw-text-opacity: 1;
-  color: rgb(47 123 246 / var(--tw-text-opacity, 1));
 }
 
 .text-amber-500 {
@@ -3730,6 +3926,10 @@ video {
   text-decoration-line: line-through;
 }
 
+.decoration-gray-300 {
+  text-decoration-color: #d1d5db;
+}
+
 .decoration-gray-400 {
   text-decoration-color: #9ca3af;
 }
@@ -3804,9 +4004,15 @@ video {
   box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
 }
 
-.shadow-\[0_2px_10px_rgba\(245\2c 158\2c 11\2c 0\.7\)\] {
-  --tw-shadow: 0 2px 10px rgba(245,158,11,0.7);
-  --tw-shadow-colored: 0 2px 10px var(--tw-shadow-color);
+.shadow-\[0_2px_14px_rgba\(245\2c 158\2c 11\2c 0\.8\)\] {
+  --tw-shadow: 0 2px 14px rgba(245,158,11,0.8);
+  --tw-shadow-colored: 0 2px 14px var(--tw-shadow-color);
+  box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
+}
+
+.shadow-\[0_2px_8px_-2px_rgba\(0\2c 0\2c 0\2c 0\.12\)\] {
+  --tw-shadow: 0 2px 8px -2px rgba(0,0,0,0.12);
+  --tw-shadow-colored: 0 2px 8px -2px var(--tw-shadow-color);
   box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
 }
 
@@ -3819,12 +4025,6 @@ video {
 .shadow-\[0_2px_8px_rgba\(0\2c 0\2c 0\2c 0\.4\)\] {
   --tw-shadow: 0 2px 8px rgba(0,0,0,0.4);
   --tw-shadow-colored: 0 2px 8px var(--tw-shadow-color);
-  box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
-}
-
-.shadow-\[0_6px_24px_rgba\(0\2c 0\2c 0\2c 0\.18\)\] {
-  --tw-shadow: 0 6px 24px rgba(0,0,0,0.18);
-  --tw-shadow-colored: 0 6px 24px var(--tw-shadow-color);
   box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
 }
 
@@ -3888,6 +4088,10 @@ video {
   --tw-ring-offset-shadow: var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color);
   --tw-ring-shadow: var(--tw-ring-inset) 0 0 0 calc(2px + var(--tw-ring-offset-width)) var(--tw-ring-color);
   box-shadow: var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000);
+}
+
+.ring-inset {
+  --tw-ring-inset: inset;
 }
 
 .ring-black\/10 {
@@ -3988,8 +4192,26 @@ video {
   transition-duration: 150ms;
 }
 
+.transition-\[filter\] {
+  transition-property: filter;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 150ms;
+}
+
 .transition-\[left\2c transform\2c background-color\2c box-shadow\] {
   transition-property: left,transform,background-color,box-shadow;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 150ms;
+}
+
+.transition-\[opacity\2c color\] {
+  transition-property: opacity,color;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 150ms;
+}
+
+.transition-\[outline\] {
+  transition-property: outline;
   transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
   transition-duration: 150ms;
 }
@@ -4223,6 +4445,31 @@ select,
 
 :root.dark ::highlight(settings-search) {
   background-color: rgb(251 191 36 / 0.25);
+}
+
+/* Find in a conversation; see lib/transcript-find.js. Every match in the same
+   amber as the settings search, the one being looked at in solid orange with
+   black text, which reads on a reply, on a code block and on either theme's
+   message bubble alike. The light theme's bubble is near-black with white
+   text, where the pale wash would turn to mud, so it gets a deeper one. */
+
+::highlight(conversation-find) {
+  background-color: rgb(253 230 138 / 0.7);
+  color: inherit;
+}
+
+:root.dark ::highlight(conversation-find) {
+  background-color: rgb(251 191 36 / 0.25);
+}
+
+:root:not(.dark) .assistant-bubble::highlight(conversation-find),
+:root:not(.dark) .assistant-bubble ::highlight(conversation-find) {
+  background-color: rgb(251 191 36 / 0.45);
+}
+
+::highlight(conversation-find-current) {
+  background-color: rgb(251 146 60);
+  color: #000;
 }
 
 /* Icons and logos should not tear off as drag ghosts. */
@@ -4962,6 +5209,266 @@ input[type="color"]::-webkit-color-swatch {
 
   .working-cell {
     transition: none;
+  }
+}
+
+/* The corner card -----------------------------------------------------------
+   The agents at work, in a corner of the screen (ActivityOverlay.jsx). Each
+   card is a hairline edge with an opaque face inside it, and behind the face
+   a large conic gradient turning, so a light runs round the edge: grey while
+   the agent thinks, violet while it acts, amber while it waits, rose while
+   the card listens. Turned with a transform, which the compositor does
+   alone. A paused, stopped or sent card has a still, tinted edge instead. */
+
+.activity-card {
+  --activity-hair: rgb(0 0 0 / 0.08);
+  --activity-face: #ffffff;
+  --activity-light: transparent;
+  --activity-spin: 3s;
+  position: relative;
+  padding: 1px;
+  border-radius: 18px;
+  overflow: hidden;
+  isolation: isolate;
+  background: var(--activity-hair);
+  box-shadow: 0 12px 32px -14px rgb(0 0 0 / 0.35), 0 2px 6px -3px rgb(0 0 0 / 0.14);
+  transition: opacity 400ms ease, background-color 400ms ease;
+}
+
+.dark .activity-card {
+  --activity-hair: rgb(255 255 255 / 0.09);
+  --activity-face: #0f0f12;
+  box-shadow: 0 14px 36px -14px rgb(0 0 0 / 0.75), 0 2px 6px -3px rgb(0 0 0 / 0.45);
+}
+
+.activity-card::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 230%;
+  aspect-ratio: 1;
+  background: conic-gradient(from 0deg,
+            transparent 0deg,
+            transparent 220deg,
+            var(--activity-light) 320deg,
+            transparent 360deg);
+  opacity: 0;
+  transform: translate(-50%, -50%) rotate(0deg);
+  transition: opacity 500ms ease;
+  animation: activity-sweep var(--activity-spin) linear infinite;
+}
+
+.activity-surface {
+  position: relative;
+  border-radius: 17px;
+  background: var(--activity-face);
+  padding: 11px 13px;
+}
+
+.activity-card[data-tone='thinking']::before {
+  --activity-light: rgb(0 0 0 / 0.32);
+  opacity: 1;
+}
+
+.dark .activity-card[data-tone='thinking']::before {
+  --activity-light: rgb(255 255 255 / 0.5);
+}
+
+.activity-card[data-tone='acting']::before {
+  --activity-light: rgb(139 92 246);
+  --activity-spin: 1.7s;
+  opacity: 1;
+}
+
+.dark .activity-card[data-tone='acting']::before {
+  --activity-light: rgb(167 139 250);
+}
+
+.activity-card[data-tone='waiting']::before {
+  --activity-light: rgb(245 158 11);
+  --activity-spin: 2.2s;
+  opacity: 1;
+}
+
+.activity-card[data-tone='listening']::before {
+  --activity-light: rgb(244 63 94);
+  --activity-spin: 1.9s;
+  opacity: 1;
+}
+
+.activity-card[data-tone='paused'] {
+  --activity-hair: rgb(245 158 11 / 0.5);
+}
+
+.activity-card[data-tone='stopped'] {
+  --activity-hair: rgb(239 68 68 / 0.5);
+}
+
+.activity-card[data-tone='sent'] {
+  --activity-hair: rgb(16 185 129 / 0.45);
+}
+
+.activity-card.activity-done {
+  opacity: 0.78;
+}
+
+@keyframes activity-sweep {
+  to {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+
+/* In from below with a spring, settling out of a blur; out to the right. */
+
+.activity-in {
+  animation: activity-in 460ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.activity-out {
+  animation: activity-out 260ms cubic-bezier(0.4, 0, 1, 1) both;
+}
+
+@keyframes activity-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.96);
+    filter: blur(6px);
+  }
+}
+
+@keyframes activity-out {
+  to {
+    opacity: 0;
+    transform: translateX(28px) scale(0.97);
+    filter: blur(4px);
+  }
+}
+
+/* Under the cursor the stack all but goes, so the cursor is never behind it. */
+
+.activity-stack {
+  transform-origin: bottom right;
+  transition: opacity 180ms ease, transform 240ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.activity-stack-faded {
+  opacity: 0.14;
+  transform: translateX(4px) scale(0.985);
+}
+
+.activity-said,
+.activity-line-in {
+  animation: activity-fade 360ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+@keyframes activity-fade {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+
+.activity-check path {
+  stroke-dasharray: 12;
+  stroke-dashoffset: 12;
+  animation: activity-draw 420ms 80ms cubic-bezier(0.65, 0, 0.35, 1) forwards;
+}
+
+@keyframes activity-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Listening: a halo that swells with the voice, and a waveform whose bars
+   reach by the microphone's level (`--level`, set each frame by
+   useDictation), each by its own share of it, with a slow wobble of their
+   own on top so the shape breathes even between words. */
+
+.activity-mic-halo {
+  transform: scale(calc(0.7 + var(--level, 0) * 1.6));
+  transition: transform 90ms linear;
+}
+
+.activity-wave {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 30px;
+  color: rgb(17 24 39 / 0.85);
+}
+
+.dark .activity-wave {
+  color: rgb(255 255 255 / 0.88);
+}
+
+.activity-bar {
+  flex: 1 1 0%;
+  display: flex;
+  align-items: center;
+  height: 100%;
+}
+
+.activity-bar>span {
+  display: block;
+  width: 100%;
+  height: calc(3px + var(--level, 0) * var(--reach, 1) * 27px);
+  border-radius: 9999px;
+  background: currentColor;
+  transition: height 90ms linear;
+  animation: activity-wobble 900ms ease-in-out infinite alternate;
+}
+
+.activity-wave-rest .activity-bar>span {
+  height: 3px;
+  animation: activity-rest 1.2s ease-in-out infinite;
+}
+
+@keyframes activity-wobble {
+  from {
+    transform: scaleY(0.55);
+  }
+
+  to {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes activity-rest {
+  0%,
+    100% {
+    opacity: 0.35;
+  }
+
+  50% {
+    opacity: 0.9;
+  }
+}
+
+/* The words so far: the newest three lines, the older ones scrolled away. */
+
+.activity-words {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  max-height: calc(1.375em * 3);
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .activity-card::before,
+    .activity-in,
+    .activity-out,
+    .activity-said,
+    .activity-line-in,
+    .activity-bar>span {
+    animation: none;
+  }
+
+  .activity-check path {
+    animation: none;
+    stroke-dashoffset: 0;
   }
 }
 
@@ -5844,11 +6351,31 @@ body.tab-dragging .session-tab {
 
 /* The sidebar's list fading out at its foot rather than being cut off there.
    A mask rather than a gradient painted over it, so it works on any ground,
-   the agent's wash included. */
+   the agent's wash included.
+
+   `--list-fade` is how tall the fade is. Sidebar.jsx writes it from the scroll
+   left to go, so it is at its full height while there is more list below and
+   gives way as the end comes into view. Eased rather than linear: a straight
+   ramp shows a hard line where it starts, this one melts in. */
 
 .sidebar-list-fade {
-  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 20px), transparent);
-  mask-image: linear-gradient(to bottom, #000 calc(100% - 20px), transparent);
+  --list-fade: 0px;
+  -webkit-mask-image: linear-gradient(
+        to bottom,
+        #000 calc(100% - var(--list-fade)),
+        rgb(0 0 0 / 0.9) calc(100% - var(--list-fade) * 0.75),
+        rgb(0 0 0 / 0.6) calc(100% - var(--list-fade) * 0.5),
+        rgb(0 0 0 / 0.25) calc(100% - var(--list-fade) * 0.25),
+        transparent
+    );
+  mask-image: linear-gradient(
+        to bottom,
+        #000 calc(100% - var(--list-fade)),
+        rgb(0 0 0 / 0.9) calc(100% - var(--list-fade) * 0.75),
+        rgb(0 0 0 / 0.6) calc(100% - var(--list-fade) * 0.5),
+        rgb(0 0 0 / 0.25) calc(100% - var(--list-fade) * 0.25),
+        transparent
+    );
 }
 
 /* Inset content card. Spacing comes from the app shell's gutter, so the panel
@@ -5873,6 +6400,167 @@ body.tab-dragging .session-tab {
 
 .scrollbar-none::-webkit-scrollbar {
   display: none;
+}
+
+/* Charts in replies (components/ui/Chart.jsx).
+   The series colours are one validated order, light and dark each stepped for
+   its own surface rather than one set flipped: the order is what keeps
+   neighbours apart for colour-blind readers, so a slot is never reused or
+   skipped. Checked against white and the dark ramp's raised surface: every
+   adjacent pair clears the colour-blind and normal-vision floors in both. The
+   status colours (good, warning, critical) are reserved for state: meters,
+   uptime cells, failed runs. They never stand in for a series. */
+
+.chart-root {
+  --chart-surface: #ffffff;
+  --chart-1: #2a78d6;
+  --chart-2: #eb6834;
+  --chart-3: #1baf7a;
+  --chart-4: #eda100;
+  --chart-5: #e87ba4;
+  --chart-6: #008300;
+  --chart-7: #4a3aa7;
+  --chart-8: #e34948;
+  --chart-grid: rgb(0 0 0 / 0.055);
+  --chart-cursor: rgb(0 0 0 / 0.18);
+  --chart-track: rgb(0 0 0 / 0.055);
+  --chart-mark: rgb(0 0 0 / 0.32);
+  --chart-other: #b9b8b1;
+  --chart-good: #0ca30c;
+  /* A strip of good cells is most of every uptime chart, so "up" is a
+       quieter green than the status one: present, not shouting. */
+  --chart-up: #3aa76d;
+  --chart-warning: #fab219;
+  --chart-critical: #d03b3b;
+}
+
+.dark .chart-root {
+  --chart-surface: rgb(var(--app-base));
+  --chart-1: #3987e5;
+  --chart-2: #d95926;
+  --chart-3: #199e70;
+  --chart-4: #c98500;
+  --chart-5: #d55181;
+  --chart-6: #008300;
+  --chart-7: #9085e9;
+  --chart-8: #e66767;
+  --chart-grid: rgb(255 255 255 / 0.055);
+  --chart-cursor: rgb(255 255 255 / 0.22);
+  --chart-track: rgb(255 255 255 / 0.07);
+  --chart-mark: rgb(255 255 255 / 0.38);
+  --chart-other: #5c5b56;
+  --chart-good: #0ca30c;
+  --chart-up: #2a8a57;
+  --chart-warning: #fab219;
+  --chart-critical: #d03b3b;
+}
+
+.chart-bar {
+  transition: background-color 0.15s ease;
+}
+
+.chart-bar-row:hover .chart-bar {
+  background-color: color-mix(in srgb, var(--chart-1) 32%, transparent) !important;
+}
+
+/* Motion on the way in, once: lines draw left to right (each path is given
+   pathLength="1"), washes fade up behind them, bars grow from their baseline. */
+
+@keyframes chart-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes chart-fade {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes chart-grow {
+  from {
+    transform: scaleX(0);
+  }
+
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes chart-appear {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.chart-appear {
+  animation: chart-appear 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* A span still running: diagonal hatching, so it reads as unfinished
+   without a second colour. */
+
+.chart-running {
+  background-image: repeating-linear-gradient(135deg, rgb(255 255 255 / 0.22) 0 4px, transparent 4px 8px);
+}
+
+@keyframes chart-shimmer {
+  from {
+    background-position: 150% 0;
+  }
+
+  to {
+    background-position: -50% 0;
+  }
+}
+
+.chart-draw {
+  stroke-dasharray: 1;
+  animation: chart-draw 1s cubic-bezier(0.65, 0, 0.35, 1) both;
+}
+
+.chart-fade {
+  animation: chart-fade 0.8s ease-out 0.35s both;
+}
+
+.chart-grow {
+  transform-origin: left center;
+  animation: chart-grow 0.75s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.chart-shimmer {
+  background-image: linear-gradient(100deg, transparent 30%, rgb(0 0 0 / 0.035) 50%, transparent 70%);
+  background-size: 200% 100%;
+  animation: chart-shimmer 1.6s linear infinite;
+}
+
+.dark .chart-shimmer {
+  background-image: linear-gradient(100deg, transparent 30%, rgb(255 255 255 / 0.05) 50%, transparent 70%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chart-draw,
+    .chart-fade,
+    .chart-grow,
+    .chart-appear,
+    .chart-shimmer {
+    animation: none;
+  }
 }
 
 .first-letter\:uppercase::first-letter {
@@ -6240,8 +6928,24 @@ body.tab-dragging .session-tab {
   opacity: 1;
 }
 
+.hover\:opacity-70:hover {
+  opacity: 0.7;
+}
+
 .hover\:opacity-90:hover {
   opacity: 0.9;
+}
+
+.hover\:outline:hover {
+  outline-style: solid;
+}
+
+.hover\:outline-1:hover {
+  outline-width: 1px;
+}
+
+.hover\:outline-gray-900\/40:hover {
+  outline-color: rgb(17 24 39 / 0.4);
 }
 
 .hover\:brightness-110:hover {
@@ -6539,6 +7243,10 @@ body.tab-dragging .session-tab {
   opacity: 1;
 }
 
+.group\/row:hover .group-hover\/row\:opacity-90 {
+  opacity: 0.9;
+}
+
 .group\/tab:hover .group-hover\/tab\:opacity-100 {
   opacity: 1;
 }
@@ -6782,6 +7490,10 @@ body.tab-dragging .session-tab {
   border-color: rgb(255 255 255 / 0.06);
 }
 
+.dark\:border-white\/\[0\.07\]:is(.dark *) {
+  border-color: rgb(255 255 255 / 0.07);
+}
+
 .dark\:border-white\/\[0\.08\]:is(.dark *) {
   border-color: rgb(255 255 255 / 0.08);
 }
@@ -6800,10 +7512,6 @@ body.tab-dragging .session-tab {
 
 .dark\:border-white\/\[0\.1\]:is(.dark *) {
   border-color: rgb(255 255 255 / 0.1);
-}
-
-.dark\:bg-\[\#17171e\]\/95:is(.dark *) {
-  background-color: rgb(23 23 30 / 0.95);
 }
 
 .dark\:bg-amber-400\/10:is(.dark *) {
@@ -6853,6 +7561,10 @@ body.tab-dragging .session-tab {
 
 .dark\:bg-black\/30:is(.dark *) {
   background-color: rgb(0 0 0 / 0.3);
+}
+
+.dark\:bg-black\/40:is(.dark *) {
+  background-color: rgb(0 0 0 / 0.4);
 }
 
 .dark\:bg-blue-500\/15:is(.dark *) {
@@ -7052,6 +7764,10 @@ body.tab-dragging .session-tab {
   background-color: rgb(255 255 255 / 0.25);
 }
 
+.dark\:bg-white\/40:is(.dark *) {
+  background-color: rgb(255 255 255 / 0.4);
+}
+
 .dark\:bg-white\/75:is(.dark *) {
   background-color: rgb(255 255 255 / 0.75);
 }
@@ -7096,9 +7812,25 @@ body.tab-dragging .session-tab {
   background-color: rgb(255 255 255 / 0.09);
 }
 
+.dark\:fill-white\/35:is(.dark *) {
+  fill: rgb(255 255 255 / 0.35);
+}
+
+.dark\:fill-white\/50:is(.dark *) {
+  fill: rgb(255 255 255 / 0.5);
+}
+
+.dark\:fill-white\/55:is(.dark *) {
+  fill: rgb(255 255 255 / 0.55);
+}
+
 .dark\:text-amber-300:is(.dark *) {
   --tw-text-opacity: 1;
   color: rgb(252 211 77 / var(--tw-text-opacity, 1));
+}
+
+.dark\:text-amber-300\/90:is(.dark *) {
+  color: rgb(252 211 77 / 0.9);
 }
 
 .dark\:text-amber-400:is(.dark *) {
@@ -7166,6 +7898,11 @@ body.tab-dragging .session-tab {
   color: rgb(156 163 175 / var(--tw-text-opacity, 1));
 }
 
+.dark\:text-gray-50:is(.dark *) {
+  --tw-text-opacity: 1;
+  color: rgb(249 250 251 / var(--tw-text-opacity, 1));
+}
+
 .dark\:text-gray-500:is(.dark *) {
   --tw-text-opacity: 1;
   color: rgb(107 114 128 / var(--tw-text-opacity, 1));
@@ -7194,6 +7931,11 @@ body.tab-dragging .session-tab {
 .dark\:text-green-500:is(.dark *) {
   --tw-text-opacity: 1;
   color: rgb(34 197 94 / var(--tw-text-opacity, 1));
+}
+
+.dark\:text-neutral-200:is(.dark *) {
+  --tw-text-opacity: 1;
+  color: rgb(229 229 229 / var(--tw-text-opacity, 1));
 }
 
 .dark\:text-neutral-300:is(.dark *) {
@@ -7265,13 +8007,66 @@ body.tab-dragging .session-tab {
   color: rgb(196 181 253 / var(--tw-text-opacity, 1));
 }
 
+.dark\:text-violet-400:is(.dark *) {
+  --tw-text-opacity: 1;
+  color: rgb(167 139 250 / var(--tw-text-opacity, 1));
+}
+
 .dark\:text-white:is(.dark *) {
   --tw-text-opacity: 1;
   color: rgb(255 255 255 / var(--tw-text-opacity, 1));
 }
 
+.dark\:text-white\/35:is(.dark *) {
+  color: rgb(255 255 255 / 0.35);
+}
+
+.dark\:text-white\/40:is(.dark *) {
+  color: rgb(255 255 255 / 0.4);
+}
+
+.dark\:text-white\/45:is(.dark *) {
+  color: rgb(255 255 255 / 0.45);
+}
+
+.dark\:text-white\/50:is(.dark *) {
+  color: rgb(255 255 255 / 0.5);
+}
+
+.dark\:text-white\/60:is(.dark *) {
+  color: rgb(255 255 255 / 0.6);
+}
+
+.dark\:text-white\/65:is(.dark *) {
+  color: rgb(255 255 255 / 0.65);
+}
+
+.dark\:text-white\/70:is(.dark *) {
+  color: rgb(255 255 255 / 0.7);
+}
+
+.dark\:text-white\/75:is(.dark *) {
+  color: rgb(255 255 255 / 0.75);
+}
+
+.dark\:text-white\/80:is(.dark *) {
+  color: rgb(255 255 255 / 0.8);
+}
+
+.dark\:text-white\/85:is(.dark *) {
+  color: rgb(255 255 255 / 0.85);
+}
+
+.dark\:text-white\/90:is(.dark *) {
+  color: rgb(255 255 255 / 0.9);
+}
+
 .dark\:decoration-gray-500:is(.dark *) {
   text-decoration-color: #6b7280;
+}
+
+.dark\:decoration-neutral-600:is(.dark *) {
+  text-decoration-color: rgb(var(--app-hover) / 1);
 }
 
 .dark\:caret-white:is(.dark *) {
@@ -7622,6 +8417,14 @@ body.tab-dragging .session-tab {
 .dark\:hover\:text-white:hover:is(.dark *) {
   --tw-text-opacity: 1;
   color: rgb(255 255 255 / var(--tw-text-opacity, 1));
+}
+
+.dark\:hover\:text-white\/80:hover:is(.dark *) {
+  color: rgb(255 255 255 / 0.8);
+}
+
+.dark\:hover\:outline-white\/50:hover:is(.dark *) {
+  outline-color: rgb(255 255 255 / 0.5);
 }
 
 .dark\:focus\:border-neutral-600:focus:is(.dark *) {

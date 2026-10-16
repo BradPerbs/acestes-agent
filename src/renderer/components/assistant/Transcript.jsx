@@ -1,5 +1,5 @@
 import { memo, startTransition, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Cancel01Icon, Image01Icon, LinkSquare02Icon, Loading03Icon } from 'hugeicons-react';
+import { Cancel01Icon, Image01Icon, LinkSquare02Icon, Loading03Icon, Mic01Icon } from 'hugeicons-react';
 import Button from '../ui/Button';
 import { PROVIDER_NAMES } from '../../lib/ai-catalog';
 import Markdown from '../../lib/markdown';
@@ -226,6 +226,31 @@ function RowContent({ item, conversationId, onRespond, onAnswer, onRevert, onOpe
                         {t('assistant.fromChannel', { channel: channelLabel(item.channel) })}
                     </span>
                 )}
+                {item.spoken && !item.channel && (
+                    <span className="mt-1 mr-1 inline-flex items-center gap-1 text-[10px] text-gray-400 dark:text-gray-500">
+                        <Mic01Icon size={10} strokeWidth={2} />
+                        {t('assistant.spoken')}
+                    </span>
+                )}
+            </div>
+        );
+    }
+    if (item.kind === 'steer') {
+        // Said to the corner card while the agent worked, and handed to it
+        // mid-turn: a lighter bubble than a message, since it did not start
+        // a turn of its own, with what it was under it.
+        return (
+            <div key={item.id} className="flex flex-col items-end">
+                <div className="max-w-[88%] px-3 py-1.5 rounded-2xl rounded-br-md
+                    bg-gray-100 dark:bg-white/[0.07] text-gray-800 dark:text-gray-100
+                    text-[12.5px] leading-relaxed whitespace-pre-wrap break-words"
+                >
+                    {item.text}
+                </div>
+                <span className="mt-1 mr-1 inline-flex items-center gap-1 text-[10px] text-gray-400 dark:text-gray-500">
+                    <Mic01Icon size={10} strokeWidth={2} />
+                    {t('assistant.saidWhileWorking')}
+                </span>
             </div>
         );
     }

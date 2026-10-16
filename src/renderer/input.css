@@ -811,6 +811,262 @@ input[type="color"]::-webkit-color-swatch {
     }
 }
 
+/* The corner card -----------------------------------------------------------
+   The agents at work, in a corner of the screen (ActivityOverlay.jsx). Each
+   card is a hairline edge with an opaque face inside it, and behind the face
+   a large conic gradient turning, so a light runs round the edge: grey while
+   the agent thinks, violet while it acts, amber while it waits, rose while
+   the card listens. Turned with a transform, which the compositor does
+   alone. A paused, stopped or sent card has a still, tinted edge instead. */
+.activity-card {
+    --activity-hair: rgb(0 0 0 / 0.08);
+    --activity-face: #ffffff;
+    --activity-light: transparent;
+    --activity-spin: 3s;
+    position: relative;
+    padding: 1px;
+    border-radius: 18px;
+    overflow: hidden;
+    isolation: isolate;
+    background: var(--activity-hair);
+    box-shadow: 0 12px 32px -14px rgb(0 0 0 / 0.35), 0 2px 6px -3px rgb(0 0 0 / 0.14);
+    transition: opacity 400ms ease, background-color 400ms ease;
+}
+
+.dark .activity-card {
+    --activity-hair: rgb(255 255 255 / 0.09);
+    --activity-face: #0f0f12;
+    box-shadow: 0 14px 36px -14px rgb(0 0 0 / 0.75), 0 2px 6px -3px rgb(0 0 0 / 0.45);
+}
+
+.activity-card::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 230%;
+    aspect-ratio: 1;
+    background: conic-gradient(from 0deg,
+            transparent 0deg,
+            transparent 220deg,
+            var(--activity-light) 320deg,
+            transparent 360deg);
+    opacity: 0;
+    transform: translate(-50%, -50%) rotate(0deg);
+    transition: opacity 500ms ease;
+    animation: activity-sweep var(--activity-spin) linear infinite;
+}
+
+.activity-surface {
+    position: relative;
+    border-radius: 17px;
+    background: var(--activity-face);
+    padding: 11px 13px;
+}
+
+.activity-card[data-tone='thinking']::before {
+    --activity-light: rgb(0 0 0 / 0.32);
+    opacity: 1;
+}
+
+.dark .activity-card[data-tone='thinking']::before {
+    --activity-light: rgb(255 255 255 / 0.5);
+}
+
+.activity-card[data-tone='acting']::before {
+    --activity-light: rgb(139 92 246);
+    --activity-spin: 1.7s;
+    opacity: 1;
+}
+
+.dark .activity-card[data-tone='acting']::before {
+    --activity-light: rgb(167 139 250);
+}
+
+.activity-card[data-tone='waiting']::before {
+    --activity-light: rgb(245 158 11);
+    --activity-spin: 2.2s;
+    opacity: 1;
+}
+
+.activity-card[data-tone='listening']::before {
+    --activity-light: rgb(244 63 94);
+    --activity-spin: 1.9s;
+    opacity: 1;
+}
+
+.activity-card[data-tone='paused'] {
+    --activity-hair: rgb(245 158 11 / 0.5);
+}
+
+.activity-card[data-tone='stopped'] {
+    --activity-hair: rgb(239 68 68 / 0.5);
+}
+
+.activity-card[data-tone='sent'] {
+    --activity-hair: rgb(16 185 129 / 0.45);
+}
+
+.activity-card.activity-done {
+    opacity: 0.78;
+}
+
+@keyframes activity-sweep {
+    to {
+        transform: translate(-50%, -50%) rotate(360deg);
+    }
+}
+
+/* In from below with a spring, settling out of a blur; out to the right. */
+.activity-in {
+    animation: activity-in 460ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.activity-out {
+    animation: activity-out 260ms cubic-bezier(0.4, 0, 1, 1) both;
+}
+
+@keyframes activity-in {
+    from {
+        opacity: 0;
+        transform: translateY(14px) scale(0.96);
+        filter: blur(6px);
+    }
+}
+
+@keyframes activity-out {
+    to {
+        opacity: 0;
+        transform: translateX(28px) scale(0.97);
+        filter: blur(4px);
+    }
+}
+
+/* Under the cursor the stack all but goes, so the cursor is never behind it. */
+.activity-stack {
+    transform-origin: bottom right;
+    transition: opacity 180ms ease, transform 240ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.activity-stack-faded {
+    opacity: 0.14;
+    transform: translateX(4px) scale(0.985);
+}
+
+.activity-said,
+.activity-line-in {
+    animation: activity-fade 360ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+@keyframes activity-fade {
+    from {
+        opacity: 0;
+        transform: translateY(3px);
+    }
+}
+
+.activity-check path {
+    stroke-dasharray: 12;
+    stroke-dashoffset: 12;
+    animation: activity-draw 420ms 80ms cubic-bezier(0.65, 0, 0.35, 1) forwards;
+}
+
+@keyframes activity-draw {
+    to {
+        stroke-dashoffset: 0;
+    }
+}
+
+/* Listening: a halo that swells with the voice, and a waveform whose bars
+   reach by the microphone's level (`--level`, set each frame by
+   useDictation), each by its own share of it, with a slow wobble of their
+   own on top so the shape breathes even between words. */
+.activity-mic-halo {
+    transform: scale(calc(0.7 + var(--level, 0) * 1.6));
+    transition: transform 90ms linear;
+}
+
+.activity-wave {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    height: 30px;
+    color: rgb(17 24 39 / 0.85);
+}
+
+.dark .activity-wave {
+    color: rgb(255 255 255 / 0.88);
+}
+
+.activity-bar {
+    flex: 1 1 0%;
+    display: flex;
+    align-items: center;
+    height: 100%;
+}
+
+.activity-bar>span {
+    display: block;
+    width: 100%;
+    height: calc(3px + var(--level, 0) * var(--reach, 1) * 27px);
+    border-radius: 9999px;
+    background: currentColor;
+    transition: height 90ms linear;
+    animation: activity-wobble 900ms ease-in-out infinite alternate;
+}
+
+.activity-wave-rest .activity-bar>span {
+    height: 3px;
+    animation: activity-rest 1.2s ease-in-out infinite;
+}
+
+@keyframes activity-wobble {
+    from {
+        transform: scaleY(0.55);
+    }
+
+    to {
+        transform: scaleY(1);
+    }
+}
+
+@keyframes activity-rest {
+    0%,
+    100% {
+        opacity: 0.35;
+    }
+
+    50% {
+        opacity: 0.9;
+    }
+}
+
+/* The words so far: the newest three lines, the older ones scrolled away. */
+.activity-words {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    max-height: calc(1.375em * 3);
+    overflow: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+    .activity-card::before,
+    .activity-in,
+    .activity-out,
+    .activity-said,
+    .activity-line-in,
+    .activity-bar>span {
+        animation: none;
+    }
+
+    .activity-check path {
+        animation: none;
+        stroke-dashoffset: 0;
+    }
+}
+
 /* The entrances that used to live here, for dialogs, menus, tooltips and the
    rest, are `lib/enterMotion.js` now, asked for through the `useEnter` hook. */
 

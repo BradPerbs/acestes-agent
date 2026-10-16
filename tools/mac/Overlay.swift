@@ -116,6 +116,10 @@ final class Overlay {
         }
     }
 
+    func hideBadge() {
+        badgeLayer.hide()
+    }
+
     func hideAll() {
         rippleTimer?.invalidate()
         fadeTimer?.invalidate()

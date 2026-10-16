@@ -1481,7 +1481,21 @@ async function invoke(definition, input, ctx) {
             isError: Boolean(result?.isError),
         });
     }
-    return result;
+    return withSteer(result, ctx);
+}
+
+/**
+ * What the user said while the agent worked, on the back of the result it
+ * reads next. A spoken steer during computer use (see `steer` in index.js)
+ * waits here rather than stopping the turn: every runtime hands its calls to
+ * `invoke`, so the next one of ours carries it to the model, whichever
+ * runtime is answering, without the turn being interrupted and sent again.
+ */
+function withSteer(result, ctx) {
+    const said = typeof ctx?.takeSteer === 'function' ? ctx.takeSteer() : '';
+    if (!said) return result;
+    const text = String(result?.text ?? '');
+    return { ...(result || {}), text: text ? `${text}\n\n${said}` : said };
 }
 
 /**

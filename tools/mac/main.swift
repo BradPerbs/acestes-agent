@@ -209,6 +209,43 @@ private var labelDriving = "The agent is using your computer · Esc to stop"
 private var labelPaused = "Paused · you have control"
 private var labelStopped = "Stopped"
 
+// Whether the badge at the top of the screen is shown while driving. The app
+// draws a card of its own in a corner and asks for this one off.
+private var showBadge = true
+
+// The voice shortcut: a key code and the modifiers held with it, -1 for
+// none. Pressed while driving it is told to the app as a "voice" event and
+// kept from the app in front. Its modifiers alone never count as taking
+// over: the tap does not watch flagsChanged.
+private var voiceCode: Int64 = -1
+private var voiceFlags: CGEventFlags = []
+// Set while a press of the voice key is being kept, so its repeats and its
+// release are kept too.
+private var voiceHeld = false
+
+private let voiceKeyCodes: [String: Int64] = [
+    "a": 0, "s": 1, "d": 2, "f": 3, "h": 4, "g": 5, "z": 6, "x": 7, "c": 8, "v": 9, "b": 11, "q": 12, "w": 13,
+    "e": 14, "r": 15, "y": 16, "t": 17, "1": 18, "2": 19, "3": 20, "4": 21, "6": 22, "5": 23, "9": 25, "7": 26,
+    "8": 28, "0": 29, "o": 31, "u": 32, "i": 34, "p": 35, "l": 37, "j": 38, "k": 40, "n": 45, "m": 46, "space": 49,
+]
+
+/// The voice shortcut from its name ("s") and modifiers ("ctrl"). A key with
+/// no modifier is refused: it would eat that letter from every app.
+private func setVoice(_ key: String, _ mods: String) {
+    var flags: CGEventFlags = []
+    for part in mods.lowercased().split(whereSeparator: { "+, ".contains($0) }) {
+        switch part {
+        case "ctrl", "control": flags.insert(.maskControl)
+        case "shift": flags.insert(.maskShift)
+        case "alt", "option": flags.insert(.maskAlternate)
+        case "cmd", "meta", "win": flags.insert(.maskCommand)
+        default: break
+        }
+    }
+    voiceFlags = flags
+    voiceCode = flags.isEmpty ? -1 : (voiceKeyCodes[key.lowercased()] ?? -1)
+}
+
 private var tap: CFMachPort?
 
 private func drive(_ request: Json) throws -> Json {
@@ -216,6 +253,9 @@ private func drive(_ request: Json) throws -> Json {
         if !text(request, "label").isEmpty { labelDriving = text(request, "label") }
         if !text(request, "paused").isEmpty { labelPaused = text(request, "paused") }
         if !text(request, "stopped").isEmpty { labelStopped = text(request, "stopped") }
+        showBadge = request["badge"] == nil || flag(request, "badge")
+        setVoice(text(request, "voiceKey"), text(request, "voiceMods"))
+        voiceHeld = false
         let here = cursor()
         lastX = here.x
         lastY = here.y
@@ -228,7 +268,9 @@ private func drive(_ request: Json) throws -> Json {
                 + "Ask the user to check Acestes Agent is on in System Settings > Privacy & Security > Accessibility.")
         }
         driving = true
-        onMain { overlay.badge(labelDriving, .driving) }
+        onMain {
+            if showBadge { overlay.badge(labelDriving, .driving) } else { overlay.hideBadge() }
+        }
     } else {
         driving = false
         paused = false
@@ -280,11 +322,28 @@ private func tapped(_ type: CGEventType, _ event: CGEvent) -> Unmanaged<CGEvent>
     guard driving, event.getIntegerValueField(.eventSourceUserData) != mark else { return pass }
     switch type {
     case .keyDown, .keyUp:
-        if event.getIntegerValueField(.keyboardEventKeycode) == 53 {
+        let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+        if keyCode == 53 {
             if type == .keyDown { escape() }
             // Swallowed, down and up: nothing on screen gets to see it, so
             // nothing on screen can use it to dismiss a dialog.
             return nil
+        }
+        if voiceCode >= 0 && keyCode == voiceCode {
+            let held = event.flags.intersection([.maskControl, .maskShift, .maskAlternate, .maskCommand])
+            if type == .keyDown && (voiceHeld || held == voiceFlags) {
+                // Told once per press; the repeats of a held key are the same press.
+                if !voiceHeld {
+                    voiceHeld = true
+                    DispatchQueue.global().async { emit(["event": "voice"]) }
+                }
+                // Kept from the app in front, and not the person taking over.
+                return nil
+            }
+            if type == .keyUp && voiceHeld {
+                voiceHeld = false
+                return nil
+            }
         }
         let front = NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0
         if type == .keyDown {
@@ -311,7 +370,7 @@ private func takeOver(_ by: String) {
     if paused { return }
     paused = true
     pauseCode = "took-over"
-    overlay.badge(labelPaused, .paused)
+    if showBadge { overlay.badge(labelPaused, .paused) }
     DispatchQueue.global().async { emit(["event": "took-over", "by": by]) }
 }
 
@@ -319,7 +378,7 @@ private func escape() {
     if paused && pauseCode == "escape" { return }
     paused = true
     pauseCode = "escape"
-    overlay.badge(labelStopped, .stopped)
+    if showBadge { overlay.badge(labelStopped, .stopped) }
     DispatchQueue.global().async { emit(["event": "escape"]) }
 }
 

@@ -1048,6 +1048,7 @@ function saidBefore(conversation) {
     const lines = [];
     for (const event of events.slice(0, end)) {
         if (event.type === 'user-message') lines.push('## You', '', event.text || '', '');
+        else if (event.type === 'steer') lines.push('## You (while the agent worked)', '', event.text || '', '');
         else if (event.type === 'assistant-text') lines.push('## Agent', '', event.text || '', '');
     }
     const said = lines.join('\n').trim();
@@ -1724,6 +1725,9 @@ function ensureProvider(conversation) {
             // This computer's apps, with the real mouse and keyboard. See
             // computerApiFor.
             computer: computerApiFor(conversation),
+            // What the user said while the turn ran, handed over with the
+            // next tool result. See `steer`.
+            takeSteer: () => takeSteers(conversation),
             // Live charts in this conversation. See metricsApiFor.
             metrics: metricsApiFor(conversation),
             // The envelope, read fresh too: a folder granted or a container
@@ -1951,6 +1955,13 @@ function handleProviderEvent(conversation, event) {
     // card stayed up after it had finished.
     if (event.type === 'result' || event.type === 'error' || event.type === 'closed') {
         computer.release(conversation.id);
+        // A steer the agent never got to read, because no tool call came
+        // after it: a finished turn sends it on as the next message, after
+        // this event is in the log; a failed one says it was not delivered.
+        if (conversation.steers?.length) {
+            if (event.type === 'result') setTimeout(() => flushSteers(conversation), 0);
+            else dropSteers(conversation, 'the turn ended with an error');
+        }
     }
     // A turn the runtime started by itself, to pass on what a subagent
     // brought back after the turn that sent it had ended. It is work like
@@ -2581,6 +2592,19 @@ computer.configure({
         return { id, title: conversation?.title || '', agent: agent?.name || '', look: agent?.look || null };
     })),
     aimed: (conversationId, label) => overlay.aimed(conversationId, label),
+    // The user's hand stopped the drivers (took over, or Esc): the card says so,
+    // since the helper no longer puts a badge at the top of the screen.
+    held: (ids, code) => overlay.held(ids, code),
+    // The voice shortcut, pressed while agents drive: the card listens, and
+    // what is said steers the newest of them. See overlay.js and `steer`.
+    voice: (ids) => {
+        const id = ids[ids.length - 1];
+        const conversation = id ? conversations.get(id) : null;
+        if (!conversation) return;
+        // The machine's voice settings, as the composer's microphone reads them.
+        const current = settings.get();
+        overlay.voice(id, { live: current.voiceEngine === 'parakeet', enabled: current.voiceInput !== false });
+    },
     // In teach mode, a recorder event line, written to the trace. See teach.js.
     recorded: line => teach.ingest(line),
 });
@@ -2926,7 +2950,7 @@ function exportMarkdown(conversationId, { full = false, messagesOnly = false } =
         if (text.length > resultCap) lines.push(`_… ${text.length - resultCap} more characters not shown._`, '');
     };
 
-    const spoken = new Set(['user-message', 'assistant-text', 'question-request', 'question-settled', 'notice']);
+    const spoken = new Set(['user-message', 'steer', 'assistant-text', 'question-request', 'question-settled', 'notice']);
     for (const event of conversation.events) {
         if (messagesOnly && !spoken.has(event.type)) continue;
         // A subagent's work is its own transcript; the messages are the
@@ -2939,6 +2963,9 @@ function exportMarkdown(conversationId, { full = false, messagesOnly = false } =
                         ? event.files.map(entry => `[attached file: ${entry.name}]`) : []),
                     event.text || '',
                 ].filter(Boolean).join('\n'), '');
+                break;
+            case 'steer':
+                lines.push(`## You, while the agent worked${stamp(event)}`, '', event.text || '', '');
                 break;
             case 'assistant-text':
                 lines.push(`## ${event.parentId ? 'Subagent' : 'Agent'}${stamp(event)}`, '', event.text || '', '');
@@ -3785,6 +3812,8 @@ async function send(conversationId, text, attachments = [], tagged = [], attache
         ...(mentions.length ? { mentions: stripMentions(mentions) } : {}),
         // Where it was written, when not in the app: the bubble says so.
         ...(channel ? { channel } : {}),
+        // Said to the corner card during computer use rather than typed.
+        ...(options?.spoken ? { spoken: true } : {}),
     });
     // Told to the panel like the runtime's name will be, so the tab and the
     // header say what the list says from the first moment.
@@ -3958,11 +3987,76 @@ function nameConversation(conversation) {
     });
 }
 
+/* ------------------------------------------------------------------ *
+ * Steering a turn while it runs
+ *
+ * Said to the corner card while an agent drives the desktop (the voice
+ * shortcut, see overlay.js): the turn is not stopped and sent again. What was
+ * said waits on the conversation and goes to the model with the next result
+ * of one of our tools (tools.invoke asks `takeSteer`), which during computer
+ * use is a second or two away. It goes into the transcript at that moment,
+ * as what the agent was told and when. A turn that ends before another call
+ * sends it on as the next message instead, so nothing said is lost.
+ * ------------------------------------------------------------------ */
+
+const MAX_STEER = 4000;
+
+/** Steer a conversation with words the user said while it worked. */
+async function steer(conversationId, text) {
+    hydrate();
+    const conversation = conversations.get(conversationId);
+    if (!conversation) return { success: false, message: 'That conversation is gone' };
+    const body = String(text || '').trim().slice(0, MAX_STEER);
+    if (!body) return { success: false, message: 'Nothing to send' };
+    // Quiet already: an ordinary message, sent the ordinary way.
+    if (!conversation.busy) {
+        const sent = await send(conversationId, body, [], [], [], { spoken: true });
+        return { ...sent, steered: false };
+    }
+    conversation.steers = [...(conversation.steers || []), body];
+    return { success: true, steered: true };
+}
+
+/** The steers waiting, as the words the model reads, and marked delivered. */
+function takeSteers(conversation) {
+    const waiting = conversation.steers || [];
+    if (waiting.length === 0) return '';
+    conversation.steers = [];
+    for (const said of waiting) emit(conversation, { type: 'steer', text: said });
+    const quoted = waiting.map(said => `"${said}"`).join('\n');
+    return '<user-steer>\nThe user said this just now, by voice, while you were working (transcribed, so allow for '
+        + `misheard words):\n${quoted}\nTake it into account from your next step on. Carry on with the task as `
+        + 'changed by it; do not stop to acknowledge it unless it tells you to stop or asks you something.\n</user-steer>';
+}
+
+/** The turn ended before the agent read them: on as the next message. */
+function flushSteers(conversation) {
+    const waiting = conversation.steers || [];
+    if (waiting.length === 0) return;
+    conversation.steers = [];
+    if (conversations.get(conversation.id) !== conversation) return;
+    send(conversation.id, waiting.join('\n\n'), [], [], [], { spoken: true }).catch((error) => {
+        console.error('Could not send a steer on:', error.message);
+    });
+}
+
+/** Stopped or failed before the agent read them: said so, with the words. */
+function dropSteers(conversation, why) {
+    const waiting = conversation.steers || [];
+    if (waiting.length === 0) return;
+    conversation.steers = [];
+    emit(conversation, {
+        type: 'warning',
+        message: `Not passed on, because ${why}: ${waiting.map(said => `"${said}"`).join(' ')}`,
+    });
+}
+
 async function interrupt(conversationId) {
     const conversation = conversations.get(conversationId);
     // The desktop first, before the runtime is asked to stop: an action
     // still under way must not take it back once it is let go. See halt.
     if (conversation) computer.halt(conversationId);
+    if (conversation) dropSteers(conversation, 'the turn was stopped');
     if (!conversation?.session) return { success: false };
 
     // Anything this conversation is waiting on a person for is refused first.
@@ -4550,6 +4644,7 @@ module.exports = {
     conversationIds,
     importConversations,
     send,
+    steer,
     warm,
     warmUp,
     interrupt,
@@ -4585,6 +4680,7 @@ module.exports = {
         providers: PROVIDERS,
         conversationsApi: (conversationId) => conversationsApiFor(conversations.get(conversationId)),
         conversation: (conversationId) => conversations.get(conversationId),
+        takeSteers: (conversationId) => takeSteers(conversations.get(conversationId)),
         turnEnd,
         saidBefore: (conversationId) => saidBefore(conversations.get(conversationId)),
         reportToParent: (conversationId, status) => reportToParent(conversations.get(conversationId), status),

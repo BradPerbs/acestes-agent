@@ -23,6 +23,7 @@ class FakeWindow {
             send: (channel, payload) => sent.push({ channel, payload: JSON.parse(JSON.stringify(payload)) }),
             setWindowOpenHandler: () => {},
             on: (name, handler) => { this.handlers[name] = handler; },
+            isLoading: () => false,
         };
     }
     setAlwaysOnTop() {}
@@ -35,11 +36,22 @@ class FakeWindow {
     showInactive() { this.visible = true; }
     hide() { this.visible = false; }
     setBounds() {}
+    getBounds() { return { x: 1528, y: 568, width: 380, height: 460 }; }
     destroy() {}
 }
+// Where the cursor is, moved by the tests.
+let cursor = { x: 0, y: 0 };
+const shortcuts = new Map();
 const electronStub = {
     BrowserWindow: FakeWindow,
-    screen: { getPrimaryDisplay: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1040 } }) },
+    screen: {
+        getPrimaryDisplay: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1040 } }),
+        getCursorScreenPoint: () => cursor,
+    },
+    globalShortcut: {
+        register: (accelerator, handler) => { shortcuts.set(accelerator, handler); return true; },
+        unregister: (accelerator) => { shortcuts.delete(accelerator); },
+    },
 };
 const realLoad = Module._load;
 Module._load = function (request, parent, isMain) {
@@ -128,6 +140,45 @@ async function test(name, fn) {
         assert.equal(a.since, before.since);
         assert.equal(b.phase, 'thinking');
         assert.ok(b.since >= a.since);
+    });
+
+    await test('the hand of the user pausing or stopping a driver is on its card, and a new stint clears it', async () => {
+        overlay.held(['a'], 'took-over');
+        overlay.held(['b'], 'escape');
+        let rows = await latest();
+        assert.equal(rows.a.held, 'took-over');
+        assert.equal(rows.b.held, 'escape');
+        overlay.drivers([{ id: 'b', title: 'Tidy the desktop' }]);
+        await wait(5);
+        overlay.drivers([{ id: 'a', title: 'Fill in the form' }, { id: 'b', title: 'Tidy the desktop' }]);
+        rows = await latest();
+        assert.equal(rows.a.held, '', 'back at work: free again');
+    });
+
+    await test('the cursor over the cards fades them, and off them brings them back', async () => {
+        overlay.ui({ extent: { top: 300, left: 12, right: 368, bottom: 448 } });
+        const hovers = () => sent.filter(entry => entry.channel === 'ai-activity-hover').map(entry => entry.payload.over);
+        cursor = { x: 1528 + 100, y: 568 + 350 };
+        await wait(120);
+        assert.deepEqual(hovers().slice(-1), [true]);
+        cursor = { x: 1528 + 100, y: 568 + 120 };
+        await wait(120);
+        assert.deepEqual(hovers().slice(-1), [false], 'above the cards, in the empty part of the window, is not over them');
+    });
+
+    await test('the voice shortcut is passed to the card with who to steer, and listening keeps it up', async () => {
+        overlay.voice('a', { live: true, enabled: true });
+        const voice = sent.filter(entry => entry.channel === 'ai-activity-voice').pop();
+        assert.equal(voice.payload.conversationId, 'a');
+        assert.equal(voice.payload.live, true);
+        assert.equal(voice.payload.title, 'Fill in the form');
+        overlay.ui({ listening: true });
+        assert.equal(shortcuts.size, 0, 'while agents drive the helper has the keys, not an accelerator');
+        overlay.drivers([]);
+        await wait(20);
+        assert.equal(shortcuts.size, 1, 'nobody driving mid-sentence: the keys are held here to stop it');
+        overlay.ui({ listening: false });
+        assert.equal(shortcuts.size, 0);
     });
 
     overlay.close();

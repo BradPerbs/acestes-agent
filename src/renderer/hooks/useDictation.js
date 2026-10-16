@@ -67,7 +67,7 @@ function startMeter(analyser, current, meterRef) {
     current.frame = requestAnimationFrame(tick);
 }
 
-export default function useDictation({ live = false, onText, onNotice, meterRef }) {
+export default function useDictation({ live: liveDefault = false, onText, onNotice, meterRef }) {
     const t = useT();
     // idle, starting, recording, transcribing
     const [state, setState] = useState('idle');
@@ -185,8 +185,12 @@ export default function useDictation({ live = false, onText, onNotice, meterRef 
         }
     }, [finish]);
 
-    const start = useCallback(async () => {
+    // `options.live` picks the engine for this one recording, for a caller
+    // that learns it only when asked to listen (the corner card). Anything
+    // else passed (a click event) leaves the hook's own.
+    const start = useCallback(async (options) => {
         if (session.current || state !== 'idle') return;
+        const live = typeof options?.live === 'boolean' ? options.live : liveDefault;
         setState('starting');
         onNotice?.('');
         // Live, the recording is opened in main while the microphone opens
@@ -274,7 +278,7 @@ export default function useDictation({ live = false, onText, onNotice, meterRef 
             if (elapsed >= LIMIT_MS) stop();
         }, 250);
         setState('recording');
-    }, [finish, live, meterRef, onNotice, release, settle, state, stop, t]);
+    }, [finish, liveDefault, meterRef, onNotice, release, settle, state, stop, t]);
 
     /** Stop listening and throw it away. */
     const cancel = useCallback(() => {

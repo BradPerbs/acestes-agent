@@ -279,6 +279,8 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
         }
         case 'keys': {
             if (request.keys === 'f12') send({ event: 'escape' });
+            // Standing in for the user pressing the voice shortcut mid-turn.
+            if (request.keys === 'f11') send({ event: 'voice' });
             if (request.keys === 'f5') swapped = true;
             if (request.keys === 'f6') {
                 swapped = false;

@@ -1856,6 +1856,14 @@ function register(getWindow) {
         return result;
     });
     handle('ai-interrupt', (event, conversationId) => assistant.interrupt(conversationId));
+    // Words said to the corner card while an agent drives the desktop: they
+    // steer the turn under way without stopping it. See `steer` in ai/index.js.
+    handle('ai-steer', (event, payload) => assistant.steer(payload?.conversationId, payload?.text));
+    // The corner card says where its cards are and whether it is listening,
+    // so main can fade it under the cursor and keep it up mid-sentence.
+    ipcMain.on('ai-activity-ui', (event, state) => {
+        if (overlay.isOverlay(BrowserWindow.fromWebContents(event.sender))) overlay.ui(state || {});
+    });
 
     /* ---------------- Channels ---------------- */
 

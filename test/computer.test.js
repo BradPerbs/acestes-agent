@@ -347,6 +347,30 @@ function conversation(id, overrides = {}) {
         computer.release('c-esc');
     });
 
+    await check('driving asks the helper for no badge and for the voice shortcut, whose press names who drives', async () => {
+        const voiced = [];
+        const held = [];
+        computer.configure({ voice: ids => voiced.push(ids), held: (ids, code) => held.push({ ids, code }) });
+        clearLog();
+        const { api } = conversation('c-voice');
+        busy.add('c-voice');
+        await api.keys({ keys: 'f11' });
+        const drive = sent().find(request => request.cmd === 'drive' && request.on);
+        assert.strictEqual(drive.badge, false, 'the corner card says who drives instead');
+        assert.strictEqual(drive.voiceKey, computer.VOICE_KEY.key);
+        assert.strictEqual(drive.voiceMods, computer.VOICE_KEY.mods);
+        await new Promise(resolve => setTimeout(resolve, 30));
+        assert.deepStrictEqual(voiced, [['c-voice']], 'the overlay is told, with the driver to steer');
+        assert.deepStrictEqual(held, [], 'the shortcut is not the user taking over');
+
+        // The user's hand still pauses them, and the overlay hears that too.
+        await api.click({ element: 3, count: 3 });
+        assert.deepStrictEqual(held.at(-1), { ids: ['c-voice'], code: 'took-over' });
+        busy.delete('c-voice');
+        computer.release('c-voice');
+        computer.configure({ voice: () => {}, held: () => {} });
+    });
+
     await check('a stopped turn lets go, and what was still running does not take the desktop back', async () => {
         const announced = [];
         computer.configure({ driversChanged: ids => announced.push(ids) });

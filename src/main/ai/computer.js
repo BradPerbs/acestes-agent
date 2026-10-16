@@ -382,6 +382,11 @@ let hooks = {
     driversChanged: () => {},
     // Told what an action is aimed at, by name, for the corner overlay.
     aimed: () => {},
+    // Told the user's hand stopped the drivers ('took-over' or 'escape'), for
+    // the corner overlay.
+    held: () => {},
+    // Told the voice shortcut was pressed while driving, with who is driving.
+    voice: () => {},
     // A recorder event line, in teach mode. See teach.js.
     recorded: () => {},
     // How a captcha service is reached. A test hands in its own.
@@ -418,10 +423,24 @@ function pauseAll(code) {
         entry.pausedBy = code;
         if (code === 'escape') Promise.resolve().then(() => hooks.interrupt(id)).catch(() => {});
     }
+    try {
+        hooks.held([...drivers.keys()], code);
+    } catch (error) {
+        console.error('Could not tell the overlay the drivers stopped:', error.message);
+    }
 }
 
 function onEvent(message) {
     if (message.event === 'took-over' || message.event === 'escape') pauseAll(message.event);
+    // The voice shortcut, seen by the helper's keyboard hook while driving
+    // and kept from the app in front (see VOICE_KEY).
+    if (message.event === 'voice' && drivers.size > 0) {
+        try {
+            hooks.voice([...drivers.keys()]);
+        } catch (error) {
+            console.error('Could not start listening:', error.message);
+        }
+    }
     if (message.event === 'rec' && message.line) {
         try {
             hooks.recorded(message.line);
@@ -458,13 +477,34 @@ function announce() {
     }
 }
 
-/** What the badge says: the agent by name, or how many are at it. */
+/**
+ * The voice shortcut, which steers the agents at work by voice (see
+ * overlay.js). The helper's keyboard hook sees it while driving, tells us,
+ * and keeps it from the app in front, so it is neither a save there nor the
+ * user taking over. The same keys start the composer's microphone in the app.
+ */
+const VOICE_KEY = { key: 's', mods: 'ctrl' };
+
+/**
+ * Switch the helper's driving on: its hooks, and the voice shortcut. Its own
+ * badge at the top of the screen stays off; the corner card (overlay.js) says
+ * who is driving, and that the user's hand paused or stopped them. The labels
+ * still go, for a helper built before `badge` was understood.
+ */
 function badge() {
     const names = [...drivers.values()].map(entry => entry.name);
     const label = names.length > 1
         ? `${names.length} agents are using your computer · Esc to stop`
         : `${names[0] || 'The agent'} is using your computer · Esc to stop`;
-    return call('drive', { on: true, label, paused: 'Paused · you have control', stopped: 'Stopped' }, 10000);
+    return call('drive', {
+        on: true,
+        badge: false,
+        voiceKey: VOICE_KEY.key,
+        voiceMods: VOICE_KEY.mods,
+        label,
+        paused: 'Paused · you have control',
+        stopped: 'Stopped',
+    }, 10000);
 }
 
 const PAUSED = {
@@ -2071,6 +2111,7 @@ function shutdown() {
 
 module.exports = {
     PACES,
+    VOICE_KEY,
     configure,
     apiFor,
     release,
