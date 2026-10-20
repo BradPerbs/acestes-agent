@@ -2264,6 +2264,23 @@ export default {
     'assistant.welcomeNote': 'Say what you need. I open the sessions, do the work, check the result, '
         + 'and remember what we learned.',
     'assistant.createQuickPrompts': 'Create quick prompts',
+
+    // Home: a greeting, the composer and a row of starters.
+    'home.greeting.morning': 'Good morning',
+    'home.greeting.afternoon': 'Good afternoon',
+    'home.greeting.evening': 'Good evening',
+    'home.placeholder': 'How can I help you today?',
+    'home.starter.health': 'Check my servers',
+    'home.starter.health.prompt': 'Check the health of my servers: disk, memory, load, failed services and recent errors in the logs.',
+    'home.starter.security': 'Security audit',
+    'home.starter.security.prompt': 'Run a security audit on this server: open ports, SSH settings, users with sudo, pending updates and failed logins.',
+    'home.starter.desktop': 'Use my desktop',
+    'home.starter.desktop.prompt': 'Use the apps on my screen to ',
+    'home.starter.code': 'Fix code',
+    'home.starter.code.prompt': 'Run the tests in my project folder and fix what fails.',
+    'home.starter.schedule': 'Schedule a job',
+    'home.starter.schedule.prompt': 'Every morning at 8, check disk space on all my hosts and tell me if anything is over 80%.',
+
     'assistant.newConversation': 'New conversation',
     'assistant.chats': 'Chats',
     'assistant.thisChat': 'This chat',

@@ -1,5 +1,10 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
+    ServerStack01Icon,
+    SecurityCheckIcon,
+    ComputerIcon,
+    CodeIcon,
+    Clock01Icon,
     Cancel01Icon,
     PlusSignIcon,
     ArrowUp01Icon,
@@ -39,6 +44,50 @@ import { TRANSCRIPT_HOLD } from '../../lib/transcript-find';
 
 /** The rule inside a card, which is lighter than the one between two cards. */
 export const HAIRLINE = 'border-black/[0.06] dark:border-white/[0.06]';
+
+/** Tabs that have sent the first message Home handed them. See `launch`. */
+const launchedTabs = new Set();
+
+/**
+ * The starters under Home's composer, until the user has quick prompts of
+ * their own. Each puts a prompt in the box to read over and send, never
+ * sends it: the lead is security and IT work, then the desktop and code.
+ */
+const STARTERS = [
+    { id: 'health', icon: ServerStack01Icon },
+    { id: 'security', icon: SecurityCheckIcon },
+    { id: 'desktop', icon: ComputerIcon },
+    { id: 'code', icon: CodeIcon },
+    { id: 'schedule', icon: Clock01Icon },
+];
+
+/** Which greeting the hour calls for. */
+function greetingKey(hour = new Date().getHours()) {
+    if (hour >= 5 && hour < 12) return 'home.greeting.morning';
+    if (hour >= 12 && hour < 18) return 'home.greeting.afternoon';
+    return 'home.greeting.evening';
+}
+
+/**
+ * Home's frame: the greeting over the composer and the starters under it,
+ * as one block in the middle of the page, lifted a little above centre the
+ * way the eye expects a start page. Grown to the page's height rather than
+ * centred inside the scroller, so a short window scrolls to the top of it.
+ * Defined out here so the composer inside keeps its identity, and its
+ * focus, from one render to the next.
+ */
+function HomeShell({ hero, chips, children }) {
+    return (
+        <div className="flex-1 min-h-0 overflow-y-auto">
+            <div className="min-h-full w-full max-w-[46rem] mx-auto px-6 pt-10 pb-[14vh]
+                flex flex-col justify-center">
+                {hero}
+                {children}
+                {chips}
+            </div>
+        </div>
+    );
+}
 
 /**
  * A button at pane-header size: the rail's button when the panel is shut.
@@ -271,6 +320,18 @@ export default function AssistantConversation({
     onOpenSettings,
     /** Bring a conversation to the front by id, in a tab of its own: a branch. */
     onOpenConversation,
+    /**
+     * Drawn as Home: the greeting, the composer and the starters, centred,
+     * with no transcript. Nothing is sent from here: the message and the
+     * conversation it starts go to `onLaunch`, which opens a tab for them.
+     */
+    home = false,
+    onLaunch,
+    /**
+     * A first message typed on Home, `{ conversationId, text, images, files,
+     * mentions }`: sent once, as soon as this tab has adopted the conversation.
+     */
+    launch = null,
 }) {
     const t = useT();
     const [settings, setSettings] = useState(null);
@@ -721,6 +782,7 @@ export default function AssistantConversation({
         if (inputRef.current) inputRef.current.style.height = 'auto';
     }, []);
 
+    const launchingRef = useRef(false);
     const submit = useCallback(() => {
         const body = text.trim();
         if ((!body && images.length === 0 && files.length === 0 && mentions.length === 0) || dictating) return;
@@ -730,6 +792,26 @@ export default function AssistantConversation({
             files: files.map(({ name, mediaType, text: content }) => ({ name, mediaType, text: content })),
             mentions: mentions.map(({ kind, id, name }) => ({ kind, id, name })),
         };
+        // On Home the message goes to a tab of its own. The conversation is
+        // made here (usually already, by the typing, so its runtime is warm
+        // and the model and mode picked here are on it) and handed over with
+        // the message; the tab sends it. Once only: Home starts afresh after.
+        if (home) {
+            if (launchingRef.current) return;
+            launchingRef.current = true;
+            clearComposer();
+            assistant.prepare()
+                .catch(() => '')
+                .then((id) => onLaunch?.({
+                    conversationId: id || '',
+                    agentId,
+                    text: payload.text,
+                    images: payload.images,
+                    files: payload.files,
+                    mentions: payload.mentions.map(({ kind, id: mentionId }) => ({ kind, id: mentionId })),
+                }));
+            return;
+        }
         // Into a running turn the message waits its turn rather than
         // joining it: it sits above the composer until the turn ends.
         if (assistant.busy) {
@@ -750,9 +832,22 @@ export default function AssistantConversation({
             payload.mentions.map(({ kind, id }) => ({ kind, id })),
             payload.files,
         );
-    }, [text, images, files, mentions, assistant, dictating, clearComposer]);
+    }, [text, images, files, mentions, assistant, dictating, clearComposer, home, onLaunch, agentId]);
 
-    const queue = (assistant.conversationId && queues[assistant.conversationId]) || [];
+    // The first message from Home, sent once this tab is on the conversation
+    // Home made for it. Once per tab for the life of the window, so a tab
+    // remounted into a split pane does not say it twice. If that conversation
+    // could not be read back, the message starts a new one instead.
+    const { send: sendNow } = assistant;
+    useEffect(() => {
+        if (home || !launch || !tabId || launchedTabs.has(tabId) || assistant.starting) return;
+        if (assistant.conversationId && launch.conversationId
+            && assistant.conversationId !== launch.conversationId) return;
+        launchedTabs.add(tabId);
+        sendNow(launch.text || '', launch.images || [], launch.mentions || [], launch.files || []);
+    }, [home, launch, tabId, assistant.starting, assistant.conversationId, sendNow]);
+
+    const queue =(assistant.conversationId && queues[assistant.conversationId]) || [];
 
     // The queue drains itself: a steered row first, then in order, each
     // sent once the conversation goes quiet. A send that fails goes back
@@ -1141,12 +1236,75 @@ export default function AssistantConversation({
         if (answer?.conversationId) onOpenConversation?.(answer.conversationId, answer.agentId);
     }, [branchTurn, onOpenConversation]);
 
+    /** A starter or a quick prompt, in the box with the caret at its end. */
+    const applyPrompt = useCallback((prompt) => {
+        setText(prompt);
+        if (prompt.trim()) warm();
+        requestAnimationFrame(() => {
+            const field = inputRef.current;
+            if (!field) return;
+            field.style.height = 'auto';
+            field.style.height = `${Math.min(field.scrollHeight, 160)}px`;
+            field.focus();
+            field.setSelectionRange(field.value.length, field.value.length);
+        });
+    }, [warm]);
+
+    // Home's greeting: the agent's mark, large, the hour's greeting and what
+    // the agent does, over the composer.
+    const hero = home ? (
+        <div className="flex flex-col items-center text-center mb-8 select-none">
+            <AgentMark size={72} animated look={agentLook} className="mb-6" />
+            <h1 className="text-[34px] leading-[1.15] font-medium tracking-[-0.03em]
+                text-gray-900 dark:text-white">
+                {t(greetingKey())}
+            </h1>
+            <p className="mt-3 max-w-md text-[13px] leading-relaxed text-gray-500 dark:text-neutral-400">
+                {t('assistant.welcomeNote')}
+            </p>
+        </div>
+    ) : null;
+
+    // Under the composer: the user's own quick prompts once there are any,
+    // the starters until then. Held back until the settings are in, or the
+    // starters flash past someone who has prompts of their own.
+    const chipClass = `h-8 max-w-[18rem] px-2.5 rounded-lg flex items-center gap-1.5 select-none
+        text-[12px] font-medium transition-colors
+        border border-gray-200 dark:border-white/[0.08]
+        text-gray-600 dark:text-neutral-300
+        hover:bg-gray-50 dark:hover:bg-white/[0.04]
+        hover:text-gray-900 dark:hover:text-white`;
+    const chips = home ? (
+        <div className={`mt-5 flex flex-wrap justify-center gap-1.5 ${settings ? '' : 'invisible'}`}>
+            {quickPrompts.length > 0 ? quickPrompts.map(prompt => (
+                <button key={prompt} type="button" title={prompt} className={chipClass} onClick={() => applyPrompt(prompt)}>
+                    <span className="truncate">{prompt}</span>
+                </button>
+            )) : STARTERS.map(({ id, icon: Icon }) => (
+                <button
+                    key={id}
+                    type="button"
+                    className={chipClass}
+                    onClick={() => applyPrompt(t(`home.starter.${id}.prompt`))}
+                >
+                    <Icon size={14} strokeWidth={1.75} className="shrink-0 text-gray-400 dark:text-neutral-500" />
+                    <span className="truncate">{t(`home.starter.${id}`)}</span>
+                </button>
+            ))}
+        </div>
+    ) : null;
+
+    const Shell = home ? HomeShell : Fragment;
+
     return (
-        <>
+        <Shell {...(home ? { hero, chips } : {})}>
             {/* No header of its own: the tab strip above is the one row of
                 chrome, and which servers this tab is about is a chip on the
                 composer, beside the other things that shape the next
-                message. History and closing live in the strip's menu. */}
+                message. History and closing live in the strip's menu.
+
+                Home has no transcript: nothing is said there. */}
+            {!home && (<>
 
             {/* Transcript. One spacing step, owned here, not by the items.
 
@@ -1318,6 +1476,7 @@ export default function AssistantConversation({
                     ))}
                 </div>
             )}
+            </>)}
 
             {/* Composer.
                 The input takes the whole width and its controls sit on a
@@ -1370,7 +1529,7 @@ export default function AssistantConversation({
                     </div>
                 </div>
             ) : (
-            <div className="shrink-0 p-3">
+            <div className={home ? 'w-full' : 'shrink-0 p-3'}>
                 <MessageQueue
                     queue={queue}
                     onSteer={steerQueued}
@@ -1544,11 +1703,14 @@ export default function AssistantConversation({
                             setSlash(null);
                         }}
                         onPaste={onPaste}
-                        placeholder={assistant.busy ? t('assistant.queuePlaceholder') : t('assistant.askAbout', { about: described.sentence })}
-                        className="block w-full max-h-40 px-3 pt-2.5 pb-1 bg-transparent
+                        placeholder={home
+                            ? t('home.placeholder')
+                            : (assistant.busy ? t('assistant.queuePlaceholder') : t('assistant.askAbout', { about: described.sentence }))}
+                        className={`block w-full max-h-40 pb-1 bg-transparent
+                            ${home ? 'min-h-[4.5rem] px-4 pt-3.5' : 'px-3 pt-2.5'}
                             resize-none outline-none
                             text-[13px] leading-relaxed text-gray-900 dark:text-white
-                            placeholder:text-gray-400 dark:placeholder:text-gray-600"
+                            placeholder:text-gray-400 dark:placeholder:text-gray-600`}
                         onInput={(event) => {
                             event.target.style.height = 'auto';
                             event.target.style.height = `${Math.min(event.target.scrollHeight, 160)}px`;
@@ -1748,6 +1910,6 @@ export default function AssistantConversation({
                 </div>
             </div>
             )}
-        </>
+        </Shell>
     );
 }

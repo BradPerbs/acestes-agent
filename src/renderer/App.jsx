@@ -156,8 +156,9 @@ function App() {
         fonts: terminalFonts,
     } = useTerminalSettings();
 
-    // Navigation state. Conversations lead: the agent is the home page.
-    const [activeNav, setActiveNav] = useState('conversations');
+    // Navigation state. Home leads: a greeting and a box to start a
+    // conversation in. The conversations themselves are in the sidebar.
+    const [activeNav, setActiveNav] = useState('home');
 
     const activeNavRef = useRef(activeNav);
     activeNavRef.current = activeNav;
@@ -246,6 +247,8 @@ function App() {
      * window opens are worse than ones that were always going to be there.
      */
     const [assistantShown, setAssistantShown] = useState(true);
+    const assistantShownRef = useRef(assistantShown);
+    assistantShownRef.current = assistantShown;
     // paneId -> resolve, for a connection the assistant asked for and is
     // waiting on. Opening a tab is not the same as being connected, and the
     // tool cannot hand back a session id until it is.
@@ -1421,8 +1424,19 @@ function App() {
         });
     }, [hosts, handleConnect]);
 
-    /** Clicking the tab you are on is the same gesture. See `reachedForPage`. */
+    /**
+     * Clicking the tab you are on is the same gesture. See `reachedForPage`.
+     *
+     * The Home tab is the way to the Home page, whichever page of Home was up
+     * last: Settings and the inventory are a click away in the sidebar. Not
+     * with the agent switched off, which has no Home page to go to.
+     */
     const handleTabClick = useCallback((tabId) => {
+        if (tabId === 'home' && assistantShownRef.current && activeNavRef.current !== 'home') {
+            setActiveNav('home');
+            if (tabId !== activeTabIdRef.current) setActiveTabId(tabId);
+            return;
+        }
         if (tabId === activeTabIdRef.current) setReachedForPage(count => count + 1);
         else setActiveTabId(tabId);
     }, []);
@@ -1752,6 +1766,15 @@ function App() {
         [openConversation, activeAgentId],
     );
 
+    /**
+     * A message sent from Home: a tab for the conversation Home made, which
+     * sends the message once it holds it. See `launch` in AssistantConversation.
+     */
+    const handleLaunchConversation = useCallback(
+        ({ agentId, ...message }) => addConversationTab(message.conversationId || '', agentId || activeAgentId, { launch: message }),
+        [addConversationTab, activeAgentId],
+    );
+
     /* -------------------------------------------------------------- *
      * Conversation split view
      *
@@ -1935,7 +1958,7 @@ function App() {
         setActiveTabId(current => (
             tabsRef.current.find(tab => tab.id === current)?.type === 'conversation' ? 'home' : current
         ));
-        setActiveNav(nav => (nav === 'conversations' ? 'hosts' : nav));
+        setActiveNav(nav => (nav === 'conversations' || nav === 'home' ? 'hosts' : nav));
     }, [assistantShown]);
 
     /** Deleting asks first, from a tab's menu and from the sidebar alike. */
@@ -2330,6 +2353,11 @@ function App() {
                             onNewConversation={handleNewConversation}
                             onDeleteConversation={removeConversation}
                             onPinConversation={pinConversation}
+                            // Home props
+                            sessions={assistantSessions}
+                            activeSessionId={activeSessionId}
+                            onLaunchConversation={handleLaunchConversation}
+                            onOpenAssistantSettings={handleOpenAssistantSettings}
                             // Keychain props
                             keys={agentKeys}
                             onLoadKeys={loadKeys}

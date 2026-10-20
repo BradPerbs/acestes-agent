@@ -467,6 +467,7 @@ function ConversationView({
                             onOpenSettings={onOpenSettings}
                             onOpenSnippets={onOpenSnippets}
                             onOpenConversation={onOpenConversation}
+                            launch={tab.launch || null}
                         />
                     </div>
                 </div>

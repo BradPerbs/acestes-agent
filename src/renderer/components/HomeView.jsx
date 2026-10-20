@@ -1,5 +1,6 @@
 import { memo } from 'react';
 import ConversationsPanel from './ConversationsPanel';
+import HomeStart from './HomeStart';
 import InventoryTabs, { INVENTORY_PAGES } from './InventoryTabs';
 import InventoryOverview from './InventoryOverview';
 import McpPanel from './McpPanel';
@@ -69,6 +70,12 @@ function HomeView({
     onNewConversation,
     onDeleteConversation,
     onPinConversation,
+    // Home props: the composer is about the sessions, and a message sent
+    // from it opens a tab of its own.
+    sessions,
+    activeSessionId,
+    onLaunchConversation,
+    onOpenAssistantSettings,
     // Keychain props
     keys,
     onLoadKeys,
@@ -104,6 +111,21 @@ function HomeView({
 
             {activeNav === 'teach' && (
                 <TeachPanel agentId={agentId} />
+            )}
+
+            {/* Home: where a conversation begins. The list of them is the
+                sidebar's; the page that searches them is the next one. */}
+            {activeNav === 'home' && (
+                <HomeStart
+                    isActive={isActive}
+                    agentId={agentId}
+                    agentLook={agentLook}
+                    sessions={sessions}
+                    hosts={allHosts}
+                    activeSessionId={activeSessionId}
+                    onLaunch={onLaunchConversation}
+                    onOpenSettings={onOpenAssistantSettings}
+                />
             )}
 
             {activeNav === 'conversations' && (

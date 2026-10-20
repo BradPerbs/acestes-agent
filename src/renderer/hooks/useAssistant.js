@@ -562,6 +562,9 @@ export default function useAssistant({
         failure,
         send,
         warm,
+        // The conversation made now, with nothing said: Home makes one and
+        // hands it to a tab of its own, which then sends the first message.
+        prepare: ensureConversation,
         interrupt,
         respond,
         answer,

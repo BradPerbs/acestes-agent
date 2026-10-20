@@ -90,8 +90,11 @@ export function readStoredConversationTabs() {
 
     // The old single slot is only adopted when restoring is on: with it off,
     // a fresh tab is a fresh conversation, not the last one under another name.
+    // Nothing to restore opens on Home, which is where a conversation starts.
     const restoring = localStorage.getItem('restoreSessions') !== 'false';
-    const first = createConversationTab(restoring ? (localStorage.getItem(LEGACY_KEY) || '') : '');
+    const legacy = restoring ? (localStorage.getItem(LEGACY_KEY) || '') : '';
+    if (!legacy) return { tabs: [], activeId: '' };
+    const first = createConversationTab(legacy);
     return { tabs: [first], activeId: first.id };
 }
 
@@ -262,10 +265,16 @@ export default function useConversationTabs({
      * ------------------------------------------------------------------ */
 
     /** A new tab at the end of the strip, brought to the front. */
-    const addTab = useCallback((conversationId = '', agentId = '', { keepAgent = false } = {}) => {
+    const addTab = useCallback((conversationId = '', agentId = '', { keepAgent = false, launch = null } = {}) => {
         // `keepAgent` for a chat started with a particular agent on purpose,
         // which stays that agent's rather than following the selection.
-        const tab = { ...createConversationTab(conversationId, agentId), ...(keepAgent ? { keepAgent } : {}) };
+        // `launch` is a first message typed on Home, which the tab sends once
+        // it has adopted the conversation. Never stored: see the remembering.
+        const tab = {
+            ...createConversationTab(conversationId, agentId),
+            ...(keepAgent ? { keepAgent } : {}),
+            ...(launch ? { launch } : {}),
+        };
         setTabs(current => [...current, tab]);
         setActiveTabId(tab.id);
         return tab.id;

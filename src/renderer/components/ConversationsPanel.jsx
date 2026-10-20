@@ -21,10 +21,11 @@ import { useT } from '../i18n';
  * Every conversation the app still has, pinned first, then newest first,
  * and a search over what was said in them.
  *
- * The agent's home page: the chats are what the app is for, so they get the
- * page the hosts used to have. Opening one puts it in the tab strip, or brings
- * it forward if it is already there; the list itself never holds a
- * conversation, only names it.
+ * Reached from the sidebar's Conversations heading, and from its quick search
+ * with Enter: the sidebar lists the newest, this page searches all of them.
+ * Home is where a new one starts (see HomeStart). Opening one puts it in the
+ * tab strip, or brings it forward if it is already there; the list itself
+ * never holds a conversation, only names it.
  *
  * With nothing typed, the list. With a query, the main process searches the
  * conversations' contents (see `ai/search.js` for the words and operators)
