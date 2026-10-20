@@ -833,9 +833,11 @@ input[type="color"]::-webkit-color-swatch {
     transition: opacity 400ms ease, background-color 400ms ease;
 }
 
+/* Dark is the app's own palette, as its dialogs wear it: a panel face with a
+   control edge, so the card follows the theme and colours picked in Settings. */
 .dark .activity-card {
-    --activity-hair: rgb(255 255 255 / 0.09);
-    --activity-face: #0f0f12;
+    --activity-hair: rgb(var(--app-control));
+    --activity-face: rgb(var(--app-raised));
     box-shadow: 0 14px 36px -14px rgb(0 0 0 / 0.75), 0 2px 6px -3px rgb(0 0 0 / 0.45);
 }
 

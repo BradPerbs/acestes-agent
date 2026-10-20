@@ -3,7 +3,7 @@ import AgentMark from './AgentMark';
 import { describeCall } from './ToolCall';
 import { Ring, RollingPhrase, activityOf, elapsed, usePhrase, useSeconds } from './WorkingIndicator';
 import useDictation from '../../hooks/useDictation';
-import { INITIAL_THEME } from '../../lib/app-colors';
+import useFollowTheme from '../../hooks/useFollowTheme';
 import { useT } from '../../i18n';
 
 /**
@@ -77,25 +77,6 @@ function action(t, tool) {
             ? t('activity.stepCount', { count: (tool.input?.steps || []).length })
             : describeCall(tool.name, tool.input || {}).text);
     return detail ? `${t(verb)} · ${detail}` : t(verb);
-}
-
-/** Theme changes made in the main window, followed here, the way the assistant's own windows do. */
-function useFollowTheme() {
-    useEffect(() => {
-        const apply = () => {
-            const stored = localStorage.getItem('theme') || INITIAL_THEME;
-            const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-            document.documentElement.classList.toggle(
-                'dark',
-                stored === 'dark' || stored === 'custom' || (stored === 'system' && prefersDark),
-            );
-        };
-        const onStorage = (event) => {
-            if (event.key === 'theme' || event.key === null) apply();
-        };
-        window.addEventListener('storage', onStorage);
-        return () => window.removeEventListener('storage', onStorage);
-    }, []);
 }
 
 /**

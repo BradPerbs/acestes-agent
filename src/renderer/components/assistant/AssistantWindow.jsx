@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import AgentMark from './AgentMark';
 import AssistantWorkspace from './AssistantWorkspace';
 import WindowControls from '../ui/WindowControls';
-import { INITIAL_THEME } from '../../lib/app-colors';
+import useFollowTheme from '../../hooks/useFollowTheme';
 import { APP_GUTTER, TITLE_BAR_HEIGHT } from '../../lib/layout';
 import { useT } from '../../i18n';
 
@@ -21,25 +21,6 @@ import { useT } from '../../i18n';
  * macOS, where the system draws its own on the left and the bar leaves them
  * room.
  */
-
-/** Theme changes made in the main window, followed here. */
-function useFollowTheme() {
-    useEffect(() => {
-        const apply = () => {
-            const stored = localStorage.getItem('theme') || INITIAL_THEME;
-            const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-            document.documentElement.classList.toggle(
-                'dark',
-                stored === 'dark' || stored === 'custom' || (stored === 'system' && prefersDark),
-            );
-        };
-        const onStorage = (event) => {
-            if (event.key === 'theme' || event.key === null) apply();
-        };
-        window.addEventListener('storage', onStorage);
-        return () => window.removeEventListener('storage', onStorage);
-    }, []);
-}
 
 export default function AssistantWindow() {
     const t = useT();
