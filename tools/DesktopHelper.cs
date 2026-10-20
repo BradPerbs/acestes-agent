@@ -289,6 +289,7 @@ static partial class DesktopHelper
             case "scroll": return Scroll(request);
             case "drag": return Drag(request);
             case "move": return Move(request);
+            case "nudge": return Nudge();
             case "button": return Button(request);
             case "letgo": return LetGo(request);
             case "settle": return Settle(request);
@@ -1952,6 +1953,30 @@ static partial class DesktopHelper
         Allowed(RootAt(x, y));
         Ui(delegate { overlay.FadeOutline(); });
         return After(x, y);
+    }
+
+    /// <summary>
+    /// Keeping the computer awake: the cursor a pixel over and straight back,
+    /// which Windows counts as the person being there, so it neither sleeps
+    /// nor locks nor blanks the screen. Not while the agent is driving or a
+    /// recording is under way: the cursor is theirs then, and this would only
+    /// get in the way.
+    /// </summary>
+    static Dictionary<string, object> Nudge()
+    {
+        var answer = new Dictionary<string, object>();
+        Native.POINT at;
+        if (driving || recordingOn || !Native.GetCursorPos(out at))
+        {
+            answer["nudged"] = false;
+            return answer;
+        }
+        int right = Native.GetSystemMetrics(76) + Native.GetSystemMetrics(78) - 1;
+        MoveTo(at.X < right ? at.X + 1 : at.X - 1, at.Y);
+        Thread.Sleep(30);
+        MoveTo(at.X, at.Y);
+        answer["nudged"] = true;
+        return answer;
     }
 
     // Mouse buttons an agent pressed and has not let go yet, as the flags that

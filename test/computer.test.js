@@ -118,6 +118,27 @@ function conversation(id, overrides = {}) {
         assert.ok(result.windows.length > 0);
     });
 
+    console.log('\nkeeping the computer awake');
+
+    await check('the cursor is nudged when nobody is driving, and left alone while someone is', async () => {
+        clearLog();
+        const idle = await computer.nudge();
+        assert.strictEqual(idle.nudged, true);
+        assert.deepStrictEqual(sent().map(request => request.cmd), ['nudge']);
+
+        clearLog();
+        computer._test.drivers().set('c-nudge', { name: 'Chat c-nudge', pausedBy: '' });
+        const busyDesk = await computer.nudge();
+        computer._test.drivers().delete('c-nudge');
+        assert.strictEqual(busyDesk.nudged, false);
+        assert.deepStrictEqual(sent(), [], 'nothing reaches the helper while an agent has the desktop');
+
+        computer._test.setPlatform('darwin');
+        const mac = await computer.nudge();
+        computer._test.setPlatform('win32');
+        assert.strictEqual(mac.nudged, false);
+    });
+
     console.log('\nreading, with the user\'s say-so');
 
     await check('the windows are listed front to back, with their apps', async () => {

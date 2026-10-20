@@ -301,6 +301,7 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
         case 'move': return reply({ under: 'button "Save"', window: WINDOWS[0] });
         case 'button': return reply({ under: 'pane "Canvas"', window: WINDOWS[0] });
         case 'letgo': return reply({});
+        case 'nudge': return reply({ nudged: true });
         case 'clipboard': {
             if (fs.existsSync(`${log}.private`)) return reply({ private: true });
             return reply({ text: 'copied words', files: ['C:\\notes.txt'] });

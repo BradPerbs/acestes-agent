@@ -1,4 +1,4 @@
-const { app, powerSaveBlocker } = require('electron');
+const { app, powerMonitor, powerSaveBlocker } = require('electron');
 const os = require('os');
 
 /**
@@ -39,6 +39,15 @@ function memory() {
 
 let blocker = null;
 let since = 0;
+let nudger = null;
+
+/**
+ * The nudge, in seconds: looked for every `every`, given once nobody has
+ * touched the mouse or keyboard for `idle`. Windows' shortest timer for the
+ * screen, sleep or the lock is a minute, so the desk never looks empty for
+ * longer than `idle + every`, well inside it.
+ */
+const NUDGE = { every: 15, idle: 30 };
 
 /** `{ awake, since }`: whether the machine is being kept up, and from when. */
 function awakeStatus() {
@@ -47,21 +56,53 @@ function awakeStatus() {
 }
 
 /**
+ * Nudge the cursor if the desk has been quiet. Not while someone is using it,
+ * not on a locked screen (Windows drops the input there), and not while an
+ * agent is using the computer: computer.js and the helper both refuse then.
+ */
+function nudgeIfIdle() {
+    if (process.platform !== 'win32') return;
+    try {
+        if (powerMonitor.getSystemIdleTime() < NUDGE.idle) return;
+        if (powerMonitor.getSystemIdleState(NUDGE.idle) === 'locked') return;
+    } catch {
+        return;
+    }
+    require('./ai/computer').nudge()
+        .then((answer) => {
+            if (answer && answer.ok === false) console.error('Keep awake: could not nudge the cursor:', answer.error);
+        })
+        .catch(() => {});
+}
+
+/**
  * Keep the machine from sleeping, or let it again.
  *
- * `prevent-app-suspension` keeps the system itself running, which is what a
- * long job or an open session needs, and still lets the screen go dark on its
- * usual timer: nobody asked for the display to stay lit on an empty desk.
+ * Two holds, because one is not enough on Windows. `prevent-display-sleep` is
+ * a request Windows honours: `prevent-app-suspension` there only keeps this
+ * process from being suspended, and a laptop with Modern Standby goes to
+ * standby as soon as the screen turns off, whatever else is asked. And on
+ * Windows the cursor is nudged a pixel and back while the desk is idle, which
+ * also holds off the screen saver, the lock and an "away" status, none of
+ * which a power request touches.
  */
 function setAwake(on) {
     const { awake } = awakeStatus();
     if (on && !awake) {
-        blocker = powerSaveBlocker.start('prevent-app-suspension');
+        blocker = powerSaveBlocker.start('prevent-display-sleep');
         since = Date.now();
+        if (process.platform === 'win32' && !nudger) {
+            nudger = setInterval(nudgeIfIdle, NUDGE.every * 1000);
+            nudger.unref?.();
+        }
     } else if (!on && blocker !== null) {
         if (powerSaveBlocker.isStarted(blocker)) powerSaveBlocker.stop(blocker);
         blocker = null;
         since = 0;
+        if (nudger) {
+            clearInterval(nudger);
+            nudger = null;
+        }
     }
     return awakeStatus();
 }

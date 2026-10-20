@@ -2103,6 +2103,17 @@ function changesBetween(before, after, { truncated = false } = {}) {
     return parts.join('\n');
 }
 
+/**
+ * Keeping the computer awake (resources.js): the cursor a pixel over and back,
+ * which Windows counts as someone at the desk. Never while an agent has the
+ * desktop, and the helper refuses it too while driving or recording, so a
+ * turn that starts in between is not nudged under.
+ */
+async function nudge() {
+    if (platform !== 'win32' || drivers.size > 0) return { ok: true, nudged: false };
+    return call('nudge', {}, 5000);
+}
+
 function shutdown() {
     if (!helper) return;
     try { helper.child.kill(); } catch { /* already gone */ }
@@ -2118,6 +2129,7 @@ module.exports = {
     halt,
     resume,
     forget,
+    nudge,
     shutdown,
     formatTree,
     warningFor,
