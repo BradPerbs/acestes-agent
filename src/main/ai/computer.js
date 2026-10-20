@@ -44,6 +44,9 @@ const PACES = {
 const OPTION_ALLOW = 'Allow in this conversation';
 const OPTION_DENY = 'Don\'t allow';
 
+/** The approval modes that never ask: Never ask, and Full access. */
+const UNASKED = new Set(['never', 'full']);
+
 /**
  * Apps that reach further than they look, by process. Not refused: the user
  * decides, knowing what a yes gives away.
@@ -651,6 +654,13 @@ function apiFor(state) {
         const app = String(window.process || '').toLowerCase();
         if (!app) return '';
         if (allowedApp(app)) return '';
+        // Full access, or Never ask: the user said not to be asked, and that
+        // covers this question too. A card here stopped a turn mid-task and
+        // waited for someone to open the app and answer it.
+        if (UNASKED.has(settings().approval)) {
+            grant(app);
+            return '';
+        }
 
         const title = String(window.title || '').slice(0, 80);
         const warning = warningFor(app);

@@ -175,6 +175,23 @@ function conversation(id, overrides = {}) {
         assert.ok(surfaced.includes('c-consent'), 'Acestes is brought forward for the question');
     });
 
+    await check('Full access and Never ask are never asked about an app, risky or not', async () => {
+        for (const approval of ['full', 'never']) {
+            const { api, asked } = conversation(`c-unasked-${approval}`, {
+                settings: () => ({ computerUse: true, computerPace: 'fast', approval }),
+            });
+            const result = await api.read({ window: 'cmd' });
+            assert.ok(!result.error, result.error);
+            assert.strictEqual(asked.length, 0, `${approval}: no question, not even for a terminal`);
+        }
+    });
+
+    await check('Workspace only still asks the first time', async () => {
+        const { api, asked } = conversation('c-asked-workspace', { settings: () => ({ computerUse: true, computerPace: 'fast', approval: 'writes' }) });
+        await api.read({ window: 'notepad' });
+        assert.strictEqual(asked.length, 1);
+    });
+
     await check('an app that reaches further says so in the question', async () => {
         const { api, asked } = conversation('c-warn');
         await api.read({ window: 'cmd' });
