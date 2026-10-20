@@ -14,7 +14,6 @@ const aiWindows = require('./ai/windows');
 const aiOverlay = require('./ai/overlay');
 const speech = require('./ai/speech');
 const transport = require('./transport');
-const cloudSnapshot = require('./cloud-snapshot');
 const scheduler = require('./runs/scheduler');
 const tray = require('./tray');
 const failover = require('./failover');
@@ -243,10 +242,6 @@ app.whenReady().then(() => {
 app.on('before-quit', () => {
     if (!firstInstance) return;
     quitting = true;
-    // A debounced upload that has not fired yet would be lost with the process,
-    // so quitting right after an edit is the case worth flushing for. Best
-    // effort: nothing here delays the quit waiting on the network.
-    cloudSnapshot.flush();
     scheduler.stop();
     channels.stop();
     transport.destroyAll();

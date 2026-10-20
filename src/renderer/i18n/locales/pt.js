@@ -745,53 +745,6 @@ export default {
     'settings.knownHosts.forgotHost': '{host} esquecido',
     'settings.knownHosts.forgotKey': 'Esquecida a chave {type} de {host}',
 
-    /* ---- Settings: Account ---- */
-    'settings.account.title': 'Conta',
-    'settings.account.fallbackName': 'Conta CloudBlast',
-    'settings.account.yourAccount': 'a sua conta CloudBlast',
-    'settings.account.connectedAs': 'Ligado como {account}',
-    'settings.account.disconnect': 'Desligar',
-    'settings.account.disconnecting': 'A desligar…',
-    'settings.account.disconnected': 'Conta desligada',
-    'settings.account.disconnectedLocally': 'Sessão terminada neste dispositivo, mas não foi '
-        + 'possível contactar a consola para revogar o acesso. Remova o dispositivo em '
-        + 'Definições → API.',
-    'settings.account.connect': 'Ligue a sua conta',
-    'settings.account.connectAction': 'Ligar',
-    'settings.account.connectDesc': 'Sincronize os seus servidores e faça cópia da sua configuração.',
-    'settings.account.unlockFirst': 'Desbloqueie a aplicação primeiro.',
-    'settings.account.waitingForBrowser': 'A aguardar o navegador…',
-    'settings.account.syncServers': 'Sincronizar os meus servidores',
-    'settings.account.syncServersDesc': 'Os seus servidores CloudBlast aparecem em Anfitriões, '
-        + 'prontos a ligar.',
-    'settings.account.syncOn': 'A sincronizar os seus servidores CloudBlast para Anfitriões',
-    'settings.account.syncOff': 'Sincronização desligada. Os anfitriões já adicionados ficam onde '
-        + 'estão.',
-    'settings.account.syncNow': 'Sincronizar agora',
-    'settings.account.syncing': 'A sincronizar…',
-    'settings.account.syncedAgo': 'Sincronizado {when}',
-    'settings.account.notSyncedYet': 'Ainda não sincronizado',
-    'settings.account.serverCount_one': '{count} servidor',
-    'settings.account.serverCount_other': '{count} servidores',
-    'settings.account.serversSynced_one': '{count} servidor sincronizado',
-    'settings.account.serversSynced_other': '{count} servidores sincronizados',
-    'settings.account.noServers': 'Esta conta ainda não tem servidores',
-    'settings.account.cloudBackup': 'Cópia na nuvem',
-    'settings.account.cloudBackupDesc': 'Os seus anfitriões, pastas, chaves e definições, guardados '
-        + 'na sua conta para os seus outros dispositivos.',
-    'settings.account.backupOn': 'A cópia na nuvem está ligada',
-    'settings.account.backupOff': 'A cópia na nuvem está desligada. O que já está guardado fica até '
-        + 'que o substitua.',
-    'settings.account.backedUp': 'Guardado na sua conta CloudBlast',
-    'settings.account.saveNow': 'Guardar agora',
-    'settings.account.saving': 'A guardar…',
-    'settings.account.savedAgo': 'Guardado {when}',
-    'settings.account.notSavedYet': 'Ainda não guardado',
-    'settings.account.justNow': 'agora mesmo',
-    'settings.account.minutesAgo': 'há {count} min',
-    'settings.account.hoursAgo': 'há {count} h',
-    'settings.account.daysAgo': 'há {count} d',
-
     /* ---- Settings: Backup ---- */
     'settings.backup.title': 'Cópia de segurança',
     'settings.backup.desc': 'Tudo o que a aplicação guarda, cifrado num único ficheiro que pode levar consigo ou trazer de volta.',
@@ -911,10 +864,6 @@ export default {
     'hosts.selectedCount': '{count} selecionados',
     'hosts.folderEmpty': 'Vazia',
     'hosts.folderActions': 'Ações da pasta',
-    'hosts.syncedBadge': 'Sincronizada',
-    'hosts.syncedAccount': 'Sincronizada da sua conta CloudBlast',
-    'hosts.syncedProject': 'Um projeto na sua conta CloudBlast. A sincronização mantém o nome e o '
-        + 'lugar dele',
     'hosts.upOneLevel': 'Subir um nível',
     'hosts.dragHint': 'Arraste um cartão para uma pasta para o arquivar · Arraste uma caixa para '
         + 'escolher vários',

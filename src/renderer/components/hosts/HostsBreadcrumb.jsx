@@ -1,6 +1,5 @@
 import { memo } from 'react';
-import { ArrowLeft01Icon, CloudIcon } from 'hugeicons-react';
-import { syncedFolder } from '../../lib/server-sync';
+import { ArrowLeft01Icon } from 'hugeicons-react';
 import { IconButton } from '../ui/Button';
 import { useT } from '../../i18n';
 
@@ -11,10 +10,6 @@ import { useT } from '../../i18n';
  * level possible at all: there is no card to aim at for "out of here", so the
  * path itself has to be one. Dropping on the crumb you are already standing in
  * is a no-op, so it stays inert.
- *
- * The account folder keeps its mark here as well as on its card, because
- * standing inside it is exactly where the card is no longer on screen to say
- * so.
  *
  * It gives width back rather than holding its own: a deep path beside the drag
  * hint, in a panel the assistant has taken 340px off, adds up to more than the
@@ -43,7 +38,6 @@ function HostsBreadcrumb({ path, dropTargetId, onNavigate }) {
                 const isDropTarget = dropTargetId === crumb.id && !isCurrent;
                 // The crumb you are standing in is not somewhere to move to.
                 const dropId = isCurrent ? undefined : crumb.id;
-                const isSynced = syncedFolder(crumb.id) === 'account';
 
                 return (
                     <span key={crumb.id || 'root'} className="flex items-center gap-1.5 min-w-0">
@@ -55,7 +49,6 @@ function HostsBreadcrumb({ path, dropTargetId, onNavigate }) {
                             aria-current={isCurrent ? 'page' : undefined}
                             onClick={() => onNavigate(crumb.id)}
                             data-drop-folder={dropId}
-                            title={isSynced ? t('hosts.syncedAccount') : undefined}
                             className={`breadcrumb-item max-w-[14rem] truncate px-2 py-1 -mx-0.5 rounded-lg
                                 text-sm font-medium transition-colors outline-none
                                 focus-visible:ring-2 focus-visible:ring-gray-900/20 dark:focus-visible:ring-white/25
@@ -67,12 +60,6 @@ function HostsBreadcrumb({ path, dropTargetId, onNavigate }) {
                                     : ''}`}
                         >
                             <span className="flex items-center gap-1 min-w-0">
-                                {/* Inherits the crumb's own colour, so it dims
-                                    and lights with the name rather than being a
-                                    second thing to look at. */}
-                                {isSynced && (
-                                    <CloudIcon size={13} strokeWidth={2.5} className="shrink-0 opacity-70" />
-                                )}
                                 <span className="truncate">{crumb.name}</span>
                             </span>
                         </button>

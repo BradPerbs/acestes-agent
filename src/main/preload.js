@@ -373,30 +373,6 @@ contextBridge.exposeInMainWorld('api', {
         discard: (token) => ipcRenderer.invoke('backup-discard', token),
     },
 
-    account: {
-        // No token ever crosses this bridge. Main runs the OAuth exchange and
-        // holds the credential; the renderer only learns which account is
-        // connected and what the console said.
-        status: () => ipcRenderer.invoke('account-status'),
-        signIn: () => ipcRenderer.invoke('account-sign-in'),
-        cancelSignIn: () => ipcRenderer.invoke('account-sign-in-cancel'),
-        signOut: () => ipcRenderer.invoke('account-sign-out'),
-        refresh: () => ipcRenderer.invoke('account-refresh'),
-        servers: () => ipcRenderer.invoke('account-servers'),
-        // Signing in or out from Settings has to reach the sidebar, which did
-        // not ask for it.
-        onState: (callback) => subscribe('account-state', callback),
-    },
-
-    serverSync: {
-        status: () => ipcRenderer.invoke('server-sync-status'),
-        setEnabled: (enabled) => ipcRenderer.invoke('server-sync-set-enabled', enabled),
-        now: () => ipcRenderer.invoke('server-sync-now'),
-        // Fired after any sync, including the ones on a timer that nothing in
-        // the renderer asked for, so the host list can refresh itself.
-        onState: (callback) => subscribe('server-sync-state', callback),
-    },
-
     /**
      * Watching whether hosts are still answering.
      *
@@ -421,19 +397,6 @@ contextBridge.exposeInMainWorld('api', {
         // these, which is the point: the host cards and the bell keep up with a
         // timer they do not own.
         onState: (callback) => subscribe('monitor-state', callback),
-    },
-
-    cloudSnapshot: {
-        status: () => ipcRenderer.invoke('cloud-snapshot-status'),
-        setEnabled: (enabled) => ipcRenderer.invoke('cloud-snapshot-set-enabled', enabled),
-        push: () => ipcRenderer.invoke('cloud-snapshot-push'),
-        pull: () => ipcRenderer.invoke('cloud-snapshot-pull'),
-        // Terminal settings live in localStorage, so the renderer is the only
-        // side that can see them change.
-        reportSettings: (settings) => ipcRenderer.invoke('cloud-snapshot-settings', settings),
-        onState: (callback) => subscribe('cloud-snapshot-state', callback),
-        // A pull brought settings down from another device.
-        onSettings: (callback) => subscribe('cloud-snapshot-settings', callback),
     },
 
     remoteEdit: {

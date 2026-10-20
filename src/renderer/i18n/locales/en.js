@@ -1868,52 +1868,6 @@ export default {
     'settings.knownHosts.forgotKey': 'Forgot the {type} key for {host}',
 
     /* ---------------------------------------------------------------- *
-     * Settings: Account
-     * ---------------------------------------------------------------- */
-    'settings.account.title': 'Account',
-    'settings.account.fallbackName': 'CloudBlast account',
-    'settings.account.yourAccount': 'your CloudBlast account',
-    'settings.account.connectedAs': 'Connected as {account}',
-    'settings.account.disconnect': 'Disconnect',
-    'settings.account.disconnecting': 'Disconnecting…',
-    'settings.account.disconnected': 'Account disconnected',
-    'settings.account.disconnectedLocally': 'Signed out on this device, but the console could not '
-        + 'be reached to revoke access. Remove the device from Settings → API.',
-    'settings.account.connect': 'Connect your account',
-    'settings.account.connectAction': 'Connect',
-    'settings.account.connectDesc': 'Sync your servers and back up your setup.',
-    'settings.account.unlockFirst': 'Unlock the app first.',
-    'settings.account.waitingForBrowser': 'Waiting for browser…',
-    'settings.account.syncServers': 'Sync my servers',
-    'settings.account.syncServersDesc': 'Your CloudBlast servers appear in Hosts, ready to connect.',
-    'settings.account.syncOn': 'Syncing your CloudBlast servers into Hosts',
-    'settings.account.syncOff': 'Sync turned off. Hosts already added stay where they are.',
-    'settings.account.syncNow': 'Sync now',
-    'settings.account.syncing': 'Syncing…',
-    'settings.account.syncedAgo': 'Synced {when}',
-    'settings.account.notSyncedYet': 'Not synced yet',
-    'settings.account.serverCount_one': '{count} server',
-    'settings.account.serverCount_other': '{count} servers',
-    'settings.account.serversSynced_one': '{count} server synced',
-    'settings.account.serversSynced_other': '{count} servers synced',
-    'settings.account.noServers': 'No servers on this account yet',
-    'settings.account.cloudBackup': 'Cloud backup',
-    'settings.account.cloudBackupDesc': 'Your hosts, folders, keys and settings, saved to your '
-        + 'account for your other devices.',
-    'settings.account.backupOn': 'Cloud backup is on',
-    'settings.account.backupOff': 'Cloud backup is off. What is already saved stays until you '
-        + 'replace it.',
-    'settings.account.backedUp': 'Backed up to your CloudBlast account',
-    'settings.account.saveNow': 'Save now',
-    'settings.account.saving': 'Saving…',
-    'settings.account.savedAgo': 'Saved {when}',
-    'settings.account.notSavedYet': 'Not saved yet',
-    'settings.account.justNow': 'just now',
-    'settings.account.minutesAgo': '{count}m ago',
-    'settings.account.hoursAgo': '{count}h ago',
-    'settings.account.daysAgo': '{count}d ago',
-
-    /* ---------------------------------------------------------------- *
      * Settings: Backup
      * ---------------------------------------------------------------- */
     'settings.backup.title': 'Backup',
@@ -2036,9 +1990,6 @@ export default {
     'hosts.selectedCount': '{count} selected',
     'hosts.folderEmpty': 'Empty',
     'hosts.folderActions': 'Folder actions',
-    'hosts.syncedBadge': 'Synced',
-    'hosts.syncedAccount': 'Synced from your CloudBlast account',
-    'hosts.syncedProject': 'A project on your CloudBlast account. The sync keeps its name and its place',
     'hosts.upOneLevel': 'Up one level',
     'hosts.dragHint': 'Drag a card onto a folder to file it · Drag a box to pick out several',
     'hosts.dragHintFiltered': 'Drag a box across the cards to pick out several',

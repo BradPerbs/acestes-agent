@@ -20,10 +20,7 @@ const importer = require('./import');
 const importCommon = require('./import-common');
 const vault = require('./vault');
 const backup = require('./backup');
-const account = require('./account');
-const serverSync = require('./server-sync');
 const monitor = require('./monitor');
-const cloudSnapshot = require('./cloud-snapshot');
 const activity = require('./activity');
 const sessionLog = require('./session-log');
 const assistant = require('./ai');
@@ -238,23 +235,13 @@ function register(getWindow) {
 
     transfers.setNotifier(notify);
 
-    // Schedules the launch sync and the interval behind it. Safe to call while
-    // signed out or locked: it settles into doing nothing and retries when the
-    // vault is unlocked.
-    serverSync.start(notify);
-
     // The reachability poller. Given the window as well as the notifier because
     // it raises Windows notifications of its own, and a toast that is clicked
     // has to be able to bring the app forward.
     monitor.start(notify, getWindow);
 
-    // Registers the store hooks that queue an upload, and pulls whatever another
-    // device saved. Same tolerance for being signed out or locked.
-    cloudSnapshot.start(notify);
-
-    // Schedules the daily release check. Unlike the two above it does not care
-    // about the account at all, so a locked or signed-out app still finds out
-    // there is a new build.
+    // Schedules the daily release check. A locked app still finds out there is
+    // a new build.
     updates.start(notify);
 
     remoteEdit.setNotifier(notify);
@@ -1171,120 +1158,6 @@ function register(getWindow) {
         return true;
     });
 
-    /* ---------------- CloudBlast account ----------------
-     *
-     * The whole OAuth exchange happens in main: the verifier, the code and the
-     * resulting token never cross the bridge, so a renderer holding a reference
-     * to the API has no more access to the credential than the page next to it.
-     * Only the profile the user is looking at comes back.
-     */
-
-    handle('account-status', () => account.status());
-
-    handle('account-sign-in', async () => {
-        try {
-            const status = await account.signIn();
-
-            activity.record({
-                category: 'security',
-                action: 'account.connect',
-                outcome: 'success',
-                target: 'CloudBlast account',
-                detail: status.account?.email || '',
-            });
-
-            // The sidebar shows who is signed in, and it is not the thing that
-            // asked for this, so it has to be told.
-            notify('account-state', status);
-
-            /*
-             * Signing in is the one moment a device has an account and none of
-             * its data. Both of these normally run at launch, which for a fresh
-             * sign-in has already been and gone, so without this the setup only
-             * appears on the next poll or the next restart.
-             *
-             * Forced, because a stale revision left by a previous account would
-             * otherwise make the pull decide it was already up to date.
-             *
-             * Not awaited: the browser round trip is already over and the user
-             * is looking at the app. Both report themselves through their own
-             * events when they land.
-             */
-            cloudSnapshot.pull({ force: true })
-                .catch(error => console.error('Post sign-in restore failed:', error.message))
-                .finally(() => serverSync.sync());
-
-            return { success: true, status };
-        } catch (error) {
-            activity.record({
-                category: 'security',
-                action: 'account.connect',
-                outcome: 'failure',
-                target: 'CloudBlast account',
-                message: error.message,
-            });
-
-            return { success: false, message: error.message };
-        }
-    });
-
-    handle('account-sign-in-cancel', () => {
-        account.cancelSignIn();
-        return true;
-    });
-
-    handle('account-sign-out', async () => {
-        const email = account.status().account?.email || '';
-        const { revoked } = await account.signOut();
-
-        activity.record({
-            category: 'security',
-            action: 'account.disconnect',
-            // A local sign-out that could not reach the console leaves a live
-            // token behind, so it is not the same outcome as a clean one.
-            outcome: revoked ? 'success' : 'failure',
-            target: 'CloudBlast account',
-            detail: email,
-            message: revoked ? '' : 'Signed out locally; the console could not be reached to revoke the token',
-        });
-
-        // The revision and key belong to the account that just left, not to
-        // this machine.
-        cloudSnapshot.reset();
-
-        const status = account.status();
-        notify('account-state', status);
-
-        return { success: true, revoked, status };
-    });
-
-    handle('account-refresh', async () => {
-        try {
-            return { success: true, status: await account.refresh() };
-        } catch (error) {
-            return { success: false, message: error.message, status: account.status() };
-        }
-    });
-
-    handle('account-servers', async () => {
-        try {
-            return { success: true, servers: await account.servers() };
-        } catch (error) {
-            return { success: false, message: error.message, servers: [] };
-        }
-    });
-
-    /* ---------------- CloudBlast server sync ---------------- */
-
-    handle('server-sync-status', () => serverSync.status());
-
-    handle('server-sync-set-enabled', (event, enabled) => serverSync.setEnabled(enabled));
-
-    handle('server-sync-now', async () => {
-        const report = await serverSync.sync({ manual: true });
-        return { report, status: serverSync.status() };
-    });
-
     /* ---------------- Host monitoring ---------------- */
 
     handle('monitor-status', () => monitor.status());
@@ -1292,32 +1165,6 @@ function register(getWindow) {
     handle('monitor-configure', (event, patch) => monitor.configure(patch || {}));
 
     handle('monitor-check-now', () => monitor.checkNow());
-
-    /* ---------------- Cloud setup snapshot ---------------- */
-
-    handle('cloud-snapshot-status', () => cloudSnapshot.status());
-
-    handle('cloud-snapshot-set-enabled', (event, enabled) => cloudSnapshot.setEnabled(enabled));
-
-    handle('cloud-snapshot-push', async () => ({
-        result: await cloudSnapshot.push(),
-        status: cloudSnapshot.status(),
-    }));
-
-    handle('cloud-snapshot-pull', async () => ({
-        result: await cloudSnapshot.pull({ force: true }),
-        status: cloudSnapshot.status(),
-    }));
-
-    /**
-     * Terminal settings live in the renderer's localStorage, which main cannot
-     * read, so the renderer hands them over whenever they change. Held in
-     * memory only -- the snapshot is the copy that persists.
-     */
-    handle('cloud-snapshot-settings', (event, settings) => {
-        cloudSnapshot.setSettings(settings);
-        return true;
-    });
 
     /* ---------------- SSH agent ---------------- */
 

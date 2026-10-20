@@ -177,90 +177,13 @@ function readFile(filePath) {
     }
 }
 
-/* ------------------------------------------------------------------ *
- * Key-based envelopes
- *
- * Same cipher and the same authenticated header, but keyed directly by 32
- * random bytes instead of a passphrase. Used for the cloud snapshot, where the
- * key comes from the account rather than from something a person typed.
- *
- * No KDF, because there is nothing to stretch: a passphrase needs scrypt
- * because it is low entropy and guessable, while a 256-bit random key is
- * neither. Running scrypt over it would cost 100ms per sync and buy nothing.
- * ------------------------------------------------------------------ */
-
-const KEYED_FORMAT = 'cloudblast-snapshot';
-
-function keyBuffer(key) {
-    const buffer = Buffer.from(String(key || ''), 'base64');
-    if (buffer.length !== KEY_BYTES) throw new Error('The snapshot key is not a 256-bit key');
-    return buffer;
-}
-
-function sealWithKey(payload, key) {
-    const header = {
-        format: KEYED_FORMAT,
-        version: VERSION,
-        createdAt: new Date().toISOString(),
-        app: app.getVersion(),
-        cipher: 'aes-256-gcm',
-        kdf: { algo: 'none' },
-    };
-
-    const iv = crypto.randomBytes(IV_BYTES);
-    const cipher = crypto.createCipheriv('aes-256-gcm', keyBuffer(key), iv);
-    cipher.setAAD(additionalData(header));
-
-    const body = Buffer.concat([
-        cipher.update(Buffer.from(JSON.stringify(payload), 'utf8')),
-        cipher.final(),
-    ]);
-
-    return {
-        ...header,
-        payload: Buffer.concat([iv, cipher.getAuthTag(), body]).toString('base64'),
-    };
-}
-
-/** Returns the payload, or null when the key is wrong or the blob was altered. */
-function unsealWithKey(envelope, key) {
-    if (envelope?.format !== KEYED_FORMAT) {
-        throw new Error('This is not a CloudBlast snapshot');
-    }
-    if (envelope.version > VERSION) {
-        throw new Error('This snapshot was written by a newer version of the app');
-    }
-    if (envelope.cipher !== 'aes-256-gcm') {
-        throw new Error('This snapshot uses an encryption scheme this version cannot read');
-    }
-
-    const raw = Buffer.from(String(envelope.payload || ''), 'base64');
-    if (raw.length <= IV_BYTES + TAG_BYTES) throw new Error('This snapshot is truncated');
-
-    const decipher = crypto.createDecipheriv('aes-256-gcm', keyBuffer(key), raw.subarray(0, IV_BYTES));
-    decipher.setAuthTag(raw.subarray(IV_BYTES, IV_BYTES + TAG_BYTES));
-    decipher.setAAD(additionalData(envelope));
-
-    try {
-        return JSON.parse(Buffer.concat([
-            decipher.update(raw.subarray(IV_BYTES + TAG_BYTES)),
-            decipher.final(),
-        ]).toString('utf8'));
-    } catch {
-        return null;
-    }
-}
-
 module.exports = {
     FORMAT,
-    KEYED_FORMAT,
     VERSION,
     MIN_PASSPHRASE,
     validatePassphrase,
     seal,
     unseal,
-    sealWithKey,
-    unsealWithKey,
     writeFile,
     readFile,
 };

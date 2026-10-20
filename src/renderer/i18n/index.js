@@ -37,7 +37,6 @@ export const LANGUAGES = [
 
 const CATALOGS = { en, zh, vi, pt, ru };
 
-/** Shared with useSettingsSnapshot, which carries this between devices. */
 export const LANGUAGE_KEY = 'language';
 
 const bcp47 = (language) => LANGUAGES.find(entry => entry.id === language)?.tag || language;

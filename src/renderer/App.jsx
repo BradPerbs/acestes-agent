@@ -28,7 +28,6 @@ import { useSessions } from './hooks/useSessions';
 import { useTerminalTheme } from './hooks/useTerminalTheme';
 import { useTerminalSettings } from './hooks/useTerminalSettings';
 import { useKeychain } from './hooks/useKeychain';
-import useSettingsSnapshot from './hooks/useSettingsSnapshot';
 import { useT } from './i18n';
 import { APP_GUTTER } from './lib/layout';
 import StatusBar from './components/StatusBar';
@@ -1507,15 +1506,10 @@ function App() {
         refreshConversations();
     }, [loadData, loadKeys, refreshConversations]);
 
-    // A background sync adds, renames and removes hosts without the renderer
-    // asking for anything, so the sidebar has to be told rather than left
-    // showing whatever it loaded at startup.
-    useEffect(() => window.api.serverSync.onState(({ report }) => {
-        if (report && !report.error && !report.skipped) loadData();
-    }), [loadData]);
-
-    // And the agent, whose inventory tools save hosts, folders and keys the
-    // same way. Snippets and proxies keep themselves current in their hooks.
+    // The agent's inventory tools save hosts, folders and keys without the
+    // renderer asking, so the sidebar has to be told rather than left showing
+    // whatever it loaded at startup. Snippets and proxies keep themselves
+    // current in their hooks.
     useEffect(() => window.api.inventory?.onChange?.((change) => {
         if (change?.kind === 'hosts') loadData();
         if (change?.kind === 'keys') loadKeys();
@@ -1556,18 +1550,6 @@ function App() {
         adoptHeadless();
         return window.api.ssh.onHeadless?.(() => adoptHeadless());
     }, [hosts, adoptHeadless]);
-
-    // Same for a setup pulled down from another device.
-    useEffect(() => window.api.cloudSnapshot.onState((state) => {
-        if (state?.pulled && state.added > 0) {
-            loadData();
-            loadKeys();
-        }
-    }), [loadData, loadKeys]);
-
-    // Carries terminal settings to and from the snapshot; they live in
-    // localStorage, which main cannot reach.
-    useSettingsSnapshot();
 
     /**
      * Persist a host edited from inside a live session, currently its port
