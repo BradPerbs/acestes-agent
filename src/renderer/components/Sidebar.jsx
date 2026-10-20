@@ -491,6 +491,16 @@ function ConversationRow({ conversation, active, finished, onOpen, onDelete, onP
                     </span>
                 ) : null}
                 <MarqueeText text={title} playing={hovered} />
+                {/* One that runs on another of the user's computers says which,
+                    quietly, and gives the room back to the actions on hover. */}
+                {conversation.device && (
+                    <span
+                        title={t('assistant.runsOn', { device: conversation.device })}
+                        className="shrink-0 max-w-[6rem] truncate text-[11px] text-gray-400 dark:text-gray-500 group-hover/row:hidden group-focus-within/row:hidden"
+                    >
+                        {conversation.device}
+                    </span>
+                )}
             </button>
 
             {/* The pin of a pinned row is always shown, at the far right where

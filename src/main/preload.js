@@ -482,6 +482,29 @@ contextBridge.exposeInMainWorld('api', {
         test: (name) => ipcRenderer.invoke('channels-test', name),
     },
 
+    /**
+     * Devices: the user's other Acestes installs, as one fleet. Every call
+     * answers with the whole status (or `{ error }`), and `fleet-changed`
+     * pushes it as devices come and go. See src/main/fleet.
+     */
+    fleet: {
+        status: () => ipcRenderer.invoke('fleet-status'),
+        onChanged: (callback) => subscribe('fleet-changed', callback),
+        create: (options) => ipcRenderer.invoke('fleet-create', options || {}),
+        invite: () => ipcRenderer.invoke('fleet-invite'),
+        join: (options) => ipcRenderer.invoke('fleet-join', options || {}),
+        remove: (deviceId) => ipcRenderer.invoke('fleet-remove', deviceId),
+        leave: () => ipcRenderer.invoke('fleet-leave'),
+        rename: (name) => ipcRenderer.invoke('fleet-rename', name),
+        // Locked: the other devices may not have this one do anything.
+        setLock: (on) => ipcRenderer.invoke('fleet-lock', on),
+        // Where a scheduled job runs: 'any' device, or one by id or name.
+        setPlacement: (jobId, where) => ipcRenderer.invoke('fleet-placement', jobId, where),
+        placementOf: (jobId) => ipcRenderer.invoke('fleet-placement-of', jobId),
+        syncNow: () => ipcRenderer.invoke('fleet-sync-now'),
+        setHub: (options) => ipcRenderer.invoke('fleet-hub', options || {}),
+    },
+
     dialog: {
         save: (options) => ipcRenderer.invoke('show-save-dialog', options || {}),
         open: (options) => ipcRenderer.invoke('show-open-dialog', options || {}),
@@ -536,6 +559,9 @@ contextBridge.exposeInMainWorld('api', {
     ai: {
         // `agentId` adds that agent's settings as `agentSettings`.
         status: (agentId) => ipcRenderer.invoke('ai-status', agentId || ''),
+        // The computer a conversation runs on, when it is a mirror of one
+        // on another device; '' for one that runs here. See src/main/fleet.
+        remoteOf: (conversationId) => ipcRenderer.invoke('ai-remote-of', conversationId),
         setSettings: (patch) => ipcRenderer.invoke('ai-settings-set', patch),
         // The settings, whenever anything changes them. Both the panel and the
         // settings page show some of these and can be open at once.

@@ -545,6 +545,24 @@ function completed(jobId, status, now = Date.now()) {
 }
 
 /**
+ * The job's time came and another of the user's computers took it (see
+ * src/main/fleet): move it on here without counting a run. A one-shot job is
+ * left waiting with no next time; the device that ran it removes or disables
+ * it, and that change reaches this one through sync.
+ */
+function passed(jobId, now = Date.now()) {
+    const job = get(jobId);
+    if (!job) return null;
+    const db = database.open();
+    const next = job.schedule.kind === 'at' ? null : nextRunAt(job, now);
+    db.prepare('UPDATE jobs SET last_status = ?, next_run_at = ?, updated_at = ? WHERE id = ?')
+        .run('elsewhere', next, now, jobId);
+    const saved = get(jobId);
+    notify('jobs-changed', { jobId, agentId: saved.agentId });
+    return saved;
+}
+
+/**
  * On launch: jobs whose time passed while the app was closed.
  *
  * `skip` moves the job on to its next time; `catchup` leaves it due so the
@@ -669,6 +687,7 @@ module.exports = {
     byToken,
     fired,
     completed,
+    passed,
     reconcile,
     KINDS,
     EVENTS,

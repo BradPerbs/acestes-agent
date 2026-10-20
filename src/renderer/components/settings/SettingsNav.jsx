@@ -10,6 +10,7 @@ import {
     CursorMagicSelection01Icon,
     BubbleChatIcon,
     SmartPhone01Icon,
+    ComputerPhoneSyncIcon,
 } from 'hugeicons-react';
 import AgentMark from '../assistant/AgentMark';
 import Tooltip from '../ui/Tooltip';
@@ -49,6 +50,8 @@ export const SETTINGS_CATEGORIES = [
     { id: 'chat', icon: BubbleChatIcon, group: 'agent' },
     // Reaching the agent from a chat app, through a bot of the user's own.
     { id: 'channels', icon: SmartPhone01Icon, group: 'agent' },
+    // The user's other computers with Acestes on them, as one fleet.
+    { id: 'devices', icon: ComputerPhoneSyncIcon, group: 'agent' },
     // Everything to do with terminals, sessions and servers is one category,
     // as tabs of a single page.
     { id: 'appearance', icon: PaintBoardIcon, group: 'machine' },
@@ -66,6 +69,7 @@ export const SETTINGS_CATEGORIES = [
 const FOCUS_CATEGORY = {
     quickPrompts: 'chat',
     accounts: 'assistant',
+    devices: 'devices',
 };
 
 export const categoryForFocus = (focus) => FOCUS_CATEGORY[focus] || 'assistant';

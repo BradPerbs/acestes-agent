@@ -250,6 +250,7 @@ function build({ z, ok, fail }) {
                 probe: z.string().max(2000).optional().describe('For a heartbeat: a local command run first. Wakes you only if it prints something or exits non-zero. Print SKIP to stay quiet.'),
                 notify: z.boolean().optional().describe('Whether the user gets a notification when a run ends. Defaults to true.'),
                 channels: z.boolean().optional().describe('Also send each result, and any approval a run waits on, to the chat apps the user paired (Telegram, Discord, Slack, Matrix). When they asked to hear about it there.'),
+                device: z.string().max(120).optional().describe('With Acestes on several computers (list_devices): the one this job must run on, by name, or "this" for this computer. Leave it out to run on whichever is on, this one first: the job reaches every computer and runs once. Pin it only when it needs that machine (its desktop, files or network).'),
                 budget: z.object({
                     maxToolCalls: z.number().int().min(1).max(500).optional(),
                     maxCostUsd: z.number().min(0.01).max(100).optional(),
@@ -297,6 +298,11 @@ function build({ z, ok, fail }) {
                     ...(base ? { missed: base.missed, template: base.template } : {}),
                 });
                 if (result.error) return fail(result.error);
+                let runsOn = null;
+                if (input.device) {
+                    runsOn = await require('../fleet').setPlacement(result.job.id, input.device);
+                    if (runsOn.error) return fail(`The job was made, but ${runsOn.error} It runs on any computer; change it with update_job.`);
+                }
                 return ok({
                     created: true,
                     id: result.job.id,
@@ -305,6 +311,7 @@ function build({ z, ok, fail }) {
                     nextRunAt: result.job.nextRunAt ? new Date(result.job.nextRunAt).toISOString() : null,
                     approvals: result.job.policy.approvals,
                     ...(pinned.model ? { runtime: pinned.provider, model: pinned.model, effort: pinned.effort || 'default' } : {}),
+                    ...(runsOn ? { runsOn: runsOn.device } : {}),
                 });
             },
         },
@@ -331,6 +338,10 @@ function build({ z, ok, fail }) {
                         failures: job.failures,
                         runs: job.runCount,
                         createdBy: job.createdBy,
+                        ...(() => {
+                            const place = require('../fleet').placementOf(job.id);
+                            return place.device ? { runsOn: place.device } : {};
+                        })(),
                     })),
                 });
             },
@@ -347,11 +358,19 @@ function build({ z, ok, fail }) {
                 schedule: z.string().max(200).optional().describe('For edit: a new schedule.'),
                 prompt: z.string().max(20000).optional().describe('For edit: a new prompt.'),
                 name: z.string().max(120).optional().describe('For edit: a new name.'),
+                device: z.string().max(120).optional().describe('For edit: the computer it must run on (list_devices), "this", or "any" for whichever is on.'),
             },
             handler: async (input, ctx) => {
                 const jobs = api(ctx);
                 if (!jobs) return fail('Jobs are not available here.');
                 let result;
+                if (input.action === 'edit' && input.device !== undefined) {
+                    const placed = await require('../fleet').setPlacement(input.id, input.device);
+                    if (placed.error) return fail(placed.error);
+                    if (input.schedule === undefined && input.prompt === undefined && input.name === undefined) {
+                        return ok({ action: 'edit', id: input.id, runsOn: placed.device });
+                    }
+                }
                 switch (input.action) {
                     case 'enable': result = jobs.update(input.id, { enabled: true }); break;
                     case 'disable': result = jobs.update(input.id, { enabled: false }); break;

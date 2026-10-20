@@ -112,6 +112,22 @@ async function heartbeat(job) {
     }
 }
 
+/**
+ * Jobs waiting on the gate: whether this computer, of the user's several,
+ * is the one to run them this time (see src/main/fleet). Held here so the
+ * next tick does not ask again while the answer is coming.
+ */
+const gating = new Set();
+
+async function runDue(job) {
+    try {
+        if (job.schedule.kind === 'heartbeat') await heartbeat(job);
+        else await fire(job);
+    } catch (error) {
+        console.error(`Job ${job.name} failed to fire:`, error.message);
+    }
+}
+
 async function tick() {
     let due;
     try {
@@ -121,12 +137,31 @@ async function tick() {
         return;
     }
     for (const job of due) {
-        try {
-            if (job.schedule.kind === 'heartbeat') await heartbeat(job);
-            else await fire(job);
-        } catch (error) {
-            console.error(`Job ${job.name} failed to fire:`, error.message);
+        if (gating.has(job.id)) continue;
+        if (typeof deps.gate !== 'function') {
+            try {
+                if (job.schedule.kind === 'heartbeat') await heartbeat(job);
+                else await fire(job);
+            } catch (error) {
+                console.error(`Job ${job.name} failed to fire:`, error.message);
+            }
+            continue;
         }
+        // Asked beside the loop: the answer can take a little while (the
+        // preferred computer gets the first go), and other jobs are due too.
+        gating.add(job.id);
+        Promise.resolve()
+            .then(() => deps.gate(job, { source: 'schedule' }))
+            .then((verdict) => {
+                if (verdict === false) jobs.passed(job.id);
+                else return runDue(job);
+                return undefined;
+            })
+            .catch((error) => {
+                console.error(`Job ${job.name} could not be placed:`, error.message);
+                return runDue(job);
+            })
+            .finally(() => gating.delete(job.id));
     }
     syncWebhookServer();
 }
@@ -139,7 +174,15 @@ async function tick() {
 function event(name, { hostId = '', detail = '' } = {}) {
     if (!started) return;
     for (const job of jobs.listeners(name, hostId)) {
-        fire(job, { context: detail, source: `event:${name}` }).catch(() => {});
+        const go = () => fire(job, { context: detail, source: `event:${name}` });
+        if (typeof deps.gate !== 'function') {
+            go().catch(() => {});
+            continue;
+        }
+        // Several computers can see the same host go down: one of them acts.
+        Promise.resolve(deps.gate(job, { source: 'event', event: name, hostId }))
+            .then(verdict => (verdict === false ? undefined : go()))
+            .catch(() => go().catch(() => {}));
     }
 }
 

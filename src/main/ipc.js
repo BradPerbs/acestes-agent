@@ -49,6 +49,7 @@ const jobs = require('./runs/jobs');
 const jobTemplates = require('./runs/job-templates');
 const scheduler = require('./runs/scheduler');
 const channels = require('./channels');
+const fleet = require('./fleet');
 const mcpLibrary = require('./ai/mcp-library');
 const mcpProbe = require('./ai/mcp-probe');
 const proxy = require('./proxy');
@@ -404,11 +405,17 @@ function register(getWindow) {
         jobsNotifier: broadcast,
         // A job whose delivery asks for the paired chat apps.
         deliverToChannel: (job, run) => channels.deliverJob(job, run),
+        // With Acestes on several computers, whether this one runs a job this
+        // time: one of them does, the job's own first. See fleet/placement.js.
+        gate: (job, options) => fleet.gateJob(job, options),
     });
     // Talking to the agent from a chat app: the Telegram, Discord, Slack and
     // Matrix gateways, listening in
     // this process whether or not a window is up. See channels/.
     channels.start(broadcast);
+    // This computer as a device among the user's other Acestes installs, and
+    // the relay they meet at when this one hosts it. See fleet/.
+    fleet.start(broadcast);
     // A monitored host crossing is a door a job can wait on.
     monitor.onAlert((alert) => scheduler.event(alert.event, {
         hostId: alert.hostId,
@@ -1725,6 +1732,26 @@ function register(getWindow) {
     handle('channels-unpair', (event, name) => channels.unpair(String(name || '')));
     handle('channels-update', (event, name, patch) => channels.update(String(name || ''), patch));
     handle('channels-test', (event, name) => channels.test(String(name || '')));
+
+    /* ---------------- Devices ---------------- */
+
+    // The user's other Acestes installs. No key crosses the bridge: the
+    // renderer sees device names and states, and the invite code, which is
+    // meant to be copied to the other machine.
+    handle('fleet-status', () => fleet.status());
+    handle('fleet-create', (event, options) => fleet.createFleet(options || {}));
+    handle('fleet-invite', () => fleet.invite());
+    handle('fleet-join', (event, options) => fleet.join(options || {}));
+    handle('fleet-remove', (event, deviceId) => fleet.remove(String(deviceId || '')));
+    handle('fleet-leave', () => fleet.leave());
+    handle('fleet-rename', (event, name) => fleet.rename(String(name || '')));
+    handle('fleet-lock', (event, on) => fleet.setLock(Boolean(on)));
+    handle('fleet-placement', (event, jobId, where) => fleet.setPlacement(String(jobId || ''), String(where || 'any')));
+    handle('fleet-placement-of', (event, jobId) => fleet.placementOf(String(jobId || '')));
+    handle('fleet-sync-now', () => fleet.syncNow());
+    // Which computer a conversation runs on, for a mirror's header.
+    handle('ai-remote-of', (event, conversationId) => assistant.remoteOf(conversationId));
+    handle('fleet-hub', (event, options) => fleet.setHub(options || {}));
 
     // The two answers the window owes the main process: whether a tool call may
     // go ahead, and whether it managed to open or close the session it was

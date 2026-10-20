@@ -292,6 +292,112 @@ function setMessenger(fn) {
 }
 
 /**
+ * Conversations that run on another of the user's computers (see
+ * src/main/fleet/tasks.js). Here such a conversation is a mirror: it has no
+ * runtime of its own, its events arrive from the device doing the work and
+ * are recorded like any others, and what the user does in its tab (a
+ * message, stop, an answer to a card) is handed to the bridge, which sends
+ * it to that device. `conversation.remote` is `{ deviceId, deviceName,
+ * conversationId }`, the last being the conversation's id over there.
+ */
+let remoteBridge = null;
+
+function setRemoteBridge(bridge) {
+    remoteBridge = bridge && typeof bridge === 'object' ? bridge : null;
+}
+
+/** A conversation standing for one on another device, in the agent's list like the rest. */
+function createMirror({ agentId = '', title = '', remote, createdAt = 0, updatedAt = 0, messages = 0 }) {
+    const { conversationId } = create({ agentId, scope: 'global' });
+    const conversation = conversations.get(conversationId);
+    conversation.remote = {
+        deviceId: String(remote?.deviceId || ''),
+        deviceName: String(remote?.deviceName || ''),
+        conversationId: String(remote?.conversationId || ''),
+    };
+    if (title) {
+        conversation.title = secrets.scrub(String(title));
+        conversation.titleSource = '';
+        emit(conversation, { type: 'title', title: conversation.title });
+    }
+    // The other device's own times and count, so the list sorts it where it
+    // belongs before any of its messages have been fetched.
+    if (createdAt) conversation.createdAt = createdAt;
+    if (updatedAt) conversation.updatedAt = updatedAt;
+    if (messages) conversation.remoteMessages = messages;
+    archive.save(conversationId);
+    return conversationId;
+}
+
+/** A mirror's title, time and size, as the device it runs on last said. */
+function updateMirror(conversationId, { title, updatedAt, messages, deviceName } = {}) {
+    hydrate();
+    const conversation = conversations.get(conversationId);
+    if (!conversation?.remote) return false;
+    if (deviceName) conversation.remote.deviceName = String(deviceName);
+    if (Number(messages) > 0) conversation.remoteMessages = Number(messages);
+    if (title && secrets.scrub(String(title)) !== conversation.title) {
+        conversation.title = secrets.scrub(String(title));
+        conversation.titleSource = '';
+        emit(conversation, { type: 'title', title: conversation.title });
+    }
+    if (Number(updatedAt) > (conversation.updatedAt || 0)) conversation.updatedAt = Number(updatedAt);
+    archive.save(conversationId);
+    return true;
+}
+
+/** Whether a conversation of this id is held here (run here or mirrored). */
+function has(conversationId) {
+    hydrate();
+    return conversations.has(String(conversationId || ''));
+}
+
+const REMOTE_TURN_ENDS = new Set(['result', 'error', 'interrupted']);
+
+/** An event from the device doing the work, recorded in its mirror. */
+function ingestRemote(conversationId, event) {
+    hydrate();
+    const conversation = conversations.get(conversationId);
+    if (!conversation?.remote || !event || typeof event.type !== 'string') return false;
+    // The mirror keeps the title it was given here, not the other side's draft.
+    if (event.type === 'title') return true;
+    if (event.type === 'user-message') conversation.busy = true;
+    if (REMOTE_TURN_ENDS.has(event.type)) conversation.busy = false;
+    const { at, via, viaTitle, ...rest } = event;
+    emit(conversation, rest);
+    return true;
+}
+
+/** The whole log again, from the device doing the work, after messages were missed. */
+function replaceRemoteEvents(conversationId, events, busy = false) {
+    hydrate();
+    const conversation = conversations.get(conversationId);
+    if (!conversation?.remote || !Array.isArray(events)) return false;
+    const kept = events.filter(event => event && event.type !== 'title');
+    if (conversation.title) kept.unshift({ type: 'title', title: conversation.title, at: conversation.createdAt });
+    conversation.events.splice(0, conversation.events.length, ...kept);
+    conversation.busy = Boolean(busy);
+    conversation.updatedAt = Date.now();
+    archive.save(conversationId);
+    notify('ai-history-scrubbed', { conversationId });
+    return true;
+}
+
+/** The computer a mirror's conversation runs on, by name, or '' for one that runs here. */
+function remoteOf(conversationId) {
+    hydrate();
+    const remote = conversations.get(String(conversationId || ''))?.remote;
+    return remote ? (remote.deviceName || 'another computer') : '';
+}
+
+/** Open a conversation as a tab beside another, when there is a window. */
+function showConversation(conversationId, nearId = '') {
+    if (!hasWindow()) return { opened: false };
+    const result = openTabs([conversationId], { near: nearId, focus: false });
+    return { opened: Boolean(result?.success) };
+}
+
+/**
  * The channels a message can arrive through, other than a window. A turn
  * from one of them is marked on the message, and its approval cards wait
  * longer: see `channelTurn` in `send`. It runs in the conversation's own
@@ -1566,7 +1672,8 @@ const answeredBy = by => (CHANNELS.has(by) ? by : '');
 
 function respondToQuestion({ requestId, answer, chosen, by }) {
     const entry = pendingQuestions.get(requestId);
-    if (!entry) return false;
+    // A card in a mirror: the question is waiting on the other computer.
+    if (!entry) return remoteBridge ? remoteBridge.answer({ kind: 'question', requestId, answer, chosen }) : false;
     const text = String(answer || '').trim();
     if (!text) {
         entry.resolve({ answered: false, message: 'The user dismissed the question without answering.' }, 'dismissed', answeredBy(by));
@@ -1606,7 +1713,8 @@ function requestAction(conversation, payload) {
 
 function respondToApproval({ requestId, approved, message, by }) {
     const entry = pendingApprovals.get(requestId);
-    if (!entry) return false;
+    // A card in a mirror: the call is waiting on the other computer.
+    if (!entry) return remoteBridge ? remoteBridge.answer({ kind: 'approval', requestId, approved, message }) : false;
     entry.resolve(
         { approved: Boolean(approved), message: message || '' },
         approved ? 'approved' : 'denied',
@@ -1624,6 +1732,7 @@ function respondToAction({ requestId, success, sessionId, message }) {
 
 /** Start the provider for a conversation, once, on the first message. */
 function ensureProvider(conversation) {
+    if (conversation.remote) return Promise.reject(new Error(`This conversation runs on ${conversation.remote.deviceName || 'another computer'}.`));
     if (conversation.session) return Promise.resolve(conversation.session);
     if (conversation.starting) return conversation.starting;
 
@@ -3704,6 +3813,16 @@ async function send(conversationId, text, attachments = [], tagged = [], attache
     const conversation = conversations.get(conversationId);
     if (!conversation) return { success: false, message: 'That conversation is gone' };
 
+    // Running on another computer: the message goes there, and comes back
+    // as that device's own user-message event.
+    if (conversation.remote) {
+        if ((attachments?.length || 0) + (attachedFiles?.length || 0) > 0) {
+            return { success: false, message: 'Attachments do not go to another computer yet. Send text.' };
+        }
+        if (!remoteBridge) return { success: false, message: 'Devices are not available.' };
+        return remoteBridge.send(conversation, String(text || '').trim());
+    }
+
     const body = String(text || '').trim();
     const { images, error } = readImages(attachments);
     if (error) return { success: false, message: error };
@@ -4053,6 +4172,7 @@ function dropSteers(conversation, why) {
 
 async function interrupt(conversationId) {
     const conversation = conversations.get(conversationId);
+    if (conversation?.remote) return remoteBridge ? remoteBridge.interrupt(conversation) : { success: false };
     // The desktop first, before the runtime is asked to stop: an action
     // still under way must not take it back once it is let go. See halt.
     if (conversation) computer.halt(conversationId);
@@ -4106,7 +4226,7 @@ async function warm(conversationId) {
     hydrate();
     if (parseSubagentId(conversationId)) return { success: false };
     const conversation = conversations.get(conversationId);
-    if (!conversation || conversation.busy) return { success: false };
+    if (!conversation || conversation.busy || conversation.remote) return { success: false };
 
     if (resolved(conversation.agentId).memory !== false) embeddings.warm();
 
@@ -4196,6 +4316,15 @@ function history(conversationId) {
 
     const conversation = conversations.get(conversationId);
     if (!conversation) return { found: false, events: [] };
+    // A mirror being read: its messages are fetched from the device it runs
+    // on (or brought up to date), and the window is told when they land.
+    if (conversation.remote && typeof remoteBridge?.opened === 'function') {
+        try {
+            remoteBridge.opened(conversation);
+        } catch (error) {
+            console.error('Could not fetch a conversation from another computer:', error.message);
+        }
+    }
     return {
         found: true,
         events: conversation.events,
@@ -4256,7 +4385,10 @@ function describe(conversation) {
         createdAt: conversation.createdAt,
         updatedAt: conversation.updatedAt,
         pinned: Boolean(conversation.pinned),
-        messages: archive.messageCount(conversation),
+        // A mirror whose messages are still on the other device counts theirs.
+        messages: Math.max(archive.messageCount(conversation), conversation.remoteMessages || 0),
+        // Running on another of the user's computers: which one.
+        ...(conversation.remote ? { device: conversation.remote.deviceName || 'another computer' } : {}),
     };
 }
 
@@ -4564,6 +4696,21 @@ function status(agentId = '') {
  * the only honest answer is the one already on disk.
  */
 async function shutdown() {
+    closingAll = true;
+    try {
+        await shutdownAll();
+    } finally {
+        closingAll = false;
+    }
+}
+
+/**
+ * Every conversation being put down at once (the window closed, the app
+ * quitting). Sync reads this to tell "closed for now" from "deleted".
+ */
+let closingAll = false;
+
+async function shutdownAll() {
     // With failover on, a turn ended by closing the window or locking the app
     // is over, not cut short, and is closed as such: left open, a crash later
     // in the same process would bring it back. The system going down is the
@@ -4608,6 +4755,15 @@ module.exports = {
     setNotifier,
     observe,
     setMessenger,
+    setRemoteBridge,
+    createMirror,
+    ingestRemote,
+    replaceRemoteEvents,
+    updateMirror,
+    remoteOf,
+    has,
+    isClosingAll: () => closingAll,
+    showConversation,
     setWindowProbe,
     setToaster,
     setTabOpener,

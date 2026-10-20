@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
-import { Cancel01Icon, CommandLineIcon, Copy01Icon, Search01Icon, SplitIcon, LinkSquare02Icon, Tick01Icon, Unlink01Icon } from 'hugeicons-react';
+import { Cancel01Icon, CommandLineIcon, ComputerIcon, Copy01Icon, Search01Icon, SplitIcon, LinkSquare02Icon, Tick01Icon, Unlink01Icon } from 'hugeicons-react';
 import AgentMark from './AgentMark';
 import ConversationPaneSwitcher from './ConversationPaneSwitcher';
 import ConversationFind from './ConversationFind';
@@ -304,6 +304,21 @@ function ConversationView({
     const t = useT();
     const title = tab.customTitle || status?.title || t('assistant.newConversation');
 
+    // A mirror of a conversation running on another of the user's computers:
+    // the header says which, in place of the scope, which is that one's.
+    const [device, setDevice] = useState('');
+    useEffect(() => {
+        let alive = true;
+        if (!tab.conversationId || !window.api.ai.remoteOf) {
+            setDevice('');
+            return undefined;
+        }
+        window.api.ai.remoteOf(tab.conversationId)
+            .then((name) => { if (alive) setDevice(name || ''); })
+            .catch(() => {});
+        return () => { alive = false; };
+    }, [tab.conversationId]);
+
     // The terminal panel: the project's tabs, whether it is showing, which way
     // it sits, how much of the view it has, and where its slide is. Scoped to
     // the project rather than this chat, so every chat of it shares the same
@@ -388,7 +403,17 @@ function ConversationView({
                 )}
 
                 <div className="shrink-0 w-64 max-w-[40%]">
-                    <ScopeMenu scope={tab.scope} {...scopeProps} />
+                    {device ? (
+                        <span
+                            className="flex items-center justify-center gap-1.5 h-8 text-xs font-medium text-gray-700 dark:text-gray-300 truncate"
+                            title={t('assistant.runsOnHint', { device })}
+                        >
+                            <ComputerIcon size={14} strokeWidth={1.75} className="shrink-0" />
+                            <span className="truncate">{t('assistant.runsOn', { device })}</span>
+                        </span>
+                    ) : (
+                        <ScopeMenu scope={tab.scope} {...scopeProps} />
+                    )}
                 </div>
 
                 {tab.conversationId && (

@@ -18,6 +18,7 @@ const scheduler = require('./runs/scheduler');
 const tray = require('./tray');
 const failover = require('./failover');
 const channels = require('./channels');
+const fleet = require('./fleet');
 
 /*
  * One copy of the app per user. Closing the window can leave the process up
@@ -244,6 +245,7 @@ app.on('before-quit', () => {
     quitting = true;
     scheduler.stop();
     channels.stop();
+    fleet.stop();
     transport.destroyAll();
 });
 
@@ -251,9 +253,10 @@ app.on('window-all-closed', () => {
     ipc.cancelPendingPrompts();
     // With a job on the books the process stays up, sessions and all: a
     // scheduled run may need the one the agent left open. So it does with a
-    // paired chat app, which expects an answer with the window closed. Without
-    // either the app quits as it always did, everywhere but macOS.
-    if (!quitting && (scheduler.keepAlive() || channels.keepAlive())) return;
+    // paired chat app, which expects an answer with the window closed, and with
+    // a fleet, whose other devices may hand it work. Without any of these the
+    // app quits as it always did, everywhere but macOS.
+    if (!quitting && (scheduler.keepAlive() || channels.keepAlive() || fleet.keepAlive())) return;
     transport.destroyAll();
     if (process.platform !== 'darwin') app.quit();
 });

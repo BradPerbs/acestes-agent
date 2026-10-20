@@ -40,6 +40,8 @@ const VERB_ICONS = {
 
 const TITLES = {
     list_hosts: 'assistant.didListHosts',
+    list_devices: 'assistant.didListDevices',
+    run_on_device: 'assistant.didRunOnDevice',
     list_sessions: 'assistant.didListSessions',
     read_terminal: 'assistant.didReadTerminal',
     run_command: 'assistant.didRun',
@@ -154,6 +156,7 @@ function aimedAt(element, x, y) {
  */
 const STARTS = new Set([
     'delegate', 'fan_out', 'start_task', 'new_conversation', 'branch_conversation', 'message_conversation',
+    'run_on_device',
 ]);
 
 /** The conversations a finished call started, from its result. */
@@ -245,6 +248,8 @@ export function describeCall(name, input = {}) {
             return { mono: false, text: [input.agent, input.title || input.brief].filter(Boolean).join(': ') };
         case 'fan_out':
             return { mono: false, text: input.title || input.brief || '' };
+        case 'run_on_device':
+            return { mono: false, text: [input.device, input.title || input.brief].filter(Boolean).join(': ') };
         case 'start_task':
             return { mono: false, text: input.title || input.task || '' };
         case 'new_conversation':

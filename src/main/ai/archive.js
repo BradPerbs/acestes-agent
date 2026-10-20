@@ -179,6 +179,9 @@ function packMeta(conversation) {
         // Whose it is. An id no agent answers to any more is repaired on the
         // way back in, by `index.js`.
         agentId: conversation.agentId || '',
+        // A mirror of a conversation running on another computer, and which.
+        // See `createMirror` in index.js.
+        ...(conversation.remote ? { remote: conversation.remote } : {}),
         costUsd: conversation.costUsd || 0,
         busy: Boolean(conversation.busy),
         createdAt: conversation.createdAt,
@@ -340,6 +343,15 @@ function unpackMeta(record, currentProvider) {
         carryOver: typeof record.carryOver === 'string' ? record.carryOver : '',
         pendingNote: typeof record.pendingNote === 'string' ? record.pendingNote : '',
         agentId: typeof record.agentId === 'string' ? record.agentId : '',
+        ...(record.remote && typeof record.remote.deviceId === 'string' && typeof record.remote.conversationId === 'string'
+            ? {
+                remote: {
+                    deviceId: record.remote.deviceId,
+                    deviceName: typeof record.remote.deviceName === 'string' ? record.remote.deviceName : '',
+                    conversationId: record.remote.conversationId,
+                },
+            }
+            : {}),
         // A person's chat, as every conversation is until a job or a
         // delegation says otherwise when it starts a run. None of the run
         // fields is stored: a job sets its own again each time it runs, and

@@ -186,6 +186,23 @@ export default function JobDialog({ job, seed, agentId, hosts, onClose, onSaved 
     const [modelNote, setModelNote] = useState('');
     const set = (key, value) => setDraft(current => ({ ...current, [key]: value }));
 
+    // With Acestes on several computers: which of them runs this job. 'any'
+    // is whichever is on, this one first. See src/main/fleet/placement.js.
+    const [devices, setDevices] = useState([]);
+    const [runsOn, setRunsOn] = useState('any');
+    useEffect(() => {
+        let alive = true;
+        window.api.fleet?.status?.().then((status) => {
+            if (alive && status?.fleet) setDevices(status.devices || []);
+        }).catch(() => {});
+        if (job?.id) {
+            window.api.fleet?.placementOf?.(job.id).then((place) => {
+                if (alive && place?.placement) setRunsOn(place.placement);
+            }).catch(() => {});
+        }
+        return () => { alive = false; };
+    }, [job?.id]);
+
     const schedule = useMemo(() => scheduleFrom(draft), [draft]);
     const preview = useSchedulePreview(schedule);
 
@@ -226,6 +243,13 @@ export default function JobDialog({ job, seed, agentId, hosts, onClose, onSaved 
             if (result?.error) {
                 setError(result.error);
                 return;
+            }
+            if (devices.length > 0 && result?.job?.id) {
+                const placed = await window.api.fleet.setPlacement(result.job.id, runsOn);
+                if (placed?.error) {
+                    setError(placed.error);
+                    return;
+                }
             }
             onSaved?.(result.job);
             onClose();
@@ -351,6 +375,24 @@ export default function JobDialog({ job, seed, agentId, hosts, onClose, onSaved 
                 )}
 
                 <SchedulePreview preview={preview} kind={draft.kind} t={t} />
+
+                {devices.length > 1 && (
+                    <Field label={t('jobs.runsOn')} hint={runsOn === 'any' ? t('jobs.runsOnAny') : t('jobs.runsOnPinned')}>
+                        <Select
+                            value={runsOn}
+                            onChange={setRunsOn}
+                            className={FIELD_CLASS}
+                            aria-label={t('jobs.runsOn')}
+                            options={[
+                                { value: 'any', label: t('jobs.runsOnAnyLabel') },
+                                ...devices.map(device => ({
+                                    value: device.id,
+                                    label: device.self ? t('jobs.runsOnThis', { name: device.name }) : device.name,
+                                })),
+                            ]}
+                        />
+                    </Field>
+                )}
 
                 <Field label={t('jobs.prompt')} hint={t('jobs.promptHint')}>
                     <textarea

@@ -12,6 +12,7 @@ const inventoryTools = require('./inventory-tools');
 const fileTools = require('./file-tools');
 const jobTools = require('./job-tools');
 const delegationTools = require('./delegation-tools');
+const fleetTools = require('./fleet-tools');
 const computerTools = require('./computer-tools');
 const metricTools = require('./metric-tools');
 const path = require('path');
@@ -1273,6 +1274,12 @@ const TOOLS = [
     ...delegationTools.build({ z, ok, fail }),
 
     /* -------------------------------------------------------------- *
+     * The user's other computers with Acestes on them. See
+     * fleet-tools.js and src/main/fleet.
+     * -------------------------------------------------------------- */
+    ...fleetTools.build({ z, ok, fail }),
+
+    /* -------------------------------------------------------------- *
      * Using this computer: its windows, with the real mouse and
      * keyboard. See computer-tools.js and computer.js.
      * -------------------------------------------------------------- */
@@ -1401,6 +1408,8 @@ const BUNDLE_OF = {
     // Collaboration: other conversations, subagents, history search.
     delegate: 'collaboration',
     fan_out: 'collaboration',
+    list_devices: 'collaboration',
+    run_on_device: 'collaboration',
     new_conversation: 'collaboration',
     branch_conversation: 'collaboration',
     open_conversation: 'collaboration',

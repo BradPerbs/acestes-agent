@@ -1,0 +1,11 @@
+name = "acestes-relay"
+main = "worker.js"
+compatibility_date = "2026-09-01"
+
+[[durable_objects.bindings]]
+name = "FLEET"
+class_name = "FleetRelay"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["FleetRelay"]
