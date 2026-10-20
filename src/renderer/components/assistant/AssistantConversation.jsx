@@ -33,6 +33,7 @@ import ModelMenu from './ModelMenu';
 import ContextRing from './ContextRing';
 import ApprovalMenu from './ApprovalMenu';
 import DictationButton from './DictationButton';
+import CipherField from '../home/CipherField';
 import { useT } from '../../i18n';
 import { groupApprovals } from '../../lib/approvals';
 import { IMAGE_TYPES, imageFiles, readImage } from '../../lib/images';
@@ -61,6 +62,14 @@ const STARTERS = [
     { id: 'schedule', icon: Clock01Icon },
 ];
 
+/** The mode's name, for the tag on Home's card. Matches ApprovalMenu. */
+const MODE_LABELS = {
+    always: 'assistant.approvalAlways',
+    writes: 'assistant.approvalWrites',
+    never: 'assistant.approvalNever',
+    full: 'assistant.approvalFull',
+};
+
 /** Which greeting the hour calls for. */
 function greetingKey(hour = new Date().getHours()) {
     if (hour >= 5 && hour < 12) return 'home.greeting.morning';
@@ -75,15 +84,27 @@ function greetingKey(hour = new Date().getHours()) {
  * centred inside the scroller, so a short window scrolls to the top of it.
  * Defined out here so the composer inside keeps its identity, and its
  * focus, from one render to the next.
+ *
+ * Behind it all, the band of cipher text around the card (see CipherField),
+ * across the page's full width rather than the column's.
  */
-function HomeShell({ hero, chips, children }) {
+function HomeShell({ hero, chips, children, active }) {
+    const cardRef = useRef(null);
     return (
-        <div className="flex-1 min-h-0 overflow-y-auto">
-            <div className="min-h-full w-full max-w-[46rem] mx-auto px-6 pt-10 pb-[14vh]
-                flex flex-col justify-center">
-                {hero}
-                {children}
-                {chips}
+        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
+            <div className="relative min-h-full flex flex-col">
+                <CipherField
+                    cardRef={cardRef}
+                    active={active}
+                    className="absolute inset-0 w-full h-full pointer-events-none
+                        text-gray-400 dark:text-neutral-500"
+                />
+                <div className="relative flex-1 w-full max-w-[46rem] mx-auto px-6 pt-10 pb-[14vh]
+                    flex flex-col justify-center">
+                    {hero}
+                    <div ref={cardRef}>{children}</div>
+                    {chips}
+                </div>
             </div>
         </div>
     );
@@ -1275,7 +1296,7 @@ export default function AssistantConversation({
         hover:bg-gray-50 dark:hover:bg-white/[0.04]
         hover:text-gray-900 dark:hover:text-white`;
     const chips = home ? (
-        <div className={`mt-5 flex flex-wrap justify-center gap-1.5 ${settings ? '' : 'invisible'}`}>
+        <div className={`mt-16 flex flex-wrap justify-center gap-1.5 ${settings ? '' : 'invisible'}`}>
             {quickPrompts.length > 0 ? quickPrompts.map(prompt => (
                 <button key={prompt} type="button" title={prompt} className={chipClass} onClick={() => applyPrompt(prompt)}>
                     <span className="truncate">{prompt}</span>
@@ -1294,10 +1315,26 @@ export default function AssistantConversation({
         </div>
     ) : null;
 
+    // The top edge of Home's outer card: the mode as a tag, amber when nothing
+    // stops, as on the chip.
+    const mode = shownSettings?.approval || 'writes';
+    const loudMode = mode === 'never' || mode === 'full';
+    const strip = home ? (
+        <div className="flex items-center px-2.5 pt-1 pb-1.5 leading-5 select-none">
+            <span className={`shrink-0 px-1.5 rounded-md text-[11px] font-medium
+                ${loudMode
+                    ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                    : 'bg-violet-500/10 text-violet-700 dark:text-violet-300'}`}
+            >
+                {t(MODE_LABELS[mode] || MODE_LABELS.writes)}
+            </span>
+        </div>
+    ) : null;
+
     const Shell = home ? HomeShell : Fragment;
 
     return (
-        <Shell {...(home ? { hero, chips } : {})}>
+        <Shell {...(home ? { hero, chips, active } : {})}>
             {/* No header of its own: the tab strip above is the one row of
                 chrome, and which servers this tab is about is a chip on the
                 composer, beside the other things that shape the next
@@ -1529,7 +1566,15 @@ export default function AssistantConversation({
                     </div>
                 </div>
             ) : (
-            <div className={home ? 'w-full' : 'shrink-0 p-3'}>
+            <div className={home
+                ? `w-full p-1 rounded-[20px] border
+                    border-gray-200 dark:border-white/[0.07]
+                    bg-gray-50 dark:bg-white/[0.025]`
+                : 'shrink-0 p-3'}>
+                {/* On Home the box sits in a card of its own whose top edge
+                    shows above it: the mode it will run in, whose agent it
+                    is, and what that agent does. Follows the mode chip. */}
+                {home && strip}
                 <MessageQueue
                     queue={queue}
                     onSteer={steerQueued}
@@ -1537,9 +1582,10 @@ export default function AssistantConversation({
                     onRemove={removeQueued}
                 />
                 <div
-                    className="relative rounded-2xl transition-colors
+                    className={`relative rounded-2xl transition-colors
                         border border-gray-300 dark:border-surface-control
-                        focus-within:border-gray-400 dark:focus-within:border-neutral-600"
+                        focus-within:border-gray-400 dark:focus-within:border-neutral-600
+                        ${home ? 'bg-white dark:bg-white/[0.035]' : ''}`}
                     onDrop={onDrop}
                     onDragOver={onDragOver}
                     onDragEnter={onDragEnter}
