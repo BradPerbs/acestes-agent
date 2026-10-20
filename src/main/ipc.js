@@ -1740,7 +1740,10 @@ function register(getWindow) {
     // meant to be copied to the other machine.
     handle('fleet-status', () => fleet.status());
     handle('fleet-create', (event, options) => fleet.createFleet(options || {}));
-    handle('fleet-invite', () => fleet.invite());
+    handle('fleet-invite', (event, options) => fleet.invite(options || {}));
+    handle('fleet-peek', (event, code) => fleet.peek(String(code || '')));
+    handle('fleet-probe', (event, url) => fleet.probe(String(url || '')));
+    handle('fleet-connected', (event, on) => fleet.setConnected(Boolean(on)));
     handle('fleet-join', (event, options) => fleet.join(options || {}));
     handle('fleet-remove', (event, deviceId) => fleet.remove(String(deviceId || '')));
     handle('fleet-leave', () => fleet.leave());

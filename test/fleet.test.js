@@ -16,6 +16,7 @@ const path = require('path');
 const fleetCrypto = require('../src/main/fleet/crypto');
 const { createHub } = require('../src/main/fleet/hub');
 const { createDevice } = require('../src/main/fleet/device');
+const reach = require('../src/main/fleet/reach');
 
 let passed = 0;
 let failed = 0;
@@ -140,6 +141,71 @@ const others = (device) => device.devices().filter(entry => !entry.self);
         await until(() => first.status().fleet === null, 'first removed');
         first.stop();
         second.stop();
+    });
+
+    await check('a code can carry another address for the relay, and only a relay address', async () => {
+        const alternate = `ws://100.100.1.2:${port}`;
+        const made = office.createInvite({ relay: `${alternate}/` });
+        assert.ok(!made.error, made.error);
+        assert.strictEqual(made.relay, alternate);
+        assert.strictEqual(fleetCrypto.parseInvite(made.code).relay, alternate);
+        assert.strictEqual(office.status().invite.relay, alternate);
+        assert.strictEqual(office.createInvite().relay, relay);
+        assert.ok(office.createInvite({ relay: 'http://example.com' }).error);
+        assert.ok(office.createInvite({ relay: 'ws://a b' }).error);
+    });
+
+    console.log('\nfleet reach');
+
+    await check('addresses are named for who can reach them', () => {
+        const cases = {
+            '100.112.44.103': 'tailscale',
+            'pc.tail1234.ts.net': 'tailscale',
+            '192.168.254.103': 'lan',
+            '10.0.0.5': 'lan',
+            '172.20.1.1': 'lan',
+            '172.32.1.1': 'public',
+            '169.254.3.15': 'linklocal',
+            '127.0.0.1': 'loopback',
+            localhost: 'loopback',
+            '81.2.69.160': 'public',
+            'office-pc': 'lan',
+            'acestes-relay.example.workers.dev': 'internet',
+        };
+        for (const [host, kind] of Object.entries(cases)) assert.strictEqual(reach.kindOf(host), kind, host);
+        assert.strictEqual(reach.kindOf('10.5.0.2', 'Tailscale'), 'tailscale');
+        assert.strictEqual(reach.kindOf('10.6.0.2', 'ZeroTier One [abc]'), 'vpn');
+    });
+
+    await check('a relay address is taken apart, with the default port filled in', () => {
+        assert.deepStrictEqual(reach.describeRelay('ws://100.112.44.103:7377'),
+            { url: 'ws://100.112.44.103:7377', kind: 'tailscale', host: '100.112.44.103', port: '7377', secure: false });
+        const hosted = reach.describeRelay('wss://relay.example.com');
+        assert.strictEqual(hosted.kind, 'internet');
+        assert.strictEqual(hosted.port, '443');
+        assert.strictEqual(reach.describeRelay('http://x').kind, 'unknown');
+        assert.strictEqual(reach.describeRelay('not a url').kind, 'unknown');
+    });
+
+    await check('this computer\'s networks leave out loopback and self-assigned addresses', () => {
+        for (const entry of reach.networks()) {
+            assert.ok(['tailscale', 'lan', 'vpn', 'public'].includes(entry.kind), `${entry.address} ${entry.kind}`);
+        }
+    });
+
+    await check('a relay that is up answers the probe, and a closed port says so', async () => {
+        const up = await reach.probe(relay);
+        assert.strictEqual(up.ok, true, JSON.stringify(up));
+        assert.ok(up.ms >= 0);
+        // A port that was just free: fetch refuses low "unsafe" ports outright.
+        const spare = require('net').createServer();
+        await new Promise(resolve => spare.listen(0, '127.0.0.1', resolve));
+        const sparePort = spare.address().port;
+        await new Promise(resolve => spare.close(resolve));
+        const closed = await reach.probe(`ws://127.0.0.1:${sparePort}`);
+        assert.strictEqual(closed.ok, false);
+        assert.strictEqual(closed.code, 'refused', JSON.stringify(closed));
+        assert.strictEqual((await reach.probe('nonsense')).code, 'bad-address');
     });
 
     await check('a forged code is never let in', async () => {

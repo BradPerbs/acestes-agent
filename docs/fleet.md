@@ -26,7 +26,25 @@ and `update_job`, the page in `src/renderer/components/settings/DevicesSection.j
 | `collections.js` | What sync carries, store by store, and what stays per machine |
 | `tasks.js` | Remote runs and mirrors: the worker side and the watching side |
 | `placement.js` | Which device runs a due job |
-| `index.js` | The app's glue: `fleet.json` and `fleet-sync.json`, the vault, hub mode, IPC |
+| `reach.js` | Who can reach an address (Tailscale, same network, public IP, online), this computer's usable networks, and a `/health` probe of a relay |
+| `index.js` | The app's glue: `fleet.json` and `fleet-sync.json`, the vault, hub mode, connect/disconnect, IPC |
+
+## Reach
+
+Whether another computer can join depends on the relay address, so the page
+names its kind and says who can connect: a Tailscale address (100.64/10, or
+the Tailscale adapter) only from the same tailnet, a private one only from the
+same network, a bare public IP only with a forwarded port. 169.254 and
+loopback addresses are never offered. A relay hosted here listens on every
+network, so each code carries the address the joining computer should use
+(`invite({ relay })`), and the joiner keeps that address. Pasting a code shows
+who made it and its address, and tests it (`GET /health`, which both relays
+answer with `acestes-relay`) before joining. A device that keeps failing to
+connect says it cannot reach the relay and why, instead of "Connecting".
+
+Disconnect is not Leave: the device stays in the fleet with its keys but
+drops the connection (and stops a relay hosted here) until Connect.
+`extra.paused` in `fleet.json` keeps it across restarts.
 
 ## Trust
 

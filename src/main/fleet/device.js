@@ -581,7 +581,9 @@ function createDevice({
             joining: current.joining ? { relay: current.joining.relay, from: current.joining.from } : null,
             connection,
             devices: current.fleet ? devices() : [],
-            invite: lastInvite && lastInvite.expiresAt > now() ? { code: lastInvite.code, expiresAt: lastInvite.expiresAt } : null,
+            invite: lastInvite && lastInvite.expiresAt > now()
+                ? { code: lastInvite.code, expiresAt: lastInvite.expiresAt, relay: lastInvite.relay }
+                : null,
         };
     }
 
@@ -617,17 +619,25 @@ function createDevice({
         return status();
     }
 
-    function createInvite() {
+    /**
+     * A one-time code for another computer. `relay` is the address that
+     * computer should use, when it is not the fleet's own: a relay hosted here
+     * listens on every network, and the computer joining may be on the
+     * tailnet or on the same Wi-Fi. It keeps the address it joined with.
+     */
+    function createInvite({ relay } = {}) {
         const current = read();
         if (!current.fleet || !client) return { error: 'Start or join a fleet first.' };
-        const invite = fleetCrypto.makeInvite({ relay: current.fleet.relay, fleetId: current.fleet.id, name: myName() });
+        const chosen = String(relay || '').trim().replace(/\/+$/, '');
+        if (chosen && !/^wss?:\/\/[^\s/]+$/i.test(chosen)) return { error: 'The relay address starts with ws:// or wss://.' };
+        const invite = fleetCrypto.makeInvite({ relay: chosen || current.fleet.relay, fleetId: current.fleet.id, name: myName() });
         for (const [id, entry] of Object.entries(current.invites)) if (entry.expiresAt < now()) delete current.invites[id];
         current.invites[invite.inviteId] = { secret: protect(invite.secret), expiresAt: invite.expiresAt };
         persist();
         client.send({ t: 'invite', invite: invite.inviteId, expiresAt: invite.expiresAt });
         lastInvite = invite;
         changed();
-        return { code: invite.code, expiresAt: invite.expiresAt };
+        return { code: invite.code, expiresAt: invite.expiresAt, relay: invite.relay };
     }
 
     function join(code, { name } = {}) {

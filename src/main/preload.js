@@ -491,7 +491,14 @@ contextBridge.exposeInMainWorld('api', {
         status: () => ipcRenderer.invoke('fleet-status'),
         onChanged: (callback) => subscribe('fleet-changed', callback),
         create: (options) => ipcRenderer.invoke('fleet-create', options || {}),
-        invite: () => ipcRenderer.invoke('fleet-invite'),
+        // `{ relay }` picks the address the other computer uses, when this one hosts the relay.
+        invite: (options) => ipcRenderer.invoke('fleet-invite', options || {}),
+        // What a code says (who made it, which relay) without joining.
+        peek: (code) => ipcRenderer.invoke('fleet-peek', code),
+        // Whether a relay answers from this computer.
+        probe: (url) => ipcRenderer.invoke('fleet-probe', url),
+        // Disconnect without leaving, or connect again.
+        setConnected: (on) => ipcRenderer.invoke('fleet-connected', on),
         join: (options) => ipcRenderer.invoke('fleet-join', options || {}),
         remove: (deviceId) => ipcRenderer.invoke('fleet-remove', deviceId),
         leave: () => ipcRenderer.invoke('fleet-leave'),

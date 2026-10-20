@@ -11,6 +11,8 @@ const { createTasks } = require('./tasks');
 const { createSync } = require('./sync');
 const { createCollections, changedKinds } = require('./collections');
 const { createGate } = require('./placement');
+const reach = require('./reach');
+const fleetCrypto = require('./crypto');
 
 /**
  * Devices: this Acestes and the others the user installed, on other PCs and
@@ -73,16 +75,8 @@ function osLabel() {
     }
 }
 
-/** This machine's addresses on its networks, for the hub's "others reach it at" hint. */
-function addresses() {
-    const out = [];
-    for (const list of Object.values(os.networkInterfaces())) {
-        for (const entry of list || []) {
-            if (entry.family === 'IPv4' && !entry.internal) out.push(entry.address);
-        }
-    }
-    return out;
-}
+/** This machine's addresses the others could reach, best first (reach.js). */
+const addresses = () => reach.networks().map(entry => entry.address);
 
 /** What this device tells the others about itself. Cheap: it is read on every status. */
 function describe() {
@@ -158,6 +152,13 @@ function isLocked() {
 }
 
 const accepts = () => !isLocked();
+
+/**
+ * Disconnected: still in the fleet, keys and all, but not talking to it. No
+ * connection to the relay, and no relay hosted here, until Connect. Leaving
+ * is the other thing: that drops the fleet and needs a new code to come back.
+ */
+const isPaused = () => Boolean(build().extra().paused);
 
 function placementsStore() {
     return {
@@ -295,7 +296,7 @@ function buildTasks() {
 async function startHub() {
     const settings = hubSettings();
     await stopHub();
-    if (!settings.enabled) return;
+    if (!settings.enabled || isPaused()) return;
     hub = createHub({
         port: settings.port,
         host: '0.0.0.0',
@@ -323,18 +324,26 @@ async function stopHub() {
 
 function status() {
     const settings = hubSettings();
+    const base = build().status();
+    const relay = base.fleet?.relay || base.joining?.relay || '';
+    const networks = reach.networks();
     return {
-        ...build().status(),
+        ...base,
         // The app's own lock (the vault): nothing here works while it is on.
         appLocked: vault.isLocked(),
         // This device's lock: the others may not have it do anything.
         deviceLocked: device ? isLocked() : false,
+        // Disconnected by the user: in the fleet, not talking to it.
+        paused: isPaused(),
         sync: sync ? sync.status() : null,
+        // What kind of address the relay is, so the page can say who can reach it.
+        reach: relay ? reach.describeRelay(relay) : null,
         hub: {
             ...settings,
             listening: Boolean(hub?.listening()),
             error: hubError,
-            addresses: addresses(),
+            addresses: networks.map(entry => entry.address),
+            networks,
         },
     };
 }
@@ -358,7 +367,7 @@ async function start(notifier) {
         // Before the connection, so a task that arrives first finds its handler.
         buildTasks();
         buildSync().start();
-        build().start();
+        if (!isPaused()) build().start();
     } catch (error) {
         console.error('Could not start the fleet:', error.message);
     }
@@ -391,6 +400,7 @@ module.exports = {
     // devices may hand it work, and a hub has a relay to keep up.
     keepAlive: () => Boolean(device?.status().fleet || hub?.listening()),
     createFleet: guard(async ({ relay, name, hostHere, port, publicUrl } = {}) => {
+        build().saveExtra({ paused: false });
         if (hostHere) {
             const chosenPort = Number(port) || DEFAULT_PORT;
             const url = String(publicUrl || '').trim().replace(/\/+$/, '') || `ws://${addresses()[0] || '127.0.0.1'}:${chosenPort}`;
@@ -405,13 +415,23 @@ module.exports = {
         if (!result.error) audit('fleet.create', `Started a fleet on the relay ${relay}`);
         return result;
     }),
-    invite: async () => {
+    /** A code for another computer; `relay` picks the address it uses (a hub here listens on every network). */
+    invite: async ({ relay } = {}) => {
         if (vault.isLocked()) return { error: 'Unlock the app first.' };
-        const result = build().createInvite();
-        if (!result.error) audit('fleet.invite', 'Made a code to add a device');
+        const result = build().createInvite({ relay });
+        if (!result.error) audit('fleet.invite', `Made a code to add a device, through ${result.relay}`);
         return result;
     },
+    /** What a code says (who made it, which relay, what kind of address) without joining. */
+    peek: (code) => {
+        const invite = fleetCrypto.parseInvite(code);
+        if (!invite) return { error: 'That is not an Acestes device code.' };
+        return { from: invite.from, relay: invite.relay, reach: reach.describeRelay(invite.relay) };
+    },
+    /** Whether a relay answers from this computer (reach.js `probe`). */
+    probe: url => reach.probe(url),
     join: guard(async ({ code, name } = {}) => {
+        build().saveExtra({ paused: false });
         const result = build().join(code, { name });
         if (!result.error) audit('fleet.join', `Joining the fleet of ${result.joining?.from || 'another device'}`);
         return result;
@@ -424,8 +444,23 @@ module.exports = {
     }),
     leave: guard(async () => {
         const result = build().leave();
+        build().saveExtra({ paused: false });
         audit('fleet.leave', 'Left the fleet');
         return result;
+    }),
+    /** Disconnect from the fleet without leaving it, or connect again. See `isPaused`. */
+    setConnected: guard(async (on) => {
+        if (!build().inFleet()) return { error: 'This computer is not in a fleet.' };
+        build().saveExtra({ paused: !on });
+        if (on) {
+            await startHub();
+            build().start();
+        } else {
+            build().stop();
+            await stopHub();
+        }
+        audit('fleet.connect', on ? 'Connected this device to the fleet again' : 'Disconnected this device from the fleet');
+        return status();
     }),
     rename: guard(async name => build().rename(name)),
     setLock: guard(async (on) => {
@@ -485,7 +520,7 @@ module.exports = {
             },
         });
         await startHub();
-        build().start();
+        if (!isPaused()) build().start();
         return status();
     }),
 };
