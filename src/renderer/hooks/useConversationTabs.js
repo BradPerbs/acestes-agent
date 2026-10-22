@@ -264,19 +264,22 @@ export default function useConversationTabs({
      * Opening and closing
      * ------------------------------------------------------------------ */
 
-    /** A new tab at the end of the strip, brought to the front. */
-    const addTab = useCallback((conversationId = '', agentId = '', { keepAgent = false, launch = null } = {}) => {
+    /** A new tab at the end of the strip, brought to the front unless `background`. */
+    const addTab = useCallback((conversationId = '', agentId = '', { keepAgent = false, launch = null, background = false } = {}) => {
         // `keepAgent` for a chat started with a particular agent on purpose,
         // which stays that agent's rather than following the selection.
         // `launch` is a first message typed on Home, which the tab sends once
         // it has adopted the conversation. Never stored: see the remembering.
+        // `background` leaves whatever is in front where it is: octopus mode
+        // on Home sends one prompt after another, each to its own tab, and
+        // stays on Home for the next.
         const tab = {
             ...createConversationTab(conversationId, agentId),
             ...(keepAgent ? { keepAgent } : {}),
             ...(launch ? { launch } : {}),
         };
         setTabs(current => [...current, tab]);
-        setActiveTabId(tab.id);
+        if (!background) setActiveTabId(tab.id);
         return tab.id;
     }, [setTabs, setActiveTabId]);
 

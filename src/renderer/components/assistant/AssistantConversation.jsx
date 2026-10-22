@@ -348,6 +348,17 @@ export default function AssistantConversation({
      */
     home = false,
     onLaunch,
+    /** On Home: drawn at the right of the card's top edge (octopus mode's controls). */
+    homeAside = null,
+    /** On Home: the box's placeholder in place of the usual one, when set. */
+    homePlaceholder = '',
+    /**
+     * On Home: `{ text, images, files }` the box starts with, carried over
+     * from the composer this one replaced. Read once, at mount.
+     */
+    initialDraft = null,
+    /** On Home: kept up to date with the same shape, for the next composer. */
+    draftRef = null,
     /**
      * A first message typed on Home, `{ conversationId, text, images, files,
      * mentions }`: sent once, as soon as this tab has adopted the conversation.
@@ -379,13 +390,13 @@ export default function AssistantConversation({
 
     /** Whether a read is in flight, so the menu can say so rather than look empty. */
     const [readingModels, setReadingModels] = useState(false);
-    const [text, setText] = useState('');
+    const [text, setText] = useState(() => initialDraft?.text || '');
 
     /**
      * Pictures waiting in the composer, `{ id, name, mediaType, data, dataUrl }`.
      * Pasted, dropped or picked, and shown as thumbnails until they are sent.
      */
-    const [images, setImages] = useState([]);
+    const [images, setImages] = useState(() => initialDraft?.images || []);
     /** Which agents can be sent one, from main. The button shows only for those. */
     const [imageProviders, setImageProviders] = useState([]);
     /** Whose runtime each agent answers on, from main: the gate is per tab. */
@@ -396,7 +407,7 @@ export default function AssistantConversation({
      * Plain files waiting in the composer, `{ id, name, mediaType, text }`.
      * Unlike pictures these travel as words, so every agent takes them.
      */
-    const [files, setFiles] = useState([]);
+    const [files, setFiles] = useState(() => initialDraft?.files || []);
     /** Why the last file did not make it in, shown under the file chips. */
     const [fileNotice, setFileNotice] = useState('');
     /** A file drag hovering the composer, which then draws as a drop zone. */
@@ -718,6 +729,24 @@ export default function AssistantConversation({
         if (active) inputRef.current?.focus({ preventScroll: true });
     }, [active]);
 
+    // A draft carried in from the composer this one replaced (octopus mode,
+    // changing agent): the box grown to fit it, the caret after it.
+    useLayoutEffect(() => {
+        const field = inputRef.current;
+        if (!field || !initialDraft?.text) return;
+        field.style.height = 'auto';
+        field.style.height = `${Math.min(field.scrollHeight, 160)}px`;
+        field.setSelectionRange(field.value.length, field.value.length);
+        field.scrollTop = field.scrollHeight;
+        // Once, at mount: see `initialDraft`.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    // What is in the box, for Home to carry into the next composer.
+    useEffect(() => {
+        if (draftRef) draftRef.current = { text, images, files };
+    }, [draftRef, text, images, files]);
+
     /**
      * Follow the bottom, unless the user has scrolled up to read something.
      * Yanking the view back down while they are reading output from three tool
@@ -801,7 +830,10 @@ export default function AssistantConversation({
         setSlash(null);
         stickToBottom.current = true;
         if (inputRef.current) inputRef.current.style.height = 'auto';
-    }, []);
+        // Gone with the send, before the render that says so: Home reads
+        // this the moment the message is handed over.
+        if (draftRef) draftRef.current = null;
+    }, [draftRef]);
 
     const launchingRef = useRef(false);
     const submit = useCallback(() => {
@@ -1328,6 +1360,7 @@ export default function AssistantConversation({
             >
                 {t(MODE_LABELS[mode] || MODE_LABELS.writes)}
             </span>
+            {homeAside}
         </div>
     ) : null;
 
@@ -1750,7 +1783,7 @@ export default function AssistantConversation({
                         }}
                         onPaste={onPaste}
                         placeholder={home
-                            ? t('home.placeholder')
+                            ? (homePlaceholder || t('home.placeholder'))
                             : (assistant.busy ? t('assistant.queuePlaceholder') : t('assistant.askAbout', { about: described.sentence }))}
                         className={`block w-full max-h-40 pb-1 bg-transparent
                             ${home ? 'min-h-[4.5rem] px-4 pt-3.5' : 'px-3 pt-2.5'}

@@ -1751,9 +1751,15 @@ function App() {
     /**
      * A message sent from Home: a tab for the conversation Home made, which
      * sends the message once it holds it. See `launch` in AssistantConversation.
+     * From octopus mode the tab opens behind Home and stays the agent's it
+     * was sent to, whoever is selected.
      */
     const handleLaunchConversation = useCallback(
-        ({ agentId, ...message }) => addConversationTab(message.conversationId || '', agentId || activeAgentId, { launch: message }),
+        ({ agentId, background = false, ...message }) => addConversationTab(
+            message.conversationId || '',
+            agentId || activeAgentId,
+            { launch: message, ...(background ? { background: true, keepAgent: true } : {}) },
+        ),
         [addConversationTab, activeAgentId],
     );
 
@@ -2325,6 +2331,7 @@ function App() {
                             agentId={activeAgentId}
                             agentLook={activeAgent}
                             activeAgent={activeAgent}
+                            agents={agents}
                             onSaveAgentServers={(servers) => saveAgent({ id: activeAgentId, mcpServers: servers })}
                             onNavChange={handleNavChange}
                             // Conversations props

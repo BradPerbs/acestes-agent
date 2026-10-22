@@ -60,6 +60,8 @@ function HomeView({
     agentId,
     agentLook,
     activeAgent,
+    // Every agent, for octopus mode on Home, which sends to any of them.
+    agents,
     onSaveAgentServers,
     onNavChange,
     // Conversations props
@@ -120,6 +122,7 @@ function HomeView({
                     isActive={isActive}
                     agentId={agentId}
                     agentLook={agentLook}
+                    agents={agents}
                     sessions={sessions}
                     hosts={allHosts}
                     activeSessionId={activeSessionId}
