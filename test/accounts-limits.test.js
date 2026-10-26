@@ -207,6 +207,26 @@ settings.set({ accounts: { 'claude-code': 'acct-1' } });
 const after = settings.set({ accounts: { codex: 'acct-2' } });
 assert.deepStrictEqual(after.accounts, { 'claude-code': 'acct-1', codex: 'acct-2' });
 
+/* ---------------- The fleet's shared Claude sign-in ---------------- */
+
+// Stored encrypted beside the keys, shown to the page only as a yes or no,
+// and carried by export and import, which is the road sync takes.
+assert.strictEqual(settings.get().claudeFleetToken, false);
+assert.deepStrictEqual(settings.setClaudeFleetToken('sk-ant-oat01-shared-token-value'), { stored: true });
+assert.strictEqual(settings.readClaudeFleetToken(), 'sk-ant-oat01-shared-token-value');
+assert.strictEqual(settings.get().claudeFleetToken, true);
+assert.strictEqual(JSON.stringify(settings.get()).includes('shared-token-value'), false);
+assert.strictEqual(settings.exportAll().keys[settings.CLAUDE_FLEET_TOKEN], 'sk-ant-oat01-shared-token-value');
+assert.deepStrictEqual(
+    settings._test.readSecrets({ keys: { [settings.CLAUDE_FLEET_TOKEN]: 'x', bogus: 'y' } }, 'claude-code'),
+    { [settings.CLAUDE_FLEET_TOKEN]: 'x' },
+);
+settings.setClaudeFleetToken('');
+assert.strictEqual(settings.readClaudeFleetToken(), '');
+settings.importAll({ keys: { [settings.CLAUDE_FLEET_TOKEN]: 'sk-ant-oat01-from-the-fleet' } });
+assert.strictEqual(settings.readClaudeFleetToken(), 'sk-ant-oat01-from-the-fleet');
+settings.setClaudeFleetToken('');
+
 /* ---------------- The runtimes' own answers ---------------- */
 
 assert.deepStrictEqual(claude.describeAuthStatus(JSON.stringify({

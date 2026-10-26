@@ -705,6 +705,131 @@ function AddComputer({ status, run, busy }) {
     );
 }
 
+/**
+ * The fleet's shared Claude Code sign-in, so a computer nobody signed in on
+ * can still take tasks. Made here with `claude setup-token`: the CLI opens
+ * claude.com, the person approves, the page shows a code, and it is pasted
+ * back here. The token goes to every computer with the keys, encrypted, and
+ * is used only where there is no Claude Code login of its own. It never comes
+ * to this page; only whether there is one.
+ */
+function SharedSignIn() {
+    const t = useT();
+    const [state, setState] = useState(null);
+    const [code, setCode] = useState('');
+    const [submitting, setSubmitting] = useState(false);
+    const [message, setMessage] = useState('');
+
+    const api = window.api.ai.accounts.fleetToken;
+
+    useEffect(() => {
+        let alive = true;
+        api.state().then((next) => { if (alive) setState(next); }).catch(() => {});
+        const off = api.onChanged((event) => {
+            if (!alive) return;
+            if (event.phase === 'failed') {
+                setSubmitting(false);
+                setMessage(event.message || t('settings.devices.shareFailed'));
+            }
+            if (event.phase === 'done') {
+                setCode('');
+                setSubmitting(false);
+                toast.success(t('settings.devices.shareDone'), toastOptions);
+            }
+            if (event.phase === 'started') setMessage('');
+            api.state().then((next) => { if (alive) setState(next); }).catch(() => {});
+        });
+        return () => {
+            alive = false;
+            off?.();
+        };
+    }, [api, t]);
+
+    if (!state) return null;
+
+    const start = () => {
+        setMessage('');
+        api.start().then(setState).catch(error => setMessage(error.message));
+    };
+    const submit = (event) => {
+        event.preventDefault();
+        if (!code.trim()) return;
+        setSubmitting(true);
+        api.submit(code.trim()).then((result) => {
+            if (result?.error) {
+                setSubmitting(false);
+                setMessage(result.error);
+            }
+        }).catch((error) => {
+            setSubmitting(false);
+            setMessage(error.message);
+        });
+    };
+
+    let control = null;
+    if (!state.busy) {
+        control = state.stored ? (
+            <div className="flex gap-2">
+                <Button variant="outline" onClick={start}>{t('settings.devices.shareReplace')}</Button>
+                <Button variant="dangerOutline" onClick={() => api.clear().then(setState).catch(() => {})}>
+                    {t('settings.devices.shareStop')}
+                </Button>
+            </div>
+        ) : (
+            <Button variant="outline" onClick={start}>{t('settings.devices.shareStart')}</Button>
+        );
+    }
+
+    return (
+        <SettingCard>
+            <SettingRow
+                title={t('settings.devices.shareTitle')}
+                description={state.stored ? t('settings.devices.shareOnDesc') : t('settings.devices.shareDesc')}
+                control={control}
+            >
+                {(state.busy || message) ? (
+                    <>
+                    {state.busy && (
+                        <form onSubmit={submit} className="flex flex-col gap-3">
+                            <p className="text-sm text-gray-700 dark:text-gray-300">
+                                {state.url ? t('settings.devices.shareApprove') : t('settings.devices.shareOpening')}
+                            </p>
+                            {state.url && (
+                                <div>
+                                    <Button variant="outline" size="sm" type="button" onClick={() => window.open(state.url, '_blank')}>
+                                        {t('settings.devices.shareOpen')}
+                                    </Button>
+                                </div>
+                            )}
+                            <label className="flex flex-col gap-1 text-sm text-gray-700 dark:text-gray-300">
+                                <span>{t('settings.devices.shareCode')}</span>
+                                <input
+                                    className={FIELD_CLASS}
+                                    value={code}
+                                    onChange={event => setCode(event.target.value)}
+                                    aria-label={t('settings.devices.shareCode')}
+                                    autoComplete="off"
+                                    spellCheck={false}
+                                />
+                            </label>
+                            <div className="flex gap-2">
+                                <Button variant="primary" type="submit" disabled={!code.trim() || submitting}>
+                                    {submitting ? t('settings.devices.shareSaving') : t('settings.devices.shareSubmit')}
+                                </Button>
+                                <Button variant="outline" type="button" onClick={() => api.cancel().catch(() => {})}>
+                                    {t('settings.devices.cancel')}
+                                </Button>
+                            </div>
+                        </form>
+                    )}
+                    {message && <p className="mt-2 text-xs text-amber-800 dark:text-amber-300">{message}</p>}
+                    </>
+                ) : null}
+            </SettingRow>
+        </SettingCard>
+    );
+}
+
 function InFleet({ status, run, busy, setConfirm }) {
     const t = useT();
     const online = status.connection?.state === 'online' && !status.paused;
@@ -713,6 +838,7 @@ function InFleet({ status, run, busy, setConfirm }) {
         <>
             <ConnectionCard status={status} run={run} busy={busy} setConfirm={setConfirm} />
             <AddComputer status={status} run={run} busy={busy} />
+            <SharedSignIn />
 
             <SettingCard>
                 <SettingRow

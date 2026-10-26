@@ -655,8 +655,7 @@ async function listModels({ settings = {} } = {}) {
     const input = createInputStream();
     const abortController = new AbortController();
 
-    const env = accountEnv(settings);
-    if (settings.apiKey) env.ANTHROPIC_API_KEY = settings.apiKey;
+    const env = await authEnv(settings);
 
     const stream = sdk.query({
         prompt: input,
@@ -713,8 +712,7 @@ async function title({ settings = {}, instruction, prompt, signal, think = 'defa
     const stop = () => abortController.abort();
     signal?.addEventListener('abort', stop, { once: true });
 
-    const env = accountEnv(settings);
-    if (settings.apiKey) env.ANTHROPIC_API_KEY = settings.apiKey;
+    const env = await authEnv(settings);
 
     const stream = sdk.query({
         prompt,
@@ -840,12 +838,9 @@ async function start({
     // Pointed at the account's CLAUDE_CONFIG_DIR when one other than the
     // machine's own is chosen: see accounts.js. Its sessions live there too,
     // which is why a change of account starts the conversation's query again.
-    const env = accountEnv(settings);
-    // Only ever set from our own store, and only when the user put one there.
-    // Left alone otherwise so the SDK falls through to the Claude Code login
-    // already on this machine.
-    const key = settings.apiKey;
-    if (key) env.ANTHROPIC_API_KEY = key;
+    // A key from our own store when the user put one there; else the login
+    // already on this machine; else the fleet's shared sign-in. See authEnv.
+    const env = await authEnv(settings);
     // The CLI's own word for when a turn is over, background subagents and
     // all. Off unless asked for; see `createTurnTracker`.
     env.CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS = '1';
@@ -1422,6 +1417,7 @@ function translate(message, onEvent) {
             // (that app signs its copy in itself and shares nothing). So it is
             // passed on as an error the chat can offer a sign-in for.
             if (message.error === 'authentication_failed') {
+                forgetOwnLogin();
                 onEvent({ type: 'error', code: 'signInNeeded', provider: 'claude-code', message: SIGN_IN_NEEDED });
                 break;
             }
@@ -1530,17 +1526,202 @@ function accountEnv(settings = {}) {
 }
 
 /**
+ * The fleet's shared sign-in: a long-lived token one computer made with
+ * `claude setup-token` (see createFleetToken), synced to the others with the
+ * keys. Read when a run starts rather than threaded through every caller.
+ */
+function fleetToken() {
+    try {
+        return require('../settings').readClaudeFleetToken() || '';
+    } catch {
+        return '';
+    }
+}
+
+/**
+ * Whether each account folder has a login of its own, by folder, as
+ * `{ signedIn, at }`. Asked of `claude auth status`, which costs a second, so
+ * kept: ten minutes for a yes, one for a no, so that signing in here takes
+ * over from the fleet's sign-in within a minute.
+ */
+const ownLogins = new Map();
+const OWN_LOGIN_TTL = { yes: 10 * 60 * 1000, no: 60 * 1000 };
+
+const loginFolder = settings => (settings.accountEnv && settings.accountEnv.CLAUDE_CONFIG_DIR) || '';
+
+/** A login that is the folder's own, not a token from the environment. */
+const ownSignIn = status => Boolean(status?.signedIn) && status.method !== 'oauth_token';
+
+function forgetOwnLogin() {
+    ownLogins.clear();
+}
+
+async function hasOwnLogin(settings) {
+    const folder = loginFolder(settings);
+    const known = ownLogins.get(folder);
+    if (known && Date.now() - known.at < (known.signedIn ? OWN_LOGIN_TTL.yes : OWN_LOGIN_TTL.no)) return known.signedIn;
+    const status = describeAuthStatus((await runAuth(['status', '--json'], { settings })).stdout);
+    // No answer at all is a CLI too slow to start, not a verdict: taken as
+    // signed out, so the fleet's sign-in is tried rather than nothing, and
+    // not kept, so the next run asks again.
+    if (!status) return false;
+    const signedIn = ownSignIn(status);
+    ownLogins.set(folder, { signedIn, at: Date.now() });
+    return signedIn;
+}
+
+/**
+ * The environment a run starts with, credentials and all, first that applies:
+ *
+ *   a key the user stored in the app       ANTHROPIC_API_KEY
+ *   a key or token set outside the app     left as it is
+ *   the account's own Claude Code login    nothing to add
+ *   the fleet's shared sign-in             CLAUDE_CODE_OAUTH_TOKEN
+ *
+ * The token goes only where there is no login: the CLI puts it ahead of a
+ * stored login, so set everywhere it would quietly move every signed-in
+ * computer onto whoever made it.
+ */
+async function authEnv(settings = {}) {
+    const env = accountEnv(settings);
+    if (settings.apiKey) {
+        env.ANTHROPIC_API_KEY = settings.apiKey;
+        return env;
+    }
+    if (env.ANTHROPIC_API_KEY || env.CLAUDE_CODE_OAUTH_TOKEN) return env;
+    const token = fleetToken();
+    if (token && !(await hasOwnLogin(settings))) env.CLAUDE_CODE_OAUTH_TOKEN = token;
+    return env;
+}
+
+/** What `claude setup-token` hands back: a long-lived OAuth token. */
+const TOKEN_PATTERN = /sk-ant-oat\d{2}-[A-Za-z0-9_-]{20,}/;
+
+/**
+ * A terminal's output as text: escape sequences out, cursor steps right as
+ * the spaces they stand for, so words and the token come out apart.
+ */
+function plainTerminalText(raw) {
+    return String(raw || '')
+        .replace(/\x1b\]8;[^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
+        .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
+        .replace(/\x1b\[(\d*)C/g, (match, count) => ' '.repeat(Math.min(Number(count) || 1, 8)))
+        .replace(/\x1b\[[0-9;?>=]*[ -\/]*[@-~]/g, '')
+        .replace(/\x1b./g, '')
+        .replace(/[\b]/g, '');
+}
+
+/**
+ * Make a sign-in for the fleet to share, with `claude setup-token`.
+ *
+ * That command is a terminal program: it opens the browser on claude.com,
+ * where the person approves, and the page shows a code to paste back into it;
+ * then it prints a token good for a year. So it runs in a pseudo-terminal, wide
+ * enough that the token is never wrapped, the address goes out for the page to
+ * offer, `submit(code)` types the code in, and the token is picked out of what
+ * it prints. The token goes to the caller and nowhere else: not to
+ * `onProgress`, not to a log.
+ *
+ *   onProgress   `{ url }` once, `{ waiting: true }` when it asks for the code
+ *
+ * Resolves `{ ok, token, message }`. `cancel` ends the CLI.
+ */
+function createFleetToken({ settings = {}, onProgress = () => {} } = {}) {
+    const executable = executableFor(settings);
+    if (!executable) {
+        return { done: Promise.resolve({ ok: false, message: missingMessage(settings) }), submit() {}, cancel() {} };
+    }
+
+    let child = null;
+    let finished = false;
+    let cancelled = false;
+    let sawUrl = false;
+    let asked = false;
+    let buffer = '';
+    let resolveDone = () => {};
+    const done = new Promise((resolve) => { resolveDone = resolve; });
+
+    const finish = (verdict) => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(timer);
+        try { child?.kill(); } catch { /* already gone */ }
+        resolveDone(verdict);
+    };
+
+    // As long as `login` waits for a password.
+    const timer = setTimeout(() => finish({ ok: false, message: 'The sign-in took too long. Try again.' }), 10 * 60 * 1000);
+    timer.unref?.();
+
+    try {
+        const pty = require('@lydell/node-pty');
+        child = pty.spawn(executable, ['setup-token'], {
+            name: 'xterm-256color',
+            cols: 400,
+            rows: 60,
+            cwd: app.getPath('userData'),
+            env: accountEnv(settings),
+        });
+    } catch (error) {
+        finish({ ok: false, message: describeFailure(error) });
+        return { done, submit() {}, cancel() {} };
+    }
+
+    child.onData((data) => {
+        buffer = (buffer + plainTerminalText(data)).slice(-20000);
+        const url = /https:\/\/\S+/.exec(buffer)?.[0];
+        if (url && !sawUrl && /oauth|authorize/i.test(url)) {
+            sawUrl = true;
+            onProgress({ url });
+        }
+        if (!asked && /paste\s*code/i.test(buffer)) {
+            asked = true;
+            onProgress({ waiting: true });
+        }
+        const token = TOKEN_PATTERN.exec(buffer)?.[0];
+        // Printed in one piece at that width; a moment's grace in case the
+        // write was split mid-token.
+        if (token) setTimeout(() => finish({ ok: true, token: TOKEN_PATTERN.exec(buffer)?.[0] || token, message: '' }), 300);
+    });
+    child.onExit(({ exitCode }) => {
+        const token = TOKEN_PATTERN.exec(buffer)?.[0];
+        if (token) finish({ ok: true, token, message: '' });
+        else if (cancelled) finish({ ok: false, message: 'Cancelled.' });
+        else {
+            const last = buffer.split(/\r?\n/).map(line => line.trim()).filter(Boolean).pop() || '';
+            finish({ ok: false, message: /error|invalid|fail/i.test(last) ? last.slice(0, 300) : `The sign-in stopped (exit ${exitCode}).` });
+        }
+    });
+
+    return {
+        done,
+        submit(code) {
+            const clean = String(code || '').trim();
+            if (!clean || finished) return false;
+            child.write(clean);
+            setTimeout(() => { if (!finished) child.write('\r'); }, 150);
+            return true;
+        },
+        cancel() {
+            cancelled = true;
+            try { child?.kill(); } catch { /* already gone */ }
+            setTimeout(() => finish({ ok: false, message: 'Cancelled.' }), 500);
+        },
+    };
+}
+
+/**
  * Run one `claude auth` subcommand and collect what it prints.
  *
  * Resolves `{ code, stdout, stderr }` and never rejects: a CLI that is
  * missing or that times out is an answer with a code on it.
  */
-function runAuth(args, { settings = {}, timeout = 20000 } = {}) {
+function runAuth(args, { settings = {}, timeout = 20000, env = {} } = {}) {
     const executable = executableFor(settings);
     if (!executable) return Promise.resolve({ code: -1, stdout: '', stderr: missingMessage(settings) });
     return new Promise((resolve) => {
         execFile(executable, ['auth', ...args], {
-            env: accountEnv(settings),
+            env: { ...accountEnv(settings), ...env },
             timeout,
             windowsHide: true,
             maxBuffer: 1024 * 1024,
@@ -1576,8 +1757,20 @@ function describeAuthStatus(text) {
 }
 
 async function authStatus({ settings = {} } = {}) {
-    const result = await runAuth(['status', '--json'], { settings });
-    return describeAuthStatus(result.stdout);
+    const own = describeAuthStatus((await runAuth(['status', '--json'], { settings })).stdout);
+    if (own) ownLogins.set(loginFolder(settings), { signedIn: ownSignIn(own), at: Date.now() });
+    if (!own || ownSignIn(own)) return own;
+    // Signed out here, but the fleet shares a sign-in: that is what a run
+    // would use, so it is what the account page is told. The CLI does not
+    // check a token's worth when asked this, so `fleet` says where it came
+    // from rather than that it works.
+    const token = fleetToken();
+    if (!token) return own;
+    const shared = describeAuthStatus((await runAuth(['status', '--json'], {
+        settings,
+        env: { CLAUDE_CODE_OAUTH_TOKEN: token },
+    })).stdout);
+    return shared?.signedIn ? { ...shared, fleet: true } : own;
 }
 
 /** The SDK's /usage request, under whatever name this version gives it. */
@@ -1618,7 +1811,7 @@ async function readLimits({ settings = {} } = {}) {
             allowedTools: [],
             permissionMode: 'default',
             abortController,
-            env: accountEnv(settings),
+            env: await authEnv(settings),
             cwd: app.getPath('userData'),
             settingSources: [],
         },
@@ -1760,8 +1953,12 @@ module.exports = {
     login,
     logout,
     authStatus,
+    createFleetToken,
+    forgetOwnLogin,
     describeAuthStatus,
     findClaude,
+    plainTerminalText,
+    TOKEN_PATTERN,
     nativeAutoApproved,
     claudeCandidates,
     findDesktopClaude,

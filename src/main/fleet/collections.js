@@ -213,7 +213,18 @@ function createCollections({ notify = () => {}, selfId = () => '', placements })
             apply: (id, value) => {
                 const settings = lazy.settings();
                 if (id.startsWith('apikey:')) {
-                    settings.setApiKey(id.slice('apikey:'.length), value === null ? '' : String(value));
+                    const name = id.slice('apikey:'.length);
+                    settings.setApiKey(name, value === null ? '' : String(value));
+                    // The fleet's Claude sign-in reaching a computer with no
+                    // runtime switched on: Claude Code is switched on, if it
+                    // is installed, so that computer can take tasks at once.
+                    if (name === settings.CLAUDE_FLEET_TOKEN && value !== null && (settings.get().providers || []).length === 0) {
+                        try {
+                            if (require('../ai/providers/claude-code').findClaude()) settings.set({ providers: ['claude-code'] });
+                        } catch (error) {
+                            console.error('Sync could not switch Claude Code on:', error.message);
+                        }
+                    }
                 } else if (id === 'config' && value) {
                     const local = settings.exportAll().config || {};
                     settings.importAll({ config: { ...value, ...pick(local, MACHINE_SETTINGS) } }, { overwrite: true });

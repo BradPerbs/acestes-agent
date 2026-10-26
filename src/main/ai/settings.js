@@ -36,6 +36,18 @@ const PROVIDERS = new Set([
  */
 const KEYED_PROVIDERS = new Set(['openai', 'local']);
 
+/**
+ * The Claude Code sign-in a fleet shares: a long-lived token made with
+ * `claude setup-token` on one computer, stored and synced beside the keys,
+ * and used by any computer in the fleet that has no Claude Code login of its
+ * own (see the provider's `authEnv`). Never a key for a runtime: it rides as
+ * CLAUDE_CODE_OAUTH_TOKEN, not ANTHROPIC_API_KEY.
+ */
+const CLAUDE_FLEET_TOKEN = 'claude-code-token';
+
+/** Every name the encrypted key store holds. */
+const STORED_KEYS = new Set([...KEYED_PROVIDERS, CLAUDE_FLEET_TOKEN]);
+
 /** Where the OpenAI-compatible API is, when the user has not said. */
 const DEFAULT_API_URL = 'https://openrouter.ai/api/v1';
 
@@ -536,7 +548,7 @@ function readSecrets(parsed, provider) {
     if (stored && typeof stored === 'object') {
         const kept = {};
         for (const [name, value] of Object.entries(stored)) {
-            if (PROVIDERS.has(name) && typeof value === 'string' && value) kept[name] = value;
+            if ((PROVIDERS.has(name) || name === CLAUDE_FLEET_TOKEN) && typeof value === 'string' && value) kept[name] = value;
         }
         return kept;
     }
@@ -636,6 +648,8 @@ function get(agentId) {
         // Which runtimes hold a key, for the settings page to say so without
         // the key itself ever crossing the bridge.
         apiKeys: Object.fromEntries([...KEYED_PROVIDERS].map(name => [name, Boolean(secrets[name])])),
+        // Whether the fleet's shared Claude Code sign-in is here. Whether, never which.
+        claudeFleetToken: Boolean(secrets[CLAUDE_FLEET_TOKEN]),
         // What the app shipped with, so a settings page can offer the way back
         // without keeping a second copy of these lists that drifts from this
         // one. Read-only: `set` works from `load()`, not from here, so nothing
@@ -659,7 +673,7 @@ function get(agentId) {
  * refused rather than written in the clear; the message says why.
  */
 function setApiKey(provider, value) {
-    if (!KEYED_PROVIDERS.has(provider)) return { error: `${provider} does not take a key.` };
+    if (!STORED_KEYS.has(provider)) return { error: `${provider} does not take a key.` };
     load();
     const key = String(value ?? '').trim();
     if (!key) {
@@ -867,7 +881,7 @@ function readApiKey(provider = effective().settings.provider) {
 function exportAll() {
     load();
     const keys = {};
-    for (const provider of KEYED_PROVIDERS) {
+    for (const provider of STORED_KEYS) {
         const value = readApiKey(provider);
         if (value) keys[provider] = value;
     }
@@ -896,7 +910,7 @@ function importAll(payload, { overwrite = false } = {}) {
 
     const incoming = payload.keys && typeof payload.keys === 'object' ? payload.keys : {};
     for (const [provider, value] of Object.entries(incoming)) {
-        if (!KEYED_PROVIDERS.has(provider) || !value) continue;
+        if (!STORED_KEYS.has(provider) || !value) continue;
         const had = Boolean(secrets[provider]);
         const stored = setApiKey(provider, String(value));
         if (!stored?.stored) {
@@ -908,7 +922,7 @@ function importAll(payload, { overwrite = false } = {}) {
     }
 
     if (overwrite) {
-        for (const provider of KEYED_PROVIDERS) {
+        for (const provider of STORED_KEYS) {
             if (secrets[provider] && !(provider in incoming)) {
                 setApiKey(provider, '');
                 result.replaced++;
@@ -920,8 +934,17 @@ function importAll(payload, { overwrite = false } = {}) {
     return result;
 }
 
+/** The fleet's shared Claude Code token, decrypted, or '' when there is none. */
+const readClaudeFleetToken = () => readApiKey(CLAUDE_FLEET_TOKEN);
+
+/** Store the fleet's shared Claude Code token, or clear it with ''. Syncs like a key. */
+const setClaudeFleetToken = value => setApiKey(CLAUDE_FLEET_TOKEN, value);
+
 module.exports = {
     get,
+    readClaudeFleetToken,
+    setClaudeFleetToken,
+    CLAUDE_FLEET_TOKEN,
     set,
     takePropagation,
     setApiKey,

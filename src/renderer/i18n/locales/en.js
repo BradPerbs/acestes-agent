@@ -1898,6 +1898,23 @@ export default {
 
     /* ---------------------------------------------------------------- *
      * Settings: Monitoring
+    'settings.devices.shareTitle': 'Shared Claude sign-in',
+    'settings.devices.shareDesc': 'Let every computer in this fleet run Claude Code, even where nobody has signed in. '
+        + 'This makes a one-year sign-in from your Claude plan and shares it with the fleet, encrypted. '
+        + 'Computers with a Claude Code login of their own keep using theirs.',
+    'settings.devices.shareOnDesc': 'This fleet shares a Claude sign-in. Computers without a Claude Code login of '
+        + 'their own use it; computers signed in themselves keep their own.',
+    'settings.devices.shareStart': 'Share a sign-in',
+    'settings.devices.shareReplace': 'Replace',
+    'settings.devices.shareStop': 'Stop sharing',
+    'settings.devices.shareOpening': 'Opening claude.com in your browser...',
+    'settings.devices.shareApprove': 'Approve on claude.com, then paste the code the page shows.',
+    'settings.devices.shareOpen': 'Open the sign-in page',
+    'settings.devices.shareCode': 'Code from claude.com',
+    'settings.devices.shareSubmit': 'Share',
+    'settings.devices.shareSaving': 'Sharing...',
+    'settings.devices.shareDone': 'Sign-in shared with the fleet',
+    'settings.devices.shareFailed': 'The sign-in could not be made.',
      * ---------------------------------------------------------------- */
     'settings.monitoring.title': 'Monitoring',
     'settings.monitoring.desc': 'Check that hosts are still reachable while the app is open, and '

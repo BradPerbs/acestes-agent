@@ -1526,6 +1526,14 @@ function register(getWindow) {
         : accountActions.checkAll()));
     handle('ai-accounts-login', (event, { provider, accountId } = {}) => accountActions.startLogin(provider, accountId));
     handle('ai-accounts-login-cancel', (event, { provider, accountId } = {}) => accountActions.cancelLogin(provider, accountId));
+    // The fleet's shared Claude Code sign-in: whether there is one, making
+    // one (the claude.com page shows a code to paste back), and dropping it.
+    // The token itself never crosses the bridge.
+    handle('ai-fleet-token', () => accountActions.fleetTokenState());
+    handle('ai-fleet-token-start', () => accountActions.startFleetToken());
+    handle('ai-fleet-token-submit', (event, code) => accountActions.submitFleetToken(code));
+    handle('ai-fleet-token-cancel', () => accountActions.cancelFleetToken());
+    handle('ai-fleet-token-clear', () => accountActions.clearFleetToken());
     handle('ai-settings-set', (event, patch) => {
         const before = assistant.settings.get();
         // A key in the patch is stored on its own, encrypted, and never

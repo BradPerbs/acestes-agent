@@ -615,6 +615,17 @@ contextBridge.exposeInMainWorld('api', {
             // `{ provider, accountId, phase, url, line, message }`, phase being
             // started, waiting, done or failed.
             onLogin: (callback) => subscribe('ai-account-login', callback),
+            // The fleet's shared Claude Code sign-in. `state` answers
+            // `{ stored, busy, url, asking }`; progress comes on `onFleetToken`
+            // as `{ phase, url, asking, message }`.
+            fleetToken: {
+                state: () => ipcRenderer.invoke('ai-fleet-token'),
+                start: () => ipcRenderer.invoke('ai-fleet-token-start'),
+                submit: (code) => ipcRenderer.invoke('ai-fleet-token-submit', code),
+                cancel: () => ipcRenderer.invoke('ai-fleet-token-cancel'),
+                clear: () => ipcRenderer.invoke('ai-fleet-token-clear'),
+                onChanged: (callback) => subscribe('ai-fleet-token', callback),
+            },
         },
 
         // `sessionIds` and `hostIds` are the explicit set a pinned scope fences

@@ -213,9 +213,97 @@ function cancelLogin(provider, accountId = accounts.DEFAULT_ID) {
     return { cancelled: true };
 }
 
+/**
+ * The fleet's shared Claude Code sign-in: made here once with
+ * `claude setup-token`, stored with the synced keys, used by every computer
+ * in the fleet that has no Claude Code login of its own. See
+ * claude-code.js (createFleetToken, authEnv) and settings.js.
+ *
+ * One at a time. Progress goes out as `ai-fleet-token` events:
+ * `{ phase: started | waiting | done | failed, url, asking, message }`.
+ */
+let sharing = null;
+
+function fleetTokenState() {
+    const settings = require('./settings');
+    return {
+        stored: Boolean(settings.readClaudeFleetToken()),
+        busy: Boolean(sharing),
+        url: sharing?.url || '',
+        asking: Boolean(sharing?.asking),
+    };
+}
+
+function startFleetToken() {
+    if (sharing) return { started: false, already: true, ...fleetTokenState() };
+    const runner = RUNNERS['claude-code'];
+    const entry = { url: '', asking: false, handle: null };
+    sharing = entry;
+    const send = (phase, extra = {}) => notify('ai-fleet-token', { phase, url: entry.url, asking: entry.asking, ...extra });
+
+    entry.handle = runner.createFleetToken({
+        settings: {},
+        onProgress: ({ url, waiting }) => {
+            if (url && !entry.url) entry.url = url;
+            if (waiting) entry.asking = true;
+            send('waiting');
+        },
+    });
+
+    entry.handle.done.then((verdict) => {
+        if (sharing === entry) sharing = null;
+        if (!verdict.ok) {
+            send('failed', { message: verdict.message || '' });
+            return;
+        }
+        const stored = require('./settings').setClaudeFleetToken(verdict.token);
+        if (!stored?.stored) {
+            send('failed', { message: stored?.error || 'The sign-in could not be stored.' });
+            return;
+        }
+        runner.forgetOwnLogin();
+        // Sent round now rather than at the next scan, so a computer that
+        // could not answer a moment ago can as soon as the person turns to it.
+        try {
+            Promise.resolve(require('../fleet').syncNow?.()).catch(() => {});
+        } catch {
+            // Not in a fleet, or sync is down: the next scan carries it.
+        }
+        send('done');
+    });
+
+    send('started');
+    return { started: true, ...fleetTokenState() };
+}
+
+/** Type the code the claude.com page showed into the waiting CLI. */
+function submitFleetToken(code) {
+    if (!sharing) return { submitted: false, error: 'Nothing is waiting for a code. Start again.' };
+    return { submitted: Boolean(sharing.handle.submit(code)) };
+}
+
+function cancelFleetToken() {
+    sharing?.handle.cancel();
+    return { cancelled: true };
+}
+
+/** Stop sharing: every computer in the fleet drops the token at the next sync. */
+function clearFleetToken() {
+    require('./settings').setClaudeFleetToken('');
+    RUNNERS['claude-code'].forgetOwnLogin();
+    try {
+        Promise.resolve(require('../fleet').syncNow?.()).catch(() => {});
+    } catch {
+        // The next scan carries it.
+    }
+    notify('ai-fleet-token', { phase: 'cleared' });
+    return fleetTokenState();
+}
+
 /** Stop every sign-in still waiting on a browser, for a quit. */
 function shutdown() {
     for (const entry of logins.values()) entry.cancel();
+    sharing?.handle.cancel();
     limits.flush();
 }
 
@@ -229,6 +317,11 @@ module.exports = {
     remove,
     startLogin,
     cancelLogin,
+    fleetTokenState,
+    startFleetToken,
+    submitFleetToken,
+    cancelFleetToken,
+    clearFleetToken,
     shutdown,
     discover: accounts.discover,
     RUNNERS,

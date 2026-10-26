@@ -570,6 +570,21 @@ async function run() {
         assert.strictEqual(provider.alwaysLoaded(computer, { computerUse: false }), false);
     }
 
+    // `claude setup-token` in a pseudo-terminal: spaces arrive as cursor
+    // steps, the address as a hyperlink, and the token is picked out whole,
+    // not glued to the word after it.
+    {
+        const raw = 'Paste\x1b[1Ccode\x1b[1Chere\x1b[1Cif\x1b[1Cprompted\x1b[1C>\r\n'
+            + '\x1b]8;id=u1;https://claude.com/cai/oauth/authorize?code=true\x1b\\https://claude.com/cai/oauth/authorize?code=true\x1b]8;;\x1b\\\r\n'
+            + '\x1b[32mYour\x1b[1COAuth\x1b[1Ctoken:\x1b[39m\r\n\x1b[1msk-ant-oat01-AbC_dEf-123456789012345678901234567890\x1b[22m\x1b[1CStore\x1b[1Cthis\r\n';
+        const text = provider.plainTerminalText(raw);
+        assert(/Paste code here if prompted/.test(text), text);
+        assert(text.includes('https://claude.com/cai/oauth/authorize?code=true'));
+        assert(!text.includes('\x1b'));
+        assert.strictEqual(provider.TOKEN_PATTERN.exec(text)?.[0], 'sk-ant-oat01-AbC_dEf-123456789012345678901234567890');
+        assert.strictEqual(provider.TOKEN_PATTERN.exec('sk-ant-api03-notatoken'), null);
+    }
+
     console.log('claude-provider tests passed');
 }
 
