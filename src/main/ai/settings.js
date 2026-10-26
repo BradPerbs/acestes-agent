@@ -938,8 +938,15 @@ function importAll(payload, { overwrite = false } = {}) {
     return result;
 }
 
-/** The fleet's shared Claude Code token, decrypted, or '' when there is none. */
-const readClaudeFleetToken = () => readApiKey(CLAUDE_FLEET_TOKEN);
+/**
+ * The fleet's shared Claude Code token, decrypted, or '' when there is none.
+ *
+ * Builds before 1.5.6 could store it with the next word of `setup-token`'s
+ * output glued on ("…Store"), which Anthropic refuses. That word is taken off
+ * here, so a token already shared works on every computer without signing in
+ * again; a real token ending in those five letters is a one-in-a-billion chance.
+ */
+const readClaudeFleetToken = () => readApiKey(CLAUDE_FLEET_TOKEN).replace(/^(sk-ant-oat\d{2}-[A-Za-z0-9_-]{20,})Store$/, '$1');
 
 /** Store the fleet's shared Claude Code token, or clear it with ''. Syncs like a key. */
 const setClaudeFleetToken = value => setApiKey(CLAUDE_FLEET_TOKEN, value);

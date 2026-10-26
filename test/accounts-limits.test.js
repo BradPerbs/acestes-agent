@@ -232,6 +232,10 @@ assert.strictEqual(settings.readClaudeFleetToken(), 'sk-ant-oat01-from-the-fleet
 // A backup restore carries its keys, and an overwrite there still matches them.
 settings.importAll({ config: settings.exportAll().config, keys: {} }, { overwrite: true });
 assert.strictEqual(settings.readClaudeFleetToken(), '');
+// A token stored by an older build with setup-token's next word glued on
+// is read back without it.
+settings.setClaudeFleetToken('sk-ant-oat01-AbC_dEf-1234567890123456789012345678AAStore');
+assert.strictEqual(settings.readClaudeFleetToken(), 'sk-ant-oat01-AbC_dEf-1234567890123456789012345678AA');
 settings.setClaudeFleetToken('');
 
 /* ---------------- The runtimes' own answers ---------------- */

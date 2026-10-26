@@ -1599,13 +1599,17 @@ const TOKEN_PATTERN = /sk-ant-oat\d{2}-[A-Za-z0-9_-]{20,}/;
 
 /**
  * A terminal's output as text: escape sequences out, cursor steps right as
- * the spaces they stand for, so words and the token come out apart.
+ * the spaces they stand for, and every other move or erase as a line break,
+ * so words and the token come out apart. The CLI moves to the line after the
+ * token with a cursor move, not a newline; dropped outright, that glued the
+ * next word on ("…AAStore") and the fleet shared a token Anthropic refused.
  */
 function plainTerminalText(raw) {
     return String(raw || '')
         .replace(/\x1b\]8;[^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
         .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
         .replace(/\x1b\[(\d*)C/g, (match, count) => ' '.repeat(Math.min(Number(count) || 1, 8)))
+        .replace(/\x1b\[[0-9;?]*[ABDEFGHJKSTdf]/g, '\n')
         .replace(/\x1b\[[0-9;?>=]*[ -\/]*[@-~]/g, '')
         .replace(/\x1b./g, '')
         .replace(/[\b]/g, '');

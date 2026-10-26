@@ -583,6 +583,12 @@ async function run() {
         assert(!text.includes('\x1b'));
         assert.strictEqual(provider.TOKEN_PATTERN.exec(text)?.[0], 'sk-ant-oat01-AbC_dEf-123456789012345678901234567890');
         assert.strictEqual(provider.TOKEN_PATTERN.exec('sk-ant-api03-notatoken'), null);
+        // As the CLI really prints it: the next line reached by a cursor move,
+        // not a newline. The word after must not end up on the token.
+        for (const move of ['\x1b[1B', '\x1b[2;1H', '\x1b[G', '\x1b[2K', '\x1b[1E']) {
+            const moved = provider.plainTerminalText(`\x1b[1msk-ant-oat01-AbC_dEf-1234567890123456789012345678AA\x1b[22m${move}Store\x1b[1Cthis`);
+            assert.strictEqual(provider.TOKEN_PATTERN.exec(moved)?.[0], 'sk-ant-oat01-AbC_dEf-1234567890123456789012345678AA', JSON.stringify(move));
+        }
     }
 
     console.log('claude-provider tests passed');
