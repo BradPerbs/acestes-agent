@@ -1895,9 +1895,6 @@ export default {
         + 'signed in, voice models, and Windows Hello keys. Everything else is the same everywhere.',
     'settings.devices.howRemove': 'Removing a device moves everyone else to a new key, so a lost or retired '
         + 'computer is out for good.',
-
-    /* ---------------------------------------------------------------- *
-     * Settings: Monitoring
     'settings.devices.shareTitle': 'Shared Claude sign-in',
     'settings.devices.shareDesc': 'Let every computer in this fleet run Claude Code, even where nobody has signed in. '
         + 'This makes a one-year sign-in from your Claude plan and shares it with the fleet, encrypted. '
@@ -1915,6 +1912,9 @@ export default {
     'settings.devices.shareSaving': 'Sharing...',
     'settings.devices.shareDone': 'Sign-in shared with the fleet',
     'settings.devices.shareFailed': 'The sign-in could not be made.',
+
+    /* ---------------------------------------------------------------- *
+     * Settings: Monitoring
      * ---------------------------------------------------------------- */
     'settings.monitoring.title': 'Monitoring',
     'settings.monitoring.desc': 'Check that hosts are still reachable while the app is open, and '
