@@ -225,6 +225,13 @@ settings.setClaudeFleetToken('');
 assert.strictEqual(settings.readClaudeFleetToken(), '');
 settings.importAll({ keys: { [settings.CLAUDE_FLEET_TOKEN]: 'sk-ant-oat01-from-the-fleet' } });
 assert.strictEqual(settings.readClaudeFleetToken(), 'sk-ant-oat01-from-the-fleet');
+// Fleet sync applies the shared config on its own, with overwrite: that must
+// not clear a token that arrived as a record of its own.
+settings.importAll({ config: settings.exportAll().config }, { overwrite: true });
+assert.strictEqual(settings.readClaudeFleetToken(), 'sk-ant-oat01-from-the-fleet');
+// A backup restore carries its keys, and an overwrite there still matches them.
+settings.importAll({ config: settings.exportAll().config, keys: {} }, { overwrite: true });
+assert.strictEqual(settings.readClaudeFleetToken(), '');
 settings.setClaudeFleetToken('');
 
 /* ---------------- The runtimes' own answers ---------------- */

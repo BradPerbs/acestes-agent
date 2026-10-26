@@ -908,7 +908,11 @@ function importAll(payload, { overwrite = false } = {}) {
         }
     }
 
-    const incoming = payload.keys && typeof payload.keys === 'object' ? payload.keys : {};
+    // A payload with no keys says nothing about them: fleet sync sends the
+    // config on its own, and an overwrite there must not clear the keys that
+    // arrived as records of their own (the fleet's Claude sign-in among them).
+    const carriesKeys = Boolean(payload.keys && typeof payload.keys === 'object');
+    const incoming = carriesKeys ? payload.keys : {};
     for (const [provider, value] of Object.entries(incoming)) {
         if (!STORED_KEYS.has(provider) || !value) continue;
         const had = Boolean(secrets[provider]);
@@ -921,7 +925,7 @@ function importAll(payload, { overwrite = false } = {}) {
         else result.added++;
     }
 
-    if (overwrite) {
+    if (overwrite && carriesKeys) {
         for (const provider of STORED_KEYS) {
             if (secrets[provider] && !(provider in incoming)) {
                 setApiKey(provider, '');
