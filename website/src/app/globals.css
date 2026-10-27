@@ -282,6 +282,39 @@ body {
   }
 }
 
+/* The app's large agent mark floating on Home (.agent-float in the app's input.css). */
+.agent-float {
+  animation: agent-float 6s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+
+@keyframes agent-float {
+  0%,
+  100% {
+    transform: translateY(2%) rotate(-0.7deg);
+  }
+  50% {
+    transform: translateY(-4%) rotate(0.7deg);
+  }
+}
+
+/* A text box's caret in the app replicas. */
+.app-caret {
+  animation: app-caret 1.06s steps(1) infinite;
+}
+
+@keyframes app-caret {
+  50% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-float,
+  .app-caret {
+    animation: none;
+  }
+}
+
 /* Highlighter used in pull quotes and the compare panes */
 .mark {
   background: color-mix(in oklab, var(--fg) 10%, transparent);

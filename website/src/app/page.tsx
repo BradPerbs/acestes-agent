@@ -12,6 +12,7 @@ import { Devices } from "@/components/sections/devices";
 import { Faq } from "@/components/sections/faq";
 import { Hero } from "@/components/sections/hero";
 import { Memory } from "@/components/sections/memory";
+import { Octopus } from "@/components/sections/octopus";
 import { Pricing } from "@/components/sections/pricing";
 import { Principles } from "@/components/sections/principles";
 import { Quote } from "@/components/sections/quote";
@@ -46,6 +47,8 @@ export default function Home() {
         <Strips />
         <main id="main">
           <Hero />
+          <Gap />
+          <Octopus />
           <Gap />
           <Security />
           <Gap />
