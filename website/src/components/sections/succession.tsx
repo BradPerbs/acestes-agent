@@ -96,8 +96,9 @@ function Seats() {
 }
 
 /**
- * The bespoke tier under the free one: an agent built to take a person's
- * seat, priced per role. Black in both themes, like the hero panel.
+ * The idea under the free tier: an agent built to take a person's seat.
+ * No price, just a way to get in touch. Black in both themes, like the
+ * hero panel.
  */
 export function Succession() {
   return (
@@ -110,7 +111,7 @@ export function Succession() {
         <div className="relative grid gap-12 px-5 py-14 sm:px-12 sm:py-16 lg:grid-cols-12 lg:gap-10">
           <Reveal className="lg:col-span-7">
             <p data-r className="font-mono text-[12px] tracking-[0.2em] text-[#b996ff] uppercase">
-              Acestes Succession · Bespoke
+              Acestes Succession · An idea
             </p>
             <h2
               data-r
@@ -119,8 +120,8 @@ export function Succession() {
               Every role has a successor now.
             </h2>
             <p data-r className="mt-6 max-w-[620px] text-[16px] leading-relaxed text-white/65 sm:text-[17px]">
-              From the front desk to the top floor. We study how a person works, what they decide and how they answer,
-              then build the agent that takes their seat: a receptionist that never logs off, an analyst on every shift,
+              From the front desk to the top floor. The idea is to study how a person works, what they decide and how
+              they answer, then build the agent that takes their seat: a receptionist that never logs off, an analyst on every shift,
               or a cloud twin of the one person everyone asks, answering the whole company at once. The people who stay
               approve, decide and sign off.
             </p>
@@ -142,13 +143,13 @@ export function Succession() {
           <div className="lg:col-span-5">
             <Seats />
             <Reveal className="mt-10">
-              <p data-r className="flex items-baseline gap-2">
-                <span className="text-[56px] leading-none font-medium tracking-[-0.04em] tabular-nums">$10,000</span>
-                <span className="text-[17px] text-white/55">/ role</span>
+              <p data-r className="text-[30px] leading-[1.1] font-medium tracking-[-0.03em] sm:text-[36px]">
+                An idea, not a price list.
               </p>
               <p data-r className="mt-4 max-w-[440px] text-[15px] leading-relaxed text-white/65">
-                Every successor is bespoke: built from the person it replaces, on your infrastructure, on the agent
-                accounts you already pay for.
+                Nothing here is for sale yet. Each successor would be bespoke: built from the person it replaces, on
+                your infrastructure, on the agent accounts you already pay for. If you have a seat in mind, get in touch
+                and we can talk it through.
               </p>
               <div data-r className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-3">
                 <a
@@ -156,7 +157,7 @@ export function Succession() {
                   data-press
                   className="inline-flex h-11 items-center rounded-full bg-white px-5 text-[15px] font-medium tracking-[-0.01em] text-[#0d0818] transition-colors duration-200 hover:bg-white/90"
                 >
-                  Start a succession
+                  Get in touch
                 </a>
                 <a
                   href="#guardrails"

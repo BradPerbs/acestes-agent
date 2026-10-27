@@ -17,7 +17,7 @@ export function Container({
   as?: ElementType;
 }) {
   return (
-    <Tag className={`relative mx-auto w-[calc(100%-1.5rem)] max-w-[1248px] sm:w-[calc(100%-3rem)] ${className}`}>
+    <Tag className={`relative mx-auto w-[calc(100%-1.5rem)] max-w-[1344px] sm:w-[calc(100%-3rem)] ${className}`}>
       {children}
     </Tag>
   );
@@ -103,7 +103,7 @@ export function Callout({ children, className = "" }: { children: ReactNode; cla
 export function Strips() {
   return (
     <div aria-hidden="true" className="pointer-events-none absolute inset-0 hidden sm:block">
-      <div className="relative mx-auto h-full w-[calc(100%-3rem)] max-w-[1248px]">
+      <div className="relative mx-auto h-full w-[calc(100%-3rem)] max-w-[1344px]">
         <div className="dot-strip absolute inset-y-0 right-full w-24">
           <span className="dash-y absolute inset-y-0 left-0 w-px" />
         </div>
