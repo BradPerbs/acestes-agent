@@ -1929,7 +1929,7 @@ export default function AssistantConversation({
                                 with Parakeet. */}
                             {settings?.voiceInput && (
                                 <DictationButton
-                                    live={settings.voiceEngine === 'parakeet'}
+                                    live={settings.voiceEngine === 'parakeet' || settings.voiceEngine === 'nemotron'}
                                     onText={addDictation}
                                     onNotice={setVoiceNotice}
                                 />

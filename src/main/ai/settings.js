@@ -100,7 +100,7 @@ const COMMAND_MODES = new Set(['terminal', 'background']);
 const COMPUTER_PACES = new Set(['slow', 'normal', 'fast']);
 
 /** Who turns speech into text, and how big a model. See speech.js. */
-const VOICE_ENGINES = new Set(['parakeet', 'whisper', 'faster-whisper']);
+const VOICE_ENGINES = new Set(['parakeet', 'nemotron', 'whisper', 'faster-whisper']);
 const VOICE_MODELS = new Set(['tiny', 'base', 'small', 'medium', 'large-v3', 'turbo']);
 
 /** What a finished task sounds like. Mirrors SOUND_IDS in the renderer's lib/sounds.js. */

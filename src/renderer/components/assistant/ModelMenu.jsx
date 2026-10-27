@@ -374,7 +374,12 @@ function MenuBody({ rows, model, settings, providers, catalogs, offered, loading
     );
 }
 
-export default function ModelMenu({ settings, catalogs, providers, loading, onRefresh, onChange, accent, starred = null, onStar }) {
+/**
+ * `placement` is where the menu opens from the chip: 'up' in the composer,
+ * which sits at the bottom of the window, 'down' on a page where the chip is
+ * near the top (Teach). It opens towards the left edge then, as a form reads.
+ */
+export default function ModelMenu({ settings, catalogs, providers, loading, onRefresh, onChange, accent, starred = null, onStar, placement = 'up' }) {
     const t = useT();
     const [open, setOpen] = useState(false);
     const wrapperRef = useRef(null);
@@ -513,7 +518,7 @@ export default function ModelMenu({ settings, catalogs, providers, loading, onRe
                     ref={menuRef}
                     role="dialog"
                     aria-label={t('assistant.modelAndEffort')}
-                    className={`absolute z-40 bottom-full mb-1.5 right-0 ${WIDTH} flex flex-col overflow-hidden rounded-2xl
+                    className={`absolute z-40 ${placement === 'down' ? 'top-full mt-1.5 left-0' : 'bottom-full mb-1.5 right-0'} ${WIDTH} flex flex-col overflow-hidden rounded-2xl
                         bg-white dark:bg-surface-raised
                         border border-gray-200 dark:border-white/[0.08]
                         shadow-[0_20px_48px_-12px_rgba(0,0,0,0.3)] dark:shadow-[0_20px_48px_-12px_rgba(0,0,0,0.65)]`}

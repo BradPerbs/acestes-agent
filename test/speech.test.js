@@ -168,6 +168,95 @@ async function check(name, fn) {
         parakeet.shutdown();
     });
 
+    console.log('\nnemotron, streaming');
+
+    const nemotron = speech.nemotron;
+    nemotron._test.assumeInstalled(true);
+
+    await check('a recording starts on the engine the settings name, pinned to the language chosen', async () => {
+        const live = fakeWorker();
+        const other = fakeWorker();
+        nemotron._test.useSpawn(() => live.handle);
+        parakeet._test.useSpawn(() => other.handle);
+        const { id } = speech.dictation.start('nemotron', { language: 'it' });
+        speech.dictation.audio(id, new Float32Array([0.1]));
+        const result = await speech.dictation.stop(id);
+        assert.deepStrictEqual(result, { text: '1 chunks' });
+        const load = live.sent.find(entry => entry.type === 'load');
+        assert.strictEqual(load.kind, 'streaming', 'the worker is told it is a streaming model');
+        assert.ok(/nemotron-3\.5-asr-streaming/.test(load.model.encoder), load.model.encoder);
+        assert.strictEqual(live.sent.find(entry => entry.type === 'begin').language, 'it');
+        assert.strictEqual(other.sent.length, 0, 'Parakeet is not woken for it');
+        nemotron.shutdown();
+        parakeet.shutdown();
+    });
+
+    await check('an engine that writes from whole recordings is not live, and Parakeet still cuts at pauses', () => {
+        assert.strictEqual(speech.liveEngine('nemotron'), nemotron);
+        assert.strictEqual(speech.liveEngine('parakeet'), parakeet);
+        assert.strictEqual(speech.liveEngine('faster-whisper'), null);
+        const worker = fakeWorker();
+        parakeet._test.useSpawn(() => worker.handle);
+        const { id } = parakeet.start({});
+        return parakeet.stop(id).then(() => {
+            assert.strictEqual(worker.sent.find(entry => entry.type === 'load').kind, 'pieces');
+            parakeet.shutdown();
+        });
+    });
+
+    await check('stopping a recording nobody holds says so rather than hanging', async () => {
+        const result = await speech.dictation.stop('no-such-recording');
+        assert.match(result.error, /no longer going/);
+    });
+
+    // The real worker on the real model, when it has been downloaded on this
+    // machine: a second of silence goes in, nothing comes out, and it ends.
+    const realModel = path.join(process.env.APPDATA || '', 'acestes-agent', 'models', 'nemotron-3.5-asr-streaming-0.6b-560ms-int8');
+    if (!require('fs').existsSync(path.join(realModel, 'encoder.int8.onnx'))) {
+        console.log('  skip the real Nemotron model (not downloaded here)');
+    } else {
+        await check('the real worker loads Nemotron, streams a recording and ends it', async () => {
+            const { fork } = require('child_process');
+            const child = fork(path.join(ROOT, 'ai', 'speech-worker.js'), [], { serialization: 'advanced', stdio: 'ignore' });
+            const messages = [];
+            const waitFor = type => new Promise((resolve, reject) => {
+                const timer = setTimeout(() => reject(new Error(`no ${type}`)), 60000);
+                const look = (message) => {
+                    messages.push(message);
+                    if (message.type === type || message.type === 'load-failed' || message.type === 'failed') {
+                        clearTimeout(timer);
+                        child.off('message', look);
+                        resolve(message);
+                    }
+                };
+                child.on('message', look);
+            });
+            try {
+                const loading = waitFor('loaded');
+                child.send({
+                    type: 'load',
+                    kind: 'streaming',
+                    model: {
+                        encoder: path.join(realModel, 'encoder.int8.onnx'),
+                        decoder: path.join(realModel, 'decoder.int8.onnx'),
+                        joiner: path.join(realModel, 'joiner.int8.onnx'),
+                        tokens: path.join(realModel, 'tokens.txt'),
+                    },
+                });
+                assert.strictEqual((await loading).type, 'loaded');
+                child.send({ type: 'begin', id: 'r1', language: 'en' });
+                child.send({ type: 'audio', id: 'r1', samples: new Float32Array(16000) });
+                const ending = waitFor('done');
+                child.send({ type: 'end', id: 'r1' });
+                const done = await ending;
+                assert.strictEqual(done.type, 'done', JSON.stringify(done));
+                assert.strictEqual(done.text, '', 'silence says nothing');
+            } finally {
+                child.kill();
+            }
+        });
+    }
+
     console.log('\nsettings');
 
     await check('voice input is on from the start with Parakeet, and its choices are checked', () => {
@@ -183,6 +272,8 @@ async function check(name, fn) {
         const refused = settings.set({ voiceEngine: 'cloud', voiceModel: 'huge', voiceLanguage: 'klingon' });
         assert.deepStrictEqual([refused.voiceEngine, refused.voiceModel, refused.voiceLanguage], ['parakeet', 'base', ''], 'nonsense falls back to the defaults');
         assert.strictEqual(refused.voiceInput, true, 'and leaves the switch alone');
+        assert.strictEqual(settings.set({ voiceEngine: 'nemotron' }).voiceEngine, 'nemotron', 'Nemotron is a choice');
+        settings.set({ voiceEngine: 'parakeet' });
     });
 
     console.log(`\n${passed} passed, ${failed} failed`);

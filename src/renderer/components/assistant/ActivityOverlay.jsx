@@ -65,7 +65,7 @@ const VOICE_HINT = 'Ctrl+S';
 const LEAVE_MS = 260;
 
 /** How long what was sent, or why nothing was, stays on the listening card. */
-const OUTCOME_MS = { steered: 2600, message: 3200, notice: 4200 };
+const OUTCOME_MS = { steered: 2600, answered: 2600, message: 3200, notice: 4200 };
 
 const clock = seconds => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 
@@ -176,20 +176,51 @@ function StateLine({ tone, children, mark }) {
     );
 }
 
-function Waiting() {
+/**
+ * Waiting on an answer: the one state that wants the person watching. What
+ * it asks is on the card, with its choices, so it can be answered by voice
+ * (Ctrl+S) without opening Acestes; a secret is still typed there.
+ */
+function Waiting({ ask }) {
     const t = useT();
     return (
-        <StateLine
-            tone="amber"
-            mark={(
-                <>
-                    <span className="absolute inset-0.5 rounded-full bg-amber-500/40 motion-safe:animate-ping" />
-                    <span className="relative w-1.5 h-1.5 rounded-full bg-amber-500" />
-                </>
+        <>
+            <StateLine
+                tone="amber"
+                mark={(
+                    <>
+                        <span className="absolute inset-0.5 rounded-full bg-amber-500/40 motion-safe:animate-ping" />
+                        <span className="relative w-1.5 h-1.5 rounded-full bg-amber-500" />
+                    </>
+                )}
+            >
+                {ask?.question && !ask.secret ? t('activity.asks') : t('activity.waitingForYou')}
+            </StateLine>
+            {ask?.question && (
+                <div className="activity-said mt-1.5 text-[12px] leading-snug text-gray-800 dark:text-gray-100 line-clamp-3">
+                    {ask.question}
+                </div>
             )}
-        >
-            {t('activity.waitingForYou')}
-        </StateLine>
+            {ask?.options?.length > 0 && (
+                <div className="activity-said mt-2 flex flex-wrap gap-1.5">
+                    {ask.options.map(option => (
+                        <span
+                            key={option}
+                            className="max-w-full truncate px-2 py-[2px] rounded-full text-[10.5px]
+                                bg-black/[0.05] dark:bg-white/[0.07] text-gray-600 dark:text-gray-300"
+                        >
+                            {option}
+                        </span>
+                    ))}
+                </div>
+            )}
+            {ask?.question && !ask.secret && (
+                <div className="mt-2 flex items-center justify-end gap-1.5 text-[10.5px] text-gray-400 dark:text-gray-500">
+                    <Keys>{VOICE_HINT}</Keys>
+                    <span>{t('activity.answerHint')}</span>
+                </div>
+            )}
+        </>
     );
 }
 
@@ -268,7 +299,7 @@ function Card({ row, leaving }) {
     let line;
     if (row.done) line = <Done />;
     else if (row.held) line = <Held code={row.held} />;
-    else if (row.phase === 'waiting') line = <Waiting />;
+    else if (row.phase === 'waiting') line = <Waiting ask={row.ask} />;
     else line = <Working row={row} />;
 
     return (
@@ -285,7 +316,7 @@ function Card({ row, leaving }) {
                 )}
             </div>
             {line}
-            {row.said && (
+            {row.said && !(row.phase === 'waiting' && row.ask?.question) && (
                 <div
                     key={row.said}
                     className="activity-said mt-1.5 text-[11px] leading-snug text-gray-500 dark:text-gray-400 line-clamp-2"
@@ -341,6 +372,7 @@ function ListenCard({ phase, seconds, heard, outcome, title, download, meterRef,
                 </span>
                 <span className="min-w-0 flex-1 truncate">
                     {outcome.kind === 'steered' && t('activity.steered')}
+                    {outcome.kind === 'answered' && t('activity.answered')}
                     {outcome.kind === 'message' && t('activity.sentAsMessage')}
                     {outcome.kind === 'notice' && t('activity.notSent')}
                 </span>
@@ -431,6 +463,7 @@ function useListening(rows) {
         setHeard(said);
         Promise.resolve(window.api.ai.steer?.(aim.conversationId, said)).then((result) => {
             if (!result?.success) setOutcome({ kind: 'notice', text: result?.message || t('activity.notSentWhy') });
+            else if (result.answered) setOutcome({ kind: 'answered', text: result.answer || said });
             else setOutcome({ kind: result.steered ? 'steered' : 'message', text: said });
         }, (error) => {
             setOutcome({ kind: 'notice', text: error?.message || t('activity.notSentWhy') });

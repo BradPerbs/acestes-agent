@@ -169,7 +169,7 @@ function recording() {
  * Refused if one is already under way. Tells the helper to record and opens
  * the trace file; the helper's `rec` events then arrive through ingest().
  */
-async function start(agentId, { apps = [], redact = false, label = '', paused = '' } = {}) {
+async function start(agentId, { apps = [], redact = false, label = '', paused = '', task = '' } = {}) {
     if (active) return { ok: false, code: 'busy', error: 'A recording is already under way.' };
     const id = makeId();
     const dir = recordingDir(id);
@@ -185,6 +185,10 @@ async function start(agentId, { apps = [], redact = false, label = '', paused = 
         stream: fs.createWriteStream(path.join(dir, 'trace.jsonl'), { flags: 'a' }),
     };
     const header = { v: 1, type: 'header', id, started, scope: { apps: apps.map(a => String(a).toLowerCase()) } };
+    // What the person said they were about to do, if they said: the one thing
+    // the recording cannot show, and what the rest is read in the light of.
+    const said = cleanTask(task, { redact });
+    if (said) header.task = said;
     session.stream.write(`${JSON.stringify(header)}\n`);
     active = session;
     const reply = await helper.start({ apps, label, paused });
@@ -255,9 +259,12 @@ function readTrace(id) {
 const EPISODE_GAP = 2 * 60 * 1000;
 
 /**
- * The trace as episodes: runs of actions in one app with no long wait between
- * them. Split on a change of foreground app, a gap over two minutes, and a
- * mark the person dropped. The header is left out.
+ * The trace as episodes: stretches of work with no long wait between them.
+ * Split on a gap over two minutes and on a mark the person dropped, and NOT on
+ * a change of app: most office work is moving something from one app to
+ * another (an order from the mail into the sheet), and cutting it at every
+ * switch hid exactly that from the model. A switch is a line inside the
+ * episode instead. The header is left out.
  */
 function splitEpisodes(lines) {
     const episodes = [];
@@ -273,13 +280,32 @@ function splitEpisodes(lines) {
         const t = Number(line.t) || 0;
         if (line.type === 'window' && line.app) appNow = line.app;
         const gap = current && t - lastT > EPISODE_GAP;
-        const appChanged = current && line.app && appNow && line.app !== current.app && line.type === 'window';
         const mark = line.type === 'mark';
-        if (!current || gap || appChanged || mark) open(line.app || appNow, t);
+        if (!current || gap || mark) open(line.app || appNow, t);
         current.lines.push(line);
         lastT = t;
     }
     return episodes;
+}
+
+/** What the person says the task was: one line of plain text, scrubbed. */
+function cleanTask(text, options = {}) {
+    return redactText(String(text == null ? '' : text), options).replace(/\s+/g, ' ').trim().slice(0, 600);
+}
+
+/**
+ * The task the person described: one they gave when reading again (kept
+ * beside the trace), else the one they gave at the start (in the header).
+ */
+function readTask(id, lines) {
+    try {
+        const said = fs.readFileSync(path.join(recordingDir(id), 'task.txt'), 'utf8').trim();
+        if (said) return said;
+    } catch {
+        // None given after the fact.
+    }
+    const header = (lines || []).find(line => line && line.type === 'header');
+    return header && typeof header.task === 'string' ? header.task : '';
 }
 
 /** The logins the recorder saw, for the Q&A: site and username, no password. */
@@ -302,54 +328,146 @@ function clock(ms) {
     return `${mm}:${ss}`;
 }
 
+/**
+ * Shortcuts in the words a person would use. The model was shown "press
+ * ctrl+v" and asked the person what they had pasted; told "paste", with the
+ * value that landed on the next line, it has no need to.
+ */
+const KEY_WORDS = {
+    'ctrl+c': 'copy',
+    'ctrl+insert': 'copy',
+    'ctrl+x': 'cut',
+    'shift+delete': 'cut',
+    'ctrl+v': 'paste',
+    'ctrl+shift+v': 'paste',
+    'shift+insert': 'paste',
+    'ctrl+z': 'undo',
+    'ctrl+y': 'redo',
+    'ctrl+s': 'save',
+    'ctrl+a': 'select all',
+    'ctrl+f': 'find',
+    'ctrl+h': 'find and replace',
+    'ctrl+p': 'print',
+    'ctrl+n': 'new',
+    'ctrl+t': 'new tab',
+    'ctrl+w': 'close tab',
+    'ctrl+tab': 'next tab',
+    'ctrl+shift+tab': 'previous tab',
+    'ctrl+l': 'go to the address bar',
+    'ctrl+r': 'refresh',
+    f5: 'refresh',
+    'alt+tab': 'switch window',
+    'alt+f4': 'close window',
+    enter: 'press Enter',
+    tab: 'press Tab',
+    'shift+tab': 'press Shift+Tab',
+    esc: 'press Esc',
+};
+
+/** Keys that only move the caret or the view: noise for what the job was. */
+const MOVE_KEYS = /^(?:ctrl\+)?(?:shift\+)?(?:left|right|up|down|home|end|pageup|pagedown)$/;
+
+/** A paste lands in the field left within this long after it. */
+const PASTE_WINDOW = 60 * 1000;
+
 /** One line of an episode, as the model is shown it. */
 function renderLine(line) {
     const target = line.target || {};
     const where = target.path && target.path.length ? ` (${target.path.join(' > ')})` : '';
     switch (line.type) {
-        case 'window': return `open ${line.app || 'app'}${line.window ? ` · ${line.window}` : ''}${line.url ? ` · ${line.url}` : ''}`;
+        case 'window': return `switch to ${line.app || 'app'}${line.window ? ` · ${line.window}` : ''}${line.url ? ` · ${line.url}` : ''}`;
         case 'page': return `page ${line.url || line.title || ''}`;
-        case 'content': return line.text ? `screen: ${String(line.text).replace(/\s+/g, ' ').slice(0, 400)}` : '';
+        case 'content': return line.text ? `screen: ${String(line.text).replace(/\s+/g, ' ').slice(0, 600)}` : '';
         case 'click': return `click ${target.role || 'control'} "${target.name || ''}"${where}`;
         case 'field': return `enter "${target.name || 'field'}" = ${line.value == null ? '' : line.value}`;
         case 'login': return `sign in at ${line.site || line.window || ''}${line.user ? ` as ${line.user}` : ''}`;
         case 'select': return `choose "${target.name || ''}" = ${line.value == null ? '' : line.value}`;
-        case 'keys': return `press ${line.keys || ''}`;
+        case 'keys': {
+            const combo = String(line.keys || '').toLowerCase();
+            return KEY_WORDS[combo] || `press ${combo}`;
+        }
         case 'mark': return line.note ? `note: ${line.note}` : 'marked';
         default: return '';
     }
 }
 
-/** An episode as a readable block for the prompt. */
-function renderEpisode(ep) {
-    const head = `[${ep.id}] ${clock(ep.start)} ${ep.app || 'app'}`;
-    const body = ep.lines.map(renderLine).filter(Boolean).map(l => `  ${l}`);
-    return [head, ...body].join('\n');
+/**
+ * An episode as the model reads it: the work, not every key. Caret and scroll
+ * keys go; a paste is folded into the field it landed in ("enter X = v
+ * (pasted)"); the same screen text is shown once; and a run of one action
+ * becomes "action ×n".
+ */
+function renderEpisode(ep, index = 0) {
+    const out = [];
+    const seenScreens = new Set();
+    let paste = null; // { at: index in out, t } of the last paste not yet placed
+    for (const line of ep.lines) {
+        const t = Number(line.t) || 0;
+        if (line.type === 'keys' && MOVE_KEYS.test(String(line.keys || '').toLowerCase())) continue;
+        if (line.type === 'content') {
+            const text = String(line.text || '').replace(/\s+/g, ' ').trim();
+            if (!text || seenScreens.has(text)) continue;
+            seenScreens.add(text);
+        }
+        if (line.type === 'window') paste = null;
+        let text = renderLine(line);
+        if (!text) continue;
+        if (line.type === 'field' && paste && t - paste.t <= PASTE_WINDOW) {
+            out.splice(paste.at, 1);
+            text = `${text} (pasted)`;
+            paste = null;
+        }
+        if (text === 'paste') paste = { at: out.length, t };
+        out.push(text);
+    }
+    const body = [];
+    for (const text of out) {
+        const last = body[body.length - 1];
+        if (last && (last.text === text)) last.n += 1;
+        else body.push({ text, n: 1 });
+    }
+    const head = `Part ${index + 1} · ${clock(ep.start)}`;
+    return [head, ...body.map(({ text, n }) => `  ${text}${n > 1 ? ` ×${n}` : ''}`)].join('\n');
 }
 
 /* ------------------------------------------------------------------ *
  * Distilling: the one question put to the runtime.
  * ------------------------------------------------------------------ */
 
-const TIMEOUT = 5 * 60 * 1000;
-const THINK = 4096;
+// Asked on the agent's own model, not the small one titles use: reading a
+// person's job out of a trace of clicks is judgement, and the small model
+// answered with the clicks (and asked what had been pasted).
+const TIMEOUT = 8 * 60 * 1000;
+const THINK = 8192;
+const MAX_QUESTIONS = 4;
 
 const INSTRUCTION = [
-    'You turn a recording of one person doing their job into a draft an IT agent can learn from.',
-    'You are given the recording as episodes: runs of actions in one app, each action a line (open, page, click, enter, sign in, choose, press).',
+    'You are looking over a person\'s shoulder. Below is a recording of them at work, and you turn it into notes an IT agent can use to do the same job for them later.',
+    '',
+    'Read the whole recording as a story before you write anything, and work out what the person was trying to get done and why: the job, not the keystrokes. The "screen:" lines are what was on screen at the time, and they are your best evidence of what the work was about (the emails, tickets, orders, rows or pages being handled). Clicks, keys and field entries are only how it was done. If the person said what the task was, take that as true and read the recording in its light.',
+    '',
+    'How to read the lines: "switch to" is a change of app or window. "copy" and "paste" move a value from one place to another; the value that arrived is on the "enter" line marked (pasted). An "enter" line is a field\'s value as the person left it. "×3" is the same action three times in a row. A part begins after a pause of a few minutes or where the person dropped a mark.',
+    '',
     'Return JSON only, no prose, with these keys:',
-    '- "appMap": array of {app, where, path} - where a thing lives in an app or site, as a menu path.',
-    '- "procedures": array of {name, when, params, steps, branches} - a task done in the recording. "params" are the values that would change next time (a domain, a customer). "steps" are written with the control names and URLs seen. "branches" are the points where the path depended on something.',
+    '- "summary": two or three plain sentences on what the person was doing, what for, and how it ended, beginning with a verb and no subject ("Copying this week\'s new orders from the Shopify admin into the Warehouse sheet, one row per order, so they can be packed."). Use their terms: their apps, customers, data. Not a list of clicks. Where you are guessing at the purpose, say so ("probably").',
+    '- "procedures": array of {name, goal, when, params, steps, branches} - each task done in the recording. "name" says what the task achieves ("Log a supplier invoice in Xero"); "goal" its outcome; "when" what sets it off. "params" are the values that change from one time to the next (a customer, an amount). "steps" are written the way a colleague would hand them over ("Copy the invoice number from the email into Reference"), naming the controls and URLs seen; no step for a single key or click unless it matters. "branches" are the points where the path depended on something.',
+    '- "appMap": array of {app, where, path} - where a thing the job needs lives in an app or site, as a menu path. Only places that matter to the work.',
     '- "glossary": array of {term, meaning} - abbreviations or terms used that need explaining.',
     '- "templates": array of {name, text} - text the person wrote that is reused, with the parts that change as {{placeholders}}.',
-    '- "questions": array of {id, episode, text} - at most 8, for what the recording cannot show: why one path was chosen over another, whether a value is always the same, why two runs of the same task differed, and waits or off-screen steps. Ask the most useful first.',
+    `- "questions": array of {id, text} - at most ${MAX_QUESTIONS}, see below.`,
+    '',
+    'Questions. The person answers from what they know about their job, not from memory of the recording. Nobody remembers what they pasted, typed, clicked or saw at minute four, so never ask that, and never ask what a key, a shortcut, a copy, a paste or a click did or held. Where a detail like that is missing, work it out from what was on screen around it, or make it a param. Ask only what you need to do this job well, that the recording cannot show, and that the person can answer at once: what starts the task and how often it comes up, how they choose between two paths, the rule behind a value (always the same? where does it come from?), what to do in a case the recording did not cover, what must never be done. Most useful first. None at all is right when the recording is clear. Write each in the person\'s words, never the recorder\'s: no "part 2", no "ctrl+v", no control names a person would not say aloud.',
+    '',
     'A password is never in the recording and must never be in your answer. A "sign in" line names the site and username only.',
-    'Keep every value you were shown as written; do not invent names, numbers or steps that are not in the episodes.',
+    'Keep every value you were shown as written; do not invent names, numbers or steps that are not in the recording.',
 ].join('\n');
 
-function request(episodes) {
-    const blocks = episodes.map(renderEpisode).join('\n\n');
-    return `Here is the recording.\n\n<recording>\n${blocks}\n</recording>\n\nReturn the JSON draft.`;
+function request(episodes, task = '') {
+    const blocks = episodes.map((ep, i) => renderEpisode(ep, i)).join('\n\n');
+    const said = task
+        ? `The person said what they were doing: "${task}"\n\n`
+        : '';
+    return `${said}Here is the recording.\n\n<recording>\n${blocks}\n</recording>\n\nReturn the JSON draft.`;
 }
 
 /** The model's reply as an object, or an error. Tolerant of fences and prose. */
@@ -367,14 +485,27 @@ function parseDraft(reply) {
         return { ok: false, error: `The draft was not readable: ${error.message}` };
     }
     const asArray = v => (Array.isArray(v) ? v : []);
+    // Each question needs an id for its answer to be kept by; a model that
+    // left one out, or gave two the same, still gets its answers back.
+    const ids = new Set();
+    const questions = asArray(parsed.questions)
+        .filter(q => q && String(q.text || '').trim())
+        .slice(0, MAX_QUESTIONS)
+        .map((q, i) => {
+            let id = String(q.id || '').trim() || `q${i + 1}`;
+            if (ids.has(id)) id = `${id}-${i + 1}`;
+            ids.add(id);
+            return { id, text: String(q.text).trim() };
+        });
     return {
         ok: true,
         draft: {
+            summary: typeof parsed.summary === 'string' ? parsed.summary.trim() : '',
             appMap: asArray(parsed.appMap),
             procedures: asArray(parsed.procedures),
             glossary: asArray(parsed.glossary),
             templates: asArray(parsed.templates),
-            questions: asArray(parsed.questions).slice(0, 8),
+            questions,
         },
     };
 }
@@ -408,13 +539,35 @@ function distil(provider, { settings, id } = {}) {
  * recording left over (the page was closed while it distilled, the app was
  * restarted, or the first distil failed) gets its Q&A back.
  */
-function review(provider, { settings, id } = {}) {
+function review(provider, { settings, id, task } = {}) {
     if (!validId(id)) return Promise.resolve({ ok: false, code: 'bad-id', error: 'Not a recording id.' });
     if (active && active.id === id) {
         return Promise.resolve({ ok: false, code: 'recording', error: 'That recording is still under way. Stop it first.' });
     }
+    if (typeof task === 'string') return retell(provider, { settings, id, task });
     const held = drafts.get(id);
     if (held) return Promise.resolve({ ok: true, ...held });
+    return distil(provider, { settings, id });
+}
+
+/**
+ * Read a recording again with the person's own account of what they were
+ * doing, when the draft got the job wrong. Their words are kept beside the
+ * trace (so a later review uses them too), the held draft is dropped, and
+ * the recording is distilled afresh in their light.
+ */
+async function retell(provider, { settings, id, task }) {
+    const said = cleanTask(task);
+    try {
+        const file = path.join(recordingDir(id), 'task.txt');
+        if (said) fs.writeFileSync(file, said, 'utf8');
+        else fs.rmSync(file, { force: true });
+    } catch {
+        return { ok: false, code: 'gone', error: 'That recording is gone.' };
+    }
+    const reading = distilling.get(id);
+    if (reading) await reading.catch(() => null);
+    forget(id);
     return distil(provider, { settings, id });
 }
 
@@ -423,8 +576,9 @@ async function distilNow(provider, { settings, id } = {}) {
     if (!lines) return { ok: false, error: 'That recording is gone.' };
     const episodes = splitEpisodes(lines);
     const logins = loginsFrom(lines);
+    const task = readTask(id, lines);
 
-    let draft = { appMap: [], procedures: [], glossary: [], templates: [], questions: [] };
+    let draft = { summary: '', appMap: [], procedures: [], glossary: [], templates: [], questions: [] };
     let note = '';
     if (typeof provider?.title === 'function' && episodes.length) {
         const abort = new AbortController();
@@ -434,9 +588,10 @@ async function distilNow(provider, { settings, id } = {}) {
             const reply = await provider.title({
                 settings,
                 instruction: INSTRUCTION,
-                prompt: request(episodes),
+                prompt: request(episodes, task),
                 signal: abort.signal,
                 think: THINK,
+                model: 'agent',
             });
             const parsed = abort.signal.aborted ? { ok: false, error: 'The runtime took too long.' } : parseDraft(reply);
             if (parsed.ok) draft = parsed.draft;
@@ -454,7 +609,9 @@ async function distilNow(provider, { settings, id } = {}) {
 
     // Discarded while the runtime was thinking: hold nothing for it.
     if (!fs.existsSync(recordingDir(id))) return { ok: false, code: 'gone', error: 'That recording was discarded.' };
-    const held = { id, logins, draft, note };
+    // Which model read it, so the review can say so beside the summary.
+    const reader = { provider: String(settings?.provider || ''), model: String(settings?.model || ''), effort: String(settings?.effort || '') };
+    const held = { id, logins, draft, note, task, reader };
     drafts.set(id, held);
     return { ok: true, ...held };
 }
@@ -508,6 +665,20 @@ async function accept(id, { agentId, drop = {}, logins = [], answers = {} } = {}
         const text = `${entry.term}: ${entry.meaning}`;
         if (memory.add(owner, { text, tags: ['teach', 'glossary'], kind: 'fact', source: 'teach' })) counts.facts += 1;
     }
+    // What the person was doing, as read (and, if they corrected it, as they
+    // put it), and what they answered: the part of the job a recording
+    // cannot show. Unanswered questions are let go.
+    const summary = String(held.draft.summary || '').trim();
+    if (summary && !drop.summary) {
+        const text = `Seen in a recording of the user at work: ${summary}`;
+        if (memory.add(owner, { text, tags: ['teach', 'workflow'], kind: 'fact', source: 'teach' })) counts.facts += 1;
+    }
+    for (const question of held.draft.questions || []) {
+        const answer = String((answers && answers[question.id]) || '').trim();
+        if (!answer) continue;
+        const text = `Asked "${String(question.text || '').trim()}", the user said: ${redactText(answer).slice(0, 600)}`;
+        if (memory.add(owner, { text, tags: ['teach', 'workflow'], kind: 'fact', source: 'teach' })) counts.facts += 1;
+    }
 
     const loginByKey = new Map(logins.map(l => [`${String(l.site || '').trim()}\u0000${String(l.user || '').trim()}`, l]));
     for (const seen of held.logins) {
@@ -549,6 +720,7 @@ async function writeSpec(owner, item, { kind, id }) {
     if (kind === 'template') {
         lines.push(item.text || '');
     } else {
+        if (item.goal) lines.push(`Goal: ${item.goal}`);
         if (item.when) lines.push(`When: ${item.when}`);
         if (Array.isArray(item.params) && item.params.length) lines.push(`Fill in: ${item.params.join(', ')}`);
         lines.push('', 'Steps:');

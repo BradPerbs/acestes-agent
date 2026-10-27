@@ -1,6 +1,6 @@
 /**
- * The live dictation worker: Parakeet (NVIDIA's TDT 0.6B v3, through
- * sherpa-onnx) and a voice activity detector, in a process of their own.
+ * The live dictation worker: one speech model, through sherpa-onnx, in a
+ * process of its own. The load message says which way it works.
  *
  * Its own process for two reasons. sherpa-onnx carries its own ONNX Runtime,
  * and the main process may already have another loaded for whisper; on
@@ -8,14 +8,23 @@
  * this size is better away from the process that draws
  * every window.
  *
- * Audio arrives while the user talks. The detector cuts it where they pause,
- * and each piece is written down there and then, so the words keep up with
- * the voice and stopping leaves only the last few seconds to do. Between
- * pauses the piece so far is written down every so often too, as a draft the
- * next pass replaces. Everything decodes in order, one at a time.
+ *   pieces      Parakeet (NVIDIA's TDT 0.6B v3), which is not a streaming
+ *               model, with a voice activity detector. Audio arrives while
+ *               the user talks; the detector cuts it where they pause, and
+ *               each piece is written down there and then, so the words keep
+ *               up with the voice and stopping leaves only the last few
+ *               seconds to do. Between pauses the piece so far is written
+ *               down every so often too, as a draft the next pass replaces.
+ *               Everything decodes in order, one at a time.
+ *   streaming   Nemotron 3.5 (NVIDIA's streaming 0.6B), which is. Each chunk
+ *               of audio is fed in as it comes and decoded as soon as the
+ *               model has enough for its next step; the words so far grow as
+ *               they are heard, carrying what came before. A pause long
+ *               enough to end a sentence closes it, and the next starts
+ *               fresh. The language is pinned per recording when asked.
  *
- * Started by parakeet.js as an Electron utility process (parentPort) or, in
- * the tests, a plain child process (process.send).
+ * Started by live-speech.js as an Electron utility process (parentPort) or,
+ * in the tests, a plain child process (process.send).
  */
 const os = require('os');
 
@@ -30,9 +39,15 @@ const DRAFT_SECONDS = 12;
 const LEAD_IN = 1;
 const TRAIL = 0.3;
 
+/** Silence fed in after the last word, so the streaming model's last step has it whole. */
+const STREAM_TAIL = 0.8;
+
 let recognizer = null;
 let sherpa = null;
 let vadConfig = null;
+// 'pieces' or 'streaming', from the load message; and the streaming model.
+let mode = 'pieces';
+let online = null;
 const sessions = new Map();
 
 const port = process.parentPort || null;
@@ -41,7 +56,41 @@ function post(message) {
     else if (process.send) process.send(message);
 }
 
-async function load({ model, vad, threads }) {
+/**
+ * The streaming model. Its features are 128-wide, not Parakeet's 80. An
+ * endpoint is a second of quiet after speech, or two and a half before any,
+ * or half a minute without one: what closes a sentence.
+ */
+function loadStreaming({ model, threads }) {
+    sherpa = sherpa || require('sherpa-onnx-node');
+    // Three at most: it decodes in small steps, and on a laptop's mix of fast
+    // and slow cores a fourth thread made each step wait on a slow one
+    // (measured on a Core Ultra 9 185H: never better, sometimes several times worse).
+    const numThreads = threads || Math.max(1, Math.min(3, os.cpus().length - 1));
+    online = new sherpa.OnlineRecognizer({
+        featConfig: { sampleRate: RATE, featureDim: 128 },
+        modelConfig: {
+            transducer: { encoder: model.encoder, decoder: model.decoder, joiner: model.joiner },
+            tokens: model.tokens,
+            numThreads,
+            provider: 'cpu',
+            debug: 0,
+        },
+        decodingMethod: 'greedy_search',
+        enableEndpoint: 1,
+        rule1MinTrailingSilence: 2.4,
+        rule2MinTrailingSilence: 1.0,
+        rule3MinUtteranceLength: 30,
+    });
+}
+
+async function load(message) {
+    mode = message.kind === 'streaming' ? 'streaming' : 'pieces';
+    if (mode === 'streaming') {
+        loadStreaming(message);
+        return;
+    }
+    const { model, vad, threads } = message;
     sherpa = sherpa || require('sherpa-onnx-node');
     const numThreads = threads || Math.max(1, Math.min(4, os.cpus().length - 1));
     recognizer = await sherpa.OfflineRecognizer.createAsync({
@@ -233,18 +282,86 @@ function cancel(id) {
     sessions.delete(id);
 }
 
+/* ------------------------------------------------------------------ *
+ * Streaming (Nemotron)
+ * ------------------------------------------------------------------ */
+
+/** "it", "it-IT", "IT_it": the base code the model's prompt table takes. */
+const languageCode = value => String(value || '').trim().toLowerCase().split(/[-_]/)[0];
+
+function pin(session) {
+    if (session.language) session.stream.setOption('language', session.language);
+}
+
+function beginStreaming(id, language) {
+    const session = {
+        id,
+        stream: online.createStream(),
+        language: languageCode(language),
+        // Sentences closed at an endpoint, and the one being spoken.
+        pieces: [],
+        draft: '',
+        sent: '',
+        ended: false,
+    };
+    pin(session);
+    sessions.set(id, session);
+}
+
+/**
+ * Decode all the model has room for, and read the sentence so far. At an
+ * endpoint it is closed and the stream starts the next one fresh, pinned as
+ * before. At the end (`finishing`) whatever is there is the last of it.
+ */
+function drainStreaming(session, { finishing = false } = {}) {
+    while (online.isReady(session.stream)) online.decode(session.stream);
+    const text = String(online.getResult(session.stream)?.text || '').trim();
+    if (!finishing && online.isEndpoint(session.stream)) {
+        if (text) session.pieces.push(text);
+        session.draft = '';
+        online.reset(session.stream);
+        pin(session);
+    } else {
+        session.draft = text;
+    }
+    update(session);
+}
+
+function audioStreaming(id, samples) {
+    const session = sessions.get(id);
+    if (!session || session.ended) return;
+    const chunk = samples instanceof Float32Array ? samples : Float32Array.from(samples || []);
+    session.stream.acceptWaveform({ sampleRate: RATE, samples: chunk });
+    drainStreaming(session);
+}
+
+function endStreaming(id) {
+    const session = sessions.get(id);
+    if (!session) return;
+    session.ended = true;
+    session.stream.acceptWaveform({ sampleRate: RATE, samples: new Float32Array(Math.round(RATE * STREAM_TAIL)) });
+    session.stream.inputFinished();
+    drainStreaming(session, { finishing: true });
+    sessions.delete(id);
+    post({ type: 'done', id, text: joined([...session.pieces, session.draft]) });
+}
+
 async function handle(message) {
     if (!message || typeof message !== 'object') return;
+    const streaming = mode === 'streaming';
     try {
         if (message.type === 'load') {
             await load(message);
             post({ type: 'loaded' });
         } else if (message.type === 'begin') {
-            begin(message.id);
+            if (streaming) beginStreaming(message.id, message.language);
+            else begin(message.id);
         } else if (message.type === 'audio') {
-            audio(message.id, message.samples);
+            if (streaming) audioStreaming(message.id, message.samples);
+            else audio(message.id, message.samples);
         } else if (message.type === 'end') {
-            await end(message.id);
+            if (streaming) endStreaming(message.id);
+            else await end(message.id);
         } else if (message.type === 'cancel') {
             cancel(message.id);
         }

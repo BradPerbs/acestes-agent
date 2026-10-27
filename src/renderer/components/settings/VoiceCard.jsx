@@ -11,17 +11,25 @@ import { useT } from '../../i18n';
 /**
  * Voice input: the composer's microphone, and who turns speech into text.
  *
- * On from the start. Three engines, all on this machine (see
+ * On from the start. Four engines, all on this machine (see
  * main/ai/speech.js): Parakeet, the default, which writes as the user talks
- * and downloads its model on the first use or from here; the built-in
- * Whisper, for the languages Parakeet does not know; and Faster-Whisper,
- * which runs through Python. For that one this card says whether Python and
- * the package are there, and offers to install the package, showing pip's
- * output as it goes. Model and language are the Whispers' to choose; Parakeet
- * has the one model and tells the language itself.
+ * and downloads its model on the first use or from here; Nemotron, which does
+ * the same as a true streaming model, in 40 languages that can be pinned; the
+ * built-in Whisper, for the languages Parakeet does not know; and
+ * Faster-Whisper, which runs through Python. For that one this card says
+ * whether Python and the package are there, and offers to install the
+ * package, showing pip's output as it goes. Model is the Whispers' to choose;
+ * language is theirs and Nemotron's. Parakeet has the one model and tells the
+ * language itself.
  */
 
-const ENGINES = ['parakeet', 'whisper', 'faster-whisper'];
+const ENGINES = ['parakeet', 'nemotron', 'whisper', 'faster-whisper'];
+
+/** The engines that write as the user talks, each with one model to download. */
+const LIVE = ['parakeet', 'nemotron'];
+
+/** The engines whose language can be chosen. */
+const PINNED = ['nemotron', 'whisper', 'faster-whisper'];
 
 const megabytes = bytes => `${Math.round(bytes / 1e6)} MB`;
 
@@ -42,7 +50,7 @@ const LANGUAGES = [
 export default function VoiceCard({ settings, update, fieldClass }) {
     const t = useT();
     const engine = settings.voiceEngine || 'parakeet';
-    const whispering = engine !== 'parakeet';
+    const whispering = !LIVE.includes(engine);
     const models = MODELS[engine] || MODELS.whisper;
     const model = models.includes(settings.voiceModel) ? settings.voiceModel : (models.includes('base') ? 'base' : models[0]);
 
@@ -80,7 +88,7 @@ export default function VoiceCard({ settings, update, fieldClass }) {
     const download = async () => {
         setDownloadError('');
         setPercent(0);
-        const result = await window.api.ai.speechDownload?.();
+        const result = await window.api.ai.speechDownload?.(engine);
         setPercent(null);
         if (!result?.ok) setDownloadError(result?.error || t('settings.voice.downloadFailed'));
         check();
@@ -104,7 +112,8 @@ export default function VoiceCard({ settings, update, fieldClass }) {
         const offered = MODELS[next];
         update({ voiceEngine: next, ...(!offered || offered.includes(settings.voiceModel) ? {} : { voiceModel: 'small' }) });
     };
-    const parakeet = engines?.parakeet;
+    // The live engine's model, when one is chosen: on disk, or to download.
+    const liveModel = LIVE.includes(engine) ? engines?.[engine] : null;
 
     const ready = engine !== 'faster-whisper' || Boolean(status?.installed);
 
@@ -136,16 +145,16 @@ export default function VoiceCard({ settings, update, fieldClass }) {
                             value={engine}
                             onChange={switchEngine}
                         />
-                        {engine === 'parakeet' && parakeet && (
+                        {liveModel && (
                             <div className="space-y-2 text-xs text-gray-500 dark:text-gray-400">
-                                {parakeet.installed ? (
-                                    <span>{t('settings.voice.parakeetReady', { size: megabytes(parakeet.size) })}</span>
+                                {liveModel.installed ? (
+                                    <span>{t('settings.voice.parakeetReady', { size: megabytes(liveModel.size) })}</span>
                                 ) : (
                                     <div className="flex items-center gap-3">
                                         <Button size="sm" variant="secondary" onClick={download} disabled={percent !== null}>
                                             {percent !== null ? t('settings.voice.downloading', { percent }) : t('settings.voice.download')}
                                         </Button>
-                                        <span>{t('settings.voice.parakeetMissing', { size: megabytes(parakeet.size) })}</span>
+                                        <span>{t('settings.voice.parakeetMissing', { size: megabytes(liveModel.size) })}</span>
                                     </div>
                                 )}
                                 {downloadError && (
@@ -181,20 +190,22 @@ export default function VoiceCard({ settings, update, fieldClass }) {
                 </SettingRow>
 
                 {whispering && (
-                    <>
-                        <SettingRow
-                            className={DIVIDED}
-                            title={t('settings.voice.model')}
-                            description={t('settings.voice.modelDesc')}
-                        >
-                            <SegmentedControl
-                                ariaLabel={t('settings.voice.model')}
-                                segments={models.map(value => ({ value, label: t(`settings.voice.model.${value}`) }))}
-                                value={model}
-                                onChange={(value) => update({ voiceModel: value })}
-                            />
-                        </SettingRow>
+                    <SettingRow
+                        className={DIVIDED}
+                        title={t('settings.voice.model')}
+                        description={t('settings.voice.modelDesc')}
+                    >
+                        <SegmentedControl
+                            ariaLabel={t('settings.voice.model')}
+                            segments={models.map(value => ({ value, label: t(`settings.voice.model.${value}`) }))}
+                            value={model}
+                            onChange={(value) => update({ voiceModel: value })}
+                        />
+                    </SettingRow>
+                )}
 
+                {PINNED.includes(engine) && (
+                    <>
                         <SettingRow
                             className={DIVIDED}
                             title={t('settings.voice.language')}
@@ -205,7 +216,7 @@ export default function VoiceCard({ settings, update, fieldClass }) {
                                 onChange={(value) => update({ voiceLanguage: value })}
                                 className={fieldClass}
                                 options={[
-                                    { value: '', label: t(engine === 'faster-whisper' ? 'settings.voice.detect' : 'settings.voice.appLanguage') },
+                                    { value: '', label: t(engine === 'whisper' ? 'settings.voice.appLanguage' : 'settings.voice.detect') },
                                     ...LANGUAGES.map(([value, label]) => ({ value, label })),
                                 ]}
                             />

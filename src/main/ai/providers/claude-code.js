@@ -702,8 +702,16 @@ async function listModels({ settings = {} } = {}) {
  * Haiku whatever the conversation runs on, the way Claude Code names its own
  * sessions: it is the cheap one, and a title is a few words. No tools, one
  * turn, and no session written to disk for a history to list. See titles.js.
+ *
+ * `model: 'agent'` asks on the model and effort in `settings` instead (the
+ * one the person picked, or the CLI's default): for a question that needs
+ * judgement rather than a few words, such as reading what a person was doing
+ * from a recording (teach.js). An effort given there decides how hard it
+ * thinks, in place of `think`.
  */
-async function title({ settings = {}, instruction, prompt, signal, think = 'default' } = {}) {
+async function title({ settings = {}, instruction, prompt, signal, think = 'default', model = 'haiku' } = {}) {
+    const own = model === 'agent';
+    const effort = own && settings.effort ? settings.effort : '';
     const executable = executableFor(settings);
     if (!executable) return '';
 
@@ -718,7 +726,8 @@ async function title({ settings = {}, instruction, prompt, signal, think = 'defa
         prompt,
         options: {
             pathToClaudeCodeExecutable: executable,
-            model: 'haiku',
+            ...(own ? (settings.model ? { model: settings.model } : {}) : { model: model || 'haiku' }),
+            ...(effort ? { effort } : {}),
             systemPrompt: instruction,
             tools: [],
             allowedTools: [],
@@ -729,8 +738,8 @@ async function title({ settings = {}, instruction, prompt, signal, think = 'defa
             // all (false), or up to a number of tokens. A long question with
             // its steps spelled out (tidying the memory, see memory-tidy.js)
             // is answered minutes sooner with a cap and barely worse.
-            ...(think === false ? { thinking: { type: 'disabled' } } : {}),
-            ...(Number.isFinite(think) ? { thinking: { type: 'enabled', budgetTokens: think } } : {}),
+            ...(!effort && think === false ? { thinking: { type: 'disabled' } } : {}),
+            ...(!effort && Number.isFinite(think) ? { thinking: { type: 'enabled', budgetTokens: think } } : {}),
             abortController,
             env,
             cwd: app.getPath('userData'),

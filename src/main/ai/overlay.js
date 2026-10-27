@@ -303,6 +303,7 @@ function drivers(list = []) {
                 done: false,
                 phase: 'thinking',
                 held: '',
+                ask: null,
                 since: Date.now(),
                 ended: 0,
             });
@@ -319,6 +320,7 @@ function drivers(list = []) {
                 said: '',
                 done: false,
                 held: '',
+                ask: null,
                 since: Date.now(),
                 ended: 0,
             });
@@ -387,10 +389,20 @@ function event(conversationId, stamped, title = '') {
         case 'question-request':
             row.phase = 'waiting';
             row.tool = null;
+            // What it is asking, on the card, so it can be answered by voice
+            // without opening Acestes to read it.
+            row.ask = stamped.type === 'question-request'
+                ? {
+                    question: String(stamped.question || '').slice(0, 240),
+                    options: stamped.secret ? [] : (stamped.options || []).slice(0, 4).map(option => String(option).slice(0, 40)),
+                    secret: Boolean(stamped.secret),
+                }
+                : { question: `Allow: ${String(stamped.title || stamped.name || 'this step').slice(0, 200)}?`, options: ['Yes', 'No'], secret: false };
             break;
         case 'approval-settled':
         case 'question-settled':
             row.phase = 'thinking';
+            row.ask = null;
             break;
         case 'title':
             if (stamped.title) row.title = stamped.title;

@@ -2,6 +2,30 @@ const { app } = require('electron');
 const path = require('path');
 const fasterWhisper = require('./faster-whisper');
 const parakeet = require('./parakeet');
+const nemotron = require('./nemotron');
+
+/** The engines that write while the user talks, by the name Settings keeps. */
+const LIVE = { parakeet, nemotron };
+
+/** The live engine a setting names, or null for one that takes a whole recording. */
+function liveEngine(name) {
+    return LIVE[name] || null;
+}
+
+/**
+ * A live recording, wherever it is: started on the engine the settings name,
+ * and its audio, stop and cancel sent to whichever engine holds it, so a
+ * change of engine mid-recording does not lose it.
+ */
+const dictation = {
+    start: (name, options) => (liveEngine(name) || parakeet).start(options),
+    audio: (id, samples) => Object.values(LIVE).find(engine => engine.owns(id))?.audio(id, samples),
+    stop: (id) => {
+        const engine = Object.values(LIVE).find(candidate => candidate.owns(id));
+        return engine ? engine.stop(id) : Promise.resolve({ text: '', error: 'That recording is no longer going.' });
+    },
+    cancel: id => Object.values(LIVE).find(engine => engine.owns(id))?.cancel(id),
+};
 
 /**
  * Speech to text, on this machine: the composer's microphone.
@@ -16,6 +40,10 @@ const parakeet = require('./parakeet');
  *                    written down while the user talks, so stopping takes a
  *                    fraction of a second. 25 European languages, told apart
  *                    by itself; the model is 670 MB, fetched once.
+ *   nemotron         NVIDIA's Nemotron 3.5 streaming model, the same way (see
+ *                    nemotron.js), but a true streaming model: it writes as it
+ *                    hears rather than a pause at a time, 40 languages, and
+ *                    the language can be pinned. 680 MB, fetched once.
  *   whisper          built in: run through ONNX (transformers.js) in this
  *                    process. Nothing to
  *                    install; the model is fetched once, to userData, on the
@@ -75,6 +103,7 @@ function setNotifier(fn) {
     tell = typeof fn === 'function' ? fn : () => {};
     fasterWhisper.setNotifier(tell);
     parakeet.setNotifier(tell);
+    nemotron.setNotifier(tell);
 }
 
 function whisperModel(size) {
@@ -170,6 +199,7 @@ async function transcribe(input, { engine = 'whisper', model = 'base', language 
 async function status({ fresh = false } = {}) {
     return {
         parakeet: parakeet.status(),
+        nemotron: nemotron.status(),
         whisper: { models: Object.keys(WHISPER_MODELS), failure },
         fasterWhisper: await fasterWhisper.status({ fresh }),
     };
@@ -186,8 +216,12 @@ module.exports = {
     shutdown: () => {
         fasterWhisper.shutdown();
         parakeet.shutdown();
+        nemotron.shutdown();
     },
     parakeet,
+    nemotron,
+    liveEngine,
+    dictation,
     setNotifier,
     _test: { clean, loudness },
 };

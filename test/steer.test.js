@@ -103,6 +103,61 @@ const clickTool = { name: 'click', handler: async () => ({ text: 'Clicked button
         assert.ok(/Not passed on/.test(warning.message) && /actually use my personal email/.test(warning.message), warning.message);
     });
 
+    await check('a spoken yes or no picks the option that reads as one, or the option said, or none', async () => {
+        const choice = assistant._test.spokenChoice;
+        const consent = ['Allow in this conversation', 'Don\'t allow'];
+        assert.strictEqual(choice('yes', consent), 'Allow in this conversation');
+        assert.strictEqual(choice('Yeah go ahead.', consent), 'Allow in this conversation');
+        assert.strictEqual(choice('allow', consent), 'Allow in this conversation');
+        assert.strictEqual(choice('no', consent), 'Don\'t allow');
+        assert.strictEqual(choice('don\'t allow', consent), 'Don\'t allow');
+        assert.strictEqual(choice('web-02 please', ['web-01', 'web-02']), 'web-02');
+        assert.strictEqual(choice('yes', ['web-01', 'web-02']), '', 'a yes picks nothing that is not a yes');
+        assert.strictEqual(choice('use my work address', ['Personal', 'Work']), 'Work');
+    });
+
+    await check('standing on a question, what is said answers it and the turn goes on', async () => {
+        conversation.busy = true;
+        const pending = assistant._test.requestQuestion(conversationId, {
+            question: 'Let the agent control chrome.exe in this conversation?',
+            options: ['Allow in this conversation', 'Don\'t allow'],
+        });
+        const result = await assistant.steer(conversationId, 'Yes, allow it');
+        assert.deepStrictEqual(result, { success: true, answered: 'question', answer: 'Allow in this conversation' });
+        const reply = await pending;
+        assert.deepStrictEqual(reply, { answered: true, answer: 'Allow in this conversation', chosen: true });
+        assert.deepStrictEqual(conversation.steers || [], [], 'an answer, not a steer left waiting');
+        const settled = conversation.events.filter(event => event.type === 'question-settled').at(-1);
+        assert.strictEqual(settled.answer, 'Allow in this conversation');
+    });
+
+    await check('a question with no option said is answered in the words said', async () => {
+        const pending = assistant._test.requestQuestion(conversationId, { question: 'Which email should I use?', options: [] });
+        await assistant.steer(conversationId, 'brad at work dot com');
+        assert.deepStrictEqual(await pending, { answered: true, answer: 'brad at work dot com', chosen: false });
+    });
+
+    await check('a question wanting a secret is not answered by voice, and stays up', async () => {
+        const pending = assistant._test.requestQuestion(conversationId, { question: 'The API key?', secret: 'webshare' });
+        const result = await assistant.steer(conversationId, 'it is abc123');
+        assert.strictEqual(result.success, false);
+        assert.ok(/typed/.test(result.message), result.message);
+        // Dismissed here so the test does not wait on it.
+        assistant.respondToQuestion({ requestId: conversation.events.filter(event => event.type === 'question-request').at(-1).requestId, answer: '' });
+        assert.strictEqual((await pending).answered, false);
+    });
+
+    await check('standing on an approval, a yes approves it and anything else is a no with the words', async () => {
+        const first = assistant._test.requestApproval(conversationId, { toolName: 'run_command', name: 'run_command', input: { command: 'systemctl restart nginx' } });
+        assert.strictEqual((await assistant.steer(conversationId, 'yes do it')).approved, true);
+        assert.strictEqual((await first).approved, true);
+        const second = assistant._test.requestApproval(conversationId, { toolName: 'run_command', name: 'run_command', input: { command: 'rm notes.txt' } });
+        assert.strictEqual((await assistant.steer(conversationId, 'no, move it to the archive instead')).approved, false);
+        const verdict = await second;
+        assert.strictEqual(verdict.approved, false);
+        assert.ok(/move it to the archive instead/.test(verdict.message), verdict.message);
+    });
+
     await check('the carry-over to another runtime keeps what was said mid-turn', async () => {
         // The carry-over is of the turns before the message about to go.
         assistant._test.emit(conversationId, { type: 'user-message', text: 'Now submit it' });

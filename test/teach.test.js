@@ -39,7 +39,7 @@ Module._load = function patched(request, ...rest) {
 const teach = require(path.join(ROOT, 'ai', 'teach'));
 const secrets = require(path.join(ROOT, 'ai', 'secrets'));
 const memory = require(path.join(ROOT, 'ai', 'memory'));
-const { redactText, redactLine, splitEpisodes, loginsFrom, parseDraft, secretName, looksLikeCard } = teach._test;
+const { redactText, redactLine, splitEpisodes, renderEpisode, loginsFrom, parseDraft, secretName, looksLikeCard } = teach._test;
 
 let failures = 0;
 function test(name, fn) {
@@ -86,16 +86,109 @@ async function run() {
         assert.ok(redactText('IBAN DE89 3704 0044 0532 0130 00', { redact: true }).includes('{{iban}}'));
     });
 
-    await test('episodes split on app change, long gaps and marks', () => {
+    await test('episodes split on long gaps and marks, not on a switch of app', () => {
         const lines = [
-            { t: 0, type: 'window', app: 'chrome.exe', window: 'A' },
+            { t: 0, type: 'window', app: 'outlook.exe', window: 'Inbox' },
             { t: 100, type: 'click', target: { name: 'x' } },
+            { t: 200, type: 'window', app: 'excel.exe', window: 'Orders.xlsx' }, // switch: same task
+            { t: 300, type: 'window', app: 'outlook.exe', window: 'Inbox' },
             { t: 200000, type: 'click', target: { name: 'y' } }, // > 2 min gap
-            { t: 200100, type: 'window', app: 'excel.exe', window: 'B' }, // app change
             { t: 200200, type: 'mark', note: 'here' }, // mark
         ];
         const eps = splitEpisodes(lines);
-        assert.ok(eps.length >= 3, `expected several episodes, got ${eps.length}`);
+        assert.strictEqual(eps.length, 3, `expected three episodes, got ${eps.length}`);
+        assert.strictEqual(eps[0].lines.length, 4, 'the mail-to-sheet run stays one episode');
+    });
+
+    await test('the recording reads as work: paste folded into its field, caret keys gone, runs counted', () => {
+        const text = renderEpisode({
+            id: 'e1',
+            start: 0,
+            lines: [
+                { t: 0, type: 'window', app: 'outlook.exe', window: 'Order #1042' },
+                { t: 10, type: 'content', text: 'Order #1042  Ship to: Anna Rossi' },
+                { t: 20, type: 'keys', keys: 'ctrl+c' },
+                { t: 30, type: 'window', app: 'excel.exe', window: 'Orders.xlsx' },
+                { t: 40, type: 'keys', keys: 'down' },
+                { t: 41, type: 'keys', keys: 'down' },
+                { t: 50, type: 'keys', keys: 'ctrl+v' },
+                { t: 60, type: 'field', target: { name: 'B7' }, value: '1042' },
+                { t: 70, type: 'keys', keys: 'tab' },
+                { t: 71, type: 'keys', keys: 'tab' },
+                { t: 72, type: 'keys', keys: 'tab' },
+                { t: 80, type: 'content', text: 'Order #1042  Ship to: Anna Rossi' }, // seen already
+            ],
+        }, 0);
+        assert.ok(/copy/.test(text), 'ctrl+c reads as copy');
+        assert.ok(!/ctrl\+[cv]/.test(text), 'no raw clipboard shortcut is shown');
+        assert.ok(/enter "B7" = 1042 \(pasted\)/.test(text), 'the paste lands on its field');
+        assert.ok(!/^\s+paste$/m.test(text), 'the paste is not a step of its own');
+        assert.ok(!/down/.test(text), 'caret keys are left out');
+        assert.ok(/press Tab ×3/.test(text), 'a run is counted');
+        assert.strictEqual(text.match(/Ship to/g).length, 1, 'the same screen is shown once');
+    });
+
+    await test('questions are capped, need text, and always carry an id', () => {
+        const parsed = parseDraft(JSON.stringify({
+            summary: 'Copying orders into the sheet.',
+            questions: [
+                { text: 'How often do orders come in?' },
+                { id: 'q', text: 'One?' },
+                { id: 'q', text: 'Two?' },
+                { id: 'x', text: '' },
+                { text: 'Three?' },
+                { text: 'Four?' },
+            ],
+        }));
+        assert.ok(parsed.ok);
+        assert.strictEqual(parsed.draft.summary, 'Copying orders into the sheet.');
+        const qs = parsed.draft.questions;
+        assert.ok(qs.length <= 4, `at most four, got ${qs.length}`);
+        assert.ok(qs.every(q => q.id && q.text), 'each has an id and text');
+        assert.strictEqual(new Set(qs.map(q => q.id)).size, qs.length, 'ids are unique');
+    });
+
+    await test('the task the person gave is put to the runtime, and reading again uses their correction', async () => {
+        teach._test.reset();
+        const started = await teach.start('agent-k', { task: 'Logging supplier invoices' });
+        teach.ingest({ t: 0, type: 'window', app: 'chrome.exe', window: 'Xero' });
+        const stopped = await teach.stop();
+        const prompts = [];
+        const provider = { title: async (o) => { prompts.push(o); return JSON.stringify({ summary: `read ${prompts.length}` }); } };
+        const picked = { provider: 'claude-code', model: 'opus', effort: 'high' };
+        const first = await teach.review(provider, { settings: picked, id: stopped.id });
+        assert.ok(/Logging supplier invoices/.test(prompts[0].prompt), 'the task at the start reached the prompt');
+        assert.strictEqual(prompts[0].model, 'agent', 'asked on the picked model, not the title model');
+        assert.strictEqual(prompts[0].settings.model, 'opus', 'the picked model went to the runtime');
+        assert.deepStrictEqual(first.reader, picked, 'the draft says which model read it');
+        assert.strictEqual(first.task, 'Logging supplier invoices');
+        const again = await teach.review(provider, { settings: {}, id: stopped.id, task: 'Paying supplier bills' });
+        assert.strictEqual(prompts.length, 2, 'the runtime was asked again');
+        assert.ok(/Paying supplier bills/.test(prompts[1].prompt), 'the correction reached the prompt');
+        assert.strictEqual(again.draft.summary, 'read 2', 'the fresh draft replaced the old');
+        const reopened = await teach.review(provider, { settings: {}, id: stopped.id });
+        assert.strictEqual(prompts.length, 2, 'an ordinary review hands back the held draft');
+        assert.strictEqual(reopened.task, 'Paying supplier bills');
+        teach.discard(stopped.id);
+    });
+
+    await test('accept keeps the summary and the answered questions', async () => {
+        teach._test.reset();
+        const started = await teach.start('agent-l', {});
+        teach.ingest({ t: 0, type: 'window', app: 'chrome.exe', window: 'Xero' });
+        const stopped = await teach.stop();
+        await teach.review({
+            title: async () => JSON.stringify({
+                summary: 'Logging supplier invoices in Xero.',
+                questions: [{ id: 'q1', text: 'How often?' }, { id: 'q2', text: 'Who approves?' }],
+            }),
+        }, { settings: {}, id: stopped.id });
+        const result = await teach.accept(stopped.id, { agentId: 'agent-l', answers: { q1: 'Every Monday' } });
+        assert.ok(result.ok, result.error);
+        const facts = memory.list('agent-l').map(f => f.text);
+        assert.ok(facts.some(t => /Logging supplier invoices in Xero/.test(t)), 'the summary reached memory');
+        assert.ok(facts.some(t => /How often\?.*Every Monday/.test(t)), 'the answer reached memory');
+        assert.ok(!facts.some(t => /Who approves/.test(t)), 'an unanswered question is let go');
     });
 
     await test('logins are gathered as site and username, no password', () => {

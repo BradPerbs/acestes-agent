@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import {
     Alert02Icon,
@@ -14,7 +14,9 @@ import {
 import Button from './ui/Button';
 import Checkbox from './ui/Checkbox';
 import { FIELD_CLASS } from './ui/Field';
+import ModelMenu from './assistant/ModelMenu';
 import { toastOptions } from '../lib/toast';
+import { PROVIDER_NAMES, currentModelRow, mergedModelRows } from '../lib/ai-catalog';
 
 /**
  * Teach mode, as an inventory page the person drives for one agent.
@@ -40,6 +42,117 @@ function formatWhen(at) {
 /** A login's identity, the key the backend drops it by. */
 const loginKey = (site, user) => `${site}\u0000${user}`;
 
+/** The model picked to read recordings, kept per agent on this machine. */
+const pickKey = (agentId) => `teach.reader.${agentId}`;
+function loadPick(agentId) {
+    try {
+        const raw = JSON.parse(localStorage.getItem(pickKey(agentId)) || 'null');
+        return raw && typeof raw.provider === 'string' ? raw : null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Which model reads a recording, as a choice on the page rather than hidden.
+ *
+ * The chat's own model menu, offering only the runtimes switched on for the
+ * agent that can do a one-shot read (main's `readers`). Starts on the agent's
+ * model; a pick is kept for the agent and sent with every read, so what the
+ * chip shows is what reads.
+ */
+function useReader(agentId, readers) {
+    const [aiSettings, setAiSettings] = useState(null);
+    const [agentSettings, setAgentSettings] = useState(null);
+    const [catalogs, setCatalogs] = useState({});
+    const [loading, setLoading] = useState(false);
+    const [pick, setPick] = useState(() => loadPick(agentId));
+    // The model a new chat would start on (starred, or last used), so an
+    // agent with no model of its own still names one here rather than the
+    // runtime alone.
+    const [startPick, setStartPick] = useState(null);
+
+    useEffect(() => {
+        setPick(loadPick(agentId));
+        window.api.ai.startModel?.(agentId)
+            .then(answer => setStartPick(answer?.pick || null))
+            .catch(() => {});
+        window.api.ai.status(agentId)
+            .then((status) => {
+                setAiSettings(status?.settings || null);
+                setAgentSettings(status?.agentSettings || null);
+                setCatalogs(status?.catalogs || {});
+            })
+            .catch(() => {});
+    }, [agentId]);
+
+    // The agent's own model and sign-ins, as the composer works them out.
+    const base = useMemo(() => {
+        if (!aiSettings) return null;
+        const own = agentSettings && (!agentId || agentSettings.agentId === agentId) ? agentSettings : null;
+        return own
+            ? { ...aiSettings, provider: own.provider, model: own.model, effort: own.effort, accounts: own.accounts, menuAccounts: own.menuAccounts }
+            : aiSettings;
+    }, [aiSettings, agentSettings, agentId]);
+
+    const key = base ? (base.providers || [base.provider]).filter(id => readers.includes(id)).join(' ') : '';
+    const providers = useMemo(() => (key ? key.split(' ') : []), [key]);
+
+    const read = useCallback((wanted, refresh = false) => {
+        const asking = (wanted || []).filter(Boolean);
+        if (!asking.length) return;
+        setLoading(true);
+        Promise.all(asking.map(provider => window.api.ai.models({ provider, refresh })
+            .then(rows => [provider, rows || null])
+            .catch(() => [provider, null])))
+            .then(answers => setCatalogs(held => ({ ...held, ...Object.fromEntries(answers) })))
+            .finally(() => setLoading(false));
+    }, []);
+    useEffect(() => { read(providers); }, [providers, read]);
+    const refresh = useCallback((only) => read(Array.isArray(only) && only.length ? only : providers, true), [providers, read]);
+
+    // What the chip shows and the read uses: the pick made here while its
+    // runtime is still on offer, else the model a new chat starts on, else
+    // the agent's own, else the first runtime that can read.
+    const settings = useMemo(() => {
+        if (!base || !providers.length) return null;
+        if (pick && providers.includes(pick.provider)) return { ...base, ...pick };
+        if (startPick?.model && providers.includes(startPick.provider)) {
+            return {
+                ...base,
+                provider: startPick.provider,
+                model: startPick.model,
+                effort: startPick.effort || '',
+                account: startPick.account || '',
+            };
+        }
+        if (providers.includes(base.provider)) return base;
+        return { ...base, provider: providers[0], model: '', effort: '', account: '' };
+    }, [base, providers, pick, startPick]);
+
+    const change = useCallback((patch) => {
+        if (!settings) return;
+        const next = { ...settings, ...patch };
+        const kept = { provider: next.provider, model: next.model || '', effort: next.effort || '', account: next.account || '' };
+        setPick(kept);
+        try { localStorage.setItem(pickKey(agentId), JSON.stringify(kept)); } catch { /* not kept; still used */ }
+    }, [settings, agentId]);
+
+    const chosen = settings
+        ? { provider: settings.provider, model: settings.model || '', effort: settings.effort || '', account: settings.account || '' }
+        : null;
+
+    /** A model's name as the menu shows it, for "Reading with" and "Read by". */
+    const labelFor = useCallback((who) => {
+        if (!who?.provider) return '';
+        const rows = mergedModelRows(catalogs, [who.provider], { ...(base || {}), provider: who.provider, model: who.model || '' });
+        const row = currentModelRow(rows, { provider: who.provider, model: who.model || '' });
+        return row?.short || row?.label || who.model || PROVIDER_NAMES[who.provider] || who.provider;
+    }, [catalogs, base]);
+
+    return { settings, providers, catalogs, loading, refresh, change, chosen, labelFor };
+}
+
 function TeachPanel({ agentId = '' }) {
     // The global recorder, read from state(): one at a time, with its line
     // count and whether it is paused. Null when nothing is recording.
@@ -51,6 +164,11 @@ function TeachPanel({ agentId = '' }) {
     const [result, setResult] = useState(null);
 
     const [apps, setApps] = useState('');
+    // What the person says they are about to do (before recording), and their
+    // correction of what the agent thought they did (in review). Either is the
+    // one thing a recording cannot show, and the draft is read in its light.
+    const [task, setTask] = useState('');
+    const [retellText, setRetellText] = useState('');
     // One call in flight (start, stop, accept, discard), so buttons settle.
     const [busy, setBusy] = useState(false);
     // The agent is reading a recording into a draft (after stop, or a left
@@ -65,11 +183,18 @@ function TeachPanel({ agentId = '' }) {
     const [loginRows, setLoginRows] = useState([]);
     const [answers, setAnswers] = useState({});
 
+    // The runtimes that can read a recording, from main, and the model picked.
+    const [readers, setReaders] = useState([]);
+    const reader = useReader(agentId, readers);
+
     const refresh = useCallback(async () => {
         try {
             const state = await window.api.teach?.state();
             setRecording(state?.recording || null);
             setPending(state?.pending || []);
+            if (Array.isArray(state?.readers)) {
+                setReaders(held => (held.join(' ') === state.readers.join(' ') ? held : state.readers));
+            }
         } catch {
             // The page just shows what it last knew.
         }
@@ -92,6 +217,7 @@ function TeachPanel({ agentId = '' }) {
     const openReview = useCallback((draftReview) => {
         setKept({});
         setAnswers({});
+        setRetellText(draftReview?.task || '');
         setLoginRows((draftReview?.logins || []).map(entry => ({
             site: entry.site,
             user: entry.user,
@@ -106,9 +232,10 @@ function TeachPanel({ agentId = '' }) {
         setBusy(true);
         try {
             const list = apps.split(',').map(name => name.trim().toLowerCase()).filter(Boolean);
-            const res = await window.api.teach?.start(agentId, { apps: list });
+            const res = await window.api.teach?.start(agentId, { apps: list, task: task.trim() });
             if (res?.ok) {
                 setResult(null);
+                setTask('');
                 await refresh();
             } else if (res) {
                 toast.error(res.error || `Could not start recording (${res.code || 'error'}).`, toastOptions());
@@ -116,7 +243,7 @@ function TeachPanel({ agentId = '' }) {
         } finally {
             setBusy(false);
         }
-    }, [busy, agentId, apps, refresh]);
+    }, [busy, agentId, apps, task, refresh]);
 
     const togglePause = useCallback(async () => {
         const res = await window.api.teach?.pause(!recording?.paused);
@@ -142,7 +269,7 @@ function TeachPanel({ agentId = '' }) {
         setBusy(true);
         setReading(true);
         try {
-            const res = await window.api.teach?.stop(agentId);
+            const res = await window.api.teach?.stop(agentId, reader.chosen);
             if (res?.review) {
                 setRecording(null);
                 takeReview(res.review);
@@ -156,7 +283,7 @@ function TeachPanel({ agentId = '' }) {
             setBusy(false);
             refresh();
         }
-    }, [busy, agentId, takeReview, refresh]);
+    }, [busy, agentId, reader.chosen, takeReview, refresh]);
 
     // Review a left over recording: the agent reads it again (or hands back
     // the draft it already made, or joins the read still under way).
@@ -165,7 +292,7 @@ function TeachPanel({ agentId = '' }) {
         setBusy(true);
         setReading(true);
         try {
-            takeReview(await window.api.teach?.review(agentId, id));
+            takeReview(await window.api.teach?.review(agentId, id, undefined, reader.chosen));
         } catch (error) {
             toast.error(error?.message || 'The recording could not be opened for review.', toastOptions());
         } finally {
@@ -173,7 +300,51 @@ function TeachPanel({ agentId = '' }) {
             setBusy(false);
             refresh();
         }
-    }, [busy, agentId, takeReview, refresh]);
+    }, [busy, agentId, reader.chosen, takeReview, refresh]);
+
+    // The draft got the job wrong: read the same recording again, with the
+    // person's own words for what they were doing and the model now picked.
+    // If that fails, the draft they had stays up rather than leaving them
+    // with nothing.
+    const readAgain = useCallback(async () => {
+        if (busy || !agentId || !review) return;
+        const before = review;
+        setBusy(true);
+        setReview(null);
+        setReading(true);
+        try {
+            const res = await window.api.teach?.review(agentId, before.id, retellText.trim(), reader.chosen);
+            if (res && res.ok !== false) {
+                openReview(res);
+            } else {
+                setReview(before);
+                toast.error(res?.error || 'The recording could not be read again.', toastOptions());
+            }
+        } catch (error) {
+            setReview(before);
+            toast.error(error?.message || 'The recording could not be read again.', toastOptions());
+        } finally {
+            setReading(false);
+            setBusy(false);
+        }
+    }, [busy, agentId, review, retellText, reader.chosen, openReview]);
+
+    /** The model menu, as the chat has it, offering the runtimes that can read. */
+    const readerChip = reader.settings ? (
+        <ModelMenu
+            settings={reader.settings}
+            catalogs={reader.catalogs}
+            providers={reader.providers}
+            loading={reader.loading}
+            onRefresh={reader.refresh}
+            onChange={reader.change}
+            placement="down"
+        />
+    ) : (
+        <span className="text-[13px] text-gray-500 dark:text-gray-400">
+            None of this agent's runtimes can read a recording. Switch on Claude Code, Codex, or an OpenAI or local model.
+        </span>
+    );
 
     const key = (section, id) => `${section}:${id}`;
     const isKept = (section, id) => kept[key(section, id)] !== false;
@@ -201,6 +372,7 @@ function TeachPanel({ agentId = '' }) {
         if (glossDrop.length) drop.glossary = glossDrop;
         if (tmplDrop.length) drop.templates = tmplDrop;
         if (loginDrop.length) drop.logins = loginDrop;
+        if (draft.summary && !isKept('summary', 'summary')) drop.summary = true;
 
         const logins = loginRows
             .filter(row => row.store && row.password)
@@ -280,8 +452,10 @@ function TeachPanel({ agentId = '' }) {
             (appGroups[entry.app] = appGroups[entry.app] || []).push(entry);
         }
 
-        const nothing = !logins.length && !appMap.length && !procedures.length
+        const summary = String(draft.summary || '').trim();
+        const nothing = !summary && !logins.length && !appMap.length && !procedures.length
             && !glossary.length && !templates.length && !questions.length;
+        const retold = retellText.trim() !== String(review.task || '').trim();
 
         return (
             <div className="flex flex-col gap-4 h-full min-h-0" id="teach-panel">
@@ -306,6 +480,50 @@ function TeachPanel({ agentId = '' }) {
                             The recording held nothing to learn from.
                         </p>
                     )}
+
+                    <section className="flex flex-col gap-2">
+                        <SectionTitle>What you were doing</SectionTitle>
+                        <div className="rounded-xl border border-gray-200 dark:border-neutral-800 bg-white dark:bg-neutral-800/50 px-4 py-3">
+                            {summary ? (
+                                <label className="flex items-start gap-3 cursor-pointer">
+                                    <Checkbox checked={isKept('summary', 'summary')} onChange={() => toggleKeep('summary', 'summary')} />
+                                    <span className="min-w-0 flex-1 text-sm text-gray-900 dark:text-white break-words">{summary}</span>
+                                </label>
+                            ) : (
+                                <p className="text-[13px] text-gray-500 dark:text-gray-400">
+                                    The agent could not tell what the task was. Say it in a line below and it reads the recording again.
+                                </p>
+                            )}
+                            <div className={summary ? 'mt-3 pl-[30px]' : 'mt-3'}>
+                                <input
+                                    type="text"
+                                    value={retellText}
+                                    onChange={(event) => setRetellText(event.target.value)}
+                                    onKeyDown={(event) => {
+                                        if (event.key === 'Enter' && retold && reader.settings) readAgain();
+                                    }}
+                                    placeholder={summary ? 'Not quite? Say what you were doing' : 'What were you doing?'}
+                                    className={FIELD_CLASS}
+                                />
+                                <p className="mt-1.5 text-[11px] text-gray-500 dark:text-neutral-500">
+                                    For example: entering this week's supplier invoices into Xero from the accounts inbox.
+                                </p>
+                                <div className="mt-3 flex flex-wrap items-center gap-2">
+                                    <span className="text-[13px] text-gray-500 dark:text-gray-400">Read with</span>
+                                    {readerChip}
+                                    <Button onClick={readAgain} disabled={busy || !reader.settings}>
+                                        Read again
+                                    </Button>
+                                </div>
+                                {review.reader?.provider && (
+                                    <p className="mt-1.5 text-[11px] text-gray-500 dark:text-neutral-500">
+                                        This draft was read by {reader.labelFor(review.reader)}
+                                        {review.reader.effort ? ` at ${review.reader.effort} effort` : ''}.
+                                    </p>
+                                )}
+                            </div>
+                        </div>
+                    </section>
 
                     {logins.length > 0 && (
                         <section className="flex flex-col gap-2">
@@ -513,8 +731,9 @@ function TeachPanel({ agentId = '' }) {
                         <Loading03Icon size={22} className="animate-spin text-gray-500 dark:text-gray-400" />
                         <span className="text-base font-medium text-gray-900 dark:text-white">Reading the recording</span>
                         <p className="text-[13px] text-gray-500 dark:text-gray-400">
-                            The agent is working out what it learned and what to ask you. This can take a few minutes. If you
-                            leave this page, the recording waits under Left over, and Review picks it up again.
+                            {reader.chosen ? `${reader.labelFor(reader.chosen)} is` : 'The agent is'} working out what you were
+                            doing, what it learned and what to ask you. This can take a few minutes. If you leave this page, the
+                            recording waits under Left over, and Review picks it up again.
                         </p>
                     </div>
                 </div>
@@ -557,6 +776,10 @@ function TeachPanel({ agentId = '' }) {
                                 Stop and review
                             </Button>
                         </div>
+                        <div className="flex items-center gap-2">
+                            <span className="text-[13px] text-gray-500 dark:text-gray-400">Read with</span>
+                            {readerChip}
+                        </div>
                     </div>
                 </div>
             </div>
@@ -590,6 +813,21 @@ function TeachPanel({ agentId = '' }) {
                     </div>
 
                     <div className="flex flex-col gap-1.5">
+                        <span className="text-xs font-medium text-gray-700 dark:text-gray-300">What are you about to do?</span>
+                        <input
+                            type="text"
+                            value={task}
+                            onChange={(event) => setTask(event.target.value)}
+                            placeholder="Optional, one line"
+                            className={FIELD_CLASS}
+                        />
+                        <span className="text-[11px] text-gray-500 dark:text-neutral-500">
+                            For example: entering this week's supplier invoices into Xero from the accounts inbox. The agent
+                            reads the recording in the light of it, and asks you less.
+                        </span>
+                    </div>
+
+                    <div className="flex flex-col gap-1.5">
                         <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Apps to record</span>
                         <input
                             type="text"
@@ -600,6 +838,15 @@ function TeachPanel({ agentId = '' }) {
                         />
                         <span className="text-[11px] text-gray-500 dark:text-neutral-500">
                             For example chrome.exe, excel.exe. Anything not listed stays off the recording.
+                        </span>
+                    </div>
+
+                    <div className="flex flex-col gap-1.5">
+                        <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Model that reads the recording</span>
+                        <div className="flex items-center">{readerChip}</div>
+                        <span className="text-[11px] text-gray-500 dark:text-neutral-500">
+                            It works out what you were doing and what to ask you. A stronger model understands the work
+                            better; you can change it again before you stop, or read the recording again with another.
                         </span>
                     </div>
 

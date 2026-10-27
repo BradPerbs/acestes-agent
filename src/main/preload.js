@@ -758,7 +758,7 @@ contextBridge.exposeInMainWorld('api', {
         // Python package, for the Voice input settings.
         speechStatus: (options) => ipcRenderer.invoke('ai-speech-status', options || {}),
         speechInstall: () => ipcRenderer.invoke('ai-speech-install'),
-        speechDownload: () => ipcRenderer.invoke('ai-speech-download'),
+        speechDownload: (engine) => ipcRenderer.invoke('ai-speech-download', engine),
         // Browser use, for its settings: whether Node.js and a browser are
         // here, installing Node.js, and that install's output as it goes.
         // See main/ai/browser-use.js.
@@ -915,8 +915,12 @@ contextBridge.exposeInMainWorld('api', {
         state: () => ipcRenderer.invoke('teach-state'),
         start: (agentId, options) => ipcRenderer.invoke('teach-start', { agentId, ...(options || {}) }),
         pause: (on) => ipcRenderer.invoke('teach-pause', { on }),
-        stop: (agentId) => ipcRenderer.invoke('teach-stop', { agentId }),
-        review: (agentId, id) => ipcRenderer.invoke('teach-review', { agentId, id }),
+        // `pick` is the model the recording is read with ({provider, model,
+        // effort, account}), from the Teach page's menu; empty is the agent's.
+        stop: (agentId, pick) => ipcRenderer.invoke('teach-stop', { agentId, pick }),
+        // `task`, when given, is the person's own account of what they were
+        // doing: the recording is read again in its light.
+        review: (agentId, id, task, pick) => ipcRenderer.invoke('teach-review', { agentId, id, task, pick }),
         accept: (agentId, id, selections) => ipcRenderer.invoke('teach-accept', { agentId, id, selections }),
         discard: (id, selections) => ipcRenderer.invoke('teach-discard', { id, selections }),
         pending: () => ipcRenderer.invoke('teach-pending'),

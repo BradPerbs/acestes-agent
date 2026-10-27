@@ -1625,7 +1625,15 @@ function requestQuestion(conversation, { question, options = [], secret = '', si
             }, 'parked');
         }, signal ? QUESTION_HOLD : QUESTION_WAIT);
 
-        pendingQuestions.set(requestId, { resolve: settle, timer, conversationId: conversation.id });
+        // The options and whether it wants a secret go with it, so an answer
+        // said to the corner card can be matched to a choice (see `steer`).
+        pendingQuestions.set(requestId, {
+            resolve: settle,
+            timer,
+            conversationId: conversation.id,
+            options: name ? [] : options.slice(0, 6).map(String),
+            secret: Boolean(name),
+        });
 
         // The runtime stopped waiting for the answer, which some do in
         // twenty seconds. The card stays up and the question is parked, so
@@ -2915,12 +2923,17 @@ computer.configure({
     // The voice shortcut, pressed while agents drive: the card listens, and
     // what is said steers the newest of them. See overlay.js and `steer`.
     voice: (ids) => {
-        const id = ids[ids.length - 1];
+        // One standing on a question first, since it can go no further
+        // without an answer; otherwise the newest.
+        const id = [...ids].reverse().find(candidate => waitingCard(candidate)) || ids[ids.length - 1];
         const conversation = id ? conversations.get(id) : null;
         if (!conversation) return;
         // The machine's voice settings, as the composer's microphone reads them.
         const current = settings.get();
-        overlay.voice(id, { live: current.voiceEngine === 'parakeet', enabled: current.voiceInput !== false });
+        overlay.voice(id, {
+            live: current.voiceEngine === 'parakeet' || current.voiceEngine === 'nemotron',
+            enabled: current.voiceInput !== false,
+        });
     },
     // In teach mode, a recorder event line, written to the trace. See teach.js.
     recorded: line => teach.ingest(line),
@@ -2950,11 +2963,11 @@ teach.configure({
 });
 
 /** Start recording the person's work for an agent, in the apps named. */
-async function teachStart(agentId, { apps = [], redact = false } = {}) {
+async function teachStart(agentId, { apps = [], redact = false, task = '' } = {}) {
     const id = String(agentId || agents.activeId());
     const agent = agents.get(id);
     const label = `Recording your work for ${agent?.name || 'Acestes'} · stop it in Acestes`;
-    return teach.start(id, { apps, redact, label, paused: 'Recording paused' });
+    return teach.start(id, { apps, redact, label, paused: 'Recording paused', task: String(task || '') });
 }
 
 function teachPauseRecording(on) {
@@ -2967,10 +2980,33 @@ function teachPauseRecording(on) {
  * gives an empty draft with the recording's app and login list, so there is
  * still something to review.
  */
-async function teachStop(agentId) {
+async function teachStop(agentId, pick) {
     const stopped = await teach.stop();
     if (!stopped.ok) return stopped;
-    return { ...stopped, review: await teachReview(agentId, stopped.id) };
+    return { ...stopped, review: await teachReview(agentId, stopped.id, undefined, pick) };
+}
+
+/**
+ * The runtimes that can read a recording: the ones with a one-shot ask
+ * (title()) to put it to. The Teach page offers only these in its model menu.
+ */
+function teachReaders() {
+    return Object.keys(PROVIDERS).filter(id => typeof PROVIDERS[id]?.title === 'function');
+}
+
+/**
+ * The settings a recording is read with: the model the person picked on the
+ * Teach page (runtime, model, effort, sign-in), or the agent's own when none
+ * was or the pick names a runtime that cannot read one.
+ */
+function teachSettings(agentId, pick) {
+    const provider = pick && typeof pick.provider === 'string' ? pick.provider : '';
+    if (!provider || !teachReaders().includes(provider)) return resolved(agentId);
+    return {
+        ...resolvedFor(provider, agentId, String(pick.account || '')),
+        model: String(pick.model || ''),
+        effort: String(pick.effort || ''),
+    };
 }
 
 /**
@@ -2978,12 +3014,16 @@ async function teachStop(agentId) {
  * held, the distil under way, or a fresh distil of the trace on disk. Never
  * rejects, so the page always has an answer to show, an error included.
  */
-async function teachReview(agentId, recordingId) {
+async function teachReview(agentId, recordingId, task, pick) {
     try {
         const id = String(agentId || agents.activeId());
-        const current = resolved(id);
+        const current = teachSettings(id, pick);
         const provider = PROVIDERS[current.provider];
-        return await teach.review(provider, { settings: current, id: String(recordingId || '') });
+        return await teach.review(provider, {
+            settings: current,
+            id: String(recordingId || ''),
+            ...(typeof task === 'string' ? { task } : {}),
+        });
     } catch (error) {
         return { ok: false, error: error?.message || 'The recording could not be opened for review.' };
     }
@@ -3002,7 +3042,7 @@ function teachPending() {
 }
 
 function teachState() {
-    return { recording: teach.recording(), pending: teach.pending() };
+    return { recording: teach.recording(), pending: teach.pending(), readers: teachReaders() };
 }
 
 function conversationsApiFor(conversation) {
@@ -4331,6 +4371,66 @@ function nameConversation(conversation) {
 
 const MAX_STEER = 4000;
 
+/** The question or approval card a conversation's turn is standing on, if any. */
+function waitingCard(conversationId) {
+    for (const [requestId, entry] of pendingQuestions) {
+        if (entry.conversationId === conversationId) return { kind: 'question', requestId, entry };
+    }
+    for (const [requestId, entry] of pendingApprovals) {
+        if (entry.conversationId === conversationId) return { kind: 'approval', requestId, entry };
+    }
+    return null;
+}
+
+/** Words as compared: lower case, letters and digits, single spaces. */
+const plainWords = text => String(text || '').toLowerCase().replace(/[^\p{L}\p{N}\s']/gu, ' ').replace(/\s+/g, ' ').trim();
+const SAID_YES = /^(yes|yeah|yep|yup|sure|ok|okay|allow|approve|go ahead|go on|do it|continue|proceed|confirm|fine|s[iì])\b/;
+const SAID_NO = /^(no|nope|don't|dont|do not|deny|cancel|stop|skip|never|not now)\b/;
+
+/**
+ * Which of a card's options a spoken answer picks, or '' for none: the option
+ * said in full, the only one named within the answer, or a plain yes or no
+ * matched to the one option that reads as yes or no ("Allow in this
+ * conversation", "Don't allow"). Anything else is an answer in its own words.
+ */
+function spokenChoice(said, options = []) {
+    const heard = plainWords(said);
+    const plain = options.map(option => ({ option, words: plainWords(option) })).filter(entry => entry.words);
+    const exact = plain.find(entry => entry.words === heard);
+    if (exact) return exact.option;
+    const named = plain.filter(entry => heard.includes(entry.words));
+    if (named.length === 1) return named[0].option;
+    const yes = plain.filter(entry => SAID_YES.test(entry.words));
+    const no = plain.filter(entry => SAID_NO.test(entry.words));
+    if (SAID_YES.test(heard) && yes.length === 1) return yes[0].option;
+    if (SAID_NO.test(heard) && no.length === 1) return no[0].option;
+    return '';
+}
+
+/**
+ * A turn standing on a card is answered by what was said, rather than handed
+ * a steer it would only read after someone opened the app and answered the
+ * card. A question takes the matching option, or the words themselves; an
+ * approval is a yes, or a no carrying the words as the reason.
+ */
+function answerByVoice(conversation, card, said) {
+    if (card.kind === 'question') {
+        if (card.entry.secret) {
+            return { success: false, message: 'That question wants a secret typed into Acestes, so it is not answered by voice.' };
+        }
+        const choice = spokenChoice(said, card.entry.options);
+        respondToQuestion({ requestId: card.requestId, answer: choice || said, chosen: Boolean(choice) });
+        return { success: true, answered: 'question', answer: choice || said };
+    }
+    const approved = SAID_YES.test(plainWords(said));
+    respondToApproval({
+        requestId: card.requestId,
+        approved,
+        message: approved ? '' : `The user answered by voice: "${said}"`,
+    });
+    return { success: true, answered: 'approval', approved, answer: said };
+}
+
 /** Steer a conversation with words the user said while it worked. */
 async function steer(conversationId, text) {
     hydrate();
@@ -4338,6 +4438,9 @@ async function steer(conversationId, text) {
     if (!conversation) return { success: false, message: 'That conversation is gone' };
     const body = String(text || '').trim().slice(0, MAX_STEER);
     if (!body) return { success: false, message: 'Nothing to send' };
+    // Standing on a question or an approval: this is the answer to it.
+    const card = waitingCard(conversationId);
+    if (card) return answerByVoice(conversation, card, body);
     // Quiet already: an ordinary message, sent the ordinary way.
     if (!conversation.busy) {
         const sent = await send(conversationId, body, [], [], [], { spoken: true });
@@ -5052,6 +5155,9 @@ module.exports = {
         conversationsApi: (conversationId) => conversationsApiFor(conversations.get(conversationId)),
         conversation: (conversationId) => conversations.get(conversationId),
         takeSteers: (conversationId) => takeSteers(conversations.get(conversationId)),
+        requestQuestion: (conversationId, payload) => requestQuestion(conversations.get(conversationId), payload),
+        requestApproval: (conversationId, payload) => requestApproval(conversations.get(conversationId), payload),
+        spokenChoice,
         turnEnd,
         saidBefore: (conversationId) => saidBefore(conversations.get(conversationId)),
         reportToParent: (conversationId, status) => reportToParent(conversations.get(conversationId), status),

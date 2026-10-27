@@ -640,16 +640,18 @@ async function listModels({ settings = {} } = {}) {
  * no way to pass: `--ephemeral`, so the question is not a session in the
  * user's Codex history, and `--ignore-user-config`, so their MCP servers are
  * not started to answer it. Read-only, in the temp directory, low effort.
- * See titles.js.
+ * See titles.js. With `model: 'agent'` (reading a recording, teach.js) the
+ * effort in `settings` is used instead of low, when one is picked.
  */
-function title({ settings = {}, instruction, prompt, signal } = {}) {
+function title({ settings = {}, instruction, prompt, signal, model } = {}) {
     const binary = findCodex();
     if (!binary) return Promise.resolve('');
 
+    const effort = model === 'agent' && /^[a-z]+$/i.test(String(settings.effort || '')) ? settings.effort : 'low';
     const args = [
         'exec', '--ephemeral', '--ignore-user-config', '--skip-git-repo-check', '--json',
         '--sandbox', 'read-only', '--cd', os.tmpdir(),
-        '--config', 'model_reasoning_effort="low"',
+        '--config', `model_reasoning_effort="${effort}"`,
         '--config', 'web_search="disabled"',
         '--config', 'approval_policy="never"',
     ];

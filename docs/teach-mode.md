@@ -20,8 +20,9 @@ memory the agent fills today by exploring on its own.
 3. **Stop, first pass.** The trace is split into episodes and drafted into an
    app map, procedures, a glossary, templates and a list of questions.
 4. **Q&A.** The logins it captured, to keep or drop, and any it could not
-   capture. Then at most 8 questions, under 10 minutes, each shown beside the frame
-   or the steps it is about. Answered by voice (Parakeet, local) or text. Any
+   capture. First what the agent thinks the person was doing, to keep or
+   correct; then at most 4 questions about the job (never about what was
+   typed, pasted or clicked). Answered by voice (Parakeet, local) or text. Any
    question can be skipped, and any episode dropped ("don't learn this").
 5. **Second pass.** The answers are folded into the drafts.
 6. **Review.** The person accepts, edits or drops each item. Accepted items go
@@ -192,23 +193,43 @@ One new command and a recorder thread. The rest of the protocol is unchanged.
 - Applies the company's redaction patterns if turned on, writes `trace.jsonl`
   and the frames, and deletes the recording once the pack is reviewed (or
   after 7 days).
-- **Episodes.** Split on gaps over 2 minutes, a change of app, and marks. Each
-  episode is rendered as readable steps for the model:
+- **Episodes.** Split on gaps over 2 minutes and on marks, not on a change of
+  app: most office work moves something from one app to another, and cutting
+  at every switch hid that from the model. Each episode is rendered as the
+  work, not every key: caret and scroll keys are dropped, shortcuts are named
+  ("copy", "paste", "save"), a paste is folded into the field it landed in,
+  the same screen text is shown once, and a run of one action is counted:
 
   ```
-  09:02 Chrome · panel.example.com · Domains
+  Part 1 · 09:02
+    switch to chrome.exe · panel.example.com · Domains
     click button "Add Domain" (toolbar)
-    enter "Domain name" = example.org
+    enter "Domain name" = example.org (pasted)
     choose "Hosting type" = Website hosting
     press Enter
   ```
 
+- **The task in the person's words.** Optional at the start ("What are you
+  about to do?", kept in the trace header), and again in review when the
+  draft got the job wrong ("Read again", kept as `task.txt` beside the trace).
+  The recording is read in its light.
+
 - **Distilling.** Asked of the runtime as `titles.js` and `memory-tidy.js` ask:
-  one turn, no tools, no session in the user's history. Frames go along only
-  for episodes where UIA said little. The first pass returns JSON:
+  one turn, no tools, no session in the user's history, but on a model the
+  person picks (`title({ model: 'agent' })`), not the small one titles use:
+  reading a job out of a click trace is judgement. The Teach page carries the
+  chat's model menu ("Model that reads the recording"), offering the runtimes
+  with a one-shot ask (Claude Code, Claude desktop, Codex, OpenAI, local). It
+  starts on the model a new chat would, is kept per agent, can be changed
+  while recording, and "Read again" in review uses whatever it shows. The
+  review says which model read the draft. The model is told to read the whole
+  recording for the job and its purpose first, with the screen text as the
+  main evidence. Frames go along only for episodes where UIA said little. The
+  first pass returns JSON:
 
   ```json
   {
+    "summary": "Adding a hosting domain for each new customer from the sales inbox, probably as part of onboarding.",
     "episodes": [{"id": "e3", "title": "Add a domain for a customer", "apps": ["chrome.exe"]}],
     "appMap": [{"app": "panel.example.com", "where": "Mail queue", "path": "Tools & Settings > Mail Server Settings > Mail Queue"}],
     "procedures": [{"name": "Add a hosting domain", "episodes": ["e3", "e7", "e12"], "params": ["domain", "plan"], "steps": ["..."], "branches": ["reseller customers: plan is Reseller Basic"]}],
@@ -230,17 +251,22 @@ into a masked field there, and each gets one question about its second factor.
 What is typed is held in memory with the draft and reaches the keychain only
 on accept (see "Accept and discard").
 
-Then at most 8 questions, chosen in this order of value:
+Then at most 4 questions, and none when the recording is clear. The person
+answers from what they know about their job, not from memory of the
+recording: nobody remembers what they pasted or clicked at minute four. So a
+question is never about what a key, a copy, a paste or a click did or held
+(the model works that out from the screen around it, or makes it a param),
+and never in the recorder's terms. Worth asking, in this order:
 
-1. Decision points: why one path was taken over another.
-2. Constant or variable: is this value always the same?
-3. Differences between repeats of the same task.
-4. Terms and abbreviations it could not place.
-5. Waits and off-screen steps ("you stopped for 6 minutes here: waiting for
-   what?").
+1. What starts the task and how often it comes up.
+2. Decision points: how they choose between two paths.
+3. The rule behind a value: always the same, or where it comes from.
+4. What to do in a case the recording did not cover, and what must never be
+   done.
 
-Each question shows its frame or steps. Voice or text, skip, or drop the
-episode. The aim is under 10 minutes.
+Answered questions are kept as facts on accept; unanswered ones are let go.
+The summary is shown first in review ("What you were doing"), kept as a fact
+on accept, and corrected with "Read again". The aim is under 10 minutes.
 
 ## The knowledge pack
 

@@ -2099,13 +2099,13 @@ function register(getWindow) {
     // person reviews, and writes the kept parts into memory, specs and the
     // keychain only on accept. See ai/teach.js and docs/teach-mode.md.
     handle('teach-state', () => assistant.teachState());
-    handle('teach-start', (event, { agentId, apps, redact } = {}) =>
-        assistant.teachStart(String(agentId || agents.activeId()), { apps, redact }));
+    handle('teach-start', (event, { agentId, apps, redact, task } = {}) =>
+        assistant.teachStart(String(agentId || agents.activeId()), { apps, redact, task }));
     handle('teach-pause', (event, { on } = {}) => assistant.teachPauseRecording(Boolean(on)));
-    handle('teach-stop', (event, { agentId } = {}) =>
-        assistant.teachStop(String(agentId || agents.activeId())));
-    handle('teach-review', (event, { agentId, id } = {}) =>
-        assistant.teachReview(String(agentId || agents.activeId()), String(id || '')));
+    handle('teach-stop', (event, { agentId, pick } = {}) =>
+        assistant.teachStop(String(agentId || agents.activeId()), pick));
+    handle('teach-review', (event, { agentId, id, task, pick } = {}) =>
+        assistant.teachReview(String(agentId || agents.activeId()), String(id || ''), task, pick));
     handle('teach-accept', (event, { agentId, id, selections } = {}) =>
         assistant.teachAccept(String(agentId || agents.activeId()), String(id || ''), selections || {}));
     handle('teach-discard', (event, { id, selections } = {}) =>
@@ -2134,10 +2134,12 @@ function register(getWindow) {
     handle('ai-speech-status', (event, options) => speech.status({ fresh: Boolean(options?.fresh) }));
     // Installing Faster-Whisper's package is the user's to start, from Settings.
     handle('ai-speech-install', () => speech.install());
-    // Parakeet's model, fetched ahead of the first use, from Settings.
-    handle('ai-speech-download', async () => {
+    // A live engine's model (Parakeet, Nemotron), fetched ahead of the first
+    // use, from Settings: the one named, or the one chosen.
+    handle('ai-speech-download', async (event, engine) => {
+        const live = speech.liveEngine(engine) || speech.liveEngine(assistant.settings.get().voiceEngine) || speech.parakeet;
         try {
-            await speech.parakeet.download();
+            await live.download();
             return { ok: true };
         } catch (error) {
             return { ok: false, error: error.message };
@@ -2151,14 +2153,15 @@ function register(getWindow) {
     handle('ai-browser-status', () => browserUse.status());
     handle('ai-browser-install-node', () => browserUse.installNode());
 
-    // Live dictation (Parakeet): audio streamed in while the user talks, the
-    // words so far sent back to the window that is listening, the rest handed
-    // over on stop. See ai/parakeet.js.
+    // Live dictation (Parakeet or Nemotron, as Settings says): audio streamed
+    // in while the user talks, the words so far sent back to the window that
+    // is listening, the rest handed over on stop. See ai/live-speech.js.
     handle('ai-dictation-start', (event) => {
         const current = assistant.settings.get();
         if (!current.voiceInput) return { error: 'Voice input is switched off in Settings.' };
         const sender = event.sender;
-        return speech.parakeet.start({
+        return speech.dictation.start(current.voiceEngine, {
+            language: current.voiceLanguage || '',
             onUpdate: (update) => {
                 if (!sender.isDestroyed()) sender.send('ai-dictation', update);
             },
@@ -2166,10 +2169,10 @@ function register(getWindow) {
     });
     ipcMain.on('ai-dictation-audio', (event, id, samples) => {
         if (vault.isLocked()) return;
-        speech.parakeet.audio(id, samples);
+        speech.dictation.audio(id, samples);
     });
-    handle('ai-dictation-stop', (event, id) => speech.parakeet.stop(id));
-    handle('ai-dictation-cancel', (event, id) => speech.parakeet.cancel(id));
+    handle('ai-dictation-stop', (event, id) => speech.dictation.stop(id));
+    handle('ai-dictation-cancel', (event, id) => speech.dictation.cancel(id));
 
     // Lifting tabs into a window, and what that window is told. See
     // `ai/windows.js`. The parent is whichever window asked, so a window
