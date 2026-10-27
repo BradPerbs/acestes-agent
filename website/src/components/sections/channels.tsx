@@ -13,6 +13,7 @@ import {
   UserLock01Icon,
 } from "@hugeicons/core-free-icons";
 import { gsap, prefersReducedMotion, ScrollTrigger, useGSAP } from "@/lib/gsap";
+import { sound, type Sound } from "@/lib/sound";
 import { ChannelMark, type ChannelName } from "../channel-mark";
 import { Section } from "../frame";
 import { Icon } from "../icon";
@@ -340,24 +341,32 @@ export function Channels() {
       gsap.set(steps, { autoAlpha: 0 });
       gsap.set(chat, { autoAlpha: 1 });
 
-      const show = (tl: gsap.core.Timeline, m: Element, at: string | number = ">") =>
+      // A message in, with its sound if the visitor has it on.
+      const show = (tl: gsap.core.Timeline, m: Element, at: string | number = ">", cue?: Sound) => {
         tl.to(m, { height: "auto", autoAlpha: 1, duration: 0.45, ease: "power3.out" }, at);
+        if (cue) tl.call(() => sound.play(cue), [], "<");
+        return tl;
+      };
 
       const tl = gsap.timeline({ paused: true, delay: 0.3 });
-      show(tl, msgs[0]);
-      show(tl, msgs[1], "+=0.5");
+      show(tl, msgs[0], ">", "send");
+      show(tl, msgs[1], "+=0.5", "blip");
       tl.to(steps, { autoAlpha: 1, duration: 0.3, stagger: 0.55 }, ">0.2");
-      show(tl, msgs[2], "+=0.6");
-      show(tl, msgs[3], "+=0.7");
+      const stepsAt = (tl.recent() as gsap.core.Tween).startTime();
+      steps.forEach((_, i) => tl.call(() => sound.play("step"), [], stepsAt + i * 0.55));
+      show(tl, msgs[2], stepsAt + (steps.length - 1) * 0.55 + 0.9, "blip");
+      show(tl, msgs[3], "+=0.7", "blip");
       // The press: the Approve button (or the ✅ reaction) is tapped, then
       // the card settles and its choices go, as the gateway leaves it.
       tl.to(target, { scale: 0.94, duration: 0.12, ease: "power2.in" }, "+=1.1")
+        .call(() => sound.play("press"), [], "<")
         .to(target, { scale: 1, borderColor: "rgba(167,139,250,0.9)", duration: 0.2, ease: "power2.out" })
         .set(q("[data-settled]"), { display: "block" }, "+=0.35")
+        .call(() => sound.play("chime"), [], "<")
         .to(q("[data-choices]"), { height: 0, marginTop: 0, autoAlpha: 0, duration: 0.3, ease: "power2.inOut" }, "<");
-      show(tl, msgs[4], "+=0.9");
-      show(tl, msgs[5], "+=1.2");
-      show(tl, msgs[6], "+=0.6");
+      show(tl, msgs[4], "+=0.9", "blip");
+      show(tl, msgs[5], "+=1.2", "send");
+      show(tl, msgs[6], "+=0.6", "blip");
       tl.to({}, { duration: 3.2 });
 
       if (!picked.current) {

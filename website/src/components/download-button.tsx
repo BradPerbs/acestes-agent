@@ -1,6 +1,5 @@
 "use client";
 
-import { AppVersion } from "@/components/app-version";
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { ArrowDown01Icon, Download04Icon } from "@hugeicons/core-free-icons";
@@ -11,12 +10,17 @@ import { Icon } from "./icon";
 import { Turn } from "./motion-fx";
 import { OSIcon } from "./os-icons";
 
-const MENU_W = 300;
-const MENU_H = 380;
+const MENU_W = 272;
+const MENU_H = 250;
+
+/** The file type, shown at the end of each row: .exe, .dmg, .AppImage. */
+const ext = (file: string) => file.slice(file.lastIndexOf("."));
 
 /**
  * The download control: one pill that fetches the build for the visitor's
- * system, and a quiet "Other platforms" link that opens every build. Without
+ * system, and a quiet "Other platforms" link that opens every build: a
+ * plain list, one row per download, each complete on its own (system,
+ * variant, file type). Without
  * a known OS the pill goes to the latest release page. The menu lives in a
  * portal so no clipped or transformed parent can hide it, and opens upward
  * when there's no room below.
@@ -102,13 +106,8 @@ export function DownloadButton({
       const up = pos.bottom !== undefined;
       gsap.fromTo(
         menu.current,
-        { autoAlpha: 0, y: up ? 6 : -6, scale: 0.98 },
-        { autoAlpha: 1, y: 0, scale: 1, duration: 0.28, ease: "power3.out" },
-      );
-      gsap.fromTo(
-        menu.current.querySelectorAll("[role=menuitem]"),
-        { autoAlpha: 0, x: -4 },
-        { autoAlpha: 1, x: 0, duration: 0.3, stagger: 0.035, delay: 0.04 },
+        { autoAlpha: 0, y: up ? 4 : -4 },
+        { autoAlpha: 1, y: 0, duration: 0.18, ease: "power2.out" },
       );
     },
     { dependencies: [open, pos] },
@@ -160,9 +159,9 @@ export function DownloadButton({
             ref={menu}
             id={menuId}
             role="menu"
-            aria-label="Downloads"
+            aria-label="Other downloads"
             style={{ ...pos, width: MENU_W }}
-            className="invisible fixed z-[60] overflow-hidden rounded-2xl border border-line bg-bg p-1.5 text-fg shadow-[0_24px_60px_-20px_rgb(0_0_0/0.45)]"
+            className="invisible fixed z-[60] rounded-xl border border-line bg-bg p-1 text-[13.5px] leading-none text-fg"
           >
             {builds.map((b) => (
               <a
@@ -170,31 +169,23 @@ export function DownloadButton({
                 role="menuitem"
                 href={downloadUrl(b.file)}
                 onClick={() => setOpen(false)}
-                className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors outline-none hover:bg-panel-2 focus-visible:bg-panel-2"
+                className="flex items-center gap-2.5 rounded-md px-2.5 py-2 transition-colors outline-none hover:bg-panel-2 focus-visible:bg-panel-2"
               >
-                <span className="grid size-8 place-items-center rounded-lg border border-line text-muted">
-                  <OSIcon os={b.os} size={15} />
+                <OSIcon os={b.os} size={14} className="shrink-0 text-muted" />
+                <span>
+                  {b.system} <span className="text-muted">{b.detail}</span>
                 </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-[14px] leading-tight font-medium">
-                    {b.system} <span className="font-normal text-muted">· {b.detail}</span>
-                  </span>
-                  <span className="block truncate font-mono text-[11px] text-subtle">{b.file}</span>
-                </span>
+                <span className="ml-auto font-mono text-[11px] text-subtle">{ext(b.file)}</span>
               </a>
             ))}
-            <div role="separator" className="mx-2 my-1 h-px bg-line" />
             <a
               role="menuitem"
               href={site.releases}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center justify-between rounded-xl px-3 py-2.5 text-[13px] text-muted transition-colors outline-none hover:bg-panel-2 hover:text-fg focus-visible:bg-panel-2 focus-visible:text-fg"
+              className="mt-1 block rounded-md px-2.5 py-2 text-[12px] text-subtle transition-colors outline-none hover:text-fg focus-visible:text-fg"
             >
-              All releases
-              <span className="font-mono text-[11px]">
-                v<AppVersion />
-              </span>
+              All releases ↗
             </a>
           </div>,
           document.body,

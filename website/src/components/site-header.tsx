@@ -6,12 +6,14 @@ import { site } from "@/lib/site";
 import { gsap, useGSAP } from "@/lib/gsap";
 import { Mark, Wordmark } from "./brand";
 import { BrandIcon, Icon } from "./icon";
+import { SoundToggle } from "./sound-toggle";
 import { ThemeToggle } from "./theme-toggle";
 import { buttonClass } from "./ui";
 
 const links = [
   { href: "#security", label: "Security" },
   { href: "#computer-use", label: "Computer use" },
+  { href: "#devices", label: "Devices" },
   { href: "#advanced", label: "Advanced" },
   { href: "#channels", label: "Channels" },
   { href: "#desktop", label: "Desktop" },
@@ -47,13 +49,13 @@ export function SiteHeader() {
 
   return (
     <header ref={header} className="sticky top-0 z-50 border-b border-line bg-bg/80 backdrop-blur-xl">
-      <div className="mx-auto flex h-16 w-[calc(100%-1.5rem)] max-w-[1296px] items-center justify-between gap-4 sm:w-[calc(100%-3rem)] md:h-[76px]">
+      <div className="mx-auto flex h-16 w-[calc(100%-1.5rem)] max-w-[1392px] items-center justify-between gap-4 sm:w-[calc(100%-3rem)] md:h-[76px]">
         <a href="#top" aria-label="Acestes Agent, back to top" className="flex items-center gap-2.5 rounded-lg">
           <Mark size={28} />
           <Wordmark height={21} className="translate-y-[1px]" />
         </a>
 
-        <nav aria-label="Main" className="hidden items-center lg:flex">
+        <nav aria-label="Main" className="hidden items-center xl:flex">
           <ul className="flex items-center gap-1">
             {links.map((l) => (
               <li key={l.label}>
@@ -79,6 +81,10 @@ export function SiteHeader() {
           >
             <BrandIcon name="github" size={18} />
           </a>
+          {/* On phones the hero's corner carries the switch, and the header has no room. */}
+          <span className="hidden sm:block">
+            <SoundToggle />
+          </span>
           <ThemeToggle />
           <a href="#download" className={`${buttonClass("solid", "sm")} ml-1.5`}>
             Download
@@ -89,7 +95,7 @@ export function SiteHeader() {
             aria-expanded={open}
             aria-controls="mobile-nav"
             onClick={() => setOpen((v) => !v)}
-            className="grid size-9 place-items-center rounded-full text-fg transition-colors hover:bg-panel-2 lg:hidden"
+            className="grid size-9 place-items-center rounded-full text-fg transition-colors hover:bg-panel-2 xl:hidden"
           >
             <Icon icon={open ? Cancel01Icon : Menu01Icon} size={20} />
           </button>
@@ -97,7 +103,7 @@ export function SiteHeader() {
       </div>
 
       {open && (
-        <div ref={panel} id="mobile-nav" className="overflow-hidden border-t border-line lg:hidden">
+        <div ref={panel} id="mobile-nav" className="overflow-hidden border-t border-line xl:hidden">
           <nav aria-label="Mobile" className="mx-auto w-[calc(100%-1.5rem)] py-2 sm:w-[calc(100%-3rem)]">
             {links.map((l) => (
               <a

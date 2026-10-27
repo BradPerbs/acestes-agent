@@ -2,6 +2,7 @@
 
 import { useRef } from "react";
 import { gsap, prefersReducedMotion, useGSAP } from "@/lib/gsap";
+import { sound } from "@/lib/sound";
 import { Caret } from "./motion-fx";
 
 /**
@@ -30,11 +31,18 @@ export function TypeHeading({
       const typed = ref.current?.querySelector("[data-typed]");
       if (!typed) return;
       gsap.set(typed, { text: "" });
+      // A key for every letter that lands, when the visitor has sound on.
+      let shown = 0;
       gsap.to(typed, {
         text,
         duration: Math.min(1.8, Math.max(0.6, text.length * 0.045)),
         ease: "none",
         delay: 0.15,
+        onUpdate: () => {
+          const n = typed.textContent?.length ?? 0;
+          if (n > shown) sound.play("type");
+          shown = n;
+        },
         scrollTrigger: { trigger: ref.current, start: "top 88%", once: true },
       });
     },

@@ -3,11 +3,11 @@
 import { AppVersion } from "@/components/app-version";
 import { useRef } from "react";
 import { ArrowRight01Icon } from "@hugeicons/core-free-icons";
-import { site } from "@/lib/site";
 import { gsap, prefersReducedMotion, SplitText, useGSAP } from "@/lib/gsap";
 import { DownloadButton } from "../download-button";
 import { Container } from "../frame";
-import { Halftone } from "../halftone";
+import { HeroScene } from "../hero-scene";
+import { SoundToggle } from "../sound-toggle";
 import { Icon } from "../icon";
 
 /** Letters that hang below the line: a rolled copy above would show its tail. */
@@ -120,6 +120,14 @@ export function Hero() {
         { clipPath: "inset(0% 0% 0% 0% round 20px)", duration: 1.6, ease: "expo.out" },
       );
 
+      // The copy drifts up and fades as the page scrolls past the scene.
+      gsap.to(el.querySelector("[data-hero-copy]"), {
+        y: -70,
+        opacity: 0,
+        ease: "none",
+        scrollTrigger: { trigger: el, start: 0, end: "bottom 20%", scrub: true },
+      });
+
       // Split only once the webfont is in, or the lines get measured in the fallback.
       let intro: { revert: () => void } | undefined;
       let dead = false;
@@ -139,39 +147,37 @@ export function Hero() {
       <Container className="border-x border-line bg-bg p-2 sm:p-3">
         <div
           data-panel
-          className="relative isolate overflow-hidden rounded-[20px] bg-[#07050d] text-white"
+          className="@container relative isolate overflow-hidden rounded-[20px] bg-[#07050d] text-white"
           style={{ clipPath: "inset(0% 0% 0% 0% round 20px)" }}
         >
-          {/* Violet haze and the rising glow */}
+          {/* Night and the eclipse's glow, for the moment before the scene draws, or where it can't. */}
           <div
             aria-hidden="true"
             className="absolute inset-0 -z-10"
             style={{
-              background:
-                "radial-gradient(120% 70% at 50% 115%, #f5edff 0%, #c4a5ff 14%, #8b5cf6 30%, #5b21b6 50%, #24104f 70%, #07050d 92%)",
+              background: "radial-gradient(90% 55% at 50% 100%, #5b21b6 0%, #2a1360 30%, #120a26 58%, #07050d 85%)",
             }}
           />
-          <Halftone className="absolute inset-0 -z-10 opacity-90" />
-          <div
-            aria-hidden="true"
-            className="absolute inset-x-0 top-0 -z-10 h-40 bg-gradient-to-b from-[#07050d] to-transparent"
-          />
+          <HeroScene className="absolute inset-0 -z-10" />
 
-          <div className="relative flex flex-col items-center px-5 pt-16 pb-24 text-center sm:px-10 sm:pt-24 sm:pb-36 lg:pt-28 lg:pb-40">
+          {/* The copy sits in the sky, clear of the range: the bottom padding is the scene's 0.38 units (sceneUnit). */}
+          <div
+            data-hero-copy
+            className="relative flex min-h-[clamp(660px,calc(100svh-6.75rem),980px)] flex-col items-center justify-center px-5 pt-14 pb-[clamp(200px,23.6cqw,312px)] text-center sm:px-10 sm:pt-16"
+          >
             <a
               data-hero-fade
               data-reveal
               data-hover
-              href={site.latest}
-              target="_blank"
-              rel="noopener noreferrer"
+              href="#devices"
               className="group/ann inline-flex max-w-full items-center gap-2.5 rounded-full border border-white/20 bg-white/[0.06] py-1.5 pr-1.5 pl-4 text-[13px] text-white/90 backdrop-blur-md transition-colors hover:border-white/35 hover:bg-white/10 sm:text-[14px]"
             >
               <span className="truncate">
-                <span className="font-medium">
-                  Acestes <AppVersion />
+                <span className="font-medium">New: Devices</span>
+                <span className="text-white/60">
+                  {" "}
+                  · all your computers<span className="hidden sm:inline">, one agent</span>
                 </span>
-                <span className="text-white/60"> · computer use, rebuilt</span>
               </span>
               <span
                 data-nudge="x"
@@ -200,8 +206,9 @@ export function Hero() {
               data-reveal
               className="mt-6 max-w-[700px] text-[17px] leading-relaxed text-balance text-white/80 sm:text-[19px]"
             >
-              The desktop agent for security and IT work. It audits and hardens your fleet over SSH, works the apps that
-              have no API with the real mouse and keyboard, and asks before it changes anything.
+              The desktop agent for security and IT work. It audits and hardens your servers over SSH, works the apps
+              that have no API with the real mouse and keyboard, on every computer you own, and asks before it changes
+              anything.
             </p>
 
             <div
@@ -211,24 +218,26 @@ export function Hero() {
             >
               <DownloadButton tone="light" />
             </div>
+          </div>
 
-            <p
-              data-hero-fade
-              data-reveal
-              className="mt-6 rounded-full bg-black/25 px-3 py-1 font-mono text-[12px] tracking-wide text-white/75 backdrop-blur-sm"
-            >
+          {/* Captions along the foot of the scene */}
+          <div
+            data-hero-fade
+            data-reveal
+            className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-4 px-5 pb-4 font-mono text-[11.5px] tracking-wide text-white/60 sm:px-7 sm:pb-5 sm:text-[12px]"
+          >
+            <p>
               v<AppVersion /> · free · Windows, macOS, Linux
-              <span className="hidden sm:inline">
-                {" "}
-                ·{" "}
-                <a
-                  href="#runtimes"
-                  className="text-white/80 underline decoration-white/30 underline-offset-4 hover:decoration-white"
-                >
-                  on the agent you already use
-                </a>
-              </span>
             </p>
+            <div className="flex items-center gap-5">
+              <a
+                href="#runtimes"
+                className="hidden text-white/70 underline decoration-white/25 underline-offset-4 transition-colors hover:text-white hover:decoration-white md:inline"
+              >
+                on the agent you already use
+              </a>
+              <SoundToggle variant="label" className="text-white/70" />
+            </div>
           </div>
         </div>
       </Container>

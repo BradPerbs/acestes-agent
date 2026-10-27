@@ -8,6 +8,7 @@ import { Compare } from "@/components/sections/compare";
 import { ComputerUse } from "@/components/sections/computer-use";
 import { Cta } from "@/components/sections/cta";
 import { Desktop } from "@/components/sections/desktop";
+import { Devices } from "@/components/sections/devices";
 import { Faq } from "@/components/sections/faq";
 import { Hero } from "@/components/sections/hero";
 import { Memory } from "@/components/sections/memory";
@@ -49,6 +50,8 @@ export default function Home() {
           <Security />
           <Gap />
           <ComputerUse />
+          <Gap />
+          <Devices />
           <Gap />
           <Advanced />
           <Gap />
