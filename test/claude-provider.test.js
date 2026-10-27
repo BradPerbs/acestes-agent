@@ -568,6 +568,20 @@ async function run() {
         assert(computer, 'the catalog has computer tools');
         assert.strictEqual(provider.alwaysLoaded(computer, { computerUse: true }), true);
         assert.strictEqual(provider.alwaysLoaded(computer, { computerUse: false }), false);
+
+        // A model lent to another computer of the fleet: every call goes back
+        // there, and nothing runs here, not even a switched-off bundle's refusal.
+        const sent = [];
+        const forwarded = await catalog.invoke(tool('run_local_command'), { command: 'whoami' }, {
+            settings: { toolBundles: { workspace: false } },
+            forwardTool: async (name, input) => {
+                sent.push({ name, input });
+                return { text: 'rdp-01\\acestes' };
+            },
+            hooks: () => { throw new Error('hooks run where the conversation is'); },
+        });
+        assert.deepStrictEqual(sent, [{ name: 'run_local_command', input: { command: 'whoami' } }]);
+        assert.deepStrictEqual(forwarded, { text: 'rdp-01\\acestes' });
     }
 
     // `claude setup-token` in a pseudo-terminal: spaces arrive as cursor

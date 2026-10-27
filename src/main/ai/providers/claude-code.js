@@ -778,6 +778,19 @@ async function title({ settings = {}, instruction, prompt, signal, think = 'defa
  * project's own instructions apply, nothing else's.
  */
 function conversationRoot(settings) {
+    // A model lent to another computer (fleet/brain.js) has no folder here:
+    // the grants it carries are paths on that computer's disk. An empty
+    // folder of its own rather than ours, since the CLI tells the model
+    // where it starts and our data folder there would only mislead it.
+    if (settings?.forwarded) {
+        const cwd = path.join(os.tmpdir(), 'acestes-lent-model');
+        try {
+            fs.mkdirSync(cwd, { recursive: true });
+        } catch {
+            return { cwd: app.getPath('userData'), additionalDirectories: undefined, settingSources: [] };
+        }
+        return { cwd, additionalDirectories: undefined, settingSources: [] };
+    }
     const writable = settings?.allowLocalTools === false
         ? []
         : sandboxLib.writableFolders(settings?.sandbox);
@@ -860,26 +873,36 @@ async function start({
         // The agent's own MCP servers first and the app's tools last, so a
         // server that happens to share the name cannot shadow them. Bare:
         // own servers only, none of the app's tools.
+        // Lent to another computer (`forwarded`, see fleet/brain.js): only the
+        // app's tools, every one of which runs over there. The agent's own
+        // servers and the CLI's own tools would act on this computer instead.
         mcpServers: {
-            ...agentServers(settings.mcpServers, settings.sandbox, settings.agentId),
+            ...(settings.forwarded ? {} : agentServers(settings.mcpServers, settings.sandbox, settings.agentId)),
             ...(server ? { [SERVER_NAME]: server } : {}),
         },
         // Nothing is pre-approved. Every call goes through canUseTool below,
         // which is what puts the approval policy in one place instead of
         // splitting it between a list here and a callback there.
         allowedTools: [],
-        disallowedTools: settings.allowLocalTools ? [] : LOCAL_TOOLS,
+        disallowedTools: settings.allowLocalTools && !settings.forwarded ? [] : LOCAL_TOOLS,
         permissionMode: 'default',
         canUseTool: async (toolName, toolInput) => {
             const local = localName(toolName);
             const current = getSettings();
 
+            // The computer the conversation is on checks each call against
+            // its own blocked list, approval mode and folders before running
+            // it, and asks there when it has to (fleet/brain.js).
+            if (local && current.forwarded) return { behavior: 'allow', updatedInput: toolInput };
+
             if (!local) {
-                if (!current.allowLocalTools && !OPEN_TOOLS.has(toolName)) {
+                if ((!current.allowLocalTools || current.forwarded) && !OPEN_TOOLS.has(toolName)) {
                     return {
                         behavior: 'deny',
-                        message: `${toolName} acts on the user's own computer, which this assistant is not set up to do. `
-                            + 'Use the remote tools to work on the servers instead.',
+                        message: current.forwarded
+                            ? `${toolName} would run on the computer lending the model, not the one this conversation is on. Use the app's tools instead.`
+                            : `${toolName} acts on the user's own computer, which this assistant is not set up to do. `
+                                + 'Use the remote tools to work on the servers instead.',
                     };
                 }
                 // The blocked list applies to the CLI's own shell exactly as
@@ -1594,6 +1617,19 @@ async function authEnv(settings = {}) {
     return env;
 }
 
+/**
+ * Whether a run here would have a sign-in to start with: a key, a token, the
+ * fleet's shared sign-in or the account's own login. Cheap after the first
+ * ask (see hasOwnLogin). Not whether that sign-in still works: a refused one
+ * shows up as `signInNeeded` on the run.
+ */
+async function hasSignIn({ settings = {} } = {}) {
+    const env = accountEnv(settings);
+    if (settings.apiKey || env.ANTHROPIC_API_KEY || env.CLAUDE_CODE_OAUTH_TOKEN || fleetToken()) return true;
+    if (!executableFor(settings)) return false;
+    return hasOwnLogin(settings);
+}
+
 /** What `claude setup-token` hands back: a long-lived OAuth token. */
 const TOKEN_PATTERN = /sk-ant-oat\d{2}-[A-Za-z0-9_-]{20,}/;
 
@@ -1957,6 +1993,7 @@ module.exports = {
     login,
     logout,
     authStatus,
+    hasSignIn,
     createFleetToken,
     forgetOwnLogin,
     describeAuthStatus,

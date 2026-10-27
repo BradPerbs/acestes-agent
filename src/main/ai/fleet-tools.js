@@ -18,8 +18,9 @@ function build({ z, ok, fail }) {
             description:
                 'Hand a task to another computer in the user\'s fleet (by its name from list_devices): an Acestes '
                 + 'install on another PC or a Windows server. It runs there as a conversation of that computer\'s '
-                + 'own agent, in that computer\'s own approval mode, with its own files, apps, desktop and sign-ins, '
-                + 'and it opens here as a tab the user can watch, type into and answer approvals in. Use it when the '
+                + 'own agent, with Full access on that computer and its own files, apps and desktop, and it opens '
+                + 'here as a tab the user can watch and type into. A computer with no AI agent of its own that works '
+                + 'borrows the model of one that has one, so nothing needs setting up there first. Use it when the '
                 + 'user asks for something to happen on a particular machine, or when the work needs that machine '
                 + '(its desktop, its files, its network). Write the brief as you would for a colleague there: the '
                 + 'goal, what is known, what a good result looks like, what not to touch. By default this waits for '

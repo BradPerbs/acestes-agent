@@ -8,6 +8,7 @@ const activity = require('../activity');
 const { createDevice } = require('./device');
 const { createHub } = require('./hub');
 const { createTasks } = require('./tasks');
+const { createBrain } = require('./brain');
 const { createSync } = require('./sync');
 const { createCollections, changedKinds } = require('./collections');
 const { createGate } = require('./placement');
@@ -45,6 +46,12 @@ const DEFAULT_PORT = 7377;
 
 let device = null;
 let tasks = null;
+let brain = null;
+// Whether this computer has a runtime that is switched on and signed in, so
+// a computer without one can borrow it (brain.js). Asked now and then, not
+// on every status, since asking can start the CLI.
+let lendsModel = false;
+let lendTimer = null;
 let sync = null;
 let gate = null;
 let hub = null;
@@ -107,7 +114,29 @@ function describe() {
         hub: hub?.listening() ? { port: hub.port() } : null,
         locked: device ? isLocked() : false,
         acceptsTasks: device ? !isLocked() : true,
+        lendsModel: lendsModel && (device ? !isLocked() : true),
     };
+}
+
+const LEND_CHECK_MS = 2 * 60 * 1000;
+
+/** Ask again whether this computer can lend its model, and tell the others when that changed. */
+async function checkLending() {
+    let can = false;
+    try {
+        can = Boolean(await require('../ai').canLendModel());
+    } catch {
+        can = false;
+    }
+    if (can !== lendsModel) {
+        lendsModel = can;
+        try {
+            if (device?.status().fleet) device.announce();
+        } catch {
+            // Said with the next status instead.
+        }
+    }
+    return can;
 }
 
 function hubSettings() {
@@ -266,6 +295,15 @@ function buildTasks() {
         device: build(),
         ai: {
             create: options => assistant.create(options),
+            // A task from another computer of the user's fleet: Full access
+            // here, since the fleet is the user's own and a computer just
+            // added has no folders granted yet; and the asking computer's
+            // model first, should this one have none that works.
+            takeTask: (id, deviceId, deviceName) => {
+                assistant.preferLender(id, deviceId);
+                assistant.setConversationModel(id, { approval: 'full' });
+                audit('fleet.task', `A task from ${deviceName || deviceId} runs here with Full access`);
+            },
             send: (id, text) => assistant.send(id, text),
             interrupt: id => assistant.interrupt(id),
             respondToApproval: payload => assistant.respondToApproval(payload),
@@ -291,6 +329,19 @@ function buildTasks() {
         accepts,
     });
     return tasks;
+}
+
+/** A model lent between the devices (brain.js), wired to the assistant core. */
+function buildBrain() {
+    if (brain) return brain;
+    const assistant = require('../ai');
+    brain = createBrain({
+        device: build(),
+        ai: { hostRun: options => assistant.hostRun(options) },
+        accepts,
+        selfName: () => build().deviceName(build().selfId()),
+    });
+    return brain;
 }
 
 async function startHub() {
@@ -366,6 +417,14 @@ async function start(notifier) {
         await startHub();
         // Before the connection, so a task that arrives first finds its handler.
         buildTasks();
+        buildBrain();
+        // Before the first status too, so the others hear at once that this
+        // computer can lend its model.
+        await checkLending();
+        if (!lendTimer) {
+            lendTimer = setInterval(() => { checkLending().catch(() => {}); }, LEND_CHECK_MS);
+            lendTimer.unref?.();
+        }
         buildSync().start();
         if (!isPaused()) build().start();
     } catch (error) {
@@ -375,6 +434,8 @@ async function start(notifier) {
 }
 
 async function stop() {
+    clearInterval(lendTimer);
+    lendTimer = null;
     sync?.stop();
     device?.stop();
     await stopHub();
@@ -504,6 +565,18 @@ module.exports = {
         await sync.sync();
         return status();
     },
+    /**
+     * A computer of the fleet that can lend its model to a conversation here,
+     * or null: `preferred` first (the one that asked for the task). See brain.js.
+     */
+    lender: (preferred = '') => {
+        if (vault.isLocked() || !started || !device?.status().fleet) return null;
+        return buildBrain().lender(preferred);
+    },
+    /** Start the model's side of a conversation on a lender. See brain.js `open`. */
+    borrowModel: options => buildBrain().open(options),
+    /** Ask again now whether this computer can lend its model (a sign-in or a runtime changed). */
+    checkLending: () => checkLending(),
     /** Hand a task to another device. See tasks.js `start`. */
     runOnDevice: async (options) => {
         if (vault.isLocked()) return { error: 'The app is locked.' };

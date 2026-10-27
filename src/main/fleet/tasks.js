@@ -7,7 +7,8 @@ const crypto = require('crypto');
  * Two sides, both in every install:
  *
  *   The device doing the work runs it as an ordinary conversation of its own
- *   agent, in that agent's own approval mode, and in its own list (so
+ *   agent, with Full access (the fleet is the user's own, and a computer
+ *   just added has no folders granted), and in its own list (so
  *   someone at that machine sees it too). Every event the conversation
  *   records goes back to the device that asked, numbered, through the
  *   relay's mailbox, so one that was off when it happened gets it later.
@@ -116,6 +117,10 @@ function createTasks({ device, ai, persist, accepts = () => true, now = () => Da
         const agent = resolveAgent(data.agent);
         if (!agent) throw new Error(`There is no agent called "${data.agent}" on ${selfName()}.`);
         const { conversationId } = ai.create({ agentId: agent.id });
+        // Runs with Full access, so a computer just added to the fleet can do
+        // the work without anyone granting it folders first; and borrows the
+        // asking computer's model if it has none that works (brain.js).
+        ai.takeTask?.(conversationId, meta.from, meta.fromName);
         watch(conversationId, meta.from);
         const sent = await ai.send(conversationId, brief);
         if (!sent?.success) {

@@ -232,6 +232,9 @@ function register(getWindow) {
         if (window && !window.isDestroyed()) {
             window.webContents.send(channel, payload);
         }
+        // A runtime switched on or off, or a sign-in made or ended: the other
+        // computers hear at once whether this one can lend its model.
+        if (channel === 'ai-settings' || /account/i.test(channel)) fleet.checkLending().catch(() => {});
     };
 
     transfers.setNotifier(notify);

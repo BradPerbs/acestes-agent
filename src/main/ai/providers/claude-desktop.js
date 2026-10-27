@@ -41,6 +41,7 @@ module.exports = {
     listModels: options => claudeCode.listModels(pin(options)),
     readLimits: options => claudeCode.readLimits(pin(options)),
     authStatus: options => claudeCode.authStatus(pin(options)),
+    hasSignIn: options => claudeCode.hasSignIn(pin(options)),
     login: options => claudeCode.login(pin(options)),
     logout: options => claudeCode.logout(pin(options)),
     detect,

@@ -1467,6 +1467,10 @@ function visibleTools(settings) {
  * context without them (a test, a tool run from the page) is the plain call.
  */
 async function invoke(definition, input, ctx) {
+    // A model lent to another computer of the fleet (fleet/brain.js): the
+    // call goes back to the computer the conversation is on, which checks it
+    // against its own settings and runs it there. Nothing of ours runs here.
+    if (typeof ctx?.forwardTool === 'function') return ctx.forwardTool(definition.name, input);
     // A bundle switched off after the session started: the model may still
     // hold the definition from an earlier turn. Refuse plainly rather than
     // running, so every provider stays consistent with what it was offered.

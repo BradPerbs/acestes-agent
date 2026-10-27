@@ -1737,16 +1737,218 @@ function ensureProvider(conversation) {
     if (conversation.starting) return conversation.starting;
 
     const current = effectiveSettings(conversation);
+    conversation.starting = lenderFor(conversation, current)
+        .then(lender => startRuntime(conversation, current, lender))
+        .then((session) => {
+            conversation.session = session;
+            conversation.starting = null;
+            return session;
+        })
+        .catch((error) => {
+            conversation.starting = null;
+            throw error;
+        });
+    return conversation.starting;
+}
+
+/* ------------------------------------------------------------------ *
+ * A model borrowed from the fleet
+ *
+ * A computer in the fleet with no runtime of its own that works still
+ * takes conversations: the model's side runs on one that has one, and
+ * every tool call comes back to run here. See fleet/brain.js.
+ * ------------------------------------------------------------------ */
+
+/** The runtimes that can lend themselves: the ones whose tools can be held back (see `forwarded`). */
+const LENDING_RUNTIMES = ['claude-code', 'claude-desktop'];
+
+/** What a borrowed model is told about this computer's tools, so it offers the same ones. */
+const LENT_SETTINGS = ['toolBundles', 'computerUse', 'memory', 'allowLocalTools', 'maxTurns'];
+
+function fleetModule() {
+    try {
+        return require('../fleet');
+    } catch {
+        return null;
+    }
+}
+
+/** Whether this computer's own runtime can start a run: switched on, installed, and signed in. */
+async function runsHere(current) {
+    if (!Array.isArray(current.providers) || current.providers.length === 0) return false;
+    const provider = PROVIDERS[current.provider];
+    if (!provider) return false;
+    try {
+        const found = typeof provider.detect === 'function' ? provider.detect() : null;
+        if (found && typeof found.then !== 'function' && found.ok === false) return false;
+    } catch {
+        return false;
+    }
+    if (typeof provider.hasSignIn !== 'function') return true;
+    try {
+        return Boolean(await provider.hasSignIn({ settings: current }));
+    } catch {
+        return true;
+    }
+}
+
+/**
+ * The fleet computer to borrow a model from, or null to run here. Only when
+ * this computer cannot run the conversation itself, or already moved it to a
+ * borrowed model after its own sign-in was refused, and only when another
+ * computer can lend one: otherwise the run starts here, and says what is
+ * missing the way it always has.
+ */
+async function lenderFor(conversation, current) {
+    const fleet = fleetModule();
+    const lender = fleet?.lender?.(conversation.preferredLender || '') || null;
+    if (!lender) return null;
+    if (conversation.viaFleet) return lender;
+    return (await runsHere(current)) ? null : lender;
+}
+
+/** Remember which computer to borrow a model from first: the one that asked for the task. */
+function preferLender(conversationId, deviceId) {
+    const conversation = conversations.get(conversationId);
+    if (conversation && deviceId) conversation.preferredLender = String(deviceId);
+}
+
+/**
+ * A runtime-shaped stand-in for one on another computer: started with the
+ * options any runtime gets, and checking and running each tool call the
+ * model there makes here, as Claude Code's own path does (blocked list,
+ * approval mode, card), then through `invoke` with this conversation's
+ * context: its folders, its desktop, its hooks.
+ */
+function borrowedRuntime(lender) {
+    return {
+        async start(options) {
+            const { getSettings, toolContext, requestApproval: askHere, onEvent } = options;
+            const runTool = async (name, input) => {
+                const current = getSettings();
+                const definition = catalog.BY_NAME.get(name);
+                if (!definition || !catalog.visibleTools(current).some(tool => tool.name === name)) {
+                    return { text: `${name} is not available on this computer.`, isError: true };
+                }
+                const blocked = catalog.blockedReason(name, input, current);
+                if (blocked) {
+                    onEvent({ type: 'tool-blocked', name, rule: blocked });
+                    return { text: catalog.blockedMessage(blocked), isError: true };
+                }
+                let args = input;
+                if (!catalog.isAutoApproved(name, input, current)) {
+                    const verdict = await askHere({ toolName: name, name, input, local: false });
+                    if (!verdict?.approved) return { text: verdict?.message || 'The user declined that.', isError: true };
+                    if (verdict.input) args = verdict.input;
+                }
+                return catalog.invoke(definition, args, toolContext());
+            };
+            const settingsNow = getSettings();
+            const toolSettings = Object.fromEntries(LENT_SETTINGS.filter(key => key in settingsNow).map(key => [key, settingsNow[key]]));
+            return fleetModule().borrowModel({
+                peer: lender,
+                systemPrompt: options.systemPrompt || '',
+                toolSettings,
+                resumeSessionId: options.resumeSessionId || '',
+                runTool,
+                approve: request => askHere(request),
+                onEvent,
+            });
+        },
+    };
+}
+
+/** The runtime this computer would lend, for its selected agent: a Claude one that is switched on. */
+function lendingRuntime(agentId) {
+    const own = settings.get(agentId);
+    const on = Array.isArray(own.providers) ? own.providers : [];
+    return LENDING_RUNTIMES.find(name => own.provider === name && on.includes(name))
+        || LENDING_RUNTIMES.find(name => on.includes(name))
+        || '';
+}
+
+/** Whether this computer can lend its model to another in the fleet. See fleet/index.js. */
+async function canLendModel() {
+    const agentId = agents.activeId();
+    const runtime = lendingRuntime(agentId);
+    if (!runtime || !PROVIDERS[runtime]) return false;
+    return runsHere(effectiveSettings({ agentId, settingsPatch: { provider: runtime } }));
+}
+
+/**
+ * Run the model's side of another computer's conversation here: this
+ * computer's runtime, model and sign-in, with that computer's system prompt
+ * and tool list, none of this computer's own tools or servers, and every
+ * call sent back (`forwardTool`, see tools.invoke). See fleet/brain.js.
+ */
+async function hostRun({ systemPrompt = '', toolSettings = {}, resumeSessionId = '', forwardTool, requestApproval: askThere, onEvent }) {
+    const agentId = agents.activeId();
+    const runtime = lendingRuntime(agentId);
+    if (!runtime || !PROVIDERS[runtime]) throw new Error('No Claude runtime is switched on here to lend.');
+    const own = effectiveSettings({ agentId, settingsPatch: { provider: runtime } });
+    const lent = {
+        ...own,
+        ...Object.fromEntries(LENT_SETTINGS.filter(key => key in toolSettings).map(key => [key, toolSettings[key]])),
+        forwarded: true,
+        mcpServers: [],
+        sandbox: null,
+        bareProvider: false,
+    };
+    const session = await PROVIDERS[runtime].start({
+        settings: lent,
+        getSettings: () => lent,
+        systemPrompt,
+        toolContext: () => ({ settings: lent, forwardTool }),
+        requestApproval: askThere,
+        onEvent,
+        resumeSessionId,
+    });
+    return { session, runtime, model: lent.model || '' };
+}
+
+/**
+ * Its own runtime refused the sign-in: the turn goes again on a borrowed
+ * model, with the message as it was handed over, and the conversation stays
+ * on it. What the refused runtime says after this is dropped (see
+ * `startRuntime`), so the failed attempt neither ends the turn nor shows.
+ */
+async function retryOnLender(conversation, lender) {
+    const handoff = conversation.lastHandoff;
+    conversation.viaFleet = true;
+    conversation.needsRestart = true;
+    emit(conversation, {
+        type: 'notice',
+        tone: 'info',
+        text: `Not signed in to a model on this computer, so this runs on ${lender.name}'s model. Commands and screen actions still run here.`,
+    });
+    try {
+        await restart(conversation);
+        const session = await ensureProvider(conversation);
+        session.send(handoff.text, handoff.images);
+    } catch (error) {
+        conversation.busy = false;
+        emit(conversation, { type: 'error', message: error.message });
+        endRun(conversation, 'failed', { reason: error.message });
+    }
+}
+
+function startRuntime(conversation, current, lender) {
     // Nothing ticked: a fresh machine with no agent installed, or every one
     // switched off. Said as that, rather than as whichever runtime `provider`
     // still names failing to find itself.
-    if (Array.isArray(current.providers) && current.providers.length === 0) {
+    if (!lender && Array.isArray(current.providers) && current.providers.length === 0) {
         return Promise.reject(new Error('No AI agent is switched on. Tick one under Settings > AI Agent.'));
     }
-    const provider = PROVIDERS[current.provider];
-    if (!provider) {
+    if (!lender && !PROVIDERS[current.provider]) {
         return Promise.reject(new Error(`No provider named "${current.provider}" is available`));
     }
+    const provider = lender ? borrowedRuntime(lender) : PROVIDERS[current.provider];
+    // A session one computer's model kept means nothing to a runtime here.
+    if (!lender && String(conversation.providerSessionId || '').startsWith('fleet:')) conversation.providerSessionId = '';
+    // Which start this is, so what a replaced runtime says late is not taken
+    // for what the new one says. See retryOnLender.
+    const generation = (conversation.generation || 0) + 1;
+    conversation.generation = generation;
 
     const context = () => {
         // The core of the notebook (its rules and the topics of the rest) as
@@ -1801,7 +2003,7 @@ function ensureProvider(conversation) {
     conversation.provider = current.provider;
     conversation.accountId = current.accountId;
 
-    conversation.starting = provider.start({
+    return provider.start({
         settings: current,
         // Read again on every tool call, so tightening the approval policy
         // mid-run takes effect on the next call rather than the next
@@ -1941,20 +2143,26 @@ function ensureProvider(conversation) {
             },
         }),
         requestApproval: (request) => requestApproval(conversation, request),
-        onEvent: (event) => handleProviderEvent(conversation, event),
+        onEvent: (event) => {
+            if (generation <= (conversation.droppedGeneration || 0)) return;
+            // Not signed in here after all (a shared sign-in that was
+            // refused, a login that lapsed): the turn goes again on a model
+            // another computer lends, when one can, rather than ending here.
+            if (event?.type === 'error' && event.code === 'signInNeeded' && !lender && conversation.lastHandoff) {
+                const fallback = fleetModule()?.lender?.(conversation.preferredLender || '');
+                if (fallback) {
+                    conversation.droppedGeneration = generation;
+                    retryOnLender(conversation, fallback);
+                    return;
+                }
+            }
+            if (event?.type === 'result') conversation.lastHandoff = null;
+            handleProviderEvent(conversation, event);
+        },
         // Continues the same SDK session after a restart, which is what lets
         // the model be switched without losing the conversation.
         resumeSessionId: conversation.providerSessionId,
-    }).then((session) => {
-        conversation.session = session;
-        conversation.starting = null;
-        return session;
-    }).catch((error) => {
-        conversation.starting = null;
-        throw error;
     });
-
-    return conversation.starting;
 }
 
 /** A server's file, named with the host it is on, for the card. */
@@ -4041,7 +4249,10 @@ async function send(conversationId, text, attachments = [], tagged = [], attache
         if (mentions.length > 0) parts.push(mentionBlock(mentions));
         if (body) parts.push(body);
 
-        session.send(parts.join('\n\n'), images);
+        // Kept until the turn ends, so a run whose sign-in is refused can go
+        // again on a model another computer lends (see retryOnLender).
+        conversation.lastHandoff = { text: parts.join('\n\n'), images };
+        session.send(conversation.lastHandoff.text, images);
         timer.mark('handoff');
         sendTiming.record(timer.entry({ provider: conversation.provider || '', cold, chars: body.length }));
         return { success: true };
@@ -4750,6 +4961,10 @@ async function shutdownAll() {
 }
 
 module.exports = {
+    // A model lent between the computers of the fleet. See fleet/brain.js.
+    hostRun,
+    canLendModel,
+    preferLender,
     metricSnapshot,
     stopMetric,
     setNotifier,
