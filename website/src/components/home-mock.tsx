@@ -28,7 +28,6 @@ import {
   Notification03Icon,
   OctopusIcon,
   PlusSignIcon,
-  RefreshIcon,
   Search01Icon,
   SecurityCheckIcon,
   ServerStack01Icon,
@@ -43,7 +42,7 @@ import type { CrestId, HelmetId } from "@/lib/helmet/renderer";
 import { gsap, prefersReducedMotion, ScrollTrigger, useGSAP } from "@/lib/gsap";
 import type { BrandName } from "@/lib/brand-paths";
 import { sound } from "@/lib/sound";
-import { useSpin } from "./motion-fx";
+import { closeJob, H, playJob, primeWork, Ring, settleWork, SH, SIDE, SW, W, Work, type PanelId } from "./home-work";
 import { BrandIcon, Icon } from "./icon";
 import { LiveHelmet } from "./live-helmet";
 import { StillHelmet } from "./still-helmet";
@@ -58,12 +57,13 @@ import { StillHelmet } from "./still-helmet";
  * ApprovalMenu and ModelMenu (the chips), Tooltip, TitleBar, Sidebar and
  * StatusBar.
  *
- * The story is octopus mode's: it is switched on, and three prompts go to
- * three agents, each opening its tab behind Home while Home stays put.
+ * The story: octopus mode is switched on once, then prompts keep going out
+ * to the three agents, without end, each opening its tab behind Home while
+ * Home stays put. Beside the window, each job opens where it runs
+ * (home-work.tsx): a shell on a server, a Windows machine over Remote
+ * Desktop, a check across the fleet. When it is done its window and its tab
+ * close, and the next ones come.
  */
-
-const W = 1200;
-const H = 760;
 
 // Black theme ramp (lib/app-colors.js)
 const RAISED = "#0a0a0a";
@@ -102,8 +102,6 @@ type Agent = {
   mode: Mode;
   /** Whether its runtime reads pictures, so the composer offers to attach one. */
   images: boolean;
-  prompt: string;
-  title: string;
 };
 
 /** The three agents from the Team section, with what each is sent. */
@@ -120,8 +118,6 @@ const AGENTS: Agent[] = [
     effort: "Extra high",
     mode: "writes",
     images: true,
-    prompt: "Check disk space on the web fleet and clear old logs on anything over 80%.",
-    title: "Disk space on the web fleet",
   },
   {
     id: "palinurus",
@@ -134,8 +130,6 @@ const AGENTS: Agent[] = [
     effort: "High",
     mode: "never",
     images: true,
-    prompt: "Update Proxmox on pve-01 and reboot it once tonight's backup is done.",
-    title: "Proxmox update on pve-01",
   },
   {
     id: "achates",
@@ -147,11 +141,58 @@ const AGENTS: Agent[] = [
     model: "qwen3:32b",
     mode: "always",
     images: false,
+  },
+];
+const [ACE, PALINURUS, ACHATES] = AGENTS;
+
+/**
+ * What Home sends, in order, round and round: each to its agent (reached with
+ * the arrow, or picked from the list), and where its work opens.
+ */
+type Job = { panel: PanelId; agent: Agent; via?: "next" | "pick"; prompt: string; title: string };
+const JOBS: Job[] = [
+  {
+    panel: "ssh-web",
+    agent: ACE,
+    prompt: "Check disk space on the web fleet and clear old logs on anything over 80%.",
+    title: "Disk space on the web fleet",
+  },
+  {
+    panel: "rdp-desk",
+    agent: PALINURUS,
+    via: "next",
+    prompt: "The printer at front-desk is stuck again. Clear its queue.",
+    title: "Print queue on front-desk",
+  },
+  {
+    panel: "fleet-audit",
+    agent: ACHATES,
+    via: "pick",
     prompt: "Audit sudoers and SSH config on all 20 hosts. Report only, change nothing.",
     title: "Sudo and SSH audit",
   },
+  {
+    panel: "ssh-nginx",
+    agent: ACE,
+    via: "next",
+    prompt: "nginx on web-03 is throwing 502s. Find out why and fix it.",
+    title: "502s on web-03",
+  },
+  {
+    panel: "rdp-dc",
+    agent: PALINURUS,
+    via: "next",
+    prompt: "Maria is locked out again. Unlock her account on dc-02.",
+    title: "Unlock Maria on dc-02",
+  },
+  {
+    panel: "fleet-tls",
+    agent: ACHATES,
+    via: "next",
+    prompt: "Which TLS certificates expire in the next 30 days? Check all 20 hosts.",
+    title: "TLS certificates due",
+  },
 ];
-const ACE = AGENTS[0];
 
 /** The chat that was already open, and Ace's older ones in the sidebar. */
 const OPEN = "Checkout tests failing after #212";
@@ -348,25 +389,6 @@ function Cipher({ cardRef, scale }: { cardRef: RefObject<HTMLDivElement | null>;
 /* Pieces                                                              */
 /* ------------------------------------------------------------------ */
 
-function Ring() {
-  const ref = useSpin<SVGSVGElement>();
-  return (
-    <svg ref={ref} viewBox="0 0 12 12" className="size-3 shrink-0" aria-hidden="true">
-      <circle cx="6" cy="6" r="4.75" fill="none" stroke="currentColor" strokeWidth="1.5" opacity="0.2" />
-      <circle
-        cx="6"
-        cy="6"
-        r="4.75"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeDasharray="7.5 30"
-      />
-    </svg>
-  );
-}
-
 /** Tooltip.jsx's bubble: the name, and the chord in grey; arrow under it, placed above its control. */
 function Tip({
   name,
@@ -398,10 +420,11 @@ function Tip({
 }
 
 /** A TitleBar.jsx chat tab, opened behind Home: the agent's mark, the title, and the spinner or the dot. */
-function Tab({ agent, title, opened = false }: { agent: Agent; title: string; opened?: boolean }) {
+function Tab({ agent, title, id }: { agent: Agent; title: string; id?: PanelId }) {
+  const opened = Boolean(id);
   return (
     <span
-      data-tab={opened ? agent.id : undefined}
+      data-tab={id}
       className="shrink-0 overflow-hidden"
       style={opened ? { display: "none", width: 0 } : { width: 130 }}
     >
@@ -472,11 +495,10 @@ const only = (agent: Agent) => ({
 /* ------------------------------------------------------------------ */
 
 export function HomeMock() {
-  const frame = useRef<HTMLDivElement>(null);
+  const stage = useRef<HTMLDivElement>(null);
   const root = useRef<HTMLDivElement>(null);
   const card = useRef<HTMLDivElement>(null);
-  const [scale, setScale] = useState(1000 / W);
-  const [run, setRun] = useState(0);
+  const [scale, setScale] = useState(1250 / SW);
   // The visitor's own hour, as the app greets by the clock; evening on the server.
   const hello = useSyncExternalStore(
     noop,
@@ -485,9 +507,9 @@ export function HomeMock() {
   );
 
   useLayoutEffect(() => {
-    const el = frame.current;
+    const el = stage.current;
     if (!el) return;
-    const fit = () => setScale(el.clientWidth / W);
+    const fit = () => setScale(el.clientWidth / SW);
     fit();
     const ro = new ResizeObserver(fit);
     ro.observe(el);
@@ -497,7 +519,8 @@ export function HomeMock() {
   useGSAP(
     () => {
       const el = root.current;
-      if (!el) return;
+      const wide = stage.current;
+      if (!el || !wide) return;
       const q = gsap.utils.selector(el);
       const one = (selector: string) => q(selector)[0] as HTMLElement;
       const all = (selector: string) => q(selector) as HTMLElement[];
@@ -513,30 +536,36 @@ export function HomeMock() {
       const chip = one("[data-chip]");
       const menu = one("[data-menu]");
       const count = one("[data-count]");
-      const bell = one("[data-bell]");
-      const row = one("[data-row]");
+      const nextButton = one("[data-next]");
+      const tabOf = (job: Job) => one(`[data-tab="${job.panel}"]`);
+      const tabs = (n: number) => (n === 1 ? "1 tab" : `${n} tabs`);
 
       const target = (id: string) => [
         { targets: all("[data-agent]").filter((n) => n.dataset.agent !== id), vars: { display: "none" } },
         { targets: all(`[data-agent="${id}"]`), vars: { display: "" } },
       ];
+      const octopusOn = { backgroundColor: "rgb(139 92 246 / 0.1)", color: "#c4b5fd" };
 
-      // The end of the story, for reduced motion: octopus on, Achates in
-      // front, three tabs behind Home, all of them done.
+      // A still, for reduced motion: octopus on, the first three jobs open
+      // beside the window and done, their tabs behind Home.
       if (prefersReducedMotion()) {
-        for (const step of target("achates")) gsap.set(step.targets, step.vars);
-        gsap.set([phOff], { display: "none" });
+        const shown = JOBS.slice(0, 3);
+        gsap.set(phOff, { display: "none" });
         gsap.set([phOn, bar], { display: "" });
-        gsap.set(toggle, { backgroundColor: "rgb(139 92 246 / 0.1)", color: "#c4b5fd" });
-        gsap.set(all("[data-tab]"), { display: "", width: 130 });
-        gsap.set(row, { display: "", height: 32 });
-        gsap.set([...all("[data-untitled]"), ...all("[data-spin]")], { display: "none" });
-        gsap.set([...all("[data-titled]"), ...all("[data-dot]"), bell], { display: "" });
-        gsap.set(count, { textContent: "4 tabs" });
+        gsap.set(toggle, octopusOn);
+        for (const job of shown) {
+          const tab = tabOf(job);
+          gsap.set(tab, { display: "", width: 130 });
+          gsap.set([tab.querySelector("[data-untitled]"), tab.querySelector("[data-spin]")], { display: "none" });
+          gsap.set([tab.querySelector("[data-titled]"), tab.querySelector("[data-dot]")], { display: "" });
+        }
+        gsap.set(count, { textContent: tabs(shown.length + 1) });
+        settleWork(
+          wide,
+          shown.map((job) => job.panel),
+        );
         return;
       }
-
-      const tl = gsap.timeline({ paused: true, defaults: { ease: "power3.out", duration: 0.4 } });
 
       // The pointer: to the middle of a control, measured when it gets there.
       const point = (selector: string) => () => {
@@ -545,618 +574,674 @@ export function HomeMock() {
         const k = r.width / W;
         return { x: (a.left - r.left + a.width / 2) / k - 3, y: (a.top - r.top + a.height / 2) / k - 2 };
       };
-      const move = (selector: string, at: string | number, duration = 0.7) => {
-        const p = point(selector);
-        tl.to(cursor, { x: () => p().x, y: () => p().y, duration, ease: "power3.inOut" }, at);
+
+      // Steps on a timeline, each at the time given; each returns when it ends.
+      const steps = (tl: gsap.core.Timeline) => {
+        const move = (selector: string, at: number, duration = 0.6) => {
+          const p = point(selector);
+          tl.to(cursor, { x: () => p().x, y: () => p().y, duration, ease: "power3.inOut" }, at);
+          return at + duration;
+        };
+        const press = (node: HTMLElement, at: number) => {
+          tl.call(() => sound.play("press"), [], at);
+          tl.to(node, { scale: 0.9, duration: 0.07, ease: "power2.in" }, at);
+          tl.to(node, { scale: 1, duration: 0.14 }, at + 0.07);
+          return at + 0.21;
+        };
+        const tip = (name: string, show: boolean, at: number) => {
+          const node = one(`[data-tip="${name}"]`);
+          if (show) {
+            tl.set(node, { display: "" }, at);
+            tl.fromTo(node, { autoAlpha: 0, y: 3 }, { autoAlpha: 1, y: 0, duration: 0.16, immediateRender: false }, at);
+          } else {
+            tl.to(node, { autoAlpha: 0, duration: 0.1 }, at);
+            tl.set(node, { display: "none" }, at + 0.1);
+          }
+        };
+        return { move, press, tip };
       };
-      const press = (node: HTMLElement, at: string | number = ">") => {
-        tl.call(() => sound.play("press"), [], at);
-        tl.to(node, { scale: 0.9, duration: 0.07, ease: "power2.in" }, "<").to(node, { scale: 1, duration: 0.14 });
-      };
-      const tip = (name: string, show: boolean, at: string | number) => {
-        const node = one(`[data-tip="${name}"]`);
-        if (show) {
-          tl.set(node, { display: "" }, at);
-          tl.fromTo(node, { autoAlpha: 0, y: 3 }, { autoAlpha: 1, y: 0, duration: 0.16 }, "<");
-        } else {
-          tl.to(node, { autoAlpha: 0, duration: 0.1 }, at).set(node, { display: "none" });
-        }
-      };
-      const to = (id: string, at: string | number) => {
-        for (const step of target(id)) tl.set(step.targets, step.vars, at);
-        tl.fromTo(
-          one(`[data-mark="${id}"]`),
-          { autoAlpha: 0, scale: 0.94 },
-          { autoAlpha: 1, scale: 1, duration: 0.35, ease: "power2.out" },
-          at,
+
+      // Hidden by opacity too, so the loop rewinds each round to hidden, not to opaque.
+      primeWork(wide);
+      gsap.set(send, { autoAlpha: 0, scale: 0 });
+
+      // Once: the octopus button, its tooltip, then on, and the bar opens beside it.
+      const intro = gsap.timeline({ paused: true, defaults: { ease: "power3.out", duration: 0.4 } });
+      {
+        const { move, press, tip } = steps(intro);
+        intro.fromTo(cursor, { autoAlpha: 0, x: W * 0.78, y: H * 0.96 }, { autoAlpha: 1, duration: 0.3 }, 0.4);
+        const t = move("[data-toggle]", 0.4, 1);
+        tip("toggle", true, t + 0.05);
+        tip("toggle", false, t + 1.2);
+        press(toggle, t + 1.2);
+        intro.to(toggle, { ...octopusOn, duration: 0.2 }, t + 1.2);
+        intro.set(bar, { display: "" }, t + 1.2);
+        intro.fromTo(
+          bar,
+          { width: 0, autoAlpha: 0 },
+          { width: "auto", autoAlpha: 1, duration: 0.35, immediateRender: false },
+          t + 1.2,
         );
-      };
-      // Typed into the box, a key at a time; the send button arrives with the first.
-      const type = (text: string, at: string | number) => {
-        let shown = 0;
-        tl.set(phOn, { autoAlpha: 0 }, at);
-        tl.set(tcaret, { display: "" }, "<");
-        tl.fromTo(send, { scale: 0, autoAlpha: 0 }, { scale: 1, autoAlpha: 1, duration: 0.18 }, "<0.05");
-        tl.to(
-          typed,
-          {
-            text,
-            duration: text.length * 0.03,
-            ease: "none",
-            onStart: () => {
-              shown = 0;
-            },
-            onUpdate: () => {
-              const n = typed.textContent?.length ?? 0;
-              if (n > shown) sound.play("type");
-              shown = n;
-            },
-          },
-          "<",
-        );
-      };
-      // Sent: the tab opens behind Home, "Sent to" shows for its 2.5 s, and
-      // the composer comes back empty for the next one.
-      const sent = (agent: Agent, tabs: number, at: string | number) => {
-        const tab = one(`[data-tab="${agent.id}"]`);
-        const status = one(`[data-sent="${agent.id}"]`);
-        press(send, at);
-        tl.call(() => sound.play("send"), [], "<");
-        tl.set(typed, { text: "" }, ">");
-        tl.set(tcaret, { display: "none" }, "<");
-        tl.to(send, { scale: 0, autoAlpha: 0, duration: 0.15 }, "<");
-        tl.set(phOn, { autoAlpha: 1 }, "<");
-        tl.set(status, { display: "" }, "<");
-        tl.fromTo(status, { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.2 }, "<");
-        tl.set(tab, { display: "" }, "<");
-        tl.fromTo(tab, { width: 0, autoAlpha: 0 }, { width: 130, autoAlpha: 1, duration: 0.45 }, "<");
-        tl.set(count, { textContent: `${tabs} tabs` }, "<");
-        if (agent.id === ACE.id) {
-          tl.set(row, { display: "" }, "<");
-          tl.fromTo(row, { height: 0, autoAlpha: 0 }, { height: 32, autoAlpha: 1, duration: 0.4 }, "<");
-        }
-        const landed = tl.duration();
-        // Its title, once the conversation has one.
-        const titled = [tab, ...(agent.id === ACE.id ? [row] : [])];
-        for (const node of titled) {
-          tl.set(node.querySelector("[data-untitled]"), { display: "none" }, landed + 1.3);
-          tl.set(node.querySelector("[data-titled]"), { display: "" }, landed + 1.3);
-          tl.fromTo(
-            node.querySelector("[data-titled]"),
-            { autoAlpha: 0 },
-            { autoAlpha: 1, duration: 0.3 },
-            landed + 1.3,
-          );
-        }
-        tl.to(status, { autoAlpha: 0, duration: 0.25 }, landed + 2.5).set(status, { display: "none" });
-        return landed;
-      };
-      // Done while Home was in front: the spinner turns into the dot.
-      const done = (agent: Agent, at: number, first = false) => {
-        const nodes = [one(`[data-tab="${agent.id}"]`), ...(agent.id === ACE.id ? [row] : [])];
-        for (const node of nodes) {
-          tl.set(node.querySelector("[data-spin]"), { display: "none" }, at);
-          tl.set(node.querySelector("[data-dot]"), { display: "" }, at);
-          tl.fromTo(
-            node.querySelector("[data-dot]"),
-            { scale: 0 },
-            { scale: 1, duration: 0.3, ease: "back.out(3)" },
+        intro.set(phOff, { display: "none" }, t + 1.2);
+        intro.set(phOn, { display: "" }, t + 1.2);
+        intro.to(cursor, { autoAlpha: 0, duration: 0.3 }, t + 1.8);
+      }
+
+      // Then, round and round: every job sent, worked where it lives, done,
+      // its window and its tab closed. It ends as it starts, with Ace in front
+      // and no tabs open, so each round runs on from the last.
+      const loop = gsap.timeline({ paused: true, repeat: -1, defaults: { ease: "power3.out", duration: 0.4 } });
+      {
+        const { move, press, tip } = steps(loop);
+        const to = (id: string, at: number) => {
+          for (const step of target(id)) loop.set(step.targets, step.vars, at);
+          loop.fromTo(
+            one(`[data-mark="${id}"]`),
+            { autoAlpha: 0, scale: 0.94 },
+            { autoAlpha: 1, scale: 1, duration: 0.35, ease: "power2.out", immediateRender: false },
             at,
           );
+        };
+        // Alt+→, by the arrow.
+        const next = (id: string, at: number, hint = false) => {
+          let t = move("[data-next]", at, 0.5);
+          if (hint) {
+            tip("next", true, t + 0.05);
+            t += 0.9;
+            tip("next", false, t);
+          }
+          press(nextButton, t);
+          to(id, t);
+          return t + 0.3;
+        };
+        // The picker, and the agent from its list.
+        const pick = (id: string, at: number) => {
+          const item = one(`[data-pick="${id}"]`);
+          let t = move("[data-chip]", at, 0.55);
+          press(chip, t);
+          loop.to(chip, { backgroundColor: "rgb(255 255 255 / 0.07)", color: "#fff", duration: 0.12 }, t);
+          loop.set(menu, { display: "" }, t);
+          loop.fromTo(menu, { autoAlpha: 0, y: -4 }, { autoAlpha: 1, y: 0, duration: 0.18, immediateRender: false }, t);
+          t = move(`[data-pick="${id}"]`, t + 0.3, 0.5);
+          loop.to(item, { backgroundColor: CONTROL, duration: 0.12 }, t - 0.1);
+          t = press(item, t + 0.2);
+          loop.to(menu, { autoAlpha: 0, duration: 0.12 }, t);
+          loop.set(menu, { display: "none" }, t + 0.12);
+          loop.to(item, { backgroundColor: "rgb(20 20 20 / 0)", duration: 0.05 }, t + 0.12);
+          loop.to(chip, { backgroundColor: "rgb(255 255 255 / 0)", color: "#e5e5e5", duration: 0.15 }, t);
+          to(id, t);
+          return t + 0.3;
+        };
+        // Typed into the box, a key at a time; the send button arrives with the first.
+        const type = (text: string, at: number) => {
+          let shown = 0;
+          loop.set(phOn, { autoAlpha: 0 }, at);
+          loop.set(tcaret, { display: "" }, at);
+          loop.fromTo(
+            send,
+            { scale: 0, autoAlpha: 0 },
+            { scale: 1, autoAlpha: 1, duration: 0.18, immediateRender: false },
+            at + 0.05,
+          );
+          loop.to(
+            typed,
+            {
+              text,
+              duration: text.length * 0.03,
+              ease: "none",
+              onStart: () => {
+                shown = 0;
+              },
+              onUpdate: () => {
+                const n = typed.textContent?.length ?? 0;
+                if (n > shown) sound.play("type");
+                shown = n;
+              },
+            },
+            at + 0.05,
+          );
+          return at + 0.05 + text.length * 0.03;
+        };
+        // Sent: the tab opens behind Home, "Sent to" shows for its 2.5 s, and
+        // the composer comes back empty for the next one.
+        const sent = (job: Job, at: number) => {
+          const tab = tabOf(job);
+          const status = one(`[data-sent="${job.agent.id}"]`);
+          const landed = press(send, at);
+          loop.call(() => sound.play("send"), [], at);
+          loop.set(typed, { text: "" }, landed);
+          loop.set(tcaret, { display: "none" }, landed);
+          loop.to(send, { scale: 0, autoAlpha: 0, duration: 0.15 }, landed);
+          loop.set(phOn, { autoAlpha: 1 }, landed);
+          loop.set(status, { display: "" }, landed);
+          loop.fromTo(status, { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.2, immediateRender: false }, landed);
+          loop.set(tab, { display: "" }, landed);
+          loop.fromTo(
+            tab,
+            { width: 0, autoAlpha: 0 },
+            { width: 130, autoAlpha: 1, duration: 0.45, immediateRender: false },
+            landed,
+          );
+          // Its title, once the conversation has one.
+          const titled = tab.querySelector("[data-titled]");
+          loop.set(tab.querySelector("[data-untitled]"), { display: "none" }, landed + 1.3);
+          loop.set(titled, { display: "" }, landed + 1.3);
+          loop.fromTo(titled, { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.3, immediateRender: false }, landed + 1.3);
+          loop.to(status, { autoAlpha: 0, duration: 0.25 }, landed + 2.5);
+          loop.set(status, { display: "none" }, landed + 2.75);
+          return landed;
+        };
+        // Done while Home was in front: the spinner turns into the dot.
+        const done = (job: Job, at: number) => {
+          const tab = tabOf(job);
+          const dot = tab.querySelector("[data-dot]");
+          loop.set(tab.querySelector("[data-spin]"), { display: "none" }, at);
+          loop.set(dot, { display: "" }, at);
+          loop.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.3, ease: "back.out(3)", immediateRender: false }, at);
+          loop.call(() => sound.play("blip"), [], at);
+        };
+        // Seen and closed.
+        const close = (job: Job, at: number) => {
+          const tab = tabOf(job);
+          loop.to(tab, { width: 0, autoAlpha: 0, duration: 0.35, ease: "power2.inOut" }, at);
+          loop.set(tab, { display: "none" }, at + 0.35);
+        };
+
+        const counts: [number, number][] = [];
+        let t = 0.1;
+        loop.fromTo(
+          cursor,
+          { autoAlpha: 0, x: () => point("[data-send-slot]")().x + 50, y: () => point("[data-send-slot]")().y + 60 },
+          { autoAlpha: 1, duration: 0.3, immediateRender: false },
+          t,
+        );
+        let last = 0;
+        JOBS.forEach((job, n) => {
+          if (job.via === "next") t = next(job.agent.id, t + 0.35, n === 1);
+          if (job.via === "pick") t = pick(job.agent.id, t + 0.35);
+          t = move("[data-send-slot]", t + 0.15, 0.55);
+          t = type(job.prompt, t + 0.1);
+          const landed = sent(job, t + 0.25);
+          counts.push([landed, 1]);
+          const finished = playJob(loop, wide, job.panel, landed + 0.35);
+          done(job, finished);
+          closeJob(loop, wide, job.panel, finished + 2.4);
+          close(job, finished + 2.55);
+          counts.push([finished + 2.55, -1]);
+          last = Math.max(last, finished + 2.9);
+          t = landed + 0.2;
+        });
+        // Back to Ace for the next round, and the pointer rests.
+        t = next(ACE.id, t + 0.6);
+        loop.to(cursor, { autoAlpha: 0, y: "+=20", duration: 0.35 }, t + 0.3);
+
+        // The status bar's count of tabs, as they open and close.
+        let open = 1;
+        for (const [at, change] of counts.sort((a, b) => a[0] - b[0])) {
+          open += change;
+          loop.set(count, { textContent: tabs(open) }, at);
         }
-        tl.call(() => sound.play("blip"), [], at);
-        if (first) {
-          tl.set(bell, { display: "" }, at);
-          tl.fromTo(bell, { scale: 0 }, { scale: 1, duration: 0.3, ease: "back.out(3)" }, at);
-        }
-      };
+        loop.to({}, { duration: 0.01 }, Math.max(last, t + 0.7) + 0.6);
+      }
 
-      const [ace, palinurus, achates] = AGENTS;
-
-      // 1. The octopus button: its tooltip, then on. The bar opens beside it.
-      tl.fromTo(cursor, { autoAlpha: 0, x: W * 0.78, y: H * 0.96 }, { autoAlpha: 1, duration: 0.3 }, 0.4);
-      move("[data-toggle]", "<", 1);
-      tip("toggle", true, ">0.05");
-      tip("toggle", false, "+=1.1");
-      press(toggle, "<");
-      tl.to(toggle, { backgroundColor: "rgb(139 92 246 / 0.1)", color: "#c4b5fd", duration: 0.2 }, "<");
-      tl.set(bar, { display: "" }, "<");
-      tl.fromTo(bar, { width: 0, autoAlpha: 0 }, { width: "auto", autoAlpha: 1, duration: 0.35 }, "<");
-      tl.set(phOff, { display: "none" }, "<");
-      tl.set(phOn, { display: "" }, "<");
-
-      // 2. To Ace.
-      move("[data-send-slot]", "+=0.3", 0.8);
-      type(ace.prompt, "<0.2");
-      const first = sent(ace, 2, "+=0.25");
-
-      // 3. Alt+→, by the arrow: Palinurus.
-      move("[data-next]", first + 0.4, 0.6);
-      tip("next", true, ">0.05");
-      tip("next", false, "+=0.7");
-      press(one("[data-next]"), "<");
-      to("palinurus", "<");
-      move("[data-send-slot]", "+=0.3", 0.6);
-      type(palinurus.prompt, "<0.1");
-      const second = sent(palinurus, 3, "+=0.25");
-
-      // 4. The picker: Achates, from the list.
-      move("[data-chip]", second + 0.4, 0.6);
-      press(chip, ">");
-      tl.to(chip, { backgroundColor: "rgb(255 255 255 / 0.07)", color: "#fff", duration: 0.12 }, "<");
-      tl.set(menu, { display: "" }, "<");
-      tl.fromTo(menu, { autoAlpha: 0, y: -4 }, { autoAlpha: 1, y: 0, duration: 0.18 }, "<");
-      move(`[data-pick="achates"]`, "+=0.25", 0.5);
-      tl.to(one(`[data-pick="achates"]`), { backgroundColor: CONTROL, duration: 0.12 }, ">-0.1");
-      press(one(`[data-pick="achates"]`), "+=0.2");
-      tl.to(menu, { autoAlpha: 0, duration: 0.12 }, "<").set(menu, { display: "none" });
-      tl.set(one(`[data-pick="achates"]`), { clearProps: "backgroundColor" });
-      tl.to(chip, { backgroundColor: "rgb(255 255 255 / 0)", color: "#e5e5e5", duration: 0.15 }, "<");
-      to("achates", "<");
-      move("[data-send-slot]", "+=0.3", 0.6);
-      type(achates.prompt, "<0.1");
-      const third = sent(achates, 4, "+=0.25");
-      tl.to(cursor, { autoAlpha: 0, y: "+=24", duration: 0.4 }, third + 0.5);
-
-      // 5. The work comes back, one tab at a time.
-      done(ace, third + 1.6, true);
-      done(palinurus, third + 3.2);
-      done(achates, third + 4.8);
-      tl.to({}, { duration: 1.5 });
-
-      const st = ScrollTrigger.create({ trigger: el, start: "top 70%", once: true, onEnter: () => tl.play() });
-      if (run > 0) {
-        st.kill();
-        tl.play();
+      // Plays while on screen, paused off it: the intro once, then the loop.
+      let active = intro;
+      let seen = false;
+      intro.eventCallback("onComplete", () => {
+        active = loop;
+        if (seen) loop.play();
+      });
+      const st = ScrollTrigger.create({
+        trigger: wide,
+        start: "top 75%",
+        end: "bottom 10%",
+        onToggle: (self) => {
+          seen = self.isActive;
+          if (seen) active.play();
+          else active.pause();
+        },
+      });
+      if (st.isActive) {
+        seen = true;
+        active.play();
       }
     },
-    { scope: root, dependencies: [run], revertOnUpdate: true },
+    { scope: stage },
   );
 
   return (
     <div className="relative w-full">
-      <button
-        type="button"
-        onClick={() => setRun((r) => r + 1)}
-        aria-label="Replay the demo"
-        className="absolute -top-11 right-0 z-10 flex h-8 items-center gap-1.5 rounded-full border border-line bg-bg px-3 text-[13px] text-muted transition-colors hover:text-fg"
-      >
-        <Icon icon={RefreshIcon} size={14} />
-        Replay
-      </button>
-      <div
-        ref={frame}
-        className="relative w-full overflow-hidden rounded-[12px] bg-black shadow-[0_40px_120px_-30px_rgb(0_0_0/0.7)] ring-1 ring-white/[0.12]"
-        style={{ aspectRatio: `${W} / ${H}` }}
-      >
-        <p className="sr-only">
-          A replica of Acestes on Home with octopus mode on: three prompts go to three agents, Ace, Palinurus and
-          Achates, each opening its own tab behind Home, and each tab marks its work done.
-        </p>
+      <div ref={stage} className="relative w-full" style={{ aspectRatio: `${SW} / ${SH}` }}>
         <div
-          ref={root}
-          aria-hidden="true"
-          className="absolute top-0 left-0 flex origin-top-left flex-col gap-1.5 overflow-hidden bg-black p-1.5 font-[family-name:var(--font-app)] text-[14px] text-gray-100 antialiased select-none"
-          style={{ width: W, height: H, transform: `scale(${scale})`, backgroundImage: GROUND }}
+          className="absolute top-0 overflow-hidden rounded-[12px] bg-black shadow-[0_40px_120px_-30px_rgb(0_0_0/0.7)] ring-1 ring-white/[0.12]"
+          style={{ left: `${(SIDE / SW) * 100}%`, width: `${(W / SW) * 100}%`, aspectRatio: `${W} / ${H}` }}
         >
-          {/* ---------------- Title bar ---------------- */}
-          <div className="flex h-12 shrink-0 items-center justify-between">
-            <div className="flex h-full min-w-0 flex-1 items-center gap-3 overflow-hidden">
-              <span className="grid size-8 shrink-0 place-items-center rounded-xl">
-                <svg className="size-4 text-gray-400" viewBox="0 0 16 16" fill="currentColor">
-                  <rect y="2" width="16" height="1.5" rx="0.75" />
-                  <rect y="7.25" width="16" height="1.5" rx="0.75" />
-                  <rect y="12.5" width="16" height="1.5" rx="0.75" />
-                </svg>
-              </span>
-              <span className="-ml-2 grid size-8 shrink-0 place-items-center rounded-xl text-gray-400">
-                <Icon icon={SidebarLeftIcon} size={16} strokeWidth={1.75} />
-              </span>
-              <span
-                className="flex shrink-0 items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium text-white"
-                style={{ background: CONTROL }}
-              >
-                <Icon icon={Home01Icon} size={14} strokeWidth={1.5} />
-                Home
-              </span>
-              <span className="-mx-1.5 h-4 w-px shrink-0 bg-white/[0.08]" />
-              <div className="flex h-full min-w-0 flex-1 items-center gap-1 overflow-hidden">
-                <Tab agent={ACE} title={OPEN} />
-                {AGENTS.map((a) => (
-                  <Tab key={a.id} agent={a} title={a.title} opened />
-                ))}
-                <span className="grid size-8 shrink-0 place-items-center rounded-xl text-gray-500">
-                  <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <path d="M12 5v14M5 12h14" />
+          <p className="sr-only">
+            A replica of Acestes on Home with octopus mode on, sending prompt after prompt to three agents, each in its
+            own tab behind Home, while each job opens beside the window where it runs: Ace clears old logs over SSH on
+            web-02 and restarts php-fpm on web-03, Palinurus uses the mouse and keyboard over Remote Desktop to clear a
+            stuck print queue on front-desk and unlock a user on dc-02, and Achates checks sudo, SSH and certificates on
+            20 hosts without changing anything. Each job finishes, its tab closes, and it goes round again.
+          </p>
+          <div
+            ref={root}
+            aria-hidden="true"
+            className="absolute top-0 left-0 flex origin-top-left flex-col gap-1.5 overflow-hidden bg-black p-1.5 font-[family-name:var(--font-app)] text-[14px] text-gray-100 antialiased select-none"
+            style={{ width: W, height: H, transform: `scale(${scale})`, backgroundImage: GROUND }}
+          >
+            {/* ---------------- Title bar ---------------- */}
+            <div className="flex h-12 shrink-0 items-center justify-between">
+              <div className="flex h-full min-w-0 flex-1 items-center gap-3 overflow-hidden">
+                <span className="grid size-8 shrink-0 place-items-center rounded-xl">
+                  <svg className="size-4 text-gray-400" viewBox="0 0 16 16" fill="currentColor">
+                    <rect y="2" width="16" height="1.5" rx="0.75" />
+                    <rect y="7.25" width="16" height="1.5" rx="0.75" />
+                    <rect y="12.5" width="16" height="1.5" rx="0.75" />
+                  </svg>
+                </span>
+                <span className="-ml-2 grid size-8 shrink-0 place-items-center rounded-xl text-gray-400">
+                  <Icon icon={SidebarLeftIcon} size={16} strokeWidth={1.75} />
+                </span>
+                <span
+                  className="flex shrink-0 items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium text-white"
+                  style={{ background: CONTROL }}
+                >
+                  <Icon icon={Home01Icon} size={14} strokeWidth={1.5} />
+                  Home
+                </span>
+                <span className="-mx-1.5 h-4 w-px shrink-0 bg-white/[0.08]" />
+                <div className="flex h-full min-w-0 flex-1 items-center gap-1 overflow-hidden">
+                  <Tab agent={ACE} title={OPEN} />
+                  {JOBS.map((job) => (
+                    <Tab key={job.panel} agent={job.agent} title={job.title} id={job.panel} />
+                  ))}
+                  <span className="grid size-8 shrink-0 place-items-center rounded-xl text-gray-500">
+                    <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <path d="M12 5v14M5 12h14" />
+                    </svg>
+                  </span>
+                </div>
+              </div>
+              <div className="flex h-full shrink-0 items-center gap-1">
+                <span className="relative mr-1.5 grid size-8 place-items-center rounded-xl text-gray-400">
+                  <Icon icon={Notification03Icon} size={16} strokeWidth={2} />
+                </span>
+                <span className="grid size-8 place-items-center rounded-xl text-gray-400">
+                  <svg className="size-3" viewBox="0 0 12 12">
+                    <rect y="5" width="12" height="1" fill="currentColor" />
+                  </svg>
+                </span>
+                <span className="grid size-8 place-items-center rounded-xl text-gray-400">
+                  <svg className="size-3" viewBox="0 0 12 12">
+                    <rect
+                      width="10"
+                      height="10"
+                      x="1"
+                      y="1"
+                      rx="1"
+                      stroke="currentColor"
+                      strokeWidth="1.2"
+                      fill="none"
+                    />
+                  </svg>
+                </span>
+                <span className="grid size-8 place-items-center rounded-xl text-gray-400">
+                  <svg className="size-3" viewBox="0 0 12 12">
+                    <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" strokeWidth="1.2" />
                   </svg>
                 </span>
               </div>
             </div>
-            <div className="flex h-full shrink-0 items-center gap-1">
-              <span className="relative mr-1.5 grid size-8 place-items-center rounded-xl text-gray-400">
-                <Icon icon={Notification03Icon} size={16} strokeWidth={2} />
-                <span
-                  data-bell
-                  className="absolute top-1.5 right-1.5 size-2 rounded-full bg-blue-500 ring-2 ring-black"
-                  style={{ display: "none" }}
-                />
-              </span>
-              <span className="grid size-8 place-items-center rounded-xl text-gray-400">
-                <svg className="size-3" viewBox="0 0 12 12">
-                  <rect y="5" width="12" height="1" fill="currentColor" />
-                </svg>
-              </span>
-              <span className="grid size-8 place-items-center rounded-xl text-gray-400">
-                <svg className="size-3" viewBox="0 0 12 12">
-                  <rect width="10" height="10" x="1" y="1" rx="1" stroke="currentColor" strokeWidth="1.2" fill="none" />
-                </svg>
-              </span>
-              <span className="grid size-8 place-items-center rounded-xl text-gray-400">
-                <svg className="size-3" viewBox="0 0 12 12">
-                  <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" strokeWidth="1.2" />
-                </svg>
-              </span>
-            </div>
-          </div>
 
-          {/* ---------------- Body ---------------- */}
-          <div className="flex min-h-0 flex-1 gap-1.5">
-            {/* Sidebar: the selected agent, Ace, and its conversations */}
-            <div className="flex w-[220px] shrink-0 flex-col gap-0.5 overflow-hidden">
-              <div className="flex items-center gap-2.5 rounded-xl py-1.5 pr-2.5 pl-1.5">
-                <StillHelmet helmet={ACE.helmet} crest={ACE.crest} color={ACE.ink} size={28} />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[13px] leading-5 font-semibold tracking-[-0.01em] text-white">
-                    {ACE.name}
+            {/* ---------------- Body ---------------- */}
+            <div className="flex min-h-0 flex-1 gap-1.5">
+              {/* Sidebar: the selected agent, Ace, and its conversations */}
+              <div className="flex w-[220px] shrink-0 flex-col gap-0.5 overflow-hidden">
+                <div className="flex items-center gap-2.5 rounded-xl py-1.5 pr-2.5 pl-1.5">
+                  <StillHelmet helmet={ACE.helmet} crest={ACE.crest} color={ACE.ink} size={28} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[13px] leading-5 font-semibold tracking-[-0.01em] text-white">
+                      {ACE.name}
+                    </span>
+                    <span className="block truncate text-[11px] leading-4 text-neutral-500">Agent</span>
                   </span>
-                  <span className="block truncate text-[11px] leading-4 text-neutral-500">Agent</span>
-                </span>
-                <Icon icon={UnfoldMoreIcon} size={14} strokeWidth={2} className="shrink-0 text-neutral-500" />
-              </div>
-              <div className="mt-1.5 flex flex-col gap-0.5">
-                {[
-                  { i: Layers01Icon, t: "Inventory" },
-                  { i: Settings01Icon, t: "Settings" },
-                ].map((x) => (
-                  <div
-                    key={x.t}
-                    className="flex h-8 items-center gap-2.5 rounded-lg px-3 text-[13px] font-medium text-gray-400"
-                  >
-                    <Icon icon={x.i} size={17} strokeWidth={1.6} className="shrink-0 text-neutral-500" />
-                    {x.t}
-                  </div>
-                ))}
-              </div>
-              <div className="mx-1.5 mt-4 flex h-9 shrink-0 items-center">
-                <span className="flex-1 py-1.5 pl-1.5 text-[12px] font-medium text-white">Conversations</span>
-                <span className="grid size-7 place-items-center rounded-full text-gray-400">
-                  <Icon icon={Search01Icon} size={15} strokeWidth={2} />
-                </span>
-                <span className="grid size-7 place-items-center rounded-full text-gray-400">
-                  <Icon icon={PlusSignIcon} size={15} strokeWidth={2.5} />
-                </span>
-              </div>
-              <div
-                className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden pb-4"
-                style={{ maskImage: LIST_FADE, WebkitMaskImage: LIST_FADE }}
-              >
-                {/* Ace's new conversation; the other agents' are in their own lists */}
-                <div data-row className="shrink-0 overflow-hidden" style={{ display: "none", height: 0 }}>
-                  <div className="flex h-8 items-center gap-2 rounded-[10px] px-3 text-[13px] text-gray-400">
-                    <span data-spin className="grid size-3 shrink-0 place-items-center">
-                      <Ring />
-                    </span>
-                    <span data-dot className="grid size-3 shrink-0 place-items-center" style={{ display: "none" }}>
-                      <span className="size-1.5 rounded-full bg-white" />
-                    </span>
-                    <span className="relative min-w-0 flex-1 overflow-hidden whitespace-nowrap">
-                      <span data-untitled>New conversation</span>
-                      <span data-titled style={{ display: "none" }}>
-                        {ACE.title}
-                      </span>
-                    </span>
-                  </div>
+                  <Icon icon={UnfoldMoreIcon} size={14} strokeWidth={2} className="shrink-0 text-neutral-500" />
                 </div>
-                <ChatRow title={OPEN} />
-                {CHATS.map((c) => (
-                  <ChatRow key={c} title={c} />
-                ))}
-              </div>
-            </div>
-
-            {/* Main panel: Home */}
-            <div
-              className="relative flex min-w-0 flex-1 flex-col overflow-hidden rounded-[16px]"
-              style={{ background: RAISED }}
-            >
-              <Cipher cardRef={card} scale={scale} />
-              <div className="relative mx-auto flex w-full max-w-[46rem] flex-1 flex-col justify-center px-6 pt-10 pb-[106px]">
-                {/* The greeting: the target agent's mark, large and alive */}
-                <div className="mb-8 flex flex-col items-center text-center">
-                  <span className="agent-float relative mb-6 block size-[72px]">
-                    {AGENTS.map((a) => (
-                      <span key={a.id} data-mark={a.id} {...only(a)} className="absolute inset-0">
-                        <LiveHelmet helmet={a.helmet} crest={a.crest} line={a.ink} lineDark={a.ink} size={72} />
-                      </span>
-                    ))}
-                  </span>
-                  <h3 className="text-[34px] leading-[1.15] font-medium tracking-[-0.03em] text-white">{hello}</h3>
-                  <p className="mt-3 max-w-md text-[13px] leading-relaxed text-neutral-400">
-                    Say what you need. I open the sessions, do the work, check the result, and remember what we learned.
-                  </p>
-                </div>
-
-                {/* The card: its top edge, then the composer */}
-                <div ref={card}>
-                  <div className="w-full rounded-[20px] border border-white/[0.07] bg-white/[0.025] p-1">
-                    <div className="flex items-center px-2.5 pt-1 pb-1.5 leading-5">
-                      {AGENTS.map((a) => (
-                        <span
-                          key={a.id}
-                          {...only(a)}
-                          className={`shrink-0 rounded-md px-1.5 text-[11px] font-medium ${
-                            MODES[a.mode].loud ? "bg-amber-500/10 text-amber-400" : "bg-violet-500/10 text-violet-300"
-                          }`}
-                        >
-                          {MODES[a.mode].label}
-                        </span>
-                      ))}
-
-                      {/* OctopusBar.jsx */}
-                      <div className="ml-auto flex min-w-0 items-center gap-0.5">
-                        {AGENTS.map((a) => (
-                          <span
-                            key={a.id}
-                            data-sent={a.id}
-                            className="mr-1.5 truncate text-[11px] text-neutral-500"
-                            style={{ display: "none" }}
-                          >
-                            Sent to {a.name}
-                          </span>
-                        ))}
-                        <div
-                          data-bar
-                          className="flex items-center gap-0.5 overflow-visible"
-                          style={{ display: "none" }}
-                        >
-                          <span className="grid size-5 shrink-0 place-items-center rounded-md text-neutral-500">
-                            <Icon icon={ArrowLeft01Icon} size={12} strokeWidth={2} />
-                          </span>
-                          <span className="relative">
-                            <span
-                              data-chip
-                              className="flex h-5 max-w-[11rem] items-center gap-1 rounded-md pr-1 pl-1 text-[11px] font-medium text-neutral-200"
-                            >
-                              {AGENTS.map((a) => (
-                                <span key={a.id} {...only(a)} className="flex min-w-0 items-center gap-1">
-                                  <StillHelmet helmet={a.helmet} crest={a.crest} color={a.ink} size={13} />
-                                  <span className="truncate">{a.name}</span>
-                                </span>
-                              ))}
-                              <Icon
-                                icon={ArrowDown01Icon}
-                                size={11}
-                                strokeWidth={2}
-                                className="shrink-0 text-neutral-500"
-                              />
-                            </span>
-                            {/* AgentPicker's list, under the chip, its right edge on the chip's */}
-                            <span
-                              data-menu
-                              className="absolute top-full right-0 z-30 mt-1.5 block min-w-[220px] rounded-xl border p-1 shadow-xl shadow-black/40"
-                              style={{ background: RAISED, borderColor: CONTROL, display: "none" }}
-                            >
-                              <span className="block px-2.5 pt-1 pb-1.5 text-[10px] font-medium text-neutral-500">
-                                Send to
-                              </span>
-                              {AGENTS.map((a) => (
-                                <span
-                                  key={a.id}
-                                  data-pick={a.id}
-                                  className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-xs text-gray-300"
-                                >
-                                  <StillHelmet helmet={a.helmet} crest={a.crest} color={a.ink} size={14} />
-                                  <span className="flex-1 truncate font-medium">{a.name}</span>
-                                  {a.id === "palinurus" && (
-                                    <Icon
-                                      icon={Tick02Icon}
-                                      size={13}
-                                      strokeWidth={2}
-                                      className="shrink-0 text-neutral-400"
-                                    />
-                                  )}
-                                </span>
-                              ))}
-                            </span>
-                          </span>
-                          <span
-                            data-next
-                            className="relative grid size-5 shrink-0 place-items-center rounded-md text-neutral-500"
-                          >
-                            <Icon icon={ArrowRight01Icon} size={12} strokeWidth={2} />
-                            <Tip name="next" label="Next agent" hint="Alt+→" />
-                          </span>
-                        </div>
-                        <span
-                          data-toggle
-                          className="relative ml-1 grid size-5 shrink-0 place-items-center rounded-md text-neutral-500"
-                        >
-                          <Icon icon={OctopusIcon} size={13} strokeWidth={1.75} />
-                          <Tip
-                            name="toggle"
-                            label="Octopus mode: send prompts to any agent, each in a new tab, and stay here"
-                            hint="Ctrl+Shift+O"
-                            align="end"
-                          />
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* The composer */}
-                    <div className="relative rounded-2xl border bg-white/[0.035]" style={{ borderColor: CONTROL }}>
-                      <div className="relative min-h-[4.5rem] px-4 pt-3.5 pb-1 text-[13px] leading-relaxed text-white">
-                        <span className="pointer-events-none absolute top-3.5 right-4 left-4 text-gray-600">
-                          <span data-ph-off>
-                            <span className="app-caret mr-px inline-block h-[1.05em] w-px translate-y-[2px] bg-white" />
-                            How can I help you today?
-                          </span>
-                          <span data-ph-on style={{ display: "none" }}>
-                            <span className="app-caret mr-px inline-block h-[1.05em] w-px translate-y-[2px] bg-white" />
-                            {AGENTS.map((a) => (
-                              <span key={a.id} {...only(a)}>
-                                Send a prompt to {a.name}
-                              </span>
-                            ))}
-                          </span>
-                        </span>
-                        <span data-typed />
-                        <span
-                          data-tcaret
-                          className="app-caret ml-px inline-block h-[1.05em] w-px translate-y-[2px] bg-white"
-                          style={{ display: "none" }}
-                        />
-                      </div>
-                      <div className="flex items-center gap-1 pr-2 pb-2 pl-2">
-                        {AGENTS.map((a) => {
-                          const m = MODES[a.mode];
-                          return (
-                            <span
-                              key={a.id}
-                              {...only(a)}
-                              className={`flex h-7 items-center gap-0.5 rounded-xl pr-1 pl-1.5 ${m.loud ? "text-amber-400" : "text-gray-600"}`}
-                            >
-                              <Icon icon={m.icon} size={14} strokeWidth={1.5} />
-                              <Icon icon={ArrowDown01Icon} size={11} strokeWidth={2} className="opacity-60" />
-                            </span>
-                          );
-                        })}
-                        <span className="grid size-7 place-items-center rounded-full text-sm font-semibold text-gray-400">
-                          /
-                        </span>
-                        <span className="grid size-7 place-items-center rounded-full text-sm font-semibold text-gray-400">
-                          @
-                        </span>
-                        <span className="grid size-7 place-items-center rounded-full text-gray-400">
-                          <Icon icon={Attachment01Icon} size={15} strokeWidth={2} />
-                        </span>
-                        {AGENTS.filter((a) => a.images).map((a) => (
-                          <span
-                            key={a.id}
-                            {...only(a)}
-                            className="grid size-7 place-items-center rounded-full text-gray-400"
-                          >
-                            <Icon icon={ImageAdd01Icon} size={15} strokeWidth={2} />
-                          </span>
-                        ))}
-                        <div className="ml-auto flex items-center gap-1">
-                          <span className="grid size-7 shrink-0 place-items-center text-gray-400">
-                            <svg width="16" height="16" viewBox="0 0 16 16">
-                              <circle
-                                cx="8"
-                                cy="8"
-                                r="7"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeOpacity="0.22"
-                                strokeWidth="2"
-                              />
-                            </svg>
-                          </span>
-                          {AGENTS.map((a) => (
-                            <span
-                              key={a.id}
-                              {...only(a)}
-                              className="flex h-7 items-center gap-1 rounded-xl pr-1.5 pl-2 text-[11px] text-gray-400"
-                            >
-                              <BrandIcon name={a.brand} size={13} />
-                              <span className="font-medium">{a.model}</span>
-                              {a.account && <span className="opacity-60">{a.account}</span>}
-                              {a.effort && <span className="opacity-60">{a.effort}</span>}
-                              <Icon icon={ArrowDown01Icon} size={11} strokeWidth={2} className="opacity-60" />
-                            </span>
-                          ))}
-                          <span className="grid size-7 place-items-center rounded-full text-gray-400">
-                            <Icon icon={Mic01Icon} size={15} strokeWidth={2} />
-                          </span>
-                          <span data-send-slot className="relative grid size-7 shrink-0 place-items-center">
-                            <span
-                              data-send
-                              className="invisible grid size-7 place-items-center rounded-full bg-white text-black"
-                            >
-                              <Icon icon={ArrowUp01Icon} size={15} strokeWidth={2.5} />
-                            </span>
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* The starters */}
-                <div className="mt-16 flex flex-wrap justify-center gap-1.5">
-                  {STARTERS.map((s) => (
-                    <span
-                      key={s.label}
-                      className="flex h-8 max-w-[18rem] items-center gap-1.5 rounded-lg border border-white/[0.08] px-2.5 text-[12px] font-medium text-neutral-300"
+                <div className="mt-1.5 flex flex-col gap-0.5">
+                  {[
+                    { i: Layers01Icon, t: "Inventory" },
+                    { i: Settings01Icon, t: "Settings" },
+                  ].map((x) => (
+                    <div
+                      key={x.t}
+                      className="flex h-8 items-center gap-2.5 rounded-lg px-3 text-[13px] font-medium text-gray-400"
                     >
-                      <Icon icon={s.icon} size={14} strokeWidth={1.75} className="shrink-0 text-neutral-500" />
-                      <span className="truncate">{s.label}</span>
-                    </span>
+                      <Icon icon={x.i} size={17} strokeWidth={1.6} className="shrink-0 text-neutral-500" />
+                      {x.t}
+                    </div>
+                  ))}
+                </div>
+                <div className="mx-1.5 mt-4 flex h-9 shrink-0 items-center">
+                  <span className="flex-1 py-1.5 pl-1.5 text-[12px] font-medium text-white">Conversations</span>
+                  <span className="grid size-7 place-items-center rounded-full text-gray-400">
+                    <Icon icon={Search01Icon} size={15} strokeWidth={2} />
+                  </span>
+                  <span className="grid size-7 place-items-center rounded-full text-gray-400">
+                    <Icon icon={PlusSignIcon} size={15} strokeWidth={2.5} />
+                  </span>
+                </div>
+                <div
+                  className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden pb-4"
+                  style={{ maskImage: LIST_FADE, WebkitMaskImage: LIST_FADE }}
+                >
+                  <ChatRow title={OPEN} />
+                  {CHATS.map((c) => (
+                    <ChatRow key={c} title={c} />
                   ))}
                 </div>
               </div>
+
+              {/* Main panel: Home */}
+              <div
+                className="relative flex min-w-0 flex-1 flex-col overflow-hidden rounded-[16px]"
+                style={{ background: RAISED }}
+              >
+                <Cipher cardRef={card} scale={scale} />
+                <div className="relative mx-auto flex w-full max-w-[46rem] flex-1 flex-col justify-center px-6 pt-10 pb-[106px]">
+                  {/* The greeting: the target agent's mark, large and alive */}
+                  <div className="mb-8 flex flex-col items-center text-center">
+                    <span className="agent-float relative mb-6 block size-[72px]">
+                      {AGENTS.map((a) => (
+                        <span key={a.id} data-mark={a.id} {...only(a)} className="absolute inset-0">
+                          <LiveHelmet helmet={a.helmet} crest={a.crest} line={a.ink} lineDark={a.ink} size={72} />
+                        </span>
+                      ))}
+                    </span>
+                    <h3 className="text-[34px] leading-[1.15] font-medium tracking-[-0.03em] text-white">{hello}</h3>
+                    <p className="mt-3 max-w-md text-[13px] leading-relaxed text-neutral-400">
+                      Say what you need. I open the sessions, do the work, check the result, and remember what we
+                      learned.
+                    </p>
+                  </div>
+
+                  {/* The card: its top edge, then the composer */}
+                  <div ref={card}>
+                    <div className="w-full rounded-[20px] border border-white/[0.07] bg-white/[0.025] p-1">
+                      <div className="flex items-center px-2.5 pt-1 pb-1.5 leading-5">
+                        {AGENTS.map((a) => (
+                          <span
+                            key={a.id}
+                            {...only(a)}
+                            className={`shrink-0 rounded-md px-1.5 text-[11px] font-medium ${
+                              MODES[a.mode].loud ? "bg-amber-500/10 text-amber-400" : "bg-violet-500/10 text-violet-300"
+                            }`}
+                          >
+                            {MODES[a.mode].label}
+                          </span>
+                        ))}
+
+                        {/* OctopusBar.jsx */}
+                        <div className="ml-auto flex min-w-0 items-center gap-0.5">
+                          {AGENTS.map((a) => (
+                            <span
+                              key={a.id}
+                              data-sent={a.id}
+                              className="mr-1.5 truncate text-[11px] text-neutral-500"
+                              style={{ display: "none" }}
+                            >
+                              Sent to {a.name}
+                            </span>
+                          ))}
+                          <div
+                            data-bar
+                            className="flex items-center gap-0.5 overflow-visible"
+                            style={{ display: "none" }}
+                          >
+                            <span className="grid size-5 shrink-0 place-items-center rounded-md text-neutral-500">
+                              <Icon icon={ArrowLeft01Icon} size={12} strokeWidth={2} />
+                            </span>
+                            <span className="relative">
+                              <span
+                                data-chip
+                                className="flex h-5 max-w-[11rem] items-center gap-1 rounded-md pr-1 pl-1 text-[11px] font-medium text-neutral-200"
+                              >
+                                {AGENTS.map((a) => (
+                                  <span key={a.id} {...only(a)} className="flex min-w-0 items-center gap-1">
+                                    <StillHelmet helmet={a.helmet} crest={a.crest} color={a.ink} size={13} />
+                                    <span className="truncate">{a.name}</span>
+                                  </span>
+                                ))}
+                                <Icon
+                                  icon={ArrowDown01Icon}
+                                  size={11}
+                                  strokeWidth={2}
+                                  className="shrink-0 text-neutral-500"
+                                />
+                              </span>
+                              {/* AgentPicker's list, under the chip, its right edge on the chip's */}
+                              <span
+                                data-menu
+                                className="absolute top-full right-0 z-30 mt-1.5 block min-w-[220px] rounded-xl border p-1 shadow-xl shadow-black/40"
+                                style={{ background: RAISED, borderColor: CONTROL, display: "none" }}
+                              >
+                                <span className="block px-2.5 pt-1 pb-1.5 text-[10px] font-medium text-neutral-500">
+                                  Send to
+                                </span>
+                                {AGENTS.map((a) => (
+                                  <span
+                                    key={a.id}
+                                    data-pick={a.id}
+                                    className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-xs text-gray-300"
+                                  >
+                                    <StillHelmet helmet={a.helmet} crest={a.crest} color={a.ink} size={14} />
+                                    <span className="flex-1 truncate font-medium">{a.name}</span>
+                                    {a.id === "palinurus" && (
+                                      <Icon
+                                        icon={Tick02Icon}
+                                        size={13}
+                                        strokeWidth={2}
+                                        className="shrink-0 text-neutral-400"
+                                      />
+                                    )}
+                                  </span>
+                                ))}
+                              </span>
+                            </span>
+                            <span
+                              data-next
+                              className="relative grid size-5 shrink-0 place-items-center rounded-md text-neutral-500"
+                            >
+                              <Icon icon={ArrowRight01Icon} size={12} strokeWidth={2} />
+                              <Tip name="next" label="Next agent" hint="Alt+→" />
+                            </span>
+                          </div>
+                          <span
+                            data-toggle
+                            className="relative ml-1 grid size-5 shrink-0 place-items-center rounded-md text-neutral-500"
+                          >
+                            <Icon icon={OctopusIcon} size={13} strokeWidth={1.75} />
+                            <Tip
+                              name="toggle"
+                              label="Octopus mode: send prompts to any agent, each in a new tab, and stay here"
+                              hint="Ctrl+Shift+O"
+                              align="end"
+                            />
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* The composer */}
+                      <div className="relative rounded-2xl border bg-white/[0.035]" style={{ borderColor: CONTROL }}>
+                        <div className="relative min-h-[4.5rem] px-4 pt-3.5 pb-1 text-[13px] leading-relaxed text-white">
+                          <span className="pointer-events-none absolute top-3.5 right-4 left-4 text-gray-600">
+                            <span data-ph-off>
+                              <span className="app-caret mr-px inline-block h-[1.05em] w-px translate-y-[2px] bg-white" />
+                              How can I help you today?
+                            </span>
+                            <span data-ph-on style={{ display: "none" }}>
+                              <span className="app-caret mr-px inline-block h-[1.05em] w-px translate-y-[2px] bg-white" />
+                              {AGENTS.map((a) => (
+                                <span key={a.id} {...only(a)}>
+                                  Send a prompt to {a.name}
+                                </span>
+                              ))}
+                            </span>
+                          </span>
+                          <span data-typed />
+                          <span
+                            data-tcaret
+                            className="app-caret ml-px inline-block h-[1.05em] w-px translate-y-[2px] bg-white"
+                            style={{ display: "none" }}
+                          />
+                        </div>
+                        <div className="flex items-center gap-1 pr-2 pb-2 pl-2">
+                          {AGENTS.map((a) => {
+                            const m = MODES[a.mode];
+                            return (
+                              <span
+                                key={a.id}
+                                {...only(a)}
+                                className={`flex h-7 items-center gap-0.5 rounded-xl pr-1 pl-1.5 ${m.loud ? "text-amber-400" : "text-gray-600"}`}
+                              >
+                                <Icon icon={m.icon} size={14} strokeWidth={1.5} />
+                                <Icon icon={ArrowDown01Icon} size={11} strokeWidth={2} className="opacity-60" />
+                              </span>
+                            );
+                          })}
+                          <span className="grid size-7 place-items-center rounded-full text-sm font-semibold text-gray-400">
+                            /
+                          </span>
+                          <span className="grid size-7 place-items-center rounded-full text-sm font-semibold text-gray-400">
+                            @
+                          </span>
+                          <span className="grid size-7 place-items-center rounded-full text-gray-400">
+                            <Icon icon={Attachment01Icon} size={15} strokeWidth={2} />
+                          </span>
+                          {AGENTS.filter((a) => a.images).map((a) => (
+                            <span
+                              key={a.id}
+                              {...only(a)}
+                              className="grid size-7 place-items-center rounded-full text-gray-400"
+                            >
+                              <Icon icon={ImageAdd01Icon} size={15} strokeWidth={2} />
+                            </span>
+                          ))}
+                          <div className="ml-auto flex items-center gap-1">
+                            <span className="grid size-7 shrink-0 place-items-center text-gray-400">
+                              <svg width="16" height="16" viewBox="0 0 16 16">
+                                <circle
+                                  cx="8"
+                                  cy="8"
+                                  r="7"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeOpacity="0.22"
+                                  strokeWidth="2"
+                                />
+                              </svg>
+                            </span>
+                            {AGENTS.map((a) => (
+                              <span
+                                key={a.id}
+                                {...only(a)}
+                                className="flex h-7 items-center gap-1 rounded-xl pr-1.5 pl-2 text-[11px] text-gray-400"
+                              >
+                                <BrandIcon name={a.brand} size={13} />
+                                <span className="font-medium">{a.model}</span>
+                                {a.account && <span className="opacity-60">{a.account}</span>}
+                                {a.effort && <span className="opacity-60">{a.effort}</span>}
+                                <Icon icon={ArrowDown01Icon} size={11} strokeWidth={2} className="opacity-60" />
+                              </span>
+                            ))}
+                            <span className="grid size-7 place-items-center rounded-full text-gray-400">
+                              <Icon icon={Mic01Icon} size={15} strokeWidth={2} />
+                            </span>
+                            <span data-send-slot className="relative grid size-7 shrink-0 place-items-center">
+                              <span
+                                data-send
+                                className="invisible grid size-7 place-items-center rounded-full bg-white text-black"
+                              >
+                                <Icon icon={ArrowUp01Icon} size={15} strokeWidth={2.5} />
+                              </span>
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* The starters */}
+                  <div className="mt-16 flex flex-wrap justify-center gap-1.5">
+                    {STARTERS.map((s) => (
+                      <span
+                        key={s.label}
+                        className="flex h-8 max-w-[18rem] items-center gap-1.5 rounded-lg border border-white/[0.08] px-2.5 text-[12px] font-medium text-neutral-300"
+                      >
+                        <Icon icon={s.icon} size={14} strokeWidth={1.75} className="shrink-0 text-neutral-500" />
+                        <span className="truncate">{s.label}</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
             </div>
-          </div>
 
-          {/* ---------------- Status bar ---------------- */}
-          <div
-            className="flex h-5 shrink-0 items-center justify-between gap-4 text-[10.5px] leading-none font-medium tabular-nums"
-            style={{ margin: "-6px 0 -8px" }}
-          >
-            <span className="-ml-1.5 flex h-5 items-center px-1.5">
-              <span className="text-neutral-400">
-                <BrandIcon name="claude" size={11} />
-              </span>
-              <Meter account="brad" used={23} lead="pl-2" />
-              <Meter account="work" used={61} lead="pl-3" />
-              <span className="mx-2.5 h-2.5 w-px shrink-0 bg-white/10" />
-              <span className="text-neutral-400">
-                <BrandIcon name="openai" size={11} />
-              </span>
-              <Meter used={12} lead="pl-2" />
-            </span>
-            <span className="-mr-1.5 flex items-center gap-0.5">
-              <span className="flex h-5 items-center gap-2 px-1.5 text-neutral-400">
-                <span className="flex items-center gap-1.5">
-                  <Icon icon={CpuIcon} size={11} strokeWidth={2} className="text-neutral-500" />
-                  <span className="text-gray-300">1.1 GB</span>
+            {/* ---------------- Status bar ---------------- */}
+            <div
+              className="flex h-5 shrink-0 items-center justify-between gap-4 text-[10.5px] leading-none font-medium tabular-nums"
+              style={{ margin: "-6px 0 -8px" }}
+            >
+              <span className="-ml-1.5 flex h-5 items-center px-1.5">
+                <span className="text-neutral-400">
+                  <BrandIcon name="claude" size={11} />
                 </span>
-                <span className="h-2.5 w-px bg-white/10" />
-                <span data-count>1 tab</span>
+                <Meter account="brad" used={23} lead="pl-2" />
+                <Meter account="work" used={61} lead="pl-3" />
+                <span className="mx-2.5 h-2.5 w-px shrink-0 bg-white/10" />
+                <span className="text-neutral-400">
+                  <BrandIcon name="openai" size={11} />
+                </span>
+                <Meter used={12} lead="pl-2" />
               </span>
-              <span className="grid h-5 w-6 place-items-center text-neutral-500">
-                <Icon icon={Coffee02Icon} size={12} strokeWidth={1.8} />
+              <span className="-mr-1.5 flex items-center gap-0.5">
+                <span className="flex h-5 items-center gap-2 px-1.5 text-neutral-400">
+                  <span className="flex items-center gap-1.5">
+                    <Icon icon={CpuIcon} size={11} strokeWidth={2} className="text-neutral-500" />
+                    <span className="text-gray-300">1.1 GB</span>
+                  </span>
+                  <span className="h-2.5 w-px bg-white/10" />
+                  <span data-count>1 tab</span>
+                </span>
+                <span className="grid h-5 w-6 place-items-center text-neutral-500">
+                  <Icon icon={Coffee02Icon} size={12} strokeWidth={1.8} />
+                </span>
               </span>
-            </span>
-          </div>
+            </div>
 
-          {/* Pointer */}
-          <svg
-            data-cursor
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            className="pointer-events-none invisible absolute top-0 left-0 z-40 drop-shadow-[0_2px_4px_rgb(0_0_0/0.5)]"
-          >
-            <path
-              d="M4 2.5 20 11l-7.2 1.9L9 20z"
-              fill="white"
-              stroke="black"
-              strokeWidth="1.4"
-              strokeLinejoin="round"
-            />
-          </svg>
+            {/* Pointer */}
+            <svg
+              data-cursor
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              className="pointer-events-none invisible absolute top-0 left-0 z-40 drop-shadow-[0_2px_4px_rgb(0_0_0/0.5)]"
+            >
+              <path
+                d="M4 2.5 20 11l-7.2 1.9L9 20z"
+                fill="white"
+                stroke="black"
+                strokeWidth="1.4"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </div>
         </div>
+
+        {/* The work each prompt sets going, where it runs */}
+        <Work
+          who={Object.fromEntries(JOBS.map((job) => [job.panel, job.agent])) as Record<PanelId, Agent>}
+          scale={scale}
+        />
       </div>
     </div>
   );
