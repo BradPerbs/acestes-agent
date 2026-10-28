@@ -206,9 +206,8 @@ export function Hero() {
               data-reveal
               className="mt-6 max-w-[700px] text-[17px] leading-relaxed text-balance text-white/80 sm:text-[19px]"
             >
-              The desktop agent for security and IT work. It audits and hardens your servers over SSH, works the apps
-              that have no API with the real mouse and keyboard, on every computer you own, and asks before it changes
-              anything.
+              It lives inside every machine you own. It watches every screen, moves the cursor on its own, and never
+              sleeps.
             </p>
 
             <div
