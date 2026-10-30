@@ -181,8 +181,13 @@ function ensureHelper() {
             return;
         }
         if (message.event) {
-            if (message.event === 'ready') announce(message);
-            else onEvent(message);
+            if (message.event === 'ready') {
+                announce(message);
+                // A helper started afresh knows nothing of push to talk.
+                if (pushToTalkMods) armPushToTalk();
+            } else {
+                onEvent(message);
+            }
             return;
         }
         const waiting = state.pending.get(message.id);
@@ -214,8 +219,75 @@ function ensureHelper() {
         state.pending.clear();
     };
     child.on('error', error => gone(`The desktop helper could not start: ${error.message}`));
-    child.on('exit', code => gone(`The desktop helper stopped (exit ${code}).`));
+    child.on('exit', (code) => {
+        gone(`The desktop helper stopped (exit ${code}).`);
+        // Push to talk is wanted whether or not anything else calls on the
+        // helper, so a helper that went is started again for it.
+        if (pushToTalkMods && helper === null) reviveForPushToTalk();
+    });
     return state.ready;
+}
+
+/* ------------------------------------------------------------------ *
+ * Push to talk, for the buddy (buddy.js): a chord of modifiers the helper
+ * watches for while the buddy is on, driving or not. Kept here, so a
+ * helper that is started afresh (after a timeout, or a crash) is told again.
+ * ------------------------------------------------------------------ */
+
+let pushToTalkMods = '';
+// The key that, pressed with the chord held, is told as `next` ('space'), or none.
+let pushToTalkNext = '';
+// When the helper was last started again for push to talk: a helper that
+// dies as it starts is not started forever.
+const revivals = [];
+
+function armPushToTalk() {
+    call('ptt', { on: true, mods: pushToTalkMods, next: pushToTalkNext }, 10000).then((answer) => {
+        if (!answer.ok) console.error('Push to talk could not start:', answer.error);
+    }).catch(() => {});
+}
+
+function reviveForPushToTalk() {
+    const now = Date.now();
+    while (revivals.length && now - revivals[0] > 60000) revivals.shift();
+    if (revivals.length >= 5) {
+        console.error('The desktop helper keeps stopping; push to talk is off until the buddy is switched on again.');
+        return;
+    }
+    revivals.push(now);
+    // Started, and armed by its own `ready`.
+    setTimeout(() => {
+        if (pushToTalkMods && helper === null) ensureHelper().catch(() => {});
+    }, 1000).unref?.();
+}
+
+/**
+ * Watch for the chord (`'ctrl+alt'`), or stop watching (`''`). `next` is a
+ * key ('space') that, pressed while the chord is held, is told as a `next`
+ * event and kept from the apps. Windows only: the Mac helper does not watch
+ * modifiers on their own yet.
+ */
+async function pushToTalk(mods = '', { next = '' } = {}) {
+    const wanted = String(mods || '').trim().toLowerCase();
+    if (wanted && platform !== 'win32') return { ok: false, code: 'unsupported', error: 'Push to talk works on Windows only for now.' };
+    revivals.length = 0;
+    if (!wanted) {
+        pushToTalkMods = '';
+        pushToTalkNext = '';
+        if (!helper) return { ok: true, on: false };
+        return call('ptt', { on: false }, 10000);
+    }
+    // Started first, and only then wanted: a helper this starts is told
+    // once, below, not again by its own `ready`.
+    try {
+        await ensureHelper();
+    } catch {
+        // Told why by the call below; wanted all the same, so a helper
+        // started later for anything else is armed.
+    }
+    pushToTalkMods = wanted;
+    pushToTalkNext = String(next || '').trim().toLowerCase();
+    return call('ptt', { on: true, mods: wanted, next: pushToTalkNext }, 10000);
 }
 
 /**
@@ -392,6 +464,9 @@ let hooks = {
     voice: () => {},
     // A recorder event line, in teach mode. See teach.js.
     recorded: () => {},
+    // The push-to-talk chord pressed, let go, or spoilt by another key:
+    // `{ state: 'down' | 'up' | 'cancel', seq, driving }`. See buddy.js.
+    ptt: () => {},
     // How a captcha service is reached. A test hands in its own.
     fetch: (...args) => globalThis.fetch(...args),
 };
@@ -449,6 +524,13 @@ function onEvent(message) {
             hooks.recorded(message.line);
         } catch (error) {
             console.error('Could not record an event:', error.message);
+        }
+    }
+    if (message.event === 'ptt') {
+        try {
+            hooks.ptt(message);
+        } catch (error) {
+            console.error('Could not hand on push to talk:', error.message);
         }
     }
 }
@@ -2124,7 +2206,79 @@ async function nudge() {
     return call('nudge', {}, 5000);
 }
 
+/* ------------------------------------------------------------------ *
+ * The buddy's eyes (buddy.js): what the person was looking at when they
+ * spoke, and the agent's pictures read back as places on the screen.
+ * ------------------------------------------------------------------ */
+
+/**
+ * A picture of the monitor the cursor is on, with where it points ringed,
+ * to go with what the person said. Acestes is left out of it, as it is out
+ * of every screenshot. `frame` is what `seed` makes the agent's latest
+ * screenshot, so its first click can go by this picture's pixels.
+ */
+async function look() {
+    if (platform !== 'win32') return { ok: false, error: 'The buddy works on Windows only for now.' };
+    hooks.hideFromCapture(true);
+    await new Promise(resolve => setTimeout(resolve, 60));
+    let answer;
+    try {
+        // A JPEG: a whole monitor as a PNG is a megabyte or two to send
+        // before the model has read a word, and this is the first thing it sees.
+        answer = await call('capture', { cursor: true, ...IMAGE, format: 'jpeg' }, 20000);
+    } finally {
+        hooks.hideFromCapture(false);
+    }
+    if (!answer.ok) return { ok: false, error: answer.error || 'Could not take a picture of the screen.' };
+    return {
+        ok: true,
+        image: { name: 'screen.jpg', mediaType: answer.mediaType, data: answer.data },
+        width: answer.width,
+        height: answer.height,
+        pointer: Array.isArray(answer.pointer) ? answer.pointer : null,
+        frame: {
+            hwnd: 0,
+            screen: true,
+            region: answer.region,
+            scale: answer.scale,
+            width: answer.width,
+            height: answer.height,
+            mode: 'image',
+        },
+    };
+}
+
+/** The picture the person's words went with, as this conversation's latest screenshot. */
+function seed(conversationId, frame) {
+    if (!conversationId || !frame || !Array.isArray(frame.region)) return;
+    frames.set(conversationId, { ...frame });
+}
+
+/** A pixel of a conversation's latest screenshot, as a point on the screen (physical pixels), or null. */
+function frameToScreen(conversationId, x, y) {
+    const frame = frames.get(conversationId);
+    if (!frame || !Number.isFinite(x) || !Number.isFinite(y)) return null;
+    const inX = Math.max(0, Math.min(frame.width - 1, x));
+    const inY = Math.max(0, Math.min(frame.height - 1, y));
+    return {
+        x: frame.region[0] + Math.round(inX / frame.scale),
+        y: frame.region[1] + Math.round(inY / frame.scale),
+    };
+}
+
+/** A point on the screen (physical pixels) as a pixel of a conversation's latest screenshot, or null when it is not in it. */
+function screenToFrame(conversationId, x, y) {
+    const frame = frames.get(conversationId);
+    if (!frame || !Number.isFinite(x) || !Number.isFinite(y)) return null;
+    const inX = Math.round((x - frame.region[0]) * frame.scale);
+    const inY = Math.round((y - frame.region[1]) * frame.scale);
+    if (inX < 0 || inY < 0 || inX >= frame.width || inY >= frame.height) return null;
+    return { x: inX, y: inY, width: frame.width, height: frame.height };
+}
+
 function shutdown() {
+    // Not started again for push to talk on the way out.
+    pushToTalkMods = '';
     if (!helper) return;
     try { helper.child.kill(); } catch { /* already gone */ }
     helper = null;
@@ -2146,6 +2300,11 @@ module.exports = {
     recordStart,
     recordPause,
     recordStop,
+    pushToTalk,
+    look,
+    seed,
+    frameToScreen,
+    screenToFrame,
     _test: {
         useHelper: (command) => {
             shutdown();

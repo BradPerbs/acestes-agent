@@ -11,6 +11,7 @@ import Slider from './ui/Slider';
 import SegmentedControl from '../ui/SegmentedControl';
 import Capability, { Detail } from './Capability';
 import BrowserUse from './BrowserUse';
+import BuddyCard from './BuddyCard';
 import useAssistantSettings from './useAssistantSettings';
 import { useT } from '../../i18n';
 
@@ -157,6 +158,11 @@ export default function AgenticSection() {
 
                 <BrowserUse className={DIVIDED} settings={settings} update={update} />
             </SettingCard>
+
+            {/* The buddy: Ctrl+Alt anywhere, and the agent acts on what you
+                point at. Windows only for now (its push to talk is the
+                Windows helper's). */}
+            {window.api.platform === 'win32' && <BuddyCard settings={settings} update={update} />}
 
             <SettingCard>
                 <SettingRow

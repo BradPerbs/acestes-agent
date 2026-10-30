@@ -29,6 +29,8 @@
 //          anything without it is the person. Their click or key outside
 //          Acestes, or their hand on the mouse mid-action, pauses the agent
 //          at once. Esc is swallowed and reported, so no app sees it either.
+//          And, when asked, a chord held on its own (Ctrl+Alt) for push to
+//          talk, driving or not: the buddy listens while it is held.
 //
 // Refused whatever it is told: any window of the processes named with
 // --protect (Acestes itself, so the agent can never click its own approval
@@ -296,6 +298,7 @@ static partial class DesktopHelper
             case "clipboard": return ReadClipboard();
             case "drive": return Drive(request);
             case "record": return Record(request);
+            case "ptt": return PushToTalk(request);
             case "place": return Place(request);
             case "forget": return Forget(Text(request, "whose"));
             default: throw new Stop("unknown", "Unknown command: " + Text(request, "cmd"));
@@ -371,23 +374,47 @@ static partial class DesktopHelper
         key = (key ?? "").Trim().ToLowerInvariant();
         if (key.Length == 1 && ((key[0] >= 'a' && key[0] <= 'z') || (key[0] >= '0' && key[0] <= '9'))) vk = char.ToUpperInvariant(key[0]);
         else if (key == "space") vk = 0x20;
-        int held = 0;
-        foreach (string part in (mods ?? "").ToLowerInvariant().Split(new[] { '+', ',', ' ' }, StringSplitOptions.RemoveEmptyEntries))
-        {
-            if (part == "ctrl" || part == "control") held |= 1;
-            else if (part == "shift") held |= 2;
-            else if (part == "alt") held |= 4;
-            else if (part == "win" || part == "meta") held |= 8;
-        }
+        int held = ModsOf(mods);
         if (held == 0) vk = 0;
         voiceVk = vk;
         voiceMods = held;
     }
 
-    /// <summary>Which modifiers are down now, as SetVoice counts them.</summary>
-    static int ModifiersDown()
+    /// <summary>Modifiers by name ("ctrl+alt") as bits: 1 Ctrl, 2 Shift, 4 Alt, 8 Win.</summary>
+    static int ModsOf(string mods)
     {
         int held = 0;
+        foreach (string part in (mods ?? "").ToLowerInvariant().Split(new[] { '+', ',', ' ' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (part == "ctrl" || part == "control") held |= 1;
+            else if (part == "shift") held |= 2;
+            else if (part == "alt" || part == "option") held |= 4;
+            else if (part == "win" || part == "meta") held |= 8;
+        }
+        return held;
+    }
+
+    /// <summary>A modifier key's bit, as ModsOf counts them, either side of the keyboard; 0 for any other key.</summary>
+    static int ModBit(int vk)
+    {
+        switch (vk)
+        {
+            case 0x11: case 0xA2: case 0xA3: return 1;
+            case 0x10: case 0xA0: case 0xA1: return 2;
+            case 0x12: case 0xA4: case 0xA5: return 4;
+            case 0x5B: case 0x5C: return 8;
+            default: return 0;
+        }
+    }
+
+    /// <summary>
+    /// Which modifiers are down now, as SetVoice counts them. A push-to-talk
+    /// key kept from the apps (see OnPtt) is down for the person even though
+    /// Windows, which never saw it, says it is up.
+    /// </summary>
+    static int ModifiersDown()
+    {
+        int held = PttKeptBits();
         if ((Native.GetAsyncKeyState(0x11) & 0x8000) != 0) held |= 1;
         if ((Native.GetAsyncKeyState(0x10) & 0x8000) != 0) held |= 2;
         if ((Native.GetAsyncKeyState(0x12) & 0x8000) != 0) held |= 4;
@@ -539,6 +566,12 @@ static partial class DesktopHelper
                 }
                 // Ctrl on its way to the shortcut: passed on, and not the person taking over.
                 if (voiceVk != 0 && IsVoiceModifier(vk)) return Native.CallNextHookEx(IntPtr.Zero, code, message, data);
+                // The push-to-talk chord: the person talking to the agent, not
+                // taking over from it. Its own hook keeps it from the apps.
+                if ((ModBit(vk) & pttMods) != 0) return Native.CallNextHookEx(IntPtr.Zero, code, message, data);
+                // The buddy's switch key with the chord held (Ctrl+Alt+Space),
+                // or its release: the same, kept from the apps by that hook.
+                if (pttNext != 0 && vk == pttNext && (pttNextHeld || (PttHeld() & pttMods) == pttMods)) return Native.CallNextHookEx(IntPtr.Zero, code, message, data);
                 if (down)
                 {
                     if (Protected.Contains(PidOf(Native.GetForegroundWindow()))) StartGrace();
@@ -596,6 +629,228 @@ static partial class DesktopHelper
     {
         if (!driving) throw new Stop("not-driving", "Not driving: take the desktop first.");
         Guard();
+    }
+
+    /* ---------------------------------------------------------------- *
+     * Push to talk
+     *
+     * A chord of modifiers held on their own (Ctrl+Alt), watched for as long
+     * as the app asks, driving or not: the buddy (src/main/ai/buddy.js)
+     * listens while it is held. Seen by a keyboard hook of its own, on a
+     * thread of its own, so nothing else the helper is busy with keeps
+     * Windows waiting on it: a low-level hook slow to answer is quietly
+     * removed. Told as "ptt" events: down once the chord is complete, up when
+     * any of it is let go, cancel when another key goes down while it is held,
+     * since that was a shortcut (Ctrl+Alt+T), not someone talking; and next
+     * for the switch key, if one was given (Ctrl+Alt+Space: the buddy's next
+     * agent), which is kept from the apps whether driving or not.
+     *
+     * Passed on to the app in front, so the keys still do what they always
+     * did. Except while the agent drives: then the chord's keys are kept from
+     * every app, so someone talking to the agent mid-task does not turn its
+     * typing into Ctrl+Alt shortcuts.
+     * ---------------------------------------------------------------- */
+
+    static volatile int pttMods;
+    // The key that, pressed with the whole chord held, switches the buddy to
+    // its next agent (Space): told as "next", and kept from every app, its
+    // repeats and its release with it. 0 when there is none.
+    static volatile int pttNext;
+    static volatile bool pttNextHeld;
+    static volatile bool pttReset;
+    static IntPtr pttHook = IntPtr.Zero;
+    static Thread pttThread;
+    static readonly Native.HookProc PttProc = OnPtt;
+    // Which modifier keys the person holds, as the hook saw them, and which of
+    // those presses were kept from the apps. Written on the hook's thread only.
+    static readonly bool[] pttDown = new bool[256];
+    static readonly bool[] pttKept = new bool[256];
+    static bool pttActive;
+    static bool pttSpoiled;
+    static int pttSeq;
+    static System.Windows.Forms.Timer pttCheck;
+
+    static Dictionary<string, object> PushToTalk(Dictionary<string, object> request)
+    {
+        int mods = Flag(request, "on") ? ModsOf(Text(request, "mods")) : 0;
+        if (Flag(request, "on") && mods == 0) throw new Stop("bad-request", "Push to talk needs a modifier to hold, such as ctrl+alt.");
+        // The switch key by name ("space"); a modifier cannot be one.
+        ushort next = 0;
+        string named = (Text(request, "next") ?? "").Trim().ToLowerInvariant();
+        if (mods != 0 && named.Length > 0 && (!Named.TryGetValue(named, out next) || ModBit(next) != 0)) next = 0;
+        if (mods != 0) StartPtt();
+        if (mods != pttMods || next != pttNext) pttReset = true;
+        pttNext = next;
+        pttMods = mods;
+        var answer = new Dictionary<string, object>();
+        answer["on"] = mods != 0;
+        answer["next"] = next != 0;
+        return answer;
+    }
+
+    /// <summary>The hook's thread, started on first use and kept: switched off, the hook only passes everything on.</summary>
+    static void StartPtt()
+    {
+        if (pttThread != null && pttHook != IntPtr.Zero) return;
+        var started = new ManualResetEvent(false);
+        var thread = new Thread(delegate()
+        {
+            pttHook = Native.SetWindowsHookEx(13, PttProc, Native.GetModuleHandle(null), 0);
+            // A release the hook never heard of (the secure screen of
+            // Ctrl+Alt+Del, the lock screen) would leave the chord held for
+            // good: what Windows says is down is looked at while it is.
+            pttCheck = new System.Windows.Forms.Timer();
+            pttCheck.Interval = 250;
+            pttCheck.Tick += delegate { CheckPtt(); };
+            pttCheck.Start();
+            started.Set();
+            Application.Run();
+        });
+        thread.IsBackground = true;
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        started.WaitOne(3000);
+        if (pttHook == IntPtr.Zero) throw new Stop("failed", "Could not watch the keyboard for push to talk.");
+        pttThread = thread;
+    }
+
+    static int PttHeld()
+    {
+        int held = 0;
+        for (int vk = 0; vk < 256; vk++) if (pttDown[vk]) held |= ModBit(vk);
+        return held;
+    }
+
+    /// <summary>The push-to-talk keys kept from the apps just now, as bits. Read from other threads, where a moment's lag is no matter.</summary>
+    static int PttKeptBits()
+    {
+        int held = 0;
+        for (int vk = 0; vk < 256; vk++) if (pttKept[vk]) held |= ModBit(vk);
+        return held;
+    }
+
+    static void PttClear()
+    {
+        if (!pttReset) return;
+        pttReset = false;
+        Array.Clear(pttDown, 0, pttDown.Length);
+        Array.Clear(pttKept, 0, pttKept.Length);
+        pttActive = false;
+        pttSpoiled = false;
+        pttNextHeld = false;
+    }
+
+    /// <summary>The chord complete, or broken, told once each way.</summary>
+    static void PttSettle()
+    {
+        int held = PttHeld() & pttMods;
+        bool chord = pttMods != 0 && held == pttMods;
+        if (chord && !pttActive && !pttSpoiled)
+        {
+            pttActive = true;
+            TellPtt("down");
+        }
+        else if (!chord && pttActive)
+        {
+            pttActive = false;
+            TellPtt("up");
+        }
+        // All of it let go: the next press is a fresh one.
+        if (held == 0) pttSpoiled = false;
+    }
+
+    static void TellPtt(string state)
+    {
+        pttSeq += 1;
+        var message = new Dictionary<string, object>();
+        message["event"] = "ptt";
+        message["state"] = state;
+        // Sent from the thread pool, which keeps no order: the app goes by this.
+        message["seq"] = pttSeq;
+        message["driving"] = driving;
+        EmitLater(message);
+    }
+
+    static void CheckPtt()
+    {
+        PttClear();
+        bool changed = false;
+        for (int vk = 0; vk < 256; vk++)
+        {
+            // A kept key is up as far as Windows knows; only the hook hears it go.
+            if (!pttDown[vk] || pttKept[vk]) continue;
+            if ((Native.GetAsyncKeyState(vk) & 0x8000) != 0) continue;
+            pttDown[vk] = false;
+            changed = true;
+        }
+        if (changed) PttSettle();
+    }
+
+    static IntPtr OnPtt(int code, IntPtr message, IntPtr data)
+    {
+        if (code < 0 || pttMods == 0) return Native.CallNextHookEx(IntPtr.Zero, code, message, data);
+        PttClear();
+        var info = (Native.KBDLLHOOKSTRUCT)Marshal.PtrToStructure(data, typeof(Native.KBDLLHOOKSTRUCT));
+        if (info.dwExtraInfo == Mark) return Native.CallNextHookEx(IntPtr.Zero, code, message, data);
+        int kind = message.ToInt32();
+        bool down = kind == 0x0100 || kind == 0x0104;
+        int vk = (int)(info.vkCode & 0xFF);
+        // AltGr comes with a left Ctrl nobody pressed, its scan code marked so.
+        if (vk == 0xA2 && (info.scanCode & 0x200) != 0) return Native.CallNextHookEx(IntPtr.Zero, code, message, data);
+        int bit = ModBit(vk);
+        if (bit == 0 && pttNext != 0 && vk == pttNext)
+        {
+            // The switch key with the whole chord held: the next agent, once
+            // per press, and not the listening the chord began. Kept from the
+            // app in front, which would otherwise get a Ctrl+Alt+Space.
+            if (down)
+            {
+                if (pttNextHeld) return new IntPtr(1);
+                if ((PttHeld() & pttMods) == pttMods)
+                {
+                    pttNextHeld = true;
+                    pttSpoiled = true;
+                    pttActive = false;
+                    TellPtt("next");
+                    return new IntPtr(1);
+                }
+            }
+            else if (pttNextHeld)
+            {
+                pttNextHeld = false;
+                return new IntPtr(1);
+            }
+        }
+        if (bit == 0)
+        {
+            // Any other key with the chord's keys down: a shortcut (Ctrl+Alt+T,
+            // Ctrl+C on the way), not someone talking, until all is let go.
+            if (down && (PttHeld() & pttMods) != 0)
+            {
+                pttSpoiled = true;
+                if (pttActive)
+                {
+                    pttActive = false;
+                    TellPtt("cancel");
+                }
+            }
+            return Native.CallNextHookEx(IntPtr.Zero, code, message, data);
+        }
+        bool was = pttDown[vk];
+        pttDown[vk] = down;
+        PttSettle();
+        if ((bit & pttMods) != 0)
+        {
+            // Pressed while the agent drives: kept from every app, repeats and
+            // release with it. One the apps saw go down, they see come up.
+            if (down && !was && driving) pttKept[vk] = true;
+            if (pttKept[vk])
+            {
+                if (!down) pttKept[vk] = false;
+                return new IntPtr(1);
+            }
+        }
+        return Native.CallNextHookEx(IntPtr.Zero, code, message, data);
     }
 
     /* ---------------------------------------------------------------- *
@@ -1014,7 +1269,22 @@ static partial class DesktopHelper
         IntPtr window = Handle(request, "hwnd");
         object raw;
         var region = request.TryGetValue("region", out raw) ? raw as System.Collections.IList : null;
-        if (region != null && region.Count == 4)
+        // The monitor the cursor is on, with where it points drawn in: what
+        // the person was looking at when they spoke to the buddy.
+        bool atCursor = Flag(request, "cursor");
+        Native.POINT pointer = new Native.POINT();
+        if (atCursor)
+        {
+            Native.GetCursorPos(out pointer);
+            var info = new Native.MONITORINFO();
+            info.cbSize = Marshal.SizeOf(typeof(Native.MONITORINFO));
+            Native.GetMonitorInfo(Native.MonitorFromPoint(pointer, 2), ref info);
+            x = info.rcMonitor.Left;
+            y = info.rcMonitor.Top;
+            width = info.rcMonitor.Right - info.rcMonitor.Left;
+            height = info.rcMonitor.Bottom - info.rcMonitor.Top;
+        }
+        else if (region != null && region.Count == 4)
         {
             x = Convert.ToInt32(region[0]);
             y = Convert.ToInt32(region[1]);
@@ -1038,7 +1308,7 @@ static partial class DesktopHelper
         // number, rather than guessing at pixels.
         WalkState numbered = null;
         List<object> nodes = null;
-        if (Flag(request, "marks") && region == null)
+        if (Flag(request, "marks") && region == null && !atCursor)
         {
             numbered = new WalkState
             {
@@ -1093,6 +1363,7 @@ static partial class DesktopHelper
             {
                 // Drawn at the size the model sees, so the numbers stay sharp.
                 if (numbered != null) drawn = DrawTags(small ?? shot, numbered.Tags, x, y, scale);
+                if (atCursor) DrawPointer(small ?? shot, (pointer.X - x) * scale, (pointer.Y - y) * scale);
                 if (jpeg)
                 {
                     // For a captcha service, which caps what it takes: a grid
@@ -1116,6 +1387,12 @@ static partial class DesktopHelper
         answer["height"] = outHeight;
         answer["region"] = new object[] { x, y, width, height };
         answer["scale"] = scale;
+        if (atCursor)
+        {
+            // Where it points, in the picture's pixels and on the screen.
+            answer["pointer"] = new object[] { (int)Math.Round((pointer.X - x) * scale), (int)Math.Round((pointer.Y - y) * scale) };
+            answer["cursor"] = new object[] { pointer.X, pointer.Y };
+        }
         if (numbered != null)
         {
             answer["window"] = Describe(window);
@@ -1124,6 +1401,24 @@ static partial class DesktopHelper
             answer["marked"] = drawn;
         }
         return answer;
+    }
+
+    /// <summary>
+    /// Where the person points, on a picture of their screen: a ring round
+    /// the cursor's tip, hollow so what is under it still reads, white under
+    /// red so it shows on any background.
+    /// </summary>
+    static void DrawPointer(Bitmap image, double px, double py)
+    {
+        using (var g = Graphics.FromImage(image))
+        {
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            const float radius = 12f;
+            var box = new RectangleF((float)px - radius, (float)py - radius, radius * 2, radius * 2);
+            using (var halo = new Pen(Color.FromArgb(235, 255, 255, 255), 5f)) g.DrawEllipse(halo, box);
+            using (var ring = new Pen(Color.FromArgb(255, 255, 40, 90), 2.5f)) g.DrawEllipse(ring, box);
+            using (var dot = new SolidBrush(Color.FromArgb(255, 255, 40, 90))) g.FillEllipse(dot, (float)px - 1.5f, (float)py - 1.5f, 3f, 3f);
+        }
     }
 
     static ImageCodecInfo JpegCodec()

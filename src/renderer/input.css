@@ -1052,6 +1052,474 @@ input[type="color"]::-webkit-color-swatch {
     overflow: hidden;
 }
 
+/* The buddy -----------------------------------------------------------------
+   Acestes in the background (BuddyOverlay.jsx): a window per display, the
+   size of it, transparent and click-through. A violet arrowhead rides beside
+   the cursor on a spring and turns into a waveform, a turning ring or a
+   question as the buddy listens, works and asks, with what it is doing in a
+   dark pill beside it. On the main display a black notch hangs from the top
+   edge, MacBook-style, and eases open to show what is going on. Both are
+   dark on any theme: they sit over whatever app is in front, not over ours. */
+.buddy-root {
+    position: fixed;
+    inset: 0;
+    overflow: hidden;
+    color: #fff;
+}
+
+.buddy-root .working-phrase {
+    --working-base: rgb(255 255 255 / 0.62);
+    --working-glint: rgb(255 255 255);
+}
+
+.buddy-mark {
+    position: absolute;
+    left: 0;
+    top: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    will-change: transform;
+    transition: opacity 180ms ease;
+}
+
+.buddy-mark.buddy-mark-away {
+    opacity: 0 !important;
+}
+
+.buddy-glyph {
+    position: relative;
+    width: 22px;
+    height: 22px;
+    flex: none;
+    transform: scale(var(--grow, 1));
+}
+
+.buddy-face {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transform: scale(0.6);
+    transition: opacity 160ms ease, transform 220ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.buddy-glyph-arrow .buddy-face-arrow,
+.buddy-glyph-wave .buddy-face-wave,
+.buddy-glyph-ring .buddy-face-ring,
+.buddy-glyph-ask .buddy-face-ask {
+    opacity: 1;
+    transform: scale(1);
+}
+
+.buddy-face-arrow {
+    color: rgb(167 139 250);
+    filter: drop-shadow(0 0 5px rgb(139 92 246 / 0.8)) drop-shadow(0 1px 1.5px rgb(0 0 0 / 0.45));
+}
+
+.buddy-arrow {
+    width: 15px;
+    height: 15px;
+    transform: rotate(var(--turn, -35deg));
+}
+
+.buddy-speaking .buddy-arrow {
+    animation: buddy-speak 520ms ease-in-out infinite alternate;
+}
+
+@keyframes buddy-speak {
+    to {
+        transform: rotate(var(--turn, -35deg)) scale(1.22);
+    }
+}
+
+/* The ring, the waveform and the question sit on a dark disc, so they read
+   over a white page as well as a black one. */
+.buddy-face-ring::before,
+.buddy-face-wave::before,
+.buddy-face-ask::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 9999px;
+    background: rgb(17 17 20 / 0.86);
+    box-shadow: 0 3px 10px -3px rgb(0 0 0 / 0.55), inset 0 0 0 1px rgb(255 255 255 / 0.08);
+}
+
+.buddy-face-wave::before {
+    inset: 0 -5px;
+}
+
+.buddy-face-ring svg {
+    position: relative;
+    width: 14px;
+    height: 14px;
+}
+
+.buddy-wave {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    height: 16px;
+}
+
+.buddy-wave>span {
+    display: block;
+    width: 2.5px;
+    height: calc(3px + var(--level, 0) * var(--reach, 1) * 13px);
+    border-radius: 2px;
+    background: rgb(251 113 133);
+    box-shadow: 0 0 6px rgb(244 63 94 / 0.7);
+    transition: height 90ms linear;
+    animation: activity-wobble 700ms ease-in-out infinite alternate;
+}
+
+.buddy-ask-dot {
+    position: relative;
+    width: 7px;
+    height: 7px;
+    border-radius: 9999px;
+    background: rgb(251 191 36);
+    box-shadow: 0 0 8px rgb(245 158 11 / 0.9);
+    animation: buddy-breathe 1.4s ease-in-out infinite;
+}
+
+.buddy-bubble {
+    max-width: 320px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    padding: 3px 10px;
+    border-radius: 9999px;
+    font-size: 11.5px;
+    font-weight: 500;
+    line-height: 16px;
+    color: rgb(255 255 255 / 0.92);
+    background: rgb(17 17 20 / 0.88);
+    box-shadow: 0 6px 16px -6px rgb(0 0 0 / 0.6), inset 0 0 0 1px rgb(255 255 255 / 0.08);
+    animation: buddy-pop 240ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+.buddy-bubble .working-cell {
+    vertical-align: top;
+}
+
+.buddy-tone-acting {
+    color: rgb(221 214 254);
+}
+
+.buddy-tone-waiting {
+    color: rgb(253 230 138);
+}
+
+.buddy-tone-stopped {
+    color: rgb(254 202 202);
+}
+
+.buddy-bubble-point {
+    color: #fff;
+    background: rgb(124 58 237);
+    box-shadow: 0 0 14px rgb(139 92 246 / 0.65), 0 6px 16px -6px rgb(0 0 0 / 0.5);
+    animation: buddy-pop 420ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@keyframes buddy-pop {
+    from {
+        opacity: 0;
+        transform: translateX(-4px) scale(0.6);
+    }
+}
+
+@keyframes buddy-breathe {
+    50% {
+        opacity: 0.55;
+        transform: scale(0.82);
+    }
+}
+
+/* The notch: black, hanging from the top edge, its top corners flared into
+   the edge the way a MacBook's are. It eases open with a little overshoot. */
+.buddy-notch {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #000;
+    color: #fff;
+    border-radius: 0 0 20px 20px;
+    box-shadow: 0 14px 34px -14px rgb(0 0 0 / 0.6);
+    transition:
+        width 460ms cubic-bezier(0.32, 1.25, 0.45, 1),
+        height 460ms cubic-bezier(0.32, 1.25, 0.45, 1),
+        border-radius 300ms ease,
+        box-shadow 300ms ease;
+}
+
+.buddy-notch.buddy-notch-rest {
+    border-radius: 0 0 13px 13px;
+    box-shadow: none;
+}
+
+.buddy-notch::before,
+.buddy-notch::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    width: 12px;
+    height: 12px;
+}
+
+.buddy-notch::before {
+    right: 100%;
+    background: radial-gradient(circle at 0 100%, transparent 11.5px, #000 12px);
+}
+
+.buddy-notch::after {
+    left: 100%;
+    background: radial-gradient(circle at 100% 100%, transparent 11.5px, #000 12px);
+}
+
+.buddy-notch-clip {
+    height: 100%;
+    overflow: hidden;
+    border-radius: inherit;
+}
+
+.buddy-notch-body {
+    padding: 10px 18px 13px;
+    animation: buddy-open 320ms 90ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+.buddy-notch-rest .buddy-notch-body {
+    height: 26px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: none;
+}
+
+@keyframes buddy-open {
+    from {
+        opacity: 0;
+        transform: translateY(-4px);
+        filter: blur(3px);
+    }
+}
+
+.buddy-rest-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 9999px;
+    background: rgb(167 139 250);
+    box-shadow: 0 0 6px rgb(139 92 246 / 0.9);
+    animation: buddy-breathe 3.2s ease-in-out infinite;
+}
+
+.buddy-root .buddy-notch .activity-wave {
+    margin-top: 10px;
+    height: 26px;
+    gap: 3px;
+    color: rgb(251 113 133);
+}
+
+.buddy-rec {
+    animation: buddy-breathe 1.1s ease-in-out infinite;
+}
+
+.buddy-heard,
+.buddy-reply,
+.buddy-said {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+.buddy-heard {
+    margin-top: 8px;
+    font-size: 12.5px;
+    line-height: 1.38;
+    color: rgb(255 255 255 / 0.85);
+    -webkit-line-clamp: 2;
+}
+
+.buddy-said {
+    margin-top: 6px;
+    font-size: 11.5px;
+    line-height: 1.35;
+    color: rgb(255 255 255 / 0.5);
+    -webkit-line-clamp: 2;
+}
+
+.buddy-reply {
+    margin-top: 8px;
+    font-size: 13px;
+    line-height: 1.42;
+    color: rgb(255 255 255 / 0.9);
+    -webkit-line-clamp: 4;
+}
+
+.buddy-reply.buddy-reply-old {
+    color: rgb(255 255 255 / 0.55);
+    font-size: 12px;
+    -webkit-line-clamp: 2;
+}
+
+/* The recap as it is said: the one thing in the notch meant to be read at a glance. */
+.buddy-recap {
+    min-width: 0;
+    flex: 1 1 0%;
+    font-size: 13.5px;
+    font-weight: 600;
+    line-height: 18px;
+    color: #fff;
+}
+
+.buddy-trouble {
+    margin-top: 6px;
+    font-size: 11px;
+    line-height: 1.35;
+    color: rgb(252 211 77 / 0.85);
+}
+
+.buddy-chip {
+    max-width: 100%;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    font-size: 11px;
+    color: rgb(255 255 255 / 0.75);
+    background: rgb(255 255 255 / 0.1);
+}
+
+/* Who it talks to: the one place of the buddy that takes a click (the rest
+   of it lets every click through; see `hit` in main/ai/buddy.js). */
+.buddy-agents {
+    margin-top: 10px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    pointer-events: auto;
+}
+
+.buddy-agent {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 100%;
+    padding: 4px 10px 4px 8px;
+    border-radius: 9999px;
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 16px;
+    color: rgb(255 255 255 / 0.7);
+    background: rgb(255 255 255 / 0.08);
+    box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.06);
+    cursor: pointer;
+    transition: background-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+
+.buddy-agent:hover {
+    color: #fff;
+    background: rgb(255 255 255 / 0.14);
+}
+
+.buddy-agent[data-on='true'] {
+    color: #fff;
+    background: rgb(139 92 246 / 0.28);
+    box-shadow: inset 0 0 0 1px rgb(167 139 250 / 0.7);
+}
+
+.buddy-agent[data-dim='true']:not([data-on='true']) {
+    color: rgb(255 255 255 / 0.45);
+}
+
+.buddy-agent-dot {
+    width: 7px;
+    height: 7px;
+    flex-shrink: 0;
+    border-radius: 9999px;
+}
+
+.buddy-tone-switch {
+    color: #fff;
+    font-weight: 600;
+}
+
+.buddy-keys {
+    padding: 1px 6px;
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 10px;
+    font-weight: 500;
+    color: rgb(255 255 255 / 0.78);
+    background: rgb(255 255 255 / 0.12);
+    box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.1);
+}
+
+.buddy-speaker {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    height: 12px;
+}
+
+.buddy-speaker>span {
+    width: 2.5px;
+    height: 100%;
+    border-radius: 2px;
+    background: rgb(167 139 250);
+    animation: buddy-speaker 700ms ease-in-out infinite alternate;
+}
+
+.buddy-speaker>span:nth-child(2) {
+    animation-delay: -240ms;
+}
+
+.buddy-speaker>span:nth-child(3) {
+    animation-delay: -480ms;
+}
+
+@keyframes buddy-speaker {
+    from {
+        transform: scaleY(0.3);
+    }
+}
+
+.buddy-done-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 9999px;
+    background: rgb(52 211 153);
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+    .buddy-notch,
+    .buddy-face,
+    .buddy-mark {
+        transition: none;
+    }
+
+    .buddy-notch-body,
+    .buddy-bubble,
+    .buddy-rest-dot,
+    .buddy-rec,
+    .buddy-ask-dot,
+    .buddy-speaker>span,
+    .buddy-speaking .buddy-arrow,
+    .buddy-wave>span {
+        animation: none;
+    }
+}
+
 @media (prefers-reduced-motion: reduce) {
 
     .activity-card::before,

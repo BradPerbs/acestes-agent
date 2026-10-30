@@ -27,6 +27,8 @@ const assistant = require('./ai');
 const aiWindows = require('./ai/windows');
 const computer = require('./ai/computer');
 const overlay = require('./ai/overlay');
+const buddy = require('./ai/buddy');
+const tray = require('./tray');
 const speech = require('./ai/speech');
 const browserUse = require('./ai/browser-use');
 const updates = require('./updates');
@@ -370,6 +372,9 @@ function register(getWindow) {
     // brought forward for the question.
     computer.configure({
         surface: (conversationId) => {
+            // The buddy asks in its notch, where it is answered by voice:
+            // the app is not brought up over what the person is doing.
+            if (buddy.owns(conversationId)) return;
             const window = aiWindows.windowOf(conversationId) || getWindow();
             if (!window || window.isDestroyed()) return;
             if (window.isMinimized()) window.restore();
@@ -388,15 +393,37 @@ function register(getWindow) {
         // capture, so the user's own screen sharing still shows the app.
         hideFromCapture: (on) => {
             for (const window of BrowserWindow.getAllWindows()) {
-                // The corner overlay is kept out of capture all the time.
-                if (window.isDestroyed() || overlay.isOverlay(window)) continue;
+                // The corner overlay and the buddy are kept out of capture all the time.
+                if (window.isDestroyed() || overlay.isOverlay(window) || buddy.isBuddyWindow(window)) continue;
                 window.setContentProtection(Boolean(on));
             }
         },
+        // The push-to-talk chord, for the buddy.
+        ptt: message => buddy.onPtt(message),
     });
     // The card in the corner of the screen while an agent is at work, drawn
     // by the same bundle as this window. See ai/overlay.js.
     overlay.configure({ urlOf: () => getWindow()?.webContents.getURL() || '' });
+    // The buddy: Acestes in the background, beside the cursor, Ctrl+Alt to
+    // talk. Drawn by the same bundle too. Started once its settings say so.
+    buddy.configure({
+        ai: assistant,
+        computer,
+        settings: assistant.settings,
+        // The ElevenLabs key, read from the keychain at the moment of use.
+        secrets: aiSecrets,
+        // Who it can talk to; and the one picked in its notch, saved as
+        // Settings saves it, so Settings and the panel show it too.
+        agents,
+        setSettings: (patch) => {
+            const next = assistant.settings.set(patch);
+            notify('ai-settings', assistant.settings.get());
+            return next;
+        },
+        isLocked: () => vault.isLocked(),
+        urlOf: () => getWindow()?.webContents.getURL() || '',
+        changed: on => tray.buddy(on),
+    });
 
     // The scheduler: fires jobs through the assistant, probes through the
     // agent's local tools, and delivers results through the toast above.
@@ -1614,6 +1641,9 @@ function register(getWindow) {
         // about it here rather than showing a stale copy until it is reopened.
         notify('ai-settings', next);
 
+        // The buddy follows its switch, and who it talks to. See ai/buddy.js.
+        buddy.sync().catch(error => console.error('The buddy could not follow its settings:', error.message));
+
         return next;
     });
     // A conversation a person opens starts on the starred model, else the last
@@ -1729,6 +1759,62 @@ function register(getWindow) {
     ipcMain.on('ai-activity-ui', (event, state) => {
         if (overlay.isOverlay(BrowserWindow.fromWebContents(event.sender))) overlay.ui(state || {});
     });
+
+    // The buddy's windows: one is listening and says what it hears, one reads
+    // the reply out and says when it has. Taken from those windows only.
+    // See ai/buddy.js.
+    ipcMain.on('buddy-ready', (event) => {
+        buddy.ready(event.sender);
+    });
+    ipcMain.on('buddy-heard', (event, payload) => {
+        if (buddy.isBuddyWindow(event.sender)) buddy.heard(event.sender, payload || {});
+    });
+    ipcMain.on('buddy-spoke', (event, payload) => {
+        if (buddy.isBuddyWindow(event.sender)) buddy.spoke(event.sender, payload || {});
+    });
+    // For its card in Settings: whether it is on, and whether the agent it
+    // talks to may use this computer; and switching that on from the card.
+    handle('buddy-status', () => buddy.status());
+    handle('buddy-allow-computer', () => {
+        const { agentId } = buddy.status();
+        const before = assistant.settings.get(agentId || undefined);
+        const next = assistant.settings.set({ computerUse: true }, agentId || undefined);
+        assistant.reconfigure(before, next, next.agentId);
+        for (const moved of assistant.settings.takePropagation()) {
+            if (moved.agentId !== next.agentId) assistant.reconfigure(moved.before, moved.after, moved.agentId);
+        }
+        activity.record({
+            category: 'security',
+            action: 'assistant.configure',
+            outcome: 'info',
+            target: 'Assistant',
+            detail: 'Computer use on, for the buddy',
+            changes: [{ field: 'computer use', from: before.computerUse ? 'on' : 'off', to: 'on' }],
+        });
+        notify('ai-settings', assistant.settings.get());
+        return buddy.status();
+    });
+    // Its voice: the ElevenLabs key goes into the keychain as the shared
+    // secret `elevenlabs` (typed once, never sent back; empty removes it),
+    // the account's voices are listed for picking, and one can be tried.
+    handle('buddy-voice-key', (event, value) => {
+        const stored = aiSecrets.set('elevenlabs', String(value ?? '').trim(), '');
+        if (stored?.error) return { ...buddy.status(), keyError: stored.error };
+        return buddy.status();
+    });
+    handle('buddy-voices', () => buddy.voices());
+    // The notch's agents: where they are, so that place alone takes the
+    // mouse, and the one clicked. See `hit` and `choose` in ai/buddy.js.
+    ipcMain.on('buddy-hit', (event, rect) => {
+        if (buddy.isBuddyWindow(event.sender)) buddy.hit(event.sender, rect || null);
+    });
+    ipcMain.on('buddy-pick-agent', (event, payload) => {
+        buddy.pick(event.sender, payload || {});
+    });
+    handle('buddy-voice-try', (event, options) => buddy.tryVoice({
+        voiceId: String(options?.voiceId || ''),
+        model: String(options?.model || ''),
+    }));
 
     /* ---------------- Channels ---------------- */
 

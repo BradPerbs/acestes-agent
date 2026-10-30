@@ -12,6 +12,7 @@ const path = require('path');
 const ipc = require('./ipc');
 const aiWindows = require('./ai/windows');
 const aiOverlay = require('./ai/overlay');
+const buddy = require('./ai/buddy');
 const speech = require('./ai/speech');
 const transport = require('./transport');
 const scheduler = require('./runs/scheduler');
@@ -133,13 +134,24 @@ function createWindow() {
 
     // 'close' fires while the window is still alive, so its bounds are
     // still readable; 'closed' is too late.
-    mainWindow.on('close', () => {
+    mainWindow.on('close', (event) => {
         saveWindowState(mainWindow);
         // localStorage reaches the disk on Chromium's own schedule, and with
         // the process kept up in the tray that can be long after the window
         // has gone. A kill in between (an installer, a shutdown) would take
         // the open tabs with it, so they are written out now.
         mainWindow.webContents.session.flushStorageData();
+        // With the buddy on, Acestes lives in the background: closing the
+        // window puts it away, conversations and all, rather than ending
+        // them. The tray brings it back; its Quit ends it.
+        if (!quitting && buddy.isOn()) {
+            event.preventDefault();
+            mainWindow.hide();
+        }
+    });
+    // Windows signing out or shutting down is a quit, whatever the buddy says.
+    mainWindow.on('session-end', () => {
+        quitting = true;
     });
 
     mainWindow.on('closed', () => {
@@ -217,6 +229,10 @@ app.whenReady().then(() => {
         const timer = setTimeout(() => require('./ai').warmUp(), 5000);
         timer.unref?.();
 
+        // The buddy, when Settings has it on: its windows load the bundle
+        // this window just loaded. See ai/buddy.js.
+        buddy.sync().catch(error => console.error('The buddy did not start:', error.message));
+
         // Work the last process left cut short, sent on once there is a
         // window for its approvals to land in. Nothing at all after a launch
         // that does not follow a crash.
@@ -233,6 +249,16 @@ app.whenReady().then(() => {
             quitting = true;
             app.quit();
         },
+        // The buddy switched from the tray, for when the window is put away.
+        onBuddy: (on) => {
+            const assistant = require('./ai');
+            assistant.settings.set({ buddy: Boolean(on) });
+            const next = assistant.settings.get();
+            for (const window of BrowserWindow.getAllWindows()) {
+                if (!window.isDestroyed()) window.webContents.send('ai-settings', next);
+            }
+            buddy.sync().catch(error => console.error('The buddy could not follow the tray:', error.message));
+        },
     });
 
     app.on('activate', () => {
@@ -243,6 +269,7 @@ app.whenReady().then(() => {
 app.on('before-quit', () => {
     if (!firstInstance) return;
     quitting = true;
+    buddy.shutdown();
     scheduler.stop();
     channels.stop();
     fleet.stop();

@@ -76,6 +76,11 @@ export default function useDictation({ live: liveDefault = false, onText, onNoti
     const [download, setDownload] = useState(null);
 
     const session = useRef(null);
+    // Whether the microphone is opening, and a stop or a cancel that came
+    // meanwhile (a quick push to talk, let go in the first moment): done
+    // once it has opened.
+    const starting = useRef(false);
+    const pending = useRef('');
 
     useEffect(() => window.api.ai.onSpeech?.((next) => {
         setDownload(next?.state === 'downloading' ? next.percent : null);
@@ -176,7 +181,10 @@ export default function useDictation({ live: liveDefault = false, onText, onNoti
     /** Stop listening and write down what was said. */
     const stop = useCallback(() => {
         const current = session.current;
-        if (!current) return;
+        if (!current) {
+            if (starting.current && !pending.current) pending.current = 'stop';
+            return;
+        }
         // A recorder hands over its last chunk first, then finishes.
         if (current.recorder) {
             if (current.recorder.state === 'recording') current.recorder.stop();
@@ -189,8 +197,10 @@ export default function useDictation({ live: liveDefault = false, onText, onNoti
     // that learns it only when asked to listen (the corner card). Anything
     // else passed (a click event) leaves the hook's own.
     const start = useCallback(async (options) => {
-        if (session.current || state !== 'idle') return;
+        if (session.current || starting.current || state !== 'idle') return;
         const live = typeof options?.live === 'boolean' ? options.live : liveDefault;
+        starting.current = true;
+        pending.current = '';
         setState('starting');
         onNotice?.('');
         // Live, the recording is opened in main while the microphone opens
@@ -210,6 +220,8 @@ export default function useDictation({ live: liveDefault = false, onText, onNoti
             setState('idle');
             context?.close().catch(() => {});
             opening?.then(opened => opened?.id && window.api.ai.dictationCancel?.(opened.id));
+            starting.current = false;
+            pending.current = '';
             onNotice?.(error?.name === 'NotAllowedError' || error?.name === 'SecurityError'
                 ? t('assistant.micDenied')
                 : t('assistant.noMic'));
@@ -244,6 +256,8 @@ export default function useDictation({ live: liveDefault = false, onText, onNoti
 
             const opened = await opening;
             if (!opened?.id || session.current !== current) {
+                starting.current = false;
+                pending.current = '';
                 release();
                 if (session.current === current) settle();
                 if (opened?.error) onNotice?.(t('assistant.dictationFailed', { message: opened.error }));
@@ -278,11 +292,20 @@ export default function useDictation({ live: liveDefault = false, onText, onNoti
             if (elapsed >= LIMIT_MS) stop();
         }, 250);
         setState('recording');
+        starting.current = false;
+        // Let go, or thrown away, while the microphone was opening.
+        const after = pending.current;
+        pending.current = '';
+        if (after === 'cancel') current.cancelled = true;
+        if (after) stop();
     }, [finish, liveDefault, meterRef, onNotice, release, settle, state, stop, t]);
 
     /** Stop listening and throw it away. */
     const cancel = useCallback(() => {
-        if (!session.current) return;
+        if (!session.current) {
+            if (starting.current) pending.current = 'cancel';
+            return;
+        }
         session.current.cancelled = true;
         stop();
     }, [stop]);

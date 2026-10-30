@@ -36,8 +36,8 @@ import { useT } from '../../i18n';
  * names the action and what it is aimed at.
  */
 
-/** What an agent is doing, by the tool it is in, as a live verb. */
-const DOING = {
+/** What an agent is doing, by the tool it is in, as a live verb. The buddy says it the same way (BuddyOverlay.jsx). */
+export const DOING = {
     click: 'activity.clicking',
     type_text: 'activity.typing',
     press_keys: 'activity.pressing',
@@ -70,7 +70,7 @@ const OUTCOME_MS = { steered: 2600, answered: 2600, message: 3200, notice: 4200 
 const clock = seconds => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 
 /** A desktop action as words: the verb, and what it is aimed at by name once found, the call's own words until then. */
-function action(t, tool) {
+export function action(t, tool) {
     const verb = DOING[tool.name];
     const detail = tool.aim
         || (tool.name === 'do_steps'
@@ -341,7 +341,7 @@ function Keys({ children }) {
 }
 
 /** Bars of the waveform, each with its own reach, so the shape moves like a voice. */
-const BARS = Array.from({ length: 30 }, (_, index) => {
+export const BARS = Array.from({ length: 30 }, (_, index) => {
     const centre = 1 - Math.abs(index - 14.5) / 15;
     const reach = 0.35 + 0.65 * centre * (0.6 + 0.4 * Math.abs(Math.sin(index * 1.7)));
     return { reach: reach.toFixed(3), delay: `${-((index * 137) % 900)}ms` };

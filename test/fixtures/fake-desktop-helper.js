@@ -239,6 +239,20 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
             return reply({ x: 50, y: 60, rect: [40, 50, 20, 20], window });
         }
         case 'capture': {
+            // The monitor the cursor is on, for the buddy: 2000x1000 shrunk
+            // to half, the cursor at (600, 400) on it.
+            if (request.cursor) {
+                return reply({
+                    data: '/9j/4AAQ',
+                    mediaType: 'image/jpeg',
+                    width: 1000,
+                    height: 500,
+                    region: [0, 0, 2000, 1000],
+                    scale: 0.5,
+                    pointer: [300, 200],
+                    cursor: [600, 400],
+                });
+            }
             // Windows at their bounds, shrunk by half; a region as it is.
             const region = request.region || [0, 0, 800, 600];
             const scale = request.region ? 1 : 0.5;
@@ -302,6 +316,17 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
         case 'button': return reply({ under: 'pane "Canvas"', window: WINDOWS[0] });
         case 'letgo': return reply({});
         case 'nudge': return reply({ nudged: true });
+        // Push to talk: switched on, the chord is "pressed" straight away
+        // when the mods say so, so a test sees the events come through.
+        case 'ptt': {
+            if (request.on && request.mods === 'ctrl+alt+test') {
+                setTimeout(() => {
+                    process.stdout.write(`${JSON.stringify({ event: 'ptt', state: 'down', seq: 1, driving: false })}\n`);
+                    process.stdout.write(`${JSON.stringify({ event: 'ptt', state: 'up', seq: 2, driving: false })}\n`);
+                }, 20);
+            }
+            return reply({ on: Boolean(request.on) });
+        }
         case 'clipboard': {
             if (fs.existsSync(`${log}.private`)) return reply({ private: true });
             return reply({ text: 'copied words', files: ['C:\\notes.txt'] });

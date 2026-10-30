@@ -7,6 +7,7 @@ import LockScreen from './components/LockScreen';
 import ScreenshotView from './components/ScreenshotView';
 import AssistantWindow from './components/assistant/AssistantWindow';
 import ActivityOverlay from './components/assistant/ActivityOverlay';
+import BuddyOverlay from './components/assistant/BuddyOverlay';
 import { INITIAL_THEME, applyAppColors, readAppColors } from './lib/app-colors';
 import { dismissBootSplash } from './lib/boot-splash';
 import { playSound } from './lib/sounds';
@@ -61,6 +62,8 @@ const screenshotId = hashParams.get('screenshot');
 const assistantWindowId = hashParams.get('assistant');
 // The card in the corner of the screen while an agent is at work.
 const activityOverlay = hashParams.has('activity');
+// The buddy's window on one display: the notch and the mark by the cursor.
+const buddyOverlay = hashParams.has('buddy');
 
 // The sound of the assistant's notifications, played by whichever window
 // main picks, so it is heard once however many are open. Main says which:
@@ -134,7 +137,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                     ? <AssistantWindow />
                     : activityOverlay
                         ? <ActivityOverlay />
-                        : <Root />}
+                        : buddyOverlay
+                            ? <BuddyOverlay />
+                            : <Root />}
         </ErrorBoundary>
     </React.StrictMode>
 );

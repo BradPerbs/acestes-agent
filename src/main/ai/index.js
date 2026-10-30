@@ -20,6 +20,7 @@ const searchModule = require('./search');
 const titles = require('./titles');
 const computer = require('./computer');
 const overlay = require('./overlay');
+const buddy = require('./buddy');
 const { readImages } = require('./images');
 const { readFiles, fileBlock } = require('./attachments');
 const { readMentions, mentionBlock, stripMentions } = require('./mentions');
@@ -2911,15 +2912,23 @@ computer.configure({
     isBusy: conversationId => Boolean(conversations.get(conversationId)?.busy),
     interrupt: conversationId => interrupt(conversationId),
     // Who is at work on the desktop, for the card in the corner of the screen.
-    driversChanged: ids => overlay.drivers(ids.map((id) => {
+    // The buddy's own conversation is shown by the buddy, beside the cursor
+    // and in its notch, not in a card as well. See buddy.js.
+    driversChanged: ids => overlay.drivers(ids.filter(id => !buddy.owns(id)).map((id) => {
         const conversation = conversations.get(id);
         const agent = conversation ? agents.get(conversation.agentId) : null;
         return { id, title: conversation?.title || '', agent: agent?.name || '', look: agent?.look || null };
     })),
-    aimed: (conversationId, label) => overlay.aimed(conversationId, label),
+    aimed: (conversationId, label) => {
+        overlay.aimed(conversationId, label);
+        buddy.aimed(conversationId, label);
+    },
     // The user's hand stopped the drivers (took over, or Esc): the card says so,
     // since the helper no longer puts a badge at the top of the screen.
-    held: (ids, code) => overlay.held(ids, code),
+    held: (ids, code) => {
+        overlay.held(ids, code);
+        buddy.held(ids, code);
+    },
     // The voice shortcut, pressed while agents drive: the card listens, and
     // what is said steers the newest of them. See overlay.js and `steer`.
     voice: (ids) => {
@@ -4255,6 +4264,9 @@ async function send(conversationId, text, attachments = [], tagged = [], attache
             conversation.pendingNote = '';
         }
         if (channelNote && !bare) parts.push(`<app-note>\n${channelNote}\n</app-note>`);
+        // What the app has to say about this one message: the buddy's word on
+        // how it was said and what the picture with it shows. See buddy.js.
+        if (options?.note && !bare) parts.push(`<app-note>\n${String(options.note).trim()}\n</app-note>`);
         if (!bare && context !== conversation.lastContext) {
             conversation.lastContext = context;
             parts.push(`<app-context>\n${context}\n</app-context>`);
@@ -5119,6 +5131,9 @@ module.exports = {
     importConversations,
     send,
     steer,
+    // Whether a conversation is in a turn now, for the buddy: what it hears
+    // then steers that turn rather than starting another.
+    isBusy: conversationId => Boolean(conversations.get(conversationId)?.busy),
     warm,
     warmUp,
     interrupt,

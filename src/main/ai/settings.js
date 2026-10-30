@@ -271,6 +271,25 @@ const DEFAULTS = {
     voiceModel: 'base',
     voiceLanguage: '',
     /**
+     * The buddy: Acestes kept in the background, with a notch at the top of
+     * the screen and a mark beside the cursor. Hold Ctrl+Alt anywhere and say
+     * what you want; the agent is handed the screen and where you point, and
+     * does it with the computer tools. The machine's, like the voice settings
+     * it listens with, and off until switched on. `buddyAgent` is who it talks
+     * to, '' for the agent selected in the app; `buddySpeak` reads its replies
+     * aloud; `buddyNotch` shows the notch. See buddy.js.
+     */
+    buddy: false,
+    buddyAgent: '',
+    buddySpeak: true,
+    buddyNotch: true,
+    // Whose voice says the recap: this computer's ('system'), or ElevenLabs,
+    // with its model and voice. The ElevenLabs key is in the keychain, as the
+    // secret `elevenlabs`, never here. See elevenlabs.js.
+    buddyVoice: 'system',
+    buddyVoiceModel: 'eleven_v4',
+    buddyVoiceId: '',
+    /**
      * How many days a conversation nobody has touched is kept before it is
      * deleted. 0, the default, is forever: the history keeps everything
      * unless the user chose otherwise here. The machine's, not one agent's,
@@ -480,6 +499,13 @@ function sanitize(raw) {
         if (VOICE_ENGINES.has(raw.voiceEngine)) next.voiceEngine = raw.voiceEngine;
         if (VOICE_MODELS.has(raw.voiceModel)) next.voiceModel = raw.voiceModel;
         if (typeof raw.voiceLanguage === 'string' && /^[a-z]{0,3}$/.test(raw.voiceLanguage)) next.voiceLanguage = raw.voiceLanguage;
+        if ('buddy' in raw) next.buddy = Boolean(raw.buddy);
+        if (typeof raw.buddyAgent === 'string') next.buddyAgent = raw.buddyAgent.trim().slice(0, 200);
+        if ('buddySpeak' in raw) next.buddySpeak = Boolean(raw.buddySpeak);
+        if ('buddyNotch' in raw) next.buddyNotch = Boolean(raw.buddyNotch);
+        if (['system', 'elevenlabs'].includes(raw.buddyVoice)) next.buddyVoice = raw.buddyVoice;
+        if (['eleven_v4', 'eleven_flash_v2_5'].includes(raw.buddyVoiceModel)) next.buddyVoiceModel = raw.buddyVoiceModel;
+        if (typeof raw.buddyVoiceId === 'string' && /^[A-Za-z0-9]{0,40}$/.test(raw.buddyVoiceId)) next.buddyVoiceId = raw.buddyVoiceId;
         // Forever unless a number of days is actually given: anything that is
         // not one keeps everything, never the other way round.
         next.historyDays = clampNumber(raw.historyDays, DEFAULTS.historyDays, 0, HISTORY_MAX_DAYS);

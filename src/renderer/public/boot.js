@@ -40,5 +40,5 @@
         // No storage, or a palette that does not parse: the defaults stand.
     }
     var hash = location.hash;
-    if (!/[#&](screenshot|assistant)=|[#&]activity\b/.test(hash)) root.classList.add('booting');
+    if (!/[#&](screenshot|assistant|buddy)=|[#&]activity\b/.test(hash)) root.classList.add('booting');
 })();

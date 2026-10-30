@@ -17,6 +17,9 @@ const zlib = require('zlib');
  */
 
 let tray = null;
+let actions = { onOpen: null, onQuit: null, onBuddy: null };
+// Whether the buddy is on (ai/buddy.js): the menu says so, and switches it.
+let buddyOn = false;
 
 function crc32(buffer) {
     let crc = ~0;
@@ -85,8 +88,9 @@ function icon() {
  * on a machine with jobs is the only way to, since closing the window no
  * longer does.
  */
-function show({ onOpen, onQuit }) {
+function show({ onOpen, onQuit, onBuddy }) {
     if (tray) return tray;
+    actions = { onOpen, onQuit, onBuddy };
     try {
         tray = new Tray(icon());
     } catch (error) {
@@ -94,14 +98,30 @@ function show({ onOpen, onQuit }) {
         return null;
     }
     tray.setToolTip('Acestes Agent');
-    tray.setContextMenu(Menu.buildFromTemplate([
-        { label: 'Open Acestes Agent', click: () => onOpen?.() },
-        { type: 'separator' },
-        { label: 'Quit', click: () => (onQuit ? onQuit() : app.quit()) },
-    ]));
+    menu();
     tray.on('click', () => onOpen?.());
     tray.on('double-click', () => onOpen?.());
     return tray;
+}
+
+function menu() {
+    if (!tray) return;
+    const { onOpen, onQuit, onBuddy } = actions;
+    tray.setContextMenu(Menu.buildFromTemplate([
+        { label: 'Open Acestes Agent', click: () => onOpen?.() },
+        ...(onBuddy && process.platform === 'win32'
+            ? [{ label: 'Buddy (hold Ctrl+Alt to talk)', type: 'checkbox', checked: buddyOn, click: item => onBuddy(item.checked) }]
+            : []),
+        { type: 'separator' },
+        { label: 'Quit', click: () => (onQuit ? onQuit() : app.quit()) },
+    ]));
+    tray.setToolTip(buddyOn ? 'Acestes Agent · hold Ctrl+Alt to talk' : 'Acestes Agent');
+}
+
+/** The buddy went on or off: the menu's tick follows. */
+function buddy(on) {
+    buddyOn = Boolean(on);
+    menu();
 }
 
 function hide() {
@@ -110,4 +130,4 @@ function hide() {
     tray = null;
 }
 
-module.exports = { show, hide, circlePng };
+module.exports = { show, hide, buddy, circlePng };

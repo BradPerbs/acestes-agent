@@ -796,6 +796,39 @@ contextBridge.exposeInMainWorld('api', {
     },
 
     /**
+     * The buddy (main/ai/buddy.js): Acestes in the background, a notch at the
+     * top of the screen and a mark beside the cursor, Ctrl+Alt to talk. Its
+     * windows hear which display they are (`onHello`), what to draw
+     * (`onState`), where the cursor is (`onCursor`) and when to listen
+     * (`onListen`); they say they are ready, what they heard and that a reply
+     * has been read out. `status` and `allowComputer` are for its card in
+     * Settings.
+     */
+    buddy: {
+        ready: () => ipcRenderer.send('buddy-ready'),
+        onHello: (callback) => subscribe('buddy-hello', callback),
+        onState: (callback) => subscribe('buddy-state', callback),
+        onCursor: (callback) => subscribe('buddy-cursor', callback),
+        onListen: (callback) => subscribe('buddy-listen', callback),
+        heard: (payload) => ipcRenderer.send('buddy-heard', payload),
+        spoke: (id) => ipcRenderer.send('buddy-spoke', { id }),
+        // The notch's agents: the place they take up (that alone takes the
+        // mouse; null gives it back), and the one clicked.
+        hit: (rect) => ipcRenderer.send('buddy-hit', rect || null),
+        pickAgent: (agentId) => ipcRenderer.send('buddy-pick-agent', { agentId }),
+        // ElevenLabs' audio for a recap, as it streams in: { id, chunk } then
+        // { id, done } or { id, error }. Raw 16-bit PCM at the say's rate.
+        onAudio: (callback) => subscribe('buddy-audio', callback),
+        status: () => ipcRenderer.invoke('buddy-status'),
+        allowComputer: () => ipcRenderer.invoke('buddy-allow-computer'),
+        // Its voice, for Settings: the ElevenLabs key into the keychain (never
+        // read back), the account's voices, and a sentence to try one with.
+        setVoiceKey: (value) => ipcRenderer.invoke('buddy-voice-key', value),
+        voices: () => ipcRenderer.invoke('buddy-voices'),
+        tryVoice: (options) => ipcRenderer.invoke('buddy-voice-try', options || {}),
+    },
+
+    /**
      * Runs: the units of work, interactive or scheduled, with their steps.
      * See main/runs. `onChange` fires on any change to any run.
      */
