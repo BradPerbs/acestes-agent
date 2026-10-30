@@ -13,6 +13,7 @@ import { buttonClass } from "./ui";
 const links = [
   { href: "#security", label: "Security" },
   { href: "#computer-use", label: "Computer use" },
+  { href: "#voice", label: "Voice" },
   { href: "#devices", label: "Devices" },
   { href: "#advanced", label: "Advanced" },
   { href: "#channels", label: "Channels" },
@@ -62,7 +63,7 @@ export function SiteHeader() {
                 <a
                   href={l.href}
                   {...(l.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-                  className="rounded-full px-3.5 py-2 text-[15px] text-muted transition-colors hover:text-fg"
+                  className="rounded-full px-2.5 py-2 text-[15px] whitespace-nowrap text-muted transition-colors hover:text-fg 2xl:px-3.5"
                 >
                   {l.label}
                 </a>

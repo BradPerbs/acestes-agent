@@ -20,6 +20,7 @@ import { Runtimes } from "@/components/sections/runtimes";
 import { Security } from "@/components/sections/security";
 import { Team } from "@/components/sections/team";
 import { Toolkit } from "@/components/sections/toolkit";
+import { Voice } from "@/components/sections/voice";
 import { site, siteUrl } from "@/lib/site";
 
 const jsonLd = {
@@ -53,6 +54,8 @@ export default function Home() {
           <Security />
           <Gap />
           <ComputerUse />
+          <Gap />
+          <Voice />
           <Gap />
           <Devices />
           <Gap />

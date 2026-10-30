@@ -51,6 +51,16 @@ const faqs: { q: string; a: ReactNode }[] = [
     ),
   },
   {
+    q: "Is it listening all the time?",
+    a: (
+      <>
+        No. Push to talk is off until you turn it on, and then the microphone opens only while you hold Ctrl+Alt. What
+        you say is written down on this computer; the words, with a capture of the screen your pointer is on, go to the
+        agent you picked, like any message you send it.
+      </>
+    ),
+  },
+  {
     q: "How is Acestes different from Claude Code or Codex?",
     a: (
       <>

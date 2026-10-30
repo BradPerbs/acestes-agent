@@ -5,14 +5,14 @@ import { Icon } from "../icon";
 import { Reveal } from "../reveal";
 import { Eyebrow } from "../ui";
 
-// From the commits since v1.4.6: Channels, and Claude Desktop as an agent.
+// From 2.0 and 2.1: push to talk.
 const entries = [
-  { kind: "feat", text: "Channels: Telegram, Discord, Slack and Matrix" },
-  { kind: "feat", text: "Approve changes from the chat" },
-  { kind: "feat", text: "Model, effort and mode from the chat" },
-  { kind: "feat", text: "Job results and approvals sent to your chats" },
-  { kind: "feat", text: "Claude Desktop as its own agent" },
-  { kind: "fix", text: "Computer use lets go when a turn ends" },
+  { kind: "feat", text: "Hold Ctrl+Alt in any app to talk to the agent" },
+  { kind: "feat", text: "It sees the screen under your pointer" },
+  { kind: "feat", text: "A notch with each step, and Stop" },
+  { kind: "feat", text: "Questions asked aloud, answered by voice" },
+  { kind: "feat", text: "A spoken recap, in a system or ElevenLabs voice" },
+  { kind: "feat", text: "Ctrl+Alt+Space moves to the next agent" },
 ] as const;
 
 const released = new Date(`${site.released}T12:00:00Z`).toLocaleDateString("en-GB", {

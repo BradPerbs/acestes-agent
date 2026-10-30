@@ -10,6 +10,7 @@ import { ThemeSwitch } from "./theme-toggle";
 const links = [
   { label: "Security", href: "#security" },
   { label: "Computer use", href: "#computer-use" },
+  { label: "Voice", href: "#voice" },
   { label: "Advanced", href: "#advanced" },
   { label: "Channels", href: "#channels" },
   { label: "Guardrails", href: "#guardrails" },
