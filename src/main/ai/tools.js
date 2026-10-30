@@ -1164,10 +1164,13 @@ const TOOLS = [
         readOnly: true,
         description:
             'Send the user a message in the chat app they paired with Acestes (Telegram, Discord, Slack or '
-            + 'Matrix), wherever they last wrote from. '
-            + 'For news they asked to hear as it happens ("tell me when the build finishes"), or something a '
-            + 'scheduled run found that cannot wait. Not for your replies in this conversation, which reach them '
-            + 'wherever they wrote from. Fails when no chat app is paired.',
+            + 'Matrix). Only when they asked for it: they said in this conversation to message them there '
+            + '("text me on Telegram when the build finishes"), or they are writing to you from that app and asked '
+            + 'to hear as things happen, or a scheduled run found something that cannot wait. '
+            + 'Never for progress or status updates: those go in your reply, which reaches them wherever they wrote '
+            + 'from. A reminder that the user has not heard from you in a while is answered with a short sentence in '
+            + 'your reply, not with this tool. Fails when no chat app is paired, or when the user is at the desktop '
+            + 'and did not ask.',
         shape: {
             text: z.string().min(1).max(3500).describe('The message: short, plain text or light Markdown.'),
         },

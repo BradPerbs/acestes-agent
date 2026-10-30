@@ -283,6 +283,43 @@ const eventsOf = (conversationId, type) => seen
         starts.at(-1).options.onEvent({ type: 'result', subtype: 'success', isError: false, costUsd: 0 });
     });
 
+    console.log('\nmessage_user, from a conversation typed at the desk');
+
+    // Last, because it starts conversations of its own and the checks above
+    // read the newest runtime as the shared conversation's.
+    await check('message_user stays off the phone in a desk conversation until the user asks for it', async () => {
+        const tool = catalog.BY_NAME.get('message_user');
+        const told = [];
+        assistant.setMessenger(async (payload) => {
+            told.push(payload);
+            return { sent: true, channel: 'telegram' };
+        });
+        const desk = assistant.create({ scope: 'global' }).conversationId;
+        await assistant.send(desk, 'fix the failing build please');
+        const context = starts.at(-1).options.toolContext();
+
+        // What Claude Code's "the user hasn't heard from you" reminder led to.
+        const nudged = await tool.handler({ text: 'Still on it, reading the logs.' }, context);
+        assert.ok(nudged.isError, 'refused at the desk');
+        assert.ok(/Not sent/.test(JSON.stringify(nudged)), JSON.stringify(nudged));
+        assert.strictEqual(told.length, 0, 'nothing reached the phone');
+        starts.at(-1).options.onEvent({ type: 'result', subtype: 'success', isError: false, costUsd: 0 });
+
+        await assistant.send(desk, 'I am heading out, text me on Telegram when it is green');
+        const asked = await tool.handler({ text: 'The build is green.' }, starts.at(-1).options.toolContext());
+        assert.ok(!asked.isError, JSON.stringify(asked));
+        assert.strictEqual(told.length, 1);
+        starts.at(-1).options.onEvent({ type: 'result', subtype: 'success', isError: false, costUsd: 0 });
+
+        const scheduled = assistant.create({ scope: 'global' }).conversationId;
+        assistant._test.conversation(scheduled).runKind = 'scheduled';
+        await assistant.send(scheduled, 'check the disks');
+        const fromJob = await tool.handler({ text: '/var is at 97%.' }, starts.at(-1).options.toolContext());
+        assert.ok(!fromJob.isError, 'a job\'s run may');
+        assert.strictEqual(told.length, 2);
+        starts.at(-1).options.onEvent({ type: 'result', subtype: 'success', isError: false, costUsd: 0 });
+    });
+
     console.log(`\n${passed} passed, ${failed} failed`);
     await assistant.shutdown().catch(() => {});
     process.exit(failed > 0 ? 1 : 0);

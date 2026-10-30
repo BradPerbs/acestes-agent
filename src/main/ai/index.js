@@ -292,6 +292,30 @@ function setMessenger(fn) {
     messenger = typeof fn === 'function' ? fn : null;
 }
 
+/** A job's run: nobody is at the desk watching it. See JOB_KINDS. */
+const UNWATCHED_KINDS = new Set(['scheduled', 'triggered']);
+/** The user asking, in so many words, to hear from the agent in a chat app. */
+const ASKED_FOR_CHAT = /\b(telegram|discord|slack|matrix)\b|\b(message|text|ping|dm|notify)\s+me\b/i;
+
+/**
+ * Why `message_user` may not reach the phone from this conversation, or ''
+ * when it may. A job's run may; so may a conversation the user has written
+ * to from a chat app, or one where they asked to be messaged there. Anywhere
+ * else they are at the desk reading the reply, and a ping on the phone is
+ * noise: Claude Code's "the user hasn't heard from you in a while" reminder
+ * had the model answer it through this tool, a status line to Telegram every
+ * minute of a turn typed at the desk.
+ */
+function messageUserRefusal(conversation) {
+    if (UNWATCHED_KINDS.has(conversation.runKind)) return '';
+    const said = (conversation.events || []).filter(event => event?.type === 'user-message');
+    if (said.some(event => event.channel)) return '';
+    if (said.some(event => ASKED_FOR_CHAT.test(String(event.text || '')))) return '';
+    return 'Not sent: the user is at the desktop app reading this conversation and did not ask to be messaged in a chat app. '
+        + 'Say it in your reply instead. A reminder that the user has not heard from you is answered with a short sentence '
+        + 'in your reply, never with message_user.';
+}
+
 /**
  * Conversations that run on another of the user's computers (see
  * src/main/fleet/tasks.js). Here such a conversation is a mirror: it has no
@@ -2085,6 +2109,8 @@ function startRuntime(conversation, current, lender) {
             // channels/index.js.
             messageUser: async (text) => {
                 if (!messenger) return { error: 'No channel is paired: the user has not connected Telegram, Discord, Slack or Matrix in Settings, Channels.' };
+                const refused = messageUserRefusal(conversation);
+                if (refused) return { error: refused };
                 const from = agents.get(conversation.agentId)?.name || '';
                 return messenger({ text: secrets.scrub(String(text || '')), from });
             },
