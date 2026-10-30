@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const agents = require('../agents');
 const { isBrowserServer } = require('./browser-use');
+const buddyTone = require('./buddy-tone');
 
 /**
  * How the assistant is configured.
@@ -289,6 +290,10 @@ const DEFAULTS = {
     buddyVoice: 'system',
     buddyVoiceModel: 'eleven_v4',
     buddyVoiceId: '',
+    // How what it says aloud sounds: a tone by name, and the person's own
+    // words for it ("emphatic, cracks a joke now and then"). See buddy-tone.js.
+    buddyTone: 'neutral',
+    buddyToneNote: '',
     /**
      * How many days a conversation nobody has touched is kept before it is
      * deleted. 0, the default, is forever: the history keeps everything
@@ -506,6 +511,8 @@ function sanitize(raw) {
         if (['system', 'elevenlabs'].includes(raw.buddyVoice)) next.buddyVoice = raw.buddyVoice;
         if (['eleven_v4', 'eleven_flash_v2_5'].includes(raw.buddyVoiceModel)) next.buddyVoiceModel = raw.buddyVoiceModel;
         if (typeof raw.buddyVoiceId === 'string' && /^[A-Za-z0-9]{0,40}$/.test(raw.buddyVoiceId)) next.buddyVoiceId = raw.buddyVoiceId;
+        if (buddyTone.NAMES.includes(raw.buddyTone)) next.buddyTone = raw.buddyTone;
+        if (typeof raw.buddyToneNote === 'string') next.buddyToneNote = buddyTone.cleanNote(raw.buddyToneNote);
         // Forever unless a number of days is actually given: anything that is
         // not one keeps everything, never the other way round.
         next.historyDays = clampNumber(raw.historyDays, DEFAULTS.historyDays, 0, HISTORY_MAX_DAYS);

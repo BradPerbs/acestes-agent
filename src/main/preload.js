@@ -816,6 +816,9 @@ contextBridge.exposeInMainWorld('api', {
         // mouse; null gives it back), and the one clicked.
         hit: (rect) => ipcRenderer.send('buddy-hit', rect || null),
         pickAgent: (agentId) => ipcRenderer.send('buddy-pick-agent', { agentId }),
+        // While the agent works: stop its turn, or open its chat in the app.
+        stop: () => ipcRenderer.send('buddy-stop'),
+        open: () => ipcRenderer.send('buddy-open'),
         // ElevenLabs' audio for a recap, as it streams in: { id, chunk } then
         // { id, done } or { id, error }. Raw 16-bit PCM at the say's rate.
         onAudio: (callback) => subscribe('buddy-audio', callback),

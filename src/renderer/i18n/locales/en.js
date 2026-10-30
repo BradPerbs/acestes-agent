@@ -1591,6 +1591,17 @@ export default {
         + 'talk to it, and starts a fresh one after twenty quiet minutes. Switch from anywhere with Ctrl+Alt+Space, '
         + 'or rest the pointer on the notch and click another.',
     'settings.buddy.agentSelected': 'The agent selected in the app',
+    'settings.buddy.tone': 'Tone',
+    'settings.buddy.toneDesc': 'How it talks to you: the words of its recap and its questions, and with ElevenLabs how lively '
+        + 'the voice is. With Eleven v4 it can laugh, sigh or whisper too. The work itself stays as careful.',
+    'settings.buddy.tone.neutral': 'Plain · clear and simple',
+    'settings.buddy.tone.friendly': 'Friendly · warm, like a helpful colleague',
+    'settings.buddy.tone.funny': 'Funny · a quick joke or a witty aside',
+    'settings.buddy.tone.memer': 'Memer · slang and meme references',
+    'settings.buddy.tone.hype': 'Hype · emphatic and full of energy',
+    'settings.buddy.tone.serious': 'Serious · calm and to the point',
+    'settings.buddy.toneNote': 'In your own words',
+    'settings.buddy.toneNotePlaceholder': 'In your own words, if you like: emphatic, cracks a joke now and then',
     'settings.buddy.speak': 'Speak a recap',
     'settings.buddy.speakDesc': 'When it finishes, one sentence on what it did or found, out loud, and any question it asks '
         + 'you. The full reply stays in the notch and the conversation.',
@@ -2738,6 +2749,8 @@ export default {
     'buddy.hint': 'Hold {chord} and talk',
     'buddy.answerHint': 'Hold {chord} to answer',
     'buddy.steerHint': 'Hold {chord} to steer',
+    'buddy.stop': 'Stop',
+    'buddy.openInApp': 'Open in Acestes',
     'buddy.talkingTo': 'Talking to',
     'buddy.nowTalkingTo': 'Now talking to {name}',
     'buddy.switchHint': '{chord} next',

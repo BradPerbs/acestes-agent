@@ -9,6 +9,7 @@ import SegmentedControl from '../ui/SegmentedControl';
 import { FIELD_CLASS } from './useAssistantSettings';
 import { useAgents } from '../../hooks/useAgents';
 import { bytesOf, createPcmPlayer } from '../../lib/pcm-player';
+import { speakSystem } from '../../lib/system-voice';
 import { useT } from '../../i18n';
 
 /** ElevenLabs' models, by id, as offered (see main/ai/elevenlabs.js). */
@@ -16,6 +17,129 @@ const MODELS = [
     { value: 'eleven_v4', label: 'Eleven v4' },
     { value: 'eleven_flash_v2_5', label: 'Flash v2.5' },
 ];
+
+/** The tones, by the name main knows them by (main/ai/buddy-tone.js). */
+const TONES = ['neutral', 'friendly', 'funny', 'memer', 'hype', 'serious'];
+/** The most of the person's own words for it that are kept. */
+const TONE_NOTE_CHARS = 200;
+
+/**
+ * A sentence said the way the buddy would say it, from Settings: main hands
+ * back ElevenLabs' audio whole, or the words with a pace and pitch for this
+ * computer's voice, which is said here.
+ */
+function useTrySay() {
+    const [trying, setTrying] = useState(false);
+    const [error, setError] = useState('');
+    const player = useRef(null);
+    const quiet = useRef(null);
+
+    const hush = useCallback(() => {
+        player.current?.stop();
+        player.current = null;
+        quiet.current?.();
+        quiet.current = null;
+    }, []);
+
+    useEffect(() => hush, [hush]);
+
+    const run = useCallback(async (options) => {
+        setTrying(true);
+        setError('');
+        hush();
+        try {
+            const result = await window.api.buddy.tryVoice(options);
+            if (result?.error) {
+                setError(result.error);
+                return;
+            }
+            if (result?.system) {
+                quiet.current = speakSystem(result.system.text, () => {}, result.system);
+                return;
+            }
+            const next = createPcmPlayer(result.rate);
+            player.current = next;
+            next.push(bytesOf(result.data));
+            next.end(() => {});
+        } finally {
+            setTrying(false);
+        }
+    }, [hush]);
+
+    return { trying, error, run };
+}
+
+/**
+ * How it talks: a tone (plain, friendly, funny, memer, hype, serious), and
+ * the person's own words for it. It shapes the words of the spoken recap and
+ * questions, and with ElevenLabs how lively the voice is.
+ */
+function ToneSettings({ settings, update }) {
+    const t = useT();
+    const tone = TONES.includes(settings.buddyTone) ? settings.buddyTone : 'neutral';
+    const saved = String(settings.buddyToneNote || '');
+    const [note, setNote] = useState(saved);
+    const trySay = useTrySay();
+
+    // Changed elsewhere (another window): what is here follows.
+    useEffect(() => setNote(saved), [saved]);
+
+    const saveNote = () => {
+        const clean = note.replace(/\s+/g, ' ').trim().slice(0, TONE_NOTE_CHARS);
+        if (clean !== saved) update({ buddyToneNote: clean });
+    };
+
+    return (
+        <SettingRow
+            className={DIVIDED}
+            title={t('settings.buddy.tone')}
+            description={t('settings.buddy.toneDesc')}
+        >
+            <div className="space-y-2">
+                <div className="w-72 max-w-full">
+                    <Select
+                        value={tone}
+                        onChange={(value) => update({ buddyTone: value })}
+                        className={FIELD_CLASS}
+                        aria-label={t('settings.buddy.tone')}
+                        options={TONES.map(name => ({ value: name, label: t(`settings.buddy.tone.${name}`) }))}
+                    />
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                    <input
+                        type="text"
+                        value={note}
+                        maxLength={TONE_NOTE_CHARS}
+                        spellCheck={false}
+                        onChange={event => setNote(event.target.value)}
+                        onBlur={saveNote}
+                        onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }}
+                        placeholder={t('settings.buddy.toneNotePlaceholder')}
+                        aria-label={t('settings.buddy.toneNote')}
+                        className={`${FIELD_CLASS} min-w-0 flex-1 max-w-md`}
+                    />
+                    {/* The tone's own sample line, in the voice as set: the words
+                        above shape what the agent writes, not this line. */}
+                    <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={trySay.trying}
+                        onClick={() => trySay.run({
+                            tone,
+                            note,
+                            engine: settings.buddyVoice === 'elevenlabs' ? 'elevenlabs' : 'system',
+                            voiceId: settings.buddyVoiceId || '',
+                            model: settings.buddyVoiceModel || 'eleven_v4',
+                        })}
+                    >
+                        {trySay.trying ? t('settings.buddy.voiceTrying') : t('settings.buddy.voiceTry')}
+                    </Button>
+                </div>
+                {trySay.error && <p className="text-xs text-red-600 dark:text-red-400">{trySay.error}</p>}
+            </div>
+        </SettingRow>
+    );
+}
 
 /**
  * Whose voice says the recap: this computer's, or ElevenLabs', with the
@@ -31,9 +155,9 @@ function VoiceSettings({ settings, update, status, onStatus }) {
     const [keyError, setKeyError] = useState('');
     const [voices, setVoices] = useState(null);
     const [voicesError, setVoicesError] = useState('');
-    const [trying, setTrying] = useState(false);
-    const [tryError, setTryError] = useState('');
-    const player = useRef(null);
+    const trySay = useTrySay();
+    const trying = trySay.trying;
+    const tryError = trySay.error;
 
     const loadVoices = useCallback(async () => {
         setVoicesError('');
@@ -50,8 +174,6 @@ function VoiceSettings({ settings, update, status, onStatus }) {
         if (engine === 'elevenlabs' && hasKey) loadVoices();
     }, [engine, hasKey, loadVoices]);
 
-    useEffect(() => () => player.current?.stop(), []);
-
     const saveKey = async (value) => {
         setSaving(true);
         setKeyError('');
@@ -65,24 +187,14 @@ function VoiceSettings({ settings, update, status, onStatus }) {
         }
     };
 
-    const tryVoice = async () => {
-        setTrying(true);
-        setTryError('');
-        try {
-            const result = await window.api.buddy.tryVoice({ voiceId: settings.buddyVoiceId || '', model: settings.buddyVoiceModel || 'eleven_v4' });
-            if (result?.error) {
-                setTryError(result.error);
-                return;
-            }
-            player.current?.stop();
-            const next = createPcmPlayer(result.rate);
-            player.current = next;
-            next.push(bytesOf(result.data));
-            next.end(() => {});
-        } finally {
-            setTrying(false);
-        }
-    };
+    // In the tone set above, so the voice is heard as the buddy will use it.
+    const tryVoice = () => trySay.run({
+        engine: 'elevenlabs',
+        voiceId: settings.buddyVoiceId || '',
+        model: settings.buddyVoiceModel || 'eleven_v4',
+        tone: settings.buddyTone || 'neutral',
+        note: settings.buddyToneNote || '',
+    });
 
     return (
         <>
@@ -270,6 +382,8 @@ export default function BuddyCard({ settings, update }) {
                         </div>
                     )}
                 />
+
+                <ToneSettings settings={settings} update={update} />
 
                 <SettingRow
                     className={DIVIDED}

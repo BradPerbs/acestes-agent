@@ -307,6 +307,9 @@ function register(getWindow) {
      * page; anything else, the Runs page.
      */
     const toastFromAssistant = ({ title, body, conversationId = '', runId = '', jobId = '', kind = '' }) => {
+        // The buddy's own turns are told in its notch and aloud, beside the
+        // cursor: a notification for each one as well would only be noise.
+        if (conversationId && buddy.isOn() && buddy.owns(conversationId)) return;
         const anyWindow = () => {
             const window = getWindow();
             if (window && !window.isDestroyed()) return window;
@@ -419,6 +422,13 @@ function register(getWindow) {
             const next = assistant.settings.set(patch);
             notify('ai-settings', assistant.settings.get());
             return next;
+        },
+        // Its conversation as a tab in the app, in the background; and, from
+        // the notch, brought up in front, as a notification's click does.
+        showConversation: id => assistant.showConversation(id),
+        openConversation: (id) => {
+            bringForward(aiWindows.windowOf(id) || getWindow());
+            aiWindows.show([id], { focus: true });
         },
         isLocked: () => vault.isLocked(),
         urlOf: () => getWindow()?.webContents.getURL() || '',
@@ -1811,9 +1821,20 @@ function register(getWindow) {
     ipcMain.on('buddy-pick-agent', (event, payload) => {
         buddy.pick(event.sender, payload || {});
     });
+    // The notch's buttons while the agent works: stop it, or open its chat.
+    ipcMain.on('buddy-stop', (event) => {
+        buddy.stopTurn(event.sender);
+    });
+    ipcMain.on('buddy-open', (event) => {
+        buddy.openInApp(event.sender);
+    });
     handle('buddy-voice-try', (event, options) => buddy.tryVoice({
         voiceId: String(options?.voiceId || ''),
         model: String(options?.model || ''),
+        // In the tone picked, and the voice it would say it in.
+        tone: String(options?.tone || ''),
+        note: typeof options?.note === 'string' ? options.note : null,
+        engine: options?.engine === 'system' || options?.engine === 'elevenlabs' ? options.engine : '',
     }));
 
     /* ---------------- Channels ---------------- */

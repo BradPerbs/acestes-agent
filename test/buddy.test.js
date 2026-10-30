@@ -105,6 +105,10 @@ const ai = {
         asked.push(['steer', ...args]);
         return { success: true, steered: true };
     },
+    interrupt: async (id) => {
+        asked.push(['interrupt', id]);
+        return true;
+    },
     observe: (fn) => {
         observer = fn;
         return () => { observer = null; };
@@ -147,6 +151,8 @@ buddy.configure({
     settings: { get: () => settingsNow },
     isLocked: () => locked,
     urlOf: () => 'http://localhost:5173/',
+    showConversation: id => asked.push(['show', id]),
+    openConversation: id => asked.push(['open', id]),
 });
 buddy._test.setPlatform('win32');
 
@@ -394,12 +400,12 @@ async function main() {
     let ttsFails = '';
     const fakeTts = {
         RATE: 24000,
-        stream: async ({ key, text, voiceId, model, signal, onAudio }) => {
-            streams.push({ key, text, voiceId, model, signal });
+        stream: async ({ key, text, voiceId, model, voiceSettings, signal, onAudio }) => {
+            streams.push({ key, text, voiceId, model, voiceSettings, signal });
             if (ttsFails) throw new Error(ttsFails);
             onAudio(new Uint8Array([1, 2, 3]));
             await wait(30);
-            if (signal.aborted) throw new Error('aborted');
+            if (signal?.aborted) throw new Error('aborted');
             onAudio(new Uint8Array([4, 5]));
             return { rate: 24000, bytes: 5 };
         },
@@ -489,6 +495,129 @@ async function main() {
         assert.strictEqual(state().recap, 'Done quietly.');
         settingsNow = { ...settingsNow, buddySpeak: true };
         await buddy.sync();
+    });
+
+    /* The tone: the words the agent is asked for, and how the voice says them. */
+    const tones = require(path.join(__dirname, '..', 'src', 'main', 'ai', 'buddy-tone'));
+    const primary = () => windows.filter(window => !window.destroyed)[0];
+
+    await test('a tone is a name and the person\'s words; cues are tags for Eleven v4 and gone for anything else', () => {
+        assert.strictEqual(tones.toneOf({}).name, 'neutral');
+        assert.strictEqual(tones.toneOf({ buddyTone: 'nonsense' }).name, 'neutral');
+        const funny = tones.toneOf({ buddyTone: 'funny', buddyToneNote: '  emphatic,\n joking ' });
+        assert.strictEqual(funny.note, 'emphatic, joking');
+        assert.strictEqual(tones.withoutCues('Done {laughs} and saved {excited}!'), 'Done and saved!');
+        assert.strictEqual(tones.cuesAsTags('{Laughs} Done, {big sigh} saved.'), '[laughs] Done, [big sigh] saved.');
+        // Anything else in braces is no cue, and goes.
+        assert.strictEqual(tones.cuesAsTags('Done {<b>x</b>} now'), 'Done now');
+        assert.deepStrictEqual(tones.voiceSettings(funny, 'eleven_v4'), { stability: 0.35, similarity_boost: 0.75 });
+        assert.deepStrictEqual(tones.voiceSettings(funny, 'eleven_flash_v2_5'), { stability: 0.35, similarity_boost: 0.75, style: 0.5, speed: 1.05 });
+        assert.strictEqual(tones.expressive(tones.toneOf({ buddyTone: 'serious' })), false);
+        assert.strictEqual(tones.expressive(tones.toneOf({ buddyTone: 'serious', buddyToneNote: 'dry wit' })), true);
+    });
+
+    await test('the agent is told the tone every time, and offered cues only when Eleven v4 will perform them', async () => {
+        const look = { ok: true, width: 10, height: 10 };
+        keychain = { elevenlabs: 'sk_test' };
+        settingsNow = { ...settingsNow, buddySpeak: true, buddyTone: 'neutral', buddyToneNote: '', buddyVoice: 'system' };
+        await buddy.sync();
+        const plain = buddy._test.noteFor('conv-tone-a', look);
+        assert.ok(/ten to fifteen words/.test(plain));
+        assert.ok(!/in this voice/.test(plain));
+        assert.ok(!/curly braces/.test(plain));
+        settingsNow = { ...settingsNow, buddyTone: 'funny', buddyToneNote: 'emphatic, joking', buddyVoice: 'elevenlabs', buddyVoiceModel: 'eleven_v4' };
+        await buddy.sync();
+        const funny = buddy._test.noteFor('conv-tone-b', look);
+        assert.ok(/ten to twenty words/.test(funny));
+        assert.ok(/in this voice: funny and playful/.test(funny));
+        assert.ok(/in their own words: emphatic, joking/.test(funny));
+        assert.ok(/\{laughs\}/.test(funny));
+        // Flash would read them out, so none are offered.
+        settingsNow = { ...settingsNow, buddyVoiceModel: 'eleven_flash_v2_5' };
+        await buddy.sync();
+        assert.ok(!/curly braces/.test(buddy._test.noteFor('conv-tone-c', look)));
+        // A conversation told already hears it again, in a line: it may have changed.
+        const again = buddy._test.noteFor(buddy.conversation(), look);
+        assert.ok(/again/.test(again) && /funny and playful/.test(again) && /ten to twenty words/.test(again));
+    });
+
+    await test('a recap with cues: Eleven v4 hears them as tags, livelier; the notch and this computer\'s voice never see them', async () => {
+        settingsNow = { ...settingsNow, buddyVoiceModel: 'eleven_v4' };
+        await buddy.sync();
+        const id = buddy.conversation();
+        busy.add(id);
+        emit({ type: 'user-message', text: 'save it' });
+        emit({ type: 'assistant-text', text: 'Saved.\n[SAY: {laughs} Saved it, the report survives another day.]' });
+        busy.delete(id);
+        emit({ type: 'result', subtype: 'success' });
+        assert.strictEqual(state().recap, 'Saved it, the report survives another day.');
+        // What this computer's voice would say if ElevenLabs failed: no cues.
+        assert.strictEqual(state().say.text, 'Saved it, the report survives another day.');
+        assert.strictEqual(state().say.pace, 1.08);
+        await wait(60);
+        assert.strictEqual(streams[streams.length - 1].text, '[laughs] Saved it, the report survives another day.');
+        assert.deepStrictEqual(streams[streams.length - 1].voiceSettings, { stability: 0.35, similarity_boost: 0.75 });
+        buddy.spoke(primary().webContents, { id: state().say.id });
+        // Flash would read the cue out: it goes, and style and speed come instead.
+        settingsNow = { ...settingsNow, buddyVoiceModel: 'eleven_flash_v2_5' };
+        await buddy.sync();
+        busy.add(id);
+        emit({ type: 'user-message', text: 'again' });
+        emit({ type: 'assistant-text', text: '[SAY: {excited} Saved it again.]' });
+        busy.delete(id);
+        emit({ type: 'result', subtype: 'success' });
+        await wait(60);
+        assert.strictEqual(streams[streams.length - 1].text, 'Saved it again.');
+        assert.strictEqual(streams[streams.length - 1].voiceSettings.style, 0.5);
+        buddy.spoke(primary().webContents, { id: state().say.id });
+    });
+
+    await test('Try it in Settings says the tone\'s sample: words and pace for this computer\'s voice, tagged audio for Eleven v4', async () => {
+        const system = await buddy.tryVoice({ tone: 'hype', engine: 'system' });
+        assert.ok(system.system.text.startsWith('Let\'s go!'), system.system.text);
+        assert.ok(!/[{}[\]]/.test(system.system.text));
+        assert.strictEqual(system.system.pace, 1.12);
+        const eleven = await buddy.tryVoice({ tone: 'funny', note: '', engine: 'elevenlabs', model: 'eleven_v4' });
+        assert.ok(eleven.data);
+        assert.ok(streams[streams.length - 1].text.includes('[laughs]'));
+        assert.strictEqual(streams[streams.length - 1].voiceSettings.stability, 0.35);
+        keychain = {};
+        assert.ok((await buddy.tryVoice({ tone: 'funny', engine: 'elevenlabs' })).error);
+        settingsNow = { ...settingsNow, buddyTone: 'neutral', buddyToneNote: '', buddyVoice: 'system', buddyVoiceModel: 'eleven_v4' };
+        await buddy.sync();
+    });
+
+    await test('every conversation it talks in is a tab in the app, opened once, in the background', () => {
+        const shown = said('show').map(entry => entry[1]);
+        const sentIn = [...new Set(said('send').map(entry => entry[1]))];
+        assert.ok(sentIn.length > 0);
+        assert.deepStrictEqual([...shown].sort(), [...sentIn].sort());
+        // Never brought up in front by itself.
+        assert.strictEqual(said('open').length, 0);
+    });
+
+    await test('Stop in the notch stops the turn, Open brings its chat up in the app; from elsewhere, nothing', async () => {
+        const notch = windows.filter(window => !window.destroyed)[0].webContents;
+        const stranger = { send: () => {} };
+        const id = buddy.conversation();
+        // Nothing running: nothing to stop.
+        assert.strictEqual(buddy.stopTurn(notch), false);
+        busy.add(id);
+        emit({ type: 'user-message', text: 'tidy my desktop' });
+        assert.strictEqual(buddy.stopTurn(stranger), false);
+        assert.strictEqual(said('interrupt').length, 0);
+        assert.strictEqual(buddy.stopTurn(notch), true);
+        await wait(0);
+        assert.deepStrictEqual(said('interrupt').pop(), ['interrupt', id]);
+        // Said at once, before the turn has wound down.
+        assert.strictEqual(state().held, 'escape');
+        busy.delete(id);
+        emit({ type: 'interrupted' });
+        assert.strictEqual(state().phase, 'idle');
+        assert.strictEqual(state().held, '');
+        assert.strictEqual(buddy.openInApp(stranger), false);
+        assert.strictEqual(buddy.openInApp(notch), true);
+        assert.deepStrictEqual(said('open').pop(), ['open', id]);
     });
 
     /* Who it talks to: Ctrl+Alt+Space for the next agent, or a click on one in the notch. */
@@ -742,6 +871,20 @@ async function main() {
         const listed = await elevenlabs.voices('sk_1');
         assert.deepStrictEqual(listed.voices.map(voice => voice.id), ['firstVoice123', 'ownVoice12345', 'libraryVoice1']);
         assert.deepStrictEqual(listed.voices[0], { id: 'firstVoice123', name: 'Roger', category: 'premade' });
+    });
+
+    await test('a tone\'s delivery goes as voice_settings: known fields only, kept in range, none when not given', async () => {
+        await elevenlabs.stream({
+            key: 'sk_1',
+            text: 'Hi.',
+            voiceId: 'voiceBBBBBBBB',
+            model: 'eleven_flash_v2_5',
+            voiceSettings: { stability: 0.3, style: 3, speed: 9, loudness: 1 },
+            onAudio: () => {},
+        });
+        assert.deepStrictEqual(JSON.parse(calls[calls.length - 1].options.body).voice_settings, { stability: 0.3, style: 1, speed: 1.2 });
+        await elevenlabs.stream({ key: 'sk_1', text: 'Hi.', voiceId: 'voiceBBBBBBBB', onAudio: () => {} });
+        assert.ok(!('voice_settings' in JSON.parse(calls[calls.length - 1].options.body)));
     });
 
     await test('its refusals are said plainly: a bad key, no credits, a plan without the model', async () => {

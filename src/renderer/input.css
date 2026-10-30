@@ -1448,6 +1448,51 @@ input[type="color"]::-webkit-color-swatch {
     border-radius: 9999px;
 }
 
+/* While the agent works: open in the app, and stop. In the notch's top
+   corner; the first line of what is shown makes room for them. */
+.buddy-controls {
+    position: absolute;
+    top: 8px;
+    right: 12px;
+    display: flex;
+    gap: 5px;
+    pointer-events: auto;
+    animation: buddy-open 320ms 120ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+.buddy-notch-body-controls > :first-child {
+    padding-right: 58px;
+}
+
+.buddy-control {
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9999px;
+    color: rgb(255 255 255 / 0.62);
+    background: rgb(255 255 255 / 0.09);
+    cursor: pointer;
+    transition: background-color 140ms ease, color 140ms ease;
+}
+
+.buddy-control:hover {
+    color: #fff;
+    background: rgb(255 255 255 / 0.18);
+}
+
+.buddy-control-stop:hover {
+    background: rgb(220 38 38 / 0.9);
+}
+
+.buddy-stop-square {
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    background: currentColor;
+}
+
 .buddy-tone-switch {
     color: #fff;
     font-weight: 600;

@@ -3,6 +3,7 @@ import { action, BARS, DOING } from './ActivityOverlay';
 import { Ring, RollingPhrase, elapsed, usePhrase, useSeconds } from './WorkingIndicator';
 import useDictation from '../../hooks/useDictation';
 import { createPcmPlayer } from '../../lib/pcm-player';
+import { speakSystem } from '../../lib/system-voice';
 import { agentColor } from '../../lib/agent-colors';
 import { getLanguage, useT } from '../../i18n';
 
@@ -533,21 +534,14 @@ function NotchBody({ state, peek, download, heardHere }) {
 }
 
 /**
- * Who the buddy talks to, and the others it could: the cursor resting on
- * the notch at rest, or a moment after a switch (Ctrl+Alt+Space). The row of
- * agents is the one place of the buddy that can be clicked: while it shows,
- * main makes this window take the mouse with the pointer over the row, and
- * only then (see `hit` in main/ai/buddy.js).
+ * The one place of this window that can be clicked, while `ref`'s element
+ * is drawn: main makes the window take the mouse with the pointer over it,
+ * and only then (see `hit` in main/ai/buddy.js). Only one such place shows
+ * at a time: the agents, or the buttons while the agent works.
  */
-function AgentPicker({ state, peek, switched }) {
-    const t = useT();
-    const row = useRef(null);
-    const agents = state.agents || [];
-    const current = agentOf(state);
-    const chord = state.chord || 'Ctrl Alt';
-
+function useHitArea(ref, key) {
     useEffect(() => {
-        const node = row.current;
+        const node = ref.current;
         if (!node) return undefined;
         const send = () => {
             const rect = node.getBoundingClientRect();
@@ -563,7 +557,57 @@ function AgentPicker({ state, peek, switched }) {
             observer?.disconnect();
             window.api.buddy.hit(null);
         };
-    }, [agents.length]);
+    }, [ref, key]);
+}
+
+/**
+ * While the agent works: open its chat in the app, or stop it, as the Stop
+ * button there does. In the notch's top corner, the same through every step
+ * of the turn.
+ */
+function WorkControls() {
+    const t = useT();
+    const box = useRef(null);
+    useHitArea(box, 'work');
+    return (
+        <div ref={box} className="buddy-controls">
+            <button
+                type="button"
+                className="buddy-control"
+                title={t('buddy.openInApp')}
+                aria-label={t('buddy.openInApp')}
+                onClick={() => window.api.buddy.open()}
+            >
+                <svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true">
+                    <path d="M4.5 2.5h5v5M9.5 2.5 3 9" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+            </button>
+            <button
+                type="button"
+                className="buddy-control buddy-control-stop"
+                title={t('buddy.stop')}
+                aria-label={t('buddy.stop')}
+                onClick={() => window.api.buddy.stop()}
+            >
+                <span className="buddy-stop-square" />
+            </button>
+        </div>
+    );
+}
+
+/**
+ * Who the buddy talks to, and the others it could: the cursor resting on
+ * the notch at rest, or a moment after a switch (Ctrl+Alt+Space). The row of
+ * agents can be clicked (see useHitArea).
+ */
+function AgentPicker({ state, peek, switched }) {
+    const t = useT();
+    const row = useRef(null);
+    const agents = state.agents || [];
+    const current = agentOf(state);
+    const chord = state.chord || 'Ctrl Alt';
+
+    useHitArea(row, agents.length);
 
     if (!agents.length) {
         return (
@@ -637,6 +681,8 @@ function Notch({ state, cursor, download, heardHere }) {
     const switched = useFlash(state.switcher);
     const picking = (peek && resting) || switched;
     const closed = resting && !picking;
+    // A turn under way: it can be stopped, or opened in the app, from here.
+    const working = !picking && ['thinking', 'acting', 'waiting'].includes(phase);
     const [width, least] = picking ? [370, 0] : (SIZES[phase] || SIZES.idle);
 
     // The height follows what is in it, so the notch eases open to fit.
@@ -690,12 +736,17 @@ function Notch({ state, cursor, download, heardHere }) {
             style={{ width, height: closed ? 26 : height }}
         >
             <div className="buddy-notch-clip">
-                <div ref={body} key={closed ? 'rest' : picking ? 'agents' : `open:${phase}`} className="buddy-notch-body">
+                <div
+                    ref={body}
+                    key={closed ? 'rest' : picking ? 'agents' : `open:${phase}`}
+                    className={`buddy-notch-body ${working ? 'buddy-notch-body-controls' : ''}`}
+                >
                     {picking
                         ? <AgentPicker state={state} peek={peek} switched={switched} />
                         : <NotchBody state={state} peek={peek} download={download} heardHere={heardHere} />}
                 </div>
             </div>
+            {working && <WorkControls />}
         </div>
     );
 }
@@ -733,48 +784,6 @@ function useListening(meterRef) {
     }), []);
 
     return dictation;
-}
-
-/** This computer's voice for the app's language, a natural one when there is one. */
-function pickVoice(voices) {
-    const language = (getLanguage() || 'en').slice(0, 2).toLowerCase();
-    const mine = voices.filter(voice => String(voice.lang || '').toLowerCase().startsWith(language));
-    const pool = mine.length ? mine : voices;
-    return pool.find(voice => /natural|online/i.test(voice.name))
-        || pool.find(voice => /aria|jenny|guy|sonia|libby|zira|david|mark/i.test(voice.name))
-        || pool.find(voice => voice.default)
-        || pool[0]
-        || null;
-}
-
-/** Said in this computer's voice; `end` when it has been, or could not be. */
-function speakSystem(text, end) {
-    const synth = window.speechSynthesis;
-    if (!synth || typeof window.SpeechSynthesisUtterance !== 'function') {
-        end();
-        return () => {};
-    }
-    const speak = () => {
-        synth.cancel();
-        const utterance = new window.SpeechSynthesisUtterance(text);
-        const voice = pickVoice(synth.getVoices() || []);
-        if (voice) {
-            utterance.voice = voice;
-            utterance.lang = voice.lang;
-        }
-        utterance.rate = 1.05;
-        utterance.onend = end;
-        utterance.onerror = end;
-        synth.speak(utterance);
-    };
-    // The voices load a moment after the page; the first one waits for them, briefly.
-    let waiting = 0;
-    if ((synth.getVoices() || []).length) speak();
-    else waiting = setTimeout(speak, 350);
-    return () => {
-        clearTimeout(waiting);
-        synth.cancel();
-    };
 }
 
 /**
@@ -829,7 +838,7 @@ function useSpeaker(say, primary) {
             fell = true;
             player?.stop();
             player = null;
-            quiet = speakSystem(say.text, end);
+            quiet = speakSystem(say.text, end, { pace: say.pace, pitch: say.pitch });
         };
         let guard = 0;
         if (say.engine === 'elevenlabs') {
@@ -855,7 +864,7 @@ function useSpeaker(say, primary) {
             guard = setTimeout(() => { if (!player) fallBack(); }, 6000);
         } else {
             current.current = { id: sayId, hear: () => {} };
-            quiet = speakSystem(say.text, end);
+            quiet = speakSystem(say.text, end, { pace: say.pace, pitch: say.pitch });
         }
         // A voice that never says it finished does not hold the notch open.
         const limit = setTimeout(end, Math.max(9000, say.text.length * 110));

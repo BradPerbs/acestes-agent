@@ -90,15 +90,20 @@ async function voiceFor(key, voiceId) {
  * Resolves when it has all come, rejects with a plain message when it
  * cannot; `signal` stops it (someone started talking over it).
  */
-async function stream({ key, text, voiceId = '', model = DEFAULT_MODEL, signal, onAudio }) {
+async function stream({ key, text, voiceId = '', model = DEFAULT_MODEL, voiceSettings = null, signal, onAudio }) {
     if (!key) throw new Error('There is no ElevenLabs key. Add it in Settings, under the buddy.');
     const words = String(text || '').trim().slice(0, MAX_CHARS);
     if (!words) return { rate: RATE, bytes: 0 };
     const voice = await voiceFor(key, voiceId);
+    const settings = cleanSettings(voiceSettings);
     const response = await fetchImpl(`${API}/v1/text-to-speech/${voice}/stream?output_format=${FORMAT}`, {
         method: 'POST',
         headers: { 'xi-api-key': key, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: words, model_id: MODELS.includes(model) ? model : DEFAULT_MODEL }),
+        body: JSON.stringify({
+            text: words,
+            model_id: MODELS.includes(model) ? model : DEFAULT_MODEL,
+            ...(settings ? { voice_settings: settings } : {}),
+        }),
         signal,
     });
     if (!response.ok) throw new Error(await refusal(response));
@@ -113,6 +118,22 @@ async function stream({ key, text, voiceId = '', model = DEFAULT_MODEL, signal, 
         }
     }
     return { rate: RATE, bytes };
+}
+
+/**
+ * How the voice delivers it (the buddy's tone, buddy-tone.js): stability,
+ * lower being livelier, similarity, and Flash's style and speed. Only those,
+ * and only as numbers in range; nothing else goes to ElevenLabs.
+ */
+function cleanSettings(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const out = {};
+    for (const name of ['stability', 'similarity_boost', 'style', 'speed']) {
+        const value = Number(raw[name]);
+        if (raw[name] === undefined || !Number.isFinite(value)) continue;
+        out[name] = Math.min(name === 'speed' ? 1.2 : 1, Math.max(name === 'speed' ? 0.7 : 0, value));
+    }
+    return Object.keys(out).length ? out : null;
 }
 
 /** The voices on the account, for picking one in Settings. */

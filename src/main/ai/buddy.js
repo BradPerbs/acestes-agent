@@ -39,6 +39,7 @@
 
 const path = require('path');
 const elevenlabs = require('./elevenlabs');
+const tones = require('./buddy-tone');
 
 let electron = {};
 try {
@@ -86,6 +87,10 @@ let deps = {
     // made as Settings makes it, so the rest of the app hears of it.
     agents: null,
     setSettings: null,
+    // Its conversation as a tab in the app, opened in the background so it
+    // can be watched and stopped there; and brought up in front, from the notch.
+    showConversation: null,
+    openConversation: null,
     isLocked: () => false,
     urlOf: () => '',
     // Told when the buddy goes on or off, for the tray's menu.
@@ -93,7 +98,7 @@ let deps = {
 };
 
 let enabled = false;
-let config = { notch: true, speak: true, agentId: '', voice: 'system', voiceModel: '', voiceId: '' };
+let config = { notch: true, speak: true, agentId: '', voice: 'system', voiceModel: '', voiceId: '', tone: tones.toneOf({}) };
 // The recap being read out by ElevenLabs: its id, and how to stop it.
 let speaking = null;
 let baseUrl = '';
@@ -109,6 +114,8 @@ let conversationId = '';
 const mine = new Set();
 // Conversations told how the buddy works: the first message carries it all.
 const briefed = new Set();
+// Conversations already opened as a tab in the app.
+const tabbed = new Set();
 let lastTurnAt = 0;
 let unobserve = null;
 // Another agent was picked: the next hold starts a conversation with it,
@@ -198,6 +205,7 @@ async function sync() {
         voice: current.buddyVoice === 'elevenlabs' ? 'elevenlabs' : 'system',
         voiceModel: String(current.buddyVoiceModel || ''),
         voiceId: String(current.buddyVoiceId || ''),
+        tone: tones.toneOf(current),
     };
     const wanted = Boolean(current.buddy) && supported();
     if (wanted && !enabled) await start();
@@ -531,6 +539,41 @@ function pick(sender, payload = {}) {
     return choose(String(payload.agentId || ''));
 }
 
+/* ------------------------------------------------------------------ *
+ * Stop, and open in the app: the notch's buttons while the agent works
+ * ------------------------------------------------------------------ */
+
+/**
+ * Stop the turn under way, as the Stop button in the app does. Said at once
+ * in the notch; the turn's own end then puts it to rest.
+ */
+function stopTurn(sender) {
+    if (!isBuddyWindow(sender)) return false;
+    const id = conversationId;
+    if (!id || !deps.ai?.isBusy?.(id)) return false;
+    hush();
+    push({ phase: state.action ? 'acting' : 'thinking', held: 'escape', ask: null, say: null });
+    Promise.resolve(deps.ai.interrupt?.(id)).catch((error) => {
+        notice(`Could not stop it: ${error.message}`);
+    });
+    return true;
+}
+
+/** The buddy's conversation, brought up in the app as the tab in front. */
+function openInApp(sender) {
+    if (!isBuddyWindow(sender)) return false;
+    const id = conversationId;
+    if (!id || !deps.ai?.has?.(id)) return false;
+    tabbed.add(id);
+    try {
+        deps.openConversation?.(id);
+    } catch (error) {
+        console.error('The buddy\'s conversation could not be brought up:', error.message);
+        return false;
+    }
+    return true;
+}
+
 function displayAtCursor() {
     try {
         return electron.screen.getDisplayNearestPoint(electron.screen.getCursorScreenPoint()).id;
@@ -752,6 +795,17 @@ async function act(taken, text) {
     briefed.add(id);
     conversationId = id;
     mine.add(id);
+    // In the app too, as a tab beside the others: there it can be read in
+    // full and stopped. Opened in the background, once, as the first message
+    // goes; the app is not brought up over what the person is doing.
+    if (!tabbed.has(id)) {
+        tabbed.add(id);
+        try {
+            deps.showConversation?.(id);
+        } catch (error) {
+            console.error('The buddy\'s conversation could not be opened in the app:', error.message);
+        }
+    }
     texts = [];
     lastTurnAt = Date.now();
     push({ phase: 'thinking', since: Date.now(), action: null, ask: null, reply: '', said: '', held: '' });
@@ -769,18 +823,33 @@ function noteFor(id, look) {
             ? `The picture with this message is the monitor their pointer is on, taken as they let go of the keys. The red ring at (${look.pointer[0]}, ${look.pointer[1]}) is the tip of their pointer: "this", "that", "here" and "it" mean what is under the ring. The picture is ${look.width}x${look.height} and it is already your latest screenshot: x and y in click, scroll, drag and hover can be pixels of it, so the first action needs no screenshot before it.`
             : `The picture with this message is the monitor their pointer is on, ${look.width}x${look.height}, and it is already your latest screenshot.`)
         : `No picture of their screen could be taken (${look?.error || 'unknown reason'}): take a screenshot before acting.`;
+    // How the spoken lines sound, as set now: it may have changed since the
+    // last message, so it is said every time.
+    const said = tones.brief(config.tone, { cues: canCue() });
     if (briefed.has(id)) {
-        return `Said through the buddy again, by voice. ${picture} End with [SAY: a spoken recap of ten to fifteen words], and point with [POINT:x,y:label] when it helps.`;
+        return `Said through the buddy again, by voice. ${picture} ${said.short}, and point with [POINT:x,y:label] when it helps.`;
     }
     return [
         'The user is talking to you through the Acestes buddy: they held Ctrl+Alt wherever they were on their desktop and spoke, so this message is their speech, transcribed (allow for misheard words). Acestes stays in the background meanwhile: they are looking at their own screen, not at this chat, and do not read your replies as you work.',
         picture,
         'How to work:',
         '- Do what they ask straight away with the computer tools. Do not ask before ordinary steps; ask only when the request is truly unclear, or would delete or send something that cannot be taken back.',
-        '- End every turn with one line: [SAY: a spoken recap of what you did or found, ten to fifteen words, plain speech with no brackets, symbols or links]. Only that line is read aloud to them; the rest of your reply is there to read later and may be as long as it needs.',
+        `- End every turn with one line: [SAY: a spoken recap of what you did or found, ${said.length}, plain speech with no square brackets, symbols or links]. Only that line is read aloud to them; the rest of your reply is there to read later and may be as long as it needs.`,
+        ...(said.voice ? [`- Your spoken lines (the [SAY] recap, and any question you ask them) are in this voice: ${said.voice}. The work itself, and the rest of your reply, stay as careful as ever.`] : []),
+        ...(said.cueLine ? [`- ${said.cueLine}`] : []),
         '- When they ask where something is, or how to do something themselves, point rather than act: also end your reply with [POINT:x,y:label], x and y in pixels of your latest screenshot and the label one to three words, and the buddy flies there. Leave it out when there is nothing to point at.',
         '- They can hold Ctrl+Alt again while you work: what they say then reaches you as a <user-steer>. A question you ask them is read aloud too, so keep it short.',
     ].join('\n');
+}
+
+/**
+ * Whether the voice can perform delivery cues ({laughs}): Eleven v4 can,
+ * as audio tags, and only when the tone wants them. Any other voice would
+ * read them out, so the agent is not offered them.
+ */
+function canCue() {
+    return config.speak && config.voice === 'elevenlabs' && (config.voiceModel || elevenlabs.DEFAULT_MODEL) === 'eleven_v4'
+        && tones.expressive(config.tone);
 }
 
 function notice(text) {
@@ -951,10 +1020,12 @@ function finish({ error = '', stopped = false } = {}) {
     lastTurnAt = Date.now();
     const { body, point, recap } = readTags(texts.join('\n\n'));
     texts = [];
+    // As said, delivery cues and all; and as shown, without them.
     const short = recapOf(body, recap);
+    const shown = tones.withoutCues(short);
     if (press) {
         // They are talking already: what this turn said waits in the notch.
-        push({ action: null, ask: null, reply: body, recap: short, said: '' });
+        push({ action: null, ask: null, reply: body, recap: shown, said: '' });
         return;
     }
     if (error) {
@@ -974,7 +1045,7 @@ function finish({ error = '', stopped = false } = {}) {
         held: '',
         said: '',
         reply: body,
-        recap: short,
+        recap: shown,
         point: spot,
         say,
     });
@@ -1026,24 +1097,39 @@ function voiceKey() {
 function speak(text) {
     hush();
     const words = String(text || '').trim().slice(0, SPEAK_CHARS);
-    if (!config.speak || !words) return null;
+    // Without its cues: what the notch shows, and what any voice but Eleven v4 says.
+    const plain = tones.withoutCues(words);
+    if (!config.speak || !plain) return null;
     const key = config.voice === 'elevenlabs' ? voiceKey() : '';
-    const say = { id: ++sayId, text: words, engine: key ? 'elevenlabs' : 'system', rate: deps.tts.RATE };
+    const tone = config.tone;
+    const say = {
+        id: ++sayId,
+        text: plain,
+        engine: key ? 'elevenlabs' : 'system',
+        rate: deps.tts.RATE,
+        // This computer's voice, in the tone: how fast, and how high.
+        pace: tone.pace,
+        pitch: tone.pitch,
+    };
     if (config.voice === 'elevenlabs' && !key) say.trouble = 'No ElevenLabs key yet, so this computer\'s voice. Add the key in Settings.';
-    if (key) stream(say, key);
+    if (key) stream(say, key, words);
     return say;
 }
 
-function stream(say, key) {
+function stream(say, key, words = say.text) {
     const controller = new AbortController();
     speaking = { id: say.id, controller };
     const to = primaryId();
+    const model = config.voiceModel || elevenlabs.DEFAULT_MODEL;
+    // Eleven v4 performs the cues as its audio tags; Flash would read them out.
+    const text = model === 'eleven_v4' ? tones.cuesAsTags(words) : tones.withoutCues(words);
     // After this tick, so the state carrying `say` reaches the window first.
     Promise.resolve().then(() => deps.tts.stream({
         key,
-        text: say.text,
+        text,
         voiceId: config.voiceId,
         model: config.voiceModel,
+        voiceSettings: tones.voiceSettings(config.tone, model),
         signal: controller.signal,
         onAudio: chunk => sendTo(to, 'buddy-audio', { id: say.id, chunk }),
     })).then(() => {
@@ -1113,20 +1199,30 @@ function status() {
 }
 
 /**
- * Settings' "Try the voice": a sentence in the ElevenLabs voice and model
- * picked, handed back whole for the settings window to play, so it can be
- * heard with the buddy off.
+ * Settings' "Try it": a sentence in the tone picked, so it can be heard
+ * with the buddy off. In the ElevenLabs voice and model picked, handed back
+ * whole for the settings window to play; or, for this computer's voice (or
+ * `engine: 'system'`), the words with their pace and pitch, which the
+ * settings window says itself.
  */
-async function tryVoice({ voiceId = '', model = '' } = {}) {
+async function tryVoice({ voiceId = '', model = '', tone: toneName = '', note = null, engine = '' } = {}) {
+    const tone = tones.toneOf({
+        buddyTone: toneName || config.tone.name,
+        buddyToneNote: note === null ? config.tone.note : note,
+    });
+    const system = { text: tones.withoutCues(tone.sample), pace: tone.pace, pitch: tone.pitch };
+    if ((engine || config.voice) !== 'elevenlabs') return { system };
     const key = voiceKey();
     if (!key) return { error: 'There is no ElevenLabs key yet.' };
+    const chosen = model || config.voiceModel || elevenlabs.DEFAULT_MODEL;
     const chunks = [];
     try {
         const { rate } = await deps.tts.stream({
             key,
-            text: 'Hi, I am your buddy. Hold Control and Alt, and tell me what to do.',
+            text: chosen === 'eleven_v4' ? tones.cuesAsTags(tone.sample) : tones.withoutCues(tone.sample),
             voiceId,
-            model,
+            model: chosen,
+            voiceSettings: tones.voiceSettings(tone, chosen),
             onAudio: chunk => chunks.push(Buffer.from(chunk)),
         });
         return { rate, data: Buffer.concat(chunks).toString('base64') };
@@ -1159,6 +1255,8 @@ module.exports = {
     spoke,
     hit,
     pick,
+    stopTurn,
+    openInApp,
     aimed,
     held,
     status,
@@ -1184,6 +1282,7 @@ module.exports = {
             conversationId = '';
             mine.clear();
             briefed.clear();
+            tabbed.clear();
             texts = [];
             state = fresh();
         },
