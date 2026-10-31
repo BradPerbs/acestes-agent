@@ -323,6 +323,23 @@ function primaryId() {
     }
 }
 
+/**
+ * How much of a display's bottom edge its window leaves uncovered, in DIPs.
+ *
+ * A window on top of everything that covers a whole monitor is, to Windows,
+ * a full-screen app: Do Not Disturb comes on by itself (the shell reports
+ * QUNS_BUSY) and no app's notifications pop up, Acestes' own included, for
+ * as long as the buddy is on. One physical pixel short is enough for Windows
+ * not to count it; two DIPs are at least that at any scale, after rounding.
+ */
+const SHORT_OF_FULL_SCREEN = 2;
+
+/** A display's window: all of it but a sliver of its bottom edge. See SHORT_OF_FULL_SCREEN. */
+function windowBounds(display) {
+    const { x, y, width, height } = display.bounds;
+    return { x, y, width, height: Math.max(1, height - SHORT_OF_FULL_SCREEN) };
+}
+
 /** Every display has its window, the size of it, and each knows which it is. */
 function layout() {
     if (!enabled) return;
@@ -342,7 +359,7 @@ function layout() {
             windows.set(display.id, entry);
         } else {
             entry.display = display;
-            entry.window.setBounds(display.bounds);
+            entry.window.setBounds(windowBounds(display));
         }
         if (entry.ready) hello(entry, primary);
     }
@@ -350,7 +367,7 @@ function layout() {
 
 function makeWindow(BrowserWindow, display) {
     const window = new BrowserWindow({
-        ...display.bounds,
+        ...windowBounds(display),
         frame: false,
         transparent: true,
         resizable: false,
@@ -384,7 +401,7 @@ function makeWindow(BrowserWindow, display) {
     window.webContents.on('will-navigate', event => event.preventDefault());
     window.once('ready-to-show', () => {
         if (window.isDestroyed()) return;
-        window.setBounds(display.bounds);
+        window.setBounds(windowBounds(display));
         window.showInactive();
     });
     window.loadURL(url(display.id));

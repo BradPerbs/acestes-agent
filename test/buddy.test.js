@@ -178,6 +178,18 @@ async function main() {
             assert.ok(window.calls.some(call => call[0] === 'setContentProtection' && call[1] === true));
             assert.ok(window.calls.some(call => call[0] === 'setAlwaysOnTop' && call[2] === 'screen-saver'));
         }
+        // Short of the whole display, or Windows takes it for a full-screen
+        // app and holds back every notification while the buddy is on.
+        windows.forEach((window, index) => {
+            const display = DISPLAYS[index].bounds;
+            assert.deepStrictEqual(
+                { x: window.options.x, y: window.options.y, width: window.options.width },
+                { x: display.x, y: display.y, width: display.width },
+            );
+            assert.ok(window.options.height < display.height, `window ${index} covers its whole display`);
+            window.handlers['ready-to-show']();
+            assert.ok(window.bounds.height < display.height, `window ${index} is sized to its whole display when shown`);
+        });
         assert.ok(windows[0].url.endsWith('#buddy=1'));
         assert.ok(windows[1].url.endsWith('#buddy=2'));
         // With Space as the switch key: Ctrl+Alt+Space, the next agent.
