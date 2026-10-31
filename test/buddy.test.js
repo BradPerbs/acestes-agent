@@ -272,6 +272,30 @@ async function main() {
         assert.strictEqual(id, 'conv-1');
         assert.ok(options.note.startsWith('Said through the buddy again'));
         assert.ok(!options.note.includes('How to work'));
+        assert.ok(options.note.includes('[CIRCLE]'));
+    });
+
+    await test('a reply that draws: its shapes placed on the desktop, and the mark goes to the first', async () => {
+        busy.add('conv-1');
+        emit({ type: 'user-message', text: 'now the next one' });
+        emit({ type: 'assistant-text', text: 'The setting is here. [SAY: It is the toggle at the top.] [CIRCLE:400,100,20:this one] [ARROW:600,300,400,100]' });
+        busy.delete('conv-1');
+        emit({ type: 'result', subtype: 'success' });
+        const drawing = state().drawing;
+        assert.ok(drawing && drawing.at > 0);
+        // 400,100 in a half-size picture is 800,200 on the screen, 533,133 in DIPs
+        // at 150%; 20 pixels of the picture are 27 DIPs.
+        assert.deepStrictEqual(drawing.shapes, [
+            { kind: 'circle', x: 533, y: 133, r: 27, label: 'this one' },
+            { kind: 'arrow', x1: 800, y1: 400, x2: 533, y2: 133, label: '' },
+        ]);
+        // No [POINT]: the mark goes to the loop, with nothing to say of its own.
+        assert.deepStrictEqual({ x: state().point.x, y: state().point.y, label: state().point.label }, { x: 552, y: 152, label: '' });
+        assert.strictEqual(state().reply, 'The setting is here.');
+        assert.strictEqual(state().say.text, 'It is the toggle at the top.');
+        assert.ok(windows[0].last('buddy-state').drawing, 'the windows are told what to draw');
+        buddy.spoke(windows[0].webContents, { id: state().say.id });
+        assert.ok(state().drawing, 'said, it stays a while to be looked at');
     });
 
     await test('spoken to while it works, what is said steers the turn with where the pointer is', async () => {
@@ -280,6 +304,7 @@ async function main() {
         const sends = said('send').length;
         buddy.onPtt({ state: 'down', seq: 5 });
         assert.strictEqual(state().mode, 'steer');
+        assert.strictEqual(state().drawing, null, 'talking again takes the drawing down');
         await wait(260);
         buddy.onPtt({ state: 'up', seq: 6 });
         // No picture for a steer: the agent takes its own.
@@ -370,14 +395,48 @@ async function main() {
 
     await test('a reply\'s point and say tags are read, and what is spoken is plain', () => {
         const { readTags, speakable } = buddy._test;
-        assert.deepStrictEqual(readTags('Over here. [POINT:12,34:save button]'), { body: 'Over here.', point: { x: 12, y: 34, label: 'save button' }, recap: '' });
-        assert.deepStrictEqual(readTags('Nothing to show. [POINT:none]'), { body: 'Nothing to show.', point: null, recap: '' });
+        assert.deepStrictEqual(readTags('Over here. [POINT:12,34:save button]'), { body: 'Over here.', point: { x: 12, y: 34, label: 'save button' }, recap: '', shapes: [] });
+        assert.deepStrictEqual(readTags('Nothing to show. [POINT:none]'), { body: 'Nothing to show.', point: null, recap: '', shapes: [] });
         assert.deepStrictEqual(readTags('On the other one [POINT:5,6:terminal:screen2]').point, { x: 5, y: 6, label: 'terminal' });
         assert.deepStrictEqual(
             readTags('I went through all twelve rows.\n\n[SAY: Marked the two November invoices as sent.]\n[POINT:4,5:export]'),
-            { body: 'I went through all twelve rows.', point: { x: 4, y: 5, label: 'export' }, recap: 'Marked the two November invoices as sent.' },
+            { body: 'I went through all twelve rows.', point: { x: 4, y: 5, label: 'export' }, recap: 'Marked the two November invoices as sent.', shapes: [] },
         );
         assert.strictEqual(speakable('Run `npm test`, see [the docs](https://x.y) or https://a.b\n- one\n- two'), 'Run npm test, see the docs or the link one two');
+    });
+
+    await test('a reply\'s drawings are read in order, checked, and taken out of the reply', () => {
+        const { readTags } = buddy._test;
+        const read = readTags([
+            'Two steps.',
+            '[SAY: Settings first, then Privacy.]',
+            '[CIRCLE:120,40,18:1 Settings]',
+            '[ARROW:500,300,220,180:2 Privacy]',
+            '[HIGHLIGHT:10,20,300,80]',
+            '[underline: 40, 400, 220 : the error]',
+        ].join('\n'));
+        assert.strictEqual(read.body, 'Two steps.');
+        assert.strictEqual(read.recap, 'Settings first, then Privacy.');
+        assert.deepStrictEqual(read.shapes, [
+            { kind: 'circle', label: '1 Settings', x: 120, y: 40, r: 18 },
+            { kind: 'arrow', label: '2 Privacy', x1: 500, y1: 300, x2: 220, y2: 180 },
+            { kind: 'highlight', label: '', x: 10, y: 20, w: 300, h: 80 },
+            { kind: 'underline', label: 'the error', x: 40, y: 400, w: 220 },
+        ]);
+        // Wrong count, no size, no length: taken out of the reply, not drawn.
+        const bad = readTags('Hm. [CIRCLE:1,2] [HIGHLIGHT:5,5,0,40:x] [ARROW:10,10,12,11:y] [CIRCLE:a,b,c]');
+        assert.strictEqual(bad.body, 'Hm.');
+        assert.deepStrictEqual(bad.shapes, []);
+        // A few at most.
+        const many = readTags(Array.from({ length: 9 }, (_, i) => `[CIRCLE:${i * 10 + 20},50,12]`).join(' '));
+        assert.strictEqual(many.shapes.length, 6);
+    });
+
+    await test('the brief tells the agent how to draw', () => {
+        const note = buddy._test.noteFor('conv-new', { ok: true, width: 1000, height: 500, pointer: [1, 2] });
+        for (const tag of ['[CIRCLE:x,y,r:label]', '[HIGHLIGHT:x,y,w,h:label]', '[ARROW:x1,y1,x2,y2:label]', '[UNDERLINE:x,y,w:label]']) {
+            assert.ok(note.includes(tag), `the brief names ${tag}`);
+        }
     });
 
     await test('what is said aloud is a recap: the agent\'s own, else the first sentence or two', () => {
@@ -907,6 +966,71 @@ async function main() {
         assert.ok(/answered 422: field required/.test(await refused(422, [{ loc: ['body', 'text'], msg: 'field required', type: 'missing' }])));
         await assert.rejects(elevenlabs.stream({ key: '', text: 'x', onAudio: () => {} }), /no ElevenLabs key/);
         answer = () => reply(200, {}, [[1, 2]]);
+    });
+
+    console.log('buddy drawings (renderer/lib/sketch.js)');
+    const sketch = await import(require('url').pathToFileURL(path.join(__dirname, '..', 'src', 'renderer', 'lib', 'sketch.js')).href);
+    /** Every x,y pair of a path's data. */
+    const pointsOf = d => [...String(d).matchAll(/(-?\d+(?:\.\d+)?) (-?\d+(?:\.\d+)?)/g)].map(m => [Number(m[1]), Number(m[2])]);
+
+    await test('a shape is drawn the same every time, and another differently', () => {
+        const one = sketch.sketchOf({ kind: 'circle', x: 300, y: 200, r: 20 });
+        assert.deepStrictEqual(sketch.sketchOf({ kind: 'circle', x: 300, y: 200, r: 20 }), one);
+        assert.notDeepStrictEqual(sketch.sketchOf({ kind: 'circle', x: 301, y: 200, r: 20 }).paths, one.paths);
+        assert.strictEqual(sketch.sketchOf({ kind: 'nothing' }), null);
+    });
+
+    await test('a loop goes round the thing, clear of it, a little more than once', () => {
+        const { paths, label } = sketch.sketchOf({ kind: 'circle', x: 300, y: 200, r: 20 });
+        const ends = pointsOf(paths[0]).filter((_, i, all) => i === 0 || i === all.length - 1);
+        const distances = pointsOf(paths[0]).map(([x, y]) => Math.hypot(x - 300, y - 200));
+        assert.ok(Math.min(...distances) > 20, `never on the thing (${Math.min(...distances)})`);
+        assert.ok(Math.max(...distances) < 40, `not far from it (${Math.max(...distances)})`);
+        // It ends past where it began, as a hand closing a loop does.
+        assert.ok(Math.hypot(ends[1][0] - ends[0][0], ends[1][1] - ends[0][1]) < 30);
+        assert.ok(label.x > 320, 'the label is beside the loop');
+    });
+
+    await test('a box surrounds its region, with a fill the size of it and the label above', () => {
+        const { paths, fill, label } = sketch.sketchOf({ kind: 'highlight', x: 100, y: 200, w: 300, h: 80 });
+        const points = pointsOf(paths[0]);
+        assert.ok(Math.min(...points.map(p => p[0])) < 100 && Math.max(...points.map(p => p[0])) > 400);
+        assert.ok(Math.min(...points.map(p => p[1])) < 200 && Math.max(...points.map(p => p[1])) > 280);
+        assert.deepStrictEqual(fill, { x: 94, y: 194, width: 312, height: 92 });
+        assert.ok(label.y < 194, 'above the box');
+        // At the top of the screen there is no room above: the label goes just inside.
+        assert.ok(sketch.sketchOf({ kind: 'highlight', x: 10, y: 4, w: 100, h: 30 }).label.y > 0);
+    });
+
+    await test('an arrow runs from its tail to just short of the thing, its head pointing at it', () => {
+        const { paths, head, label } = sketch.sketchOf({ kind: 'arrow', x1: 100, y1: 300, x2: 400, y2: 300 });
+        const shaft = pointsOf(paths[0]);
+        assert.deepStrictEqual(shaft[0], [100, 300]);
+        const tip = shaft[shaft.length - 1];
+        assert.ok(tip[0] < 400 && tip[0] > 385, `stops just short (${tip[0]})`);
+        const barbs = pointsOf(head);
+        assert.deepStrictEqual(barbs[1], tip);
+        // Both barbs trail back from the tip, one on each side of the shaft.
+        assert.ok(barbs[0][0] < tip[0] && barbs[2][0] < tip[0]);
+        assert.ok((barbs[0][1] - tip[1]) * (barbs[2][1] - tip[1]) < 0);
+        assert.ok(label.x < 100 && label.align === 'centre', 'the label sits behind the tail');
+    });
+
+    await test('a line under words runs their length, under the baseline', () => {
+        const { paths, label } = sketch.sketchOf({ kind: 'underline', x: 50, y: 120, w: 200 });
+        const points = pointsOf(paths[0]);
+        assert.ok(points[0][0] < 50 && points[points.length - 1][0] > 250);
+        assert.ok(points.every(([, y]) => y > 120 && y < 130));
+        assert.ok(label.x > 250 && label.y < 120, 'the label goes after the words, not over the next line');
+    });
+
+    await test('a shape is put on its display by where it is drawn about, in that window\'s pixels', () => {
+        assert.deepStrictEqual(sketch.centreOf({ kind: 'highlight', x: 10, y: 20, w: 100, h: 40 }), { x: 60, y: 40 });
+        assert.deepStrictEqual(sketch.centreOf({ kind: 'arrow', x1: 0, y1: 0, x2: 2000, y2: 100 }), { x: 2000, y: 100 });
+        assert.deepStrictEqual(
+            sketch.moved({ kind: 'arrow', x1: 1930, y1: 10, x2: 2000, y2: 100, label: 'a' }, 1920, 0),
+            { kind: 'arrow', x1: 10, y1: 10, x2: 80, y2: 100, label: 'a' },
+        );
     });
 
     buddy.shutdown();

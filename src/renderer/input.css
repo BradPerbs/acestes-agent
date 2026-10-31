@@ -1545,11 +1545,94 @@ input[type="color"]::-webkit-color-swatch {
     background: rgb(52 211 153);
 }
 
+/* What it draws to show something: by hand, in the mark's violet, each
+   stroke drawn out in turn (--delay), with a pale rim and a soft shadow so
+   it reads over a white page and a black one. A box fills as it is drawn.
+   Taken down, the lot fades. */
+.buddy-drawing {
+    position: absolute;
+    inset: 0;
+    transition: opacity 340ms ease;
+}
+
+.buddy-drawing.buddy-drawing-leaving {
+    opacity: 0;
+}
+
+.buddy-drawing-canvas {
+    position: absolute;
+    inset: 0;
+    overflow: visible;
+}
+
+.buddy-shape {
+    filter: drop-shadow(0 0 1px rgb(255 255 255 / 0.75)) drop-shadow(0 2px 3px rgb(0 0 0 / 0.35));
+}
+
+.buddy-stroke {
+    fill: none;
+    stroke: rgb(139 92 246);
+    stroke-width: 3.2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-dasharray: 1 1;
+    stroke-dashoffset: 1;
+    animation: buddy-stroke 560ms cubic-bezier(0.35, 0.6, 0.25, 1) var(--delay, 0ms) forwards;
+}
+
+.buddy-stroke-head {
+    animation-duration: 200ms;
+    animation-delay: calc(var(--delay, 0ms) + 500ms);
+}
+
+.buddy-shape-underline .buddy-stroke {
+    animation-duration: 420ms;
+}
+
+.buddy-fill {
+    fill: rgb(139 92 246 / 0.14);
+    transform-box: fill-box;
+    transform-origin: left center;
+    transform: scaleX(0);
+    animation: buddy-sweep 520ms cubic-bezier(0.3, 0.6, 0.2, 1) var(--delay, 0ms) forwards;
+}
+
+@keyframes buddy-stroke {
+    to {
+        stroke-dashoffset: 0;
+    }
+}
+
+@keyframes buddy-sweep {
+    to {
+        transform: scaleX(1);
+    }
+}
+
+.buddy-sketch-label {
+    position: absolute;
+}
+
+.buddy-sketch-label-centre {
+    translate: -50% -50%;
+}
+
 @media (prefers-reduced-motion: reduce) {
 
     .buddy-notch,
     .buddy-face,
     .buddy-mark {
+        transition: none;
+    }
+
+    .buddy-stroke,
+    .buddy-fill {
+        animation: none;
+        stroke-dashoffset: 0;
+        transform: none;
+    }
+
+    .buddy-drawing {
         transition: none;
     }
 

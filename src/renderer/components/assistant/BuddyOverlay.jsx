@@ -5,6 +5,7 @@ import useDictation from '../../hooks/useDictation';
 import { createPcmPlayer } from '../../lib/pcm-player';
 import { speakSystem } from '../../lib/system-voice';
 import { agentColor } from '../../lib/agent-colors';
+import { centreOf, moved, sketchOf } from '../../lib/sketch';
 import { getLanguage, useT } from '../../i18n';
 
 /**
@@ -26,6 +27,10 @@ import { getLanguage, useT } from '../../i18n';
  *               heard, what the agent is at, what it asks, and what it said.
  *               With the cursor resting on it, it opens a little to say how
  *               to talk to it, and the last reply.
+ *   drawings    what a reply drew to show something: loops, boxes, arrows
+ *               and lines under words, in the mark's violet, stroke by
+ *               stroke as if by hand, each on the display it is on, gone a
+ *               few seconds after the recap has been said.
  *
  * The window told to listen records (useDictation, the same engines as the
  * composer's microphone) and says what it hears; the one on the main display
@@ -362,7 +367,8 @@ function Mark({ state, cursor }) {
                 <span className="buddy-face buddy-face-ask"><span className="buddy-ask-dot" /></span>
             </div>
             {pointing ? (
-                <span className="buddy-bubble buddy-bubble-point">{typed || ' '}</span>
+                // Gone to draw something, it says nothing: the drawing has its own label.
+                pointing.label && <span className="buddy-bubble buddy-bubble-point">{typed ||' '}</span>
             ) : label && (
                 <span key={label.tone} className={`buddy-bubble buddy-tone-${label.tone}`}>
                     {label.cue ? <RollingPhrase text={label.text} cue={label.cue} /> : label.text}
@@ -752,6 +758,97 @@ function Notch({ state, cursor, download, heardHere }) {
 }
 
 /* ------------------------------------------------------------------ *
+ * What it draws
+ * ------------------------------------------------------------------ */
+
+/** How long a drawing takes to fade once it is taken down, as .buddy-drawing's transition. */
+const ERASE_MS = 340;
+/** How far apart the shapes of one drawing start, so they are drawn one after another. */
+const STROKE_GAP_MS = 380;
+/** How long before the first stroke, so the mark is on its way there. */
+const FIRST_STROKE_MS = 260;
+
+/**
+ * The shapes of the latest drawing that are on this display, drawn stroke
+ * by stroke, each label after its stroke. Taken down, it fades rather than
+ * vanishes; a new one replaces it at once.
+ */
+function Drawing({ drawing, bounds }) {
+    const [shown, setShown] = useState(null);
+    const at = drawing?.at || 0;
+
+    useEffect(() => {
+        if (at && drawing?.shapes?.length) {
+            setShown({ at, shapes: drawing.shapes, leaving: false });
+            return undefined;
+        }
+        setShown(current => (current ? { ...current, leaving: true } : null));
+        const timer = setTimeout(() => setShown(current => (current?.leaving ? null : current)), ERASE_MS + 40);
+        return () => clearTimeout(timer);
+        // Once per drawing, by when it was made.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [at]);
+
+    const here = useMemo(() => {
+        if (!shown || !bounds) return [];
+        return shown.shapes
+            .map((shape, index) => ({ shape, index }))
+            .filter(({ shape }) => {
+                const centre = centreOf(shape);
+                return centre && centre.x >= bounds.x && centre.x < bounds.x + bounds.width
+                    && centre.y >= bounds.y && centre.y < bounds.y + bounds.height;
+            })
+            .map(({ shape, index }) => {
+                const local = moved(shape, bounds.x, bounds.y);
+                return { local, index, drawn: sketchOf(local) };
+            })
+            .filter(({ drawn }) => drawn);
+    }, [shown, bounds]);
+
+    if (!here.length) return null;
+    return (
+        <div key={shown.at} className={`buddy-drawing ${shown.leaving ? 'buddy-drawing-leaving' : ''}`} aria-hidden="true">
+            <svg className="buddy-drawing-canvas" width="100%" height="100%">
+                {here.map(({ local, index, drawn }, order) => {
+                    const delay = FIRST_STROKE_MS + order * STROKE_GAP_MS;
+                    return (
+                        <g key={index} className={`buddy-shape buddy-shape-${local.kind}`} style={{ '--delay': `${delay}ms` }}>
+                            {drawn.fill && (
+                                <rect
+                                    className="buddy-fill"
+                                    x={drawn.fill.x}
+                                    y={drawn.fill.y}
+                                    width={drawn.fill.width}
+                                    height={drawn.fill.height}
+                                    rx="5"
+                                />
+                            )}
+                            {drawn.paths.map((d, path) => (
+                                <path key={path} className="buddy-stroke" d={d} pathLength="1" />
+                            ))}
+                            {drawn.head && <path className="buddy-stroke buddy-stroke-head" d={drawn.head} pathLength="1" />}
+                        </g>
+                    );
+                })}
+            </svg>
+            {here.map(({ local, index, drawn }, order) => local.label && (
+                <span
+                    key={index}
+                    className={`buddy-bubble buddy-bubble-point buddy-sketch-label ${drawn.label.align === 'centre' ? 'buddy-sketch-label-centre' : ''}`}
+                    style={{
+                        left: Math.max(6, Math.min(bounds.width - 40, drawn.label.x)),
+                        top: Math.max(6, Math.min(bounds.height - 30, drawn.label.y)),
+                        animationDelay: `${FIRST_STROKE_MS + order * STROKE_GAP_MS + 420}ms`,
+                    }}
+                >
+                    {local.label}
+                </span>
+            ))}
+        </div>
+    );
+}
+
+/* ------------------------------------------------------------------ *
  * Listening and talking
  * ------------------------------------------------------------------ */
 
@@ -918,6 +1015,7 @@ export default function BuddyOverlay() {
             className="buddy-root font-inter select-none pointer-events-none"
             lang={getLanguage()}
         >
+            <Drawing drawing={state.drawing} bounds={hello.bounds} />
             {hello.primary && state.notch && (
                 <Notch state={state} cursor={cursor} download={dictation.download} heardHere={listener} />
             )}

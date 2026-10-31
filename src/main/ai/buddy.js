@@ -28,6 +28,11 @@
  *   pointing     a reply that ends [POINT:x,y:label] sends the mark flying
  *                to that place on the screen, as Clicky's does, x and y in
  *                pixels of the agent's latest screenshot.
+ *   drawing      and [CIRCLE], [HIGHLIGHT], [ARROW] and [UNDERLINE] draw on
+ *                the screen, by hand as it were, while the recap is said: a
+ *                loop around a button, a box over a region, an arrow to a
+ *                thing, a line under some words. They fade a few seconds
+ *                after it has been said, or as soon as Ctrl+Alt goes down.
  *
  * One window per display, each the size of it: transparent, click-through,
  * topmost. Each draws the mark when the cursor is on its display; the one on
@@ -71,6 +76,12 @@ const REPLY_MS = 9000;
 const NOTICE_MS = 4000;
 /** How long the mark stays at a place it points to, before it comes back. */
 const POINT_MS = 3200;
+/** How long what it drew stays once the recap has been said (or, with nothing said, once drawn). */
+const DRAW_MS = 6000;
+/** The longest a drawing stays however long the saying takes: a voice that never ends does not leave it up. */
+const DRAW_LIMIT_MS = 60000;
+/** The most it draws for one reply. */
+const MOST_SHAPES = 6;
 /** The most that is ever read aloud: a recap, not the reply. The reply is in the notch and the conversation. */
 const SPEAK_CHARS = 220;
 /** A recap made from the reply, when the agent gave none: its first sentence or two, up to this. */
@@ -135,6 +146,7 @@ let actionSeq = 0;
 let sayId = 0;
 let lingerTimer = null;
 let pointTimer = null;
+let drawTimer = null;
 
 /** What the windows draw. Pushed whole on every change; small. */
 let state = fresh();
@@ -155,6 +167,8 @@ function fresh() {
         since: 0,
         title: '',
         point: null,
+        // What it drew on the screen: { at, shapes: [{ kind, ..., label }] } in DIPs, or null.
+        drawing: null,
         notch: true,
         chord: CHORD_LABEL,
         // Who it talks to, and who else it could: [{ id, name, color, computerUse }].
@@ -280,6 +294,7 @@ function stop() {
     lastCursor = null;
     clearTimeout(lingerTimer);
     clearTimeout(pointTimer);
+    clearTimeout(drawTimer);
     unobserve?.();
     unobserve = null;
     for (const entry of windows.values()) {
@@ -676,6 +691,8 @@ function pressed() {
         notice: '',
         reply: steering ? state.reply : '',
         point: null,
+        // What it drew goes as they start talking again.
+        drawing: null,
         // Talking over a reply being read out stops it.
         say: null,
         ...(steering ? {} : { action: null, ask: null, held: '', said: '' }),
@@ -827,7 +844,7 @@ function noteFor(id, look) {
     // last message, so it is said every time.
     const said = tones.brief(config.tone, { cues: canCue() });
     if (briefed.has(id)) {
-        return `Said through the buddy again, by voice. ${picture} ${said.short}, and point with [POINT:x,y:label] when it helps.`;
+        return `Said through the buddy again, by voice. ${picture} ${said.short}, and point with [POINT:x,y:label] or draw with [CIRCLE], [HIGHLIGHT], [ARROW] and [UNDERLINE] when it helps.`;
     }
     return [
         'The user is talking to you through the Acestes buddy: they held Ctrl+Alt wherever they were on their desktop and spoke, so this message is their speech, transcribed (allow for misheard words). Acestes stays in the background meanwhile: they are looking at their own screen, not at this chat, and do not read your replies as you work.',
@@ -838,6 +855,7 @@ function noteFor(id, look) {
         ...(said.voice ? [`- Your spoken lines (the [SAY] recap, and any question you ask them) are in this voice: ${said.voice}. The work itself, and the rest of your reply, stay as careful as ever.`] : []),
         ...(said.cueLine ? [`- ${said.cueLine}`] : []),
         '- When they ask where something is, or how to do something themselves, point rather than act: also end your reply with [POINT:x,y:label], x and y in pixels of your latest screenshot and the label one to three words, and the buddy flies there. Leave it out when there is nothing to point at.',
+        `- To show rather than tell (where to click, what to look at, the steps in order, what a part of the screen is), draw on their screen too, up to ${MOST_SHAPES} shapes at the end of your reply, in the order to look at them: [CIRCLE:x,y,r:label] a loop around a button or icon, x,y its centre and r its radius; [HIGHLIGHT:x,y,w,h:label] a box over a region, x,y its top left corner; [ARROW:x1,y1,x2,y2:label] an arrow from x1,y1 to the thing at x2,y2, the label written at its tail; [UNDERLINE:x,y,w:label] a line under some words, from x to x+w along their baseline y. All in pixels of your latest screenshot, on the exact thing; the label is one to four words and may be left out ([CIRCLE:x,y,r]). They are drawn as your recap is said and fade a few seconds later. For steps, number the labels (1 Settings, 2 Privacy). Draw only what helps; most replies need none.`,
         '- They can hold Ctrl+Alt again while you work: what they say then reaches you as a <user-steer>. A question you ask them is read aloud too, so keep it short.',
     ].join('\n');
 }
@@ -951,14 +969,43 @@ function onEvent(event, info) {
 
 const POINT_TAG = /\[POINT:(?:none|(\d+)\s*,\s*(\d+)(?::([^\]]*?))?)\]/gi;
 const SAY_TAG = /\[SAY:\s*([^\]]*?)\s*\]/gi;
+/**
+ * A drawing: its kind, its numbers, and a label after a colon if it has one.
+ * Any such tag comes out of the reply; only one whose numbers make a shape is drawn.
+ */
+const SHAPE_TAG = /\[(CIRCLE|HIGHLIGHT|ARROW|UNDERLINE):([^\]:]*)(?::([^\]]*))?\]/gi;
+/** How many numbers each kind takes, and what they are. */
+const SHAPE_FIELDS = {
+    circle: ['x', 'y', 'r'],
+    highlight: ['x', 'y', 'w', 'h'],
+    arrow: ['x1', 'y1', 'x2', 'y2'],
+    underline: ['x', 'y', 'w'],
+};
+
+/** A drawing tag's numbers as a shape, in pixels of the screenshot, or null when they do not make one. */
+function shapeOf(kind, numbers, label) {
+    const fields = SHAPE_FIELDS[kind];
+    const values = String(numbers || '').split(',').map(part => Number(part.trim()));
+    if (values.length !== fields.length || values.some(value => !Number.isFinite(value))) return null;
+    const shape = { kind, label: String(label || '').trim().slice(0, 40) };
+    fields.forEach((field, index) => { shape[field] = Math.max(0, Math.round(values[index])); });
+    // Too small to see is not drawn: a ring of no size, a box with no area, an arrow with no length.
+    if (kind === 'circle' && shape.r < 2) return null;
+    if (kind === 'highlight' && (shape.w < 2 || shape.h < 2)) return null;
+    if (kind === 'arrow' && Math.hypot(shape.x2 - shape.x1, shape.y2 - shape.y1) < 8) return null;
+    if (kind === 'underline' && shape.w < 4) return null;
+    return shape;
+}
 
 /**
  * A reply's tags, and the reply without them: its last [POINT] (where the
- * mark flies) and its last [SAY] (the recap read aloud).
+ * mark flies), its last [SAY] (the recap read aloud), and what it draws, in
+ * the order written, a few at most.
  */
 function readTags(text) {
     let point = null;
     let recap = '';
+    const shapes = [];
     const body = String(text || '')
         .replace(POINT_TAG, (all, x, y, label) => {
             point = x !== undefined && y !== undefined
@@ -969,8 +1016,13 @@ function readTags(text) {
         .replace(SAY_TAG, (all, words) => {
             recap = String(words || '').trim();
             return '';
+        })
+        .replace(SHAPE_TAG, (all, kind, numbers, label) => {
+            const shape = shapeOf(kind.toLowerCase(), numbers, label);
+            if (shape && shapes.length < MOST_SHAPES) shapes.push(shape);
+            return '';
         });
-    return { body: body.replace(/[ \t]+\n/g, '\n').trim(), point, recap };
+    return { body: body.replace(/[ \t]+\n/g, '\n').trim(), point, recap, shapes };
 }
 
 /**
@@ -1018,7 +1070,7 @@ function speakable(text) {
 
 function finish({ error = '', stopped = false } = {}) {
     lastTurnAt = Date.now();
-    const { body, point, recap } = readTags(texts.join('\n\n'));
+    const { body, point, recap, shapes } = readTags(texts.join('\n\n'));
     texts = [];
     // As said, delivery cues and all; and as shown, without them.
     const short = recapOf(body, recap);
@@ -1036,7 +1088,11 @@ function finish({ error = '', stopped = false } = {}) {
         push({ phase: 'idle', action: null, ask: null, held: '' });
         return;
     }
-    const spot = point ? place(point) : null;
+    const drawn = shapes.map(sketch).filter(Boolean);
+    const drawing = drawn.length ? { at: Date.now(), shapes: drawn } : null;
+    // With a drawing and nowhere named to point, the mark goes to the first
+    // thing drawn, as the hand that draws it, saying nothing of its own.
+    const spot = point ? place(point) : (drawn.length ? { ...anchorOf(drawn[0]), label: '', at: Date.now() } : null);
     const say = speak(short);
     push({
         phase: say ? 'speaking' : 'done',
@@ -1047,18 +1103,21 @@ function finish({ error = '', stopped = false } = {}) {
         reply: body,
         recap: shown,
         point: spot,
+        drawing,
         say,
     });
     if (spot) {
         clearTimeout(pointTimer);
         pointTimer = setTimeout(() => push({ point: null }), POINT_MS + 2000);
     }
+    // Up while it is said, and a while after (see `spoke`); with nothing to say, a while from now.
+    if (drawing) eraseLater(drawing, say?.text ? DRAW_LIMIT_MS : DRAW_MS);
     if (!say?.text) linger();
 }
 
-/** A point of the agent's latest screenshot, as a place on the desktop the windows draw on. */
-function place(point) {
-    const physical = deps.computer.frameToScreen(conversationId, point.x, point.y);
+/** A pixel of the agent's latest screenshot, as a point on the desktop (DIPs) the windows draw on, or null. */
+function toDesk(x, y) {
+    const physical = deps.computer.frameToScreen(conversationId, x, y);
     if (!physical) return null;
     let dip = physical;
     try {
@@ -1066,7 +1125,59 @@ function place(point) {
     } catch {
         dip = physical;
     }
-    return { x: Math.round(dip.x), y: Math.round(dip.y), label: point.label || '', at: Date.now() };
+    return { x: Math.round(dip.x), y: Math.round(dip.y) };
+}
+
+/** A point of the agent's latest screenshot, as a place on the desktop the windows draw on. */
+function place(point) {
+    const at = toDesk(point.x, point.y);
+    return at ? { ...at, label: point.label || '', at: Date.now() } : null;
+}
+
+/**
+ * A shape in the screenshot's pixels, as one on the desktop. Its corners go
+ * through the screenshot's frame; its sizes by how big a pixel of it is,
+ * since a far corner would be held to the screenshot's edge.
+ */
+function sketch(shape) {
+    const origin = toDesk(0, 0);
+    const across = toDesk(50, 0);
+    if (!origin || !across) return null;
+    const size = value => Math.max(1, Math.round(value * ((across.x - origin.x) / 50 || 1)));
+    const label = shape.label || '';
+    if (shape.kind === 'arrow') {
+        const from = toDesk(shape.x1, shape.y1);
+        const to = toDesk(shape.x2, shape.y2);
+        return from && to ? { kind: 'arrow', x1: from.x, y1: from.y, x2: to.x, y2: to.y, label } : null;
+    }
+    const at = toDesk(shape.x, shape.y);
+    if (!at) return null;
+    if (shape.kind === 'circle') return { kind: 'circle', ...at, r: size(shape.r), label };
+    if (shape.kind === 'highlight') return { kind: 'highlight', ...at, w: size(shape.w), h: size(shape.h), label };
+    if (shape.kind === 'underline') return { kind: 'underline', ...at, w: size(shape.w), label };
+    return null;
+}
+
+/** Where the mark goes to draw a shape: beside its loop, at the box's far corner, at the arrow's tail, at the line's end. */
+function anchorOf(shape) {
+    switch (shape.kind) {
+        case 'circle':
+            return { x: Math.round(shape.x + shape.r * 0.72), y: Math.round(shape.y + shape.r * 0.72) };
+        case 'highlight':
+            return { x: shape.x + shape.w, y: shape.y + shape.h };
+        case 'arrow':
+            return { x: shape.x1, y: shape.y1 };
+        default:
+            return { x: shape.x + shape.w, y: shape.y };
+    }
+}
+
+/** The drawing goes in a while, unless another has taken its place by then. */
+function eraseLater(drawing, ms) {
+    clearTimeout(drawTimer);
+    drawTimer = setTimeout(() => {
+        if (state.drawing && state.drawing.at === drawing.at) push({ drawing: null });
+    }, ms);
 }
 
 /* ------------------------------------------------------------------ *
@@ -1156,6 +1267,8 @@ function spoke(sender, payload = {}) {
     if (!state.say || Number(payload.id) !== state.say.id) return;
     if (state.phase === 'speaking') push({ phase: 'done', say: null });
     else push({ say: null });
+    // Said: what it drew stays a few seconds more, to be looked at.
+    if (state.drawing) eraseLater(state.drawing, DRAW_MS);
     if (state.phase === 'done') linger();
 }
 
