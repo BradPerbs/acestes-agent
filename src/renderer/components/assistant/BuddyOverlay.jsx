@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { action, BARS, DOING } from './ActivityOverlay';
+import { describeCall } from './ToolCall';
 import { Ring, RollingPhrase, elapsed, usePhrase, useSeconds } from './WorkingIndicator';
 import useDictation from '../../hooks/useDictation';
 import { createPcmPlayer } from '../../lib/pcm-player';
@@ -9,24 +9,26 @@ import { centreOf, moved, sketchOf } from '../../lib/sketch';
 import { getLanguage, useT } from '../../i18n';
 
 /**
- * The buddy: Acestes in the background, beside the cursor (see
- * main/ai/buddy.js, which says what to draw).
+ * The buddy: beside the cursor whenever an agent uses the computer, and, on
+ * for good, Acestes in the background (see main/ai/buddy.js, which says what
+ * to draw).
  *
  * One of these per display, each a transparent, click-through window the
  * size of it, kept out of screen capture. Two things are drawn:
  *
  *   the mark    a small violet arrowhead riding beside the cursor on a
  *               spring, on whichever display the cursor is on. It becomes a
- *               waveform while you hold Ctrl+Alt and talk, a turning ring
- *               while the agent thinks, and says what the agent is doing
- *               beside it (Clicking · Save) as it does it. A reply that
- *               points somewhere sends it flying there along an arc, where it
- *               says what it found, then back to the cursor.
+ *               waveform while you talk to it, a turning ring while the agent
+ *               thinks, and says what the agent is doing beside it
+ *               (Clicking · Save) as it does it. A reply that points
+ *               somewhere sends it flying there along an arc, where it says
+ *               what it found, then back to the cursor.
  *   the notch   on the main display, a black notch hanging from the top
  *               edge, MacBook-style: small at rest, opening to show what is
- *               heard, what the agent is at, what it asks, and what it said.
- *               With the cursor resting on it, it opens a little to say how
- *               to talk to it, and the last reply.
+ *               heard, what the agent is at (and which chat it is, when it is
+ *               not the buddy's own), what it asks, and what it said. With
+ *               the cursor resting on it, it opens a little to say how to
+ *               talk to it, and the last reply.
  *   drawings    what a reply drew to show something: loops, boxes, arrows
  *               and lines under words, in the mark's violet, stroke by
  *               stroke as if by hand, each on the display it is on, gone a
@@ -36,6 +38,45 @@ import { getLanguage, useT } from '../../i18n';
  * composer's microphone) and says what it hears; the one on the main display
  * reads replies out with this computer's voice.
  */
+
+/** What an agent is doing, by the tool it is in, as a live verb. */
+const DOING = {
+    click: 'activity.clicking',
+    type_text: 'activity.typing',
+    press_keys: 'activity.pressing',
+    scroll: 'activity.scrolling',
+    drag: 'activity.dragging',
+    hover: 'activity.pointing',
+    mouse_button: 'activity.pressing',
+    hold_key: 'activity.holding',
+    read_clipboard: 'activity.reading',
+    read_screen: 'activity.reading',
+    read_text: 'activity.reading',
+    screenshot: 'activity.looking',
+    zoom: 'activity.looking',
+    wait_for: 'activity.waitingFor',
+    do_steps: 'activity.steps',
+    open_app: 'activity.opening',
+    arrange_windows: 'activity.arranging',
+    list_windows: 'activity.looking',
+};
+
+/** A desktop action as words: the verb, and what it is aimed at by name once found, the call's own words until then. */
+function action(t, tool) {
+    const verb = DOING[tool.name];
+    const detail = tool.aim
+        || (tool.name === 'do_steps'
+            ? t('activity.stepCount', { count: (tool.input?.steps || []).length })
+            : describeCall(tool.name, tool.input || {}).text);
+    return detail ? `${t(verb)} · ${detail}` : t(verb);
+}
+
+/** Bars of the notch's waveform, each with its own reach, so the shape moves like a voice. */
+const BARS = Array.from({ length: 30 }, (_, index) => {
+    const centre = 1 - Math.abs(index - 14.5) / 15;
+    const reach = 0.35 + 0.65 * centre * (0.6 + 0.4 * Math.abs(Math.sin(index * 1.7)));
+    return { reach: reach.toFixed(3), delay: `${-((index * 137) % 900)}ms` };
+});
 
 /** Where the mark rides, from the cursor's tip, in CSS pixels. */
 const OFFSET = { x: 18, y: 20 };
@@ -426,6 +467,37 @@ function Speaking() {
     );
 }
 
+/**
+ * How to talk to it now, as a hint: hold the chord, with the buddy on for
+ * good; else press the voice key, which works while an agent drives.
+ */
+function talkHint(t, state, kind) {
+    return state.talk === 'hold'
+        ? { text: t(`buddy.${kind}Hint`), chord: state.chord || 'Ctrl Alt' }
+        : { text: t(`buddy.${kind}HintPress`), chord: state.voiceChord || 'Ctrl S' };
+}
+
+/**
+ * Whose turn it is, when it is not the buddy's own: the chat's title and its
+ * agent. And how many more agents are at work on the desktop than this one.
+ */
+function Who({ state }) {
+    const t = useT();
+    const others = state.others || 0;
+    if (!state.chat && !others) return null;
+    const name = state.chat ? (state.title || state.agent || t('buddy.untitled')) : '';
+    const meta = [
+        state.chat && state.title ? state.agent : '',
+        others > 0 ? (name ? t('buddy.more', { count: others }) : t('buddy.othersAtWork', { count: others })) : '',
+    ].filter(Boolean).join(' · ');
+    return (
+        <div className="buddy-who">
+            {name && <span className="min-w-0 truncate text-white/70">{name}</span>}
+            {meta && <span className="shrink-0">{meta}</span>}
+        </div>
+    );
+}
+
 function NotchBody({ state, peek, download, heardHere }) {
     const t = useT();
     const phrase = usePhrase('think');
@@ -434,6 +506,9 @@ function NotchBody({ state, peek, download, heardHere }) {
     const seconds = useSeconds(state.since || 0, working ? 0 : 1);
     const clock = working && seconds >= 3 ? elapsed(seconds) : '';
     const chord = state.chord || 'Ctrl Alt';
+    const who = <Who state={state} />;
+    const steer = talkHint(t, state, 'steer');
+    const answer = talkHint(t, state, 'answer');
 
     const line = (icon, text, { cue, meta = clock, tone = '' } = {}) => (
         <div className={`flex items-center gap-2.5 min-w-0 text-[12.5px] font-medium ${tone}`}>
@@ -449,6 +524,7 @@ function NotchBody({ state, peek, download, heardHere }) {
         case 'listening':
             return (
                 <>
+                    {who}
                     {line(
                         <span className="relative w-2 h-2 rounded-full bg-rose-500 buddy-rec" />,
                         state.mode === 'steer' ? t('buddy.listeningSteer') : t('buddy.listening'),
@@ -458,11 +534,18 @@ function NotchBody({ state, peek, download, heardHere }) {
                     {/* The level is drawn in the window that is listening; on another display's notch it only breathes. */}
                     <NotchWave resting={!heardHere} />
                     {state.heard && <div className="buddy-heard">{tail(state.heard)}</div>}
+                    {/* Pressed rather than held: it says how it ends. */}
+                    {state.toggle && (
+                        <div className="mt-2 flex justify-end">
+                            <Hint text={t('buddy.sendHint')} chord={state.voiceChord || 'Ctrl S'} />
+                        </div>
+                    )}
                 </>
             );
         case 'hearing':
             return (
                 <>
+                    {who}
                     {line(<Ring className="text-white/70" />, t('buddy.hearing'), { meta: '' })}
                     {state.heard && <div className="buddy-heard">{tail(state.heard)}</div>}
                 </>
@@ -472,29 +555,36 @@ function NotchBody({ state, peek, download, heardHere }) {
         case 'thinking':
         case 'acting': {
             if (state.held) {
-                return line(
-                    <span className={`w-2 h-2 rounded-[2px] ${state.held === 'escape' ? 'bg-red-500' : 'bg-amber-400'}`} />,
-                    state.held === 'escape' ? t('buddy.stopped') : t('buddy.paused'),
-                    { tone: state.held === 'escape' ? 'text-red-300' : 'text-amber-200' },
+                return (
+                    <>
+                        {who}
+                        {line(
+                            <span className={`w-2 h-2 rounded-[2px] ${state.held === 'escape' ? 'bg-red-500' : 'bg-amber-400'}`} />,
+                            state.held === 'escape' ? t('buddy.stopped') : t('buddy.paused'),
+                            { tone: state.held === 'escape' ? 'text-red-300' : 'text-amber-200' },
+                        )}
+                    </>
                 );
             }
             const tool = state.phase === 'acting' ? state.action : null;
             const named = Boolean(tool && DOING[tool.name]);
             return (
                 <>
+                    {who}
                     {line(
                         <Ring className={tool ? 'text-violet-300' : 'text-white/70'} />,
                         named ? action(t, tool) : phrase,
                         { cue: named ? `act:${tool.seq}` : phrase },
                     )}
                     {state.said && <div className="buddy-said">{state.said}</div>}
-                    {peek && <div className="mt-2 flex justify-end"><Hint text={t('buddy.steerHint')} chord={chord} /></div>}
+                    {peek && <div className="mt-2 flex justify-end"><Hint text={steer.text} chord={steer.chord} /></div>}
                 </>
             );
         }
         case 'waiting':
             return (
                 <>
+                    {who}
                     {line(<span className="w-2 h-2 rounded-full bg-amber-400 buddy-rec" />, t('buddy.asks'), { tone: 'text-amber-200' })}
                     {state.ask?.question && <div className="buddy-reply">{state.ask.question}</div>}
                     {state.say?.trouble && <div className="buddy-trouble">{state.say.trouble}</div>}
@@ -503,17 +593,19 @@ function NotchBody({ state, peek, download, heardHere }) {
                             {state.ask.options.map(option => <span key={option} className="buddy-chip">{option}</span>)}
                         </div>
                     )}
-                    <div className="mt-2.5 flex justify-end"><Hint text={t('buddy.answerHint')} chord={chord} /></div>
+                    <div className="mt-2.5 flex justify-end"><Hint text={answer.text} chord={answer.chord} /></div>
                 </>
             );
         case 'speaking':
         case 'done': {
             // The recap, as it was said, leads; the reply is under it for
             // whoever looks up, the start of it at least.
-            const lead = state.recap || state.title || t('buddy.done');
+            // A chat's title is in the line above already.
+            const lead = state.recap || (state.chat ? '' : state.title) || t('buddy.done');
             const rest = state.reply && state.reply !== state.recap ? state.reply : '';
             return (
                 <>
+                    {who}
                     <div className="flex items-start gap-2.5 min-w-0">
                         <span className="w-3.5 h-[18px] shrink-0 flex items-center justify-center">
                             {state.phase === 'speaking' ? <Speaking /> : <span className="buddy-done-dot" />}
@@ -683,9 +775,10 @@ function Notch({ state, cursor, download, heardHere }) {
     const phase = state.phase || 'idle';
     const resting = phase === 'idle';
     // The agents show with the cursor resting on it at rest, and for a moment
-    // after a switch whatever it is doing.
+    // after a switch whatever it is doing. Only with the buddy on for good:
+    // otherwise it is up for the agents at work, and nothing is talked to.
     const switched = useFlash(state.switcher);
-    const picking = (peek && resting) || switched;
+    const picking = state.talk === 'hold' && ((peek && resting) || switched);
     const closed = resting && !picking;
     // A turn under way: it can be stopped, or opened in the app, from here.
     const working = !picking && ['thinking', 'acting', 'waiting'].includes(phase);

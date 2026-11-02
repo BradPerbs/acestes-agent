@@ -11,7 +11,6 @@ const fs = require('fs');
 const path = require('path');
 const ipc = require('./ipc');
 const aiWindows = require('./ai/windows');
-const aiOverlay = require('./ai/overlay');
 const buddy = require('./ai/buddy');
 const speech = require('./ai/speech');
 const transport = require('./transport');
@@ -160,9 +159,10 @@ function createWindow() {
         // runs; with it gone they have nothing to show and nothing to hand
         // their tabs back to.
         aiWindows.closeAll();
-        // And the corner card, which would otherwise keep the app alive, and
+        // And the buddy's windows, which would otherwise keep the app alive
+        // (closed for real means quitting, or the buddy not on for good), and
         // the Faster-Whisper worker, if voice input started one.
-        aiOverlay.close();
+        buddy.shutdown();
         speech.shutdown();
         mainWindow = null;
     });
@@ -269,7 +269,8 @@ app.whenReady().then(() => {
 app.on('before-quit', () => {
     if (!firstInstance) return;
     quitting = true;
-    buddy.shutdown();
+    // For good: an agent letting go of the desktop on the way out brings nothing up again.
+    buddy.shutdown({ final: true });
     scheduler.stop();
     channels.stop();
     fleet.stop();

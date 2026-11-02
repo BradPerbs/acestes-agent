@@ -1,25 +1,39 @@
 /**
- * The buddy: Acestes in the background, beside the cursor.
+ * The buddy: Acestes beside the cursor, and the one sign on screen that an
+ * agent is using the computer.
  *
- * Switched on in Settings (`buddy`), the app keeps out of the way: closing
- * its window leaves it running in the tray, and what shows of it is a notch
- * at the top of the main screen and a small mark that rides beside the
- * cursor. Hold Ctrl+Alt anywhere and say what you want. On letting go, a
- * picture of the monitor the pointer is on is taken, with the pointer's tip
- * ringed on it, and goes to the agent with what was said; the agent works
- * with the computer tools at once, and its reply is read aloud. "This" and
- * "here" mean what the pointer is on.
+ * Whenever an agent drives the desktop, whether it was asked in a chat or
+ * through the buddy itself, what shows is a notch at the top of the main
+ * screen and a small mark that rides beside the cursor, saying what the agent
+ * is doing as it does it (looking, clicking "Save", waiting for you), and
+ * whether the user's hand paused it or Esc stopped it. The notch has Stop and
+ * Open for the turn it shows. It comes up as an agent takes the desktop and
+ * goes a little after the last one lets go. With several at work it shows the
+ * newest and counts the others.
+ *
+ * Switched on for good in Settings (`buddy`, the default; Windows only), it
+ * stays up all the time and listens, and the app keeps out of the way: closing
+ * its window leaves it running in the tray. Hold Ctrl+Alt anywhere and say
+ * what you want. On letting go, a picture of the monitor the pointer is on is
+ * taken, with the pointer's tip ringed on it, and goes to the agent with what
+ * was said; the agent works with the computer tools at once, and its recap is
+ * read aloud. "This" and "here" mean what the pointer is on.
  *
  * Nothing of it is in the way: its windows never take focus, every click
  * goes through them, and they are kept out of screen capture, so the agent's
  * own screenshots never show them. The person's mouse stays theirs until the
- * agent acts, and the mark beside the cursor says what it is doing as it
- * does it (looking, clicking "Save", waiting for you).
+ * agent acts.
  *
  *   the chord    seen by the desktop helper's keyboard hook (computer.js
  *                `pushToTalk`), driving or not. Down starts the microphone in
  *                the buddy's window under the cursor, up stops it, another
- *                key while it is held (Ctrl+Alt+T) throws it away.
+ *                key while it is held (Ctrl+Alt+T) throws it away. Held while
+ *                the notch shows an agent at work, from a chat or not, what
+ *                is said steers that agent.
+ *   the voice    Ctrl+S while an agent drives, on/off rather than held, seen
+ *   key          by the helper only while it drives (computer.js VOICE_KEY):
+ *                the way to steer by voice with the buddy not on for good,
+ *                and on a Mac, whose helper watches no chord.
  *   one chat     the buddy keeps one conversation going, so "now do the
  *                same for the next one" works, and starts a fresh one after
  *                a quiet spell. Spoken to while it works, what is said steers
@@ -34,12 +48,16 @@
  *                thing, a line under some words. They fade a few seconds
  *                after it has been said, or as soon as Ctrl+Alt goes down.
  *
+ * It answers the way it was asked: a turn of the buddy's own conversation is
+ * spoken to, so its recap and its questions are said aloud; a chat's turn was
+ * typed, so it is shown and never said.
+ *
  * One window per display, each the size of it: transparent, click-through,
  * topmost. Each draws the mark when the cursor is on its display; the one on
  * the main display draws the notch and does the talking. The cursor is
- * looked at here sixty times a second while the buddy is on, and told to the
- * windows only when it moves. Windows only for now: the Mac helper does not
- * watch modifiers on their own yet.
+ * looked at here sixty times a second while the windows are up, and told to
+ * them only when it moves. Always on is Windows only: the Mac helper does not
+ * watch modifiers on their own yet. A Mac still shows the agents at work.
  */
 
 const path = require('path');
@@ -86,6 +104,26 @@ const MOST_SHAPES = 6;
 const SPEAK_CHARS = 220;
 /** A recap made from the reply, when the agent gave none: its first sentence or two, up to this. */
 const RECAP_CHARS = 160;
+/** The voice key while an agent drives (computer.js VOICE_KEY), as the notch shows it and as an accelerator. */
+const VOICE_LABEL = 'Ctrl S';
+const VOICE_ACCELERATOR = 'Ctrl+S';
+/** The phases of a turn under way. */
+const WORKING = new Set(['thinking', 'acting', 'waiting']);
+/** The events that end a turn. */
+const ENDINGS = new Set(['interrupted', 'result', 'error', 'closed']);
+
+/**
+ * How long things stay, in milliseconds. A test shortens them.
+ *
+ *   reply   a finished turn's reply in the notch, once it has been said
+ *   notice  a word of trouble (nothing heard, voice off)
+ *   beat    a finished turn's reply, when another agent is at work to show next
+ *   gone    after the turn shown lets go of the desktop, before it is taken
+ *           for finished when nothing said it ended
+ *   leave   at rest, with the buddy not on for good, before its windows go
+ */
+const TIMING = { reply: REPLY_MS, notice: NOTICE_MS, beat: 2500, gone: 1500, leave: 700 };
+let timing = { ...TIMING };
 
 let deps = {
     ai: null,
@@ -108,7 +146,12 @@ let deps = {
     changed: () => {},
 };
 
+// On for good: listening for the chord, up at rest, the app kept in the tray.
 let enabled = false;
+// Its windows are up: on for good, or an agent is at work on the desktop.
+let present = false;
+// The app is quitting: nothing comes up again.
+let final = false;
 let config = { notch: true, speak: true, agentId: '', voice: 'system', voiceModel: '', voiceId: '', tone: tones.toneOf({}) };
 // The recap being read out by ElevenLabs: its id, and how to stop it.
 let speaking = null;
@@ -118,9 +161,20 @@ const windows = new Map();
 let screenListening = false;
 let followTimer = null;
 let lastCursor = null;
+let leaveTimer = null;
+let goneTimer = null;
 
-// The conversation the buddy talks in, and every one it has, so their
-// work on the desktop is shown here and not in the corner card too.
+// Every conversation at work on the desktop now, as computer.js tells it:
+// id -> { id, title, agent, since, held }. The buddy's own among them.
+const drivers = new Map();
+// The conversation the notch and the mark draw now, '' for none: the
+// buddy's own, or a chat at work on the desktop.
+let shown = '';
+// The voice key held as an accelerator, while it is not the helper's to see.
+let shortcutOn = false;
+
+// The conversation the buddy talks in, and every one it has: their turns
+// are spoken to, so they are said aloud, and need no notification.
 let conversationId = '';
 const mine = new Set();
 // Conversations told how the buddy works: the first message carries it all.
@@ -166,6 +220,17 @@ function fresh() {
         held: '',
         since: 0,
         title: '',
+        // The turn shown is a chat's, not the buddy's own: named in the
+        // notch with its agent, and never said aloud.
+        chat: false,
+        agent: '',
+        // How many more agents are at work on the desktop than the one shown.
+        others: 0,
+        // How to talk to it: 'hold' the chord (on for good), or 'press' the
+        // voice key while an agent drives; and whether this listening is a press.
+        talk: 'press',
+        toggle: false,
+        voiceChord: VOICE_LABEL,
         point: null,
         // What it drew on the screen: { at, shapes: [{ kind, ..., label }] } in DIPs, or null.
         drawing: null,
@@ -190,12 +255,22 @@ function configure(next = {}) {
 
 let platform = process.platform;
 
+/** Whether it can be on for good: its chord is the Windows helper's. */
 function supported() {
     return platform === 'win32';
 }
 
+/** Whether it can show the agents at work: wherever there is computer use. */
+function canShow() {
+    return platform === 'win32' || platform === 'darwin';
+}
+
 function isOn() {
     return enabled;
+}
+
+function isPresent() {
+    return present;
 }
 
 /** Whether a conversation is one of the buddy's, so its desktop work is shown here. */
@@ -224,10 +299,10 @@ async function sync() {
     const wanted = Boolean(current.buddy) && supported();
     if (wanted && !enabled) await start();
     else if (!wanted && enabled) stop();
-    else if (enabled) {
+    else if (present) {
         const now = roster();
         // Pointed at another agent in Settings: the next hold talks to it.
-        if (before && now.agentId !== before) freshNext = true;
+        if (enabled && before && now.agentId !== before) freshNext = true;
         push({ notch: config.notch, ...now });
     }
     return { enabled };
@@ -263,11 +338,44 @@ function roster() {
     return { agents, agentId };
 }
 
+/** On for good: up at rest, and listening for the chord. */
 async function start() {
-    const { BrowserWindow, screen } = electron;
-    if (typeof BrowserWindow !== 'function') return;
+    const { BrowserWindow } = electron;
+    if (typeof BrowserWindow !== 'function' || final) return;
     enabled = true;
-    state = { ...fresh(), notch: config.notch, ...roster() };
+    appear();
+    push({ talk: 'hold', notch: config.notch, ...roster() });
+    const armed = await deps.computer?.pushToTalk(CHORD, { next: SWITCH_KEY });
+    if (armed && !armed.ok) notice(`Ctrl+Alt is not being watched: ${armed.error || 'the desktop helper did not start'}.`);
+    deps.changed(true);
+}
+
+/** Off for good: the chord let go, and the windows gone, unless an agent is still at work. */
+function stop() {
+    enabled = false;
+    if (press && !press.toggle) {
+        sendTo(press.displayId, 'buddy-listen', { action: 'cancel' });
+        dropPress();
+    }
+    deps.computer?.pushToTalk('').catch?.(() => {});
+    deps.changed(false);
+    if (!present) return;
+    if (drivers.size === 0 && !press) {
+        leave();
+        return;
+    }
+    push({ talk: 'press' });
+}
+
+/** The windows up, one per display, following the cursor and the conversations. */
+function appear() {
+    clearTimeout(leaveTimer);
+    leaveTimer = null;
+    if (present || final) return;
+    const { BrowserWindow, screen } = electron;
+    if (typeof BrowserWindow !== 'function' || !canShow()) return;
+    present = true;
+    state = { ...fresh(), notch: config.notch, talk: enabled ? 'hold' : 'press', ...roster() };
     const url = deps.urlOf?.();
     if (url) baseUrl = url;
     layout();
@@ -279,29 +387,44 @@ async function start() {
     }
     followTimer = setInterval(follow, FOLLOW_EVERY);
     if (!unobserve && deps.ai?.observe) unobserve = deps.ai.observe(onEvent);
-    const armed = await deps.computer?.pushToTalk(CHORD, { next: SWITCH_KEY });
-    if (armed && !armed.ok) notice(`Ctrl+Alt is not being watched: ${armed.error || 'the desktop helper did not start'}.`);
-    deps.changed(true);
 }
 
-function stop() {
-    enabled = false;
+/** The windows gone, and everything they were drawing. */
+function leave() {
+    clearTimeout(leaveTimer);
+    leaveTimer = null;
+    if (!present) return;
+    present = false;
     hush();
     if (press) dropPress();
-    deps.computer?.pushToTalk('').catch?.(() => {});
     if (followTimer) clearInterval(followTimer);
     followTimer = null;
     lastCursor = null;
     clearTimeout(lingerTimer);
     clearTimeout(pointTimer);
     clearTimeout(drawTimer);
+    clearTimeout(goneTimer);
     unobserve?.();
     unobserve = null;
     for (const entry of windows.values()) {
         if (!entry.window.isDestroyed()) entry.window.destroy();
     }
     windows.clear();
-    deps.changed(false);
+    shown = '';
+    texts = [];
+    syncShortcut();
+}
+
+/**
+ * At rest, with the buddy not on for good: its windows go a moment later,
+ * once the notch has folded, unless something has come up meanwhile.
+ */
+function leaveSoon() {
+    if (leaveTimer || enabled || !present) return;
+    leaveTimer = setTimeout(() => {
+        leaveTimer = null;
+        if (!enabled && state.phase === 'idle' && drivers.size === 0 && !press) leave();
+    }, timing.leave);
 }
 
 /* ------------------------------------------------------------------ *
@@ -342,7 +465,7 @@ function windowBounds(display) {
 
 /** Every display has its window, the size of it, and each knows which it is. */
 function layout() {
-    if (!enabled) return;
+    if (!present) return;
     const { BrowserWindow, screen } = electron;
     const displays = screen.getAllDisplays();
     const here = new Set(displays.map(display => display.id));
@@ -396,6 +519,8 @@ function makeWindow(BrowserWindow, display) {
     // checking how it looks; the app never sets it.
     window.setAlwaysOnTop(true, 'screen-saver');
     window.setIgnoreMouseEvents(true);
+    // On a Mac, on every Space and over a full-screen app, as the agent's work may be.
+    if (platform === 'darwin') window.setVisibleOnAllWorkspaces?.(true, { visibleOnFullScreen: true });
     if (!process.env.ACESTES_CAPTURABLE) window.setContentProtection(true);
     window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     window.webContents.on('will-navigate', event => event.preventDefault());
@@ -454,6 +579,7 @@ function sendTo(displayId, channel, payload) {
 function push(patch = {}) {
     state = { ...state, ...patch };
     sendAll('buddy-state', state);
+    if (state.phase === 'idle') leaveSoon();
 }
 
 /** Where the cursor is, told to the windows when it moves. */
@@ -576,12 +702,13 @@ function pick(sender, payload = {}) {
  * ------------------------------------------------------------------ */
 
 /**
- * Stop the turn under way, as the Stop button in the app does. Said at once
- * in the notch; the turn's own end then puts it to rest.
+ * Stop the turn the notch shows, the buddy's or a chat's, as the Stop button
+ * in the app does. Said at once in the notch; the turn's own end then puts
+ * it to rest.
  */
 function stopTurn(sender) {
     if (!isBuddyWindow(sender)) return false;
-    const id = conversationId;
+    const id = shown;
     if (!id || !deps.ai?.isBusy?.(id)) return false;
     hush();
     push({ phase: state.action ? 'acting' : 'thinking', held: 'escape', ask: null, say: null });
@@ -591,10 +718,10 @@ function stopTurn(sender) {
     return true;
 }
 
-/** The buddy's conversation, brought up in the app as the tab in front. */
+/** The conversation the notch shows, else the buddy's own, brought up in the app as the tab in front. */
 function openInApp(sender) {
     if (!isBuddyWindow(sender)) return false;
-    const id = conversationId;
+    const id = shown || conversationId;
     if (!id || !deps.ai?.has?.(id)) return false;
     tabbed.add(id);
     try {
@@ -615,6 +742,181 @@ function displayAtCursor() {
 }
 
 /* ------------------------------------------------------------------ *
+ * The agents at work on the desktop
+ *
+ * computer.js says who is driving whenever that changes (by way of
+ * index.js, which names them). The first to take the desktop brings the
+ * windows up; the newest is the one drawn, unless the notch is busy with
+ * something else (someone talking to it, the buddy's own turn, a recap being
+ * said), in which case it is counted and drawn next.
+ * ------------------------------------------------------------------ */
+
+const isBusy = id => Boolean(id) && Boolean(deps.ai?.isBusy?.(id));
+
+function othersCount() {
+    let count = 0;
+    for (const id of drivers.keys()) if (id !== shown) count += 1;
+    return count;
+}
+
+/**
+ * Whether the notch may turn to another conversation: nobody is talking to
+ * it, and the turn it shows is over. `settling` is the moment it comes back
+ * from listening or a notice, when the phase still says so.
+ */
+function free({ settling = false } = {}) {
+    if (press) return false;
+    if (!settling && ['listening', 'hearing', 'looking', 'speaking'].includes(state.phase)) return false;
+    return !isBusy(shown);
+}
+
+/** Draw this conversation's turn from here on, starting as it would be now: thinking. */
+function focus(id) {
+    const driver = drivers.get(id);
+    shown = id;
+    texts = [];
+    clearTimeout(lingerTimer);
+    clearTimeout(goneTimer);
+    push({
+        phase: 'thinking',
+        mode: 'ask',
+        toggle: false,
+        chat: !owns(id),
+        title: driver?.title || '',
+        agent: driver?.agent || '',
+        since: driver?.since || Date.now(),
+        action: null,
+        ask: null,
+        said: '',
+        held: driver?.held || '',
+        reply: '',
+        recap: '',
+        notice: '',
+        heard: '',
+        point: null,
+        drawing: null,
+        say: null,
+        others: othersCount(),
+    });
+}
+
+/** Another agent still at work, the newest, drawn now; false when there is none, or the notch is not free. */
+function refocus({ settling = false } = {}) {
+    if (!present || !free({ settling })) return false;
+    const next = [...drivers.keys()].reverse().find(id => id !== shown);
+    if (!next) return false;
+    focus(next);
+    return true;
+}
+
+/**
+ * Nothing at work to draw: the notch folds. A chat's turn shown until now is
+ * let go, so its later turns (typed, with no desktop in them) are the app's
+ * alone; the buddy's own stays, for the reply its notch shows on a hover.
+ */
+function rest(extra = {}) {
+    const patch = { phase: 'idle', heard: '', toggle: false, ...extra };
+    if (shown && !owns(shown)) {
+        shown = '';
+        Object.assign(patch, { chat: false, title: '', agent: '', action: null, ask: null, held: '', said: '', reply: '', recap: '' });
+    }
+    patch.others = othersCount();
+    push(patch);
+}
+
+/** Who is at work on the desktop now: `[{ id, title, agent }]`, from computer.js by way of index.js. */
+function setDrivers(list = []) {
+    const now = new Map();
+    for (const entry of Array.isArray(list) ? list : []) {
+        const id = String(entry?.id || '');
+        if (!id) continue;
+        const before = drivers.get(id);
+        now.set(id, {
+            id,
+            title: String(entry.title || before?.title || '').slice(0, 120),
+            agent: String(entry.agent || before?.agent || '').slice(0, 40),
+            since: before?.since || Date.now(),
+            held: before?.held || '',
+        });
+    }
+    const joined = [...now.keys()].filter(id => !drivers.has(id));
+    const left = [...drivers.keys()].filter(id => !now.has(id));
+    drivers.clear();
+    for (const [id, entry] of now) drivers.set(id, entry);
+    if (drivers.size > 0) appear();
+    syncShortcut();
+    if (!present) return;
+    const newest = joined[joined.length - 1];
+    // The one shown back at the desktop after its turn had ended (a chat's
+    // next turn, its last reply still in the notch): a new stint, from the top.
+    const again = Boolean(newest) && newest === shown && !press && !WORKING.has(state.phase)
+        && !['listening', 'hearing', 'looking', 'speaking'].includes(state.phase);
+    if (newest && ((newest !== shown && free()) || again)) {
+        focus(newest);
+    } else {
+        if (left.includes(shown)) checkGone(shown);
+        if (state.others !== othersCount()) push({ others: othersCount() });
+        if (state.phase === 'idle') leaveSoon();
+    }
+}
+
+/**
+ * The turn shown let go of the desktop. Its end comes as an event, and it is
+ * finished then; if none says so in a moment and it is no longer at work
+ * (closed, say), it is finished here, so the notch is never left working.
+ */
+function checkGone(id) {
+    clearTimeout(goneTimer);
+    goneTimer = setTimeout(() => {
+        if (shown !== id || drivers.has(id) || press) return;
+        if (!WORKING.has(state.phase) || isBusy(id)) return;
+        finish({});
+    }, timing.gone);
+}
+
+/**
+ * The voice key, pressed while an agent drives (computer.js `voice`, which
+ * names the one to steer: one standing on a question first, else the
+ * newest). Pressed once it listens, again it sends: on and off, not held.
+ */
+function voicePressed(id = '') {
+    if (!present) return;
+    if (press?.toggle) {
+        released();
+        return;
+    }
+    if (press) return;
+    pressed({ toggle: true, target: String(id || '') });
+}
+
+/**
+ * While a press of the voice key is listening and nobody drives any more
+ * (the turn ended mid-sentence, or the user's hand paused them all), the
+ * helper no longer sees the key, so it is held here as an accelerator for
+ * the moment, to stop the recording with the keys that started it. Never
+ * while an agent drives: the helper has the key then, and an accelerator
+ * would also catch the agent's own typing of it.
+ */
+function syncShortcut() {
+    const { globalShortcut } = electron;
+    if (!globalShortcut) return;
+    const watched = [...drivers.values()].some(entry => !entry.held);
+    const want = present && Boolean(press?.toggle) && !watched;
+    if (want === shortcutOn) return;
+    try {
+        if (want) {
+            shortcutOn = globalShortcut.register(VOICE_ACCELERATOR, () => voicePressed(''));
+        } else {
+            globalShortcut.unregister(VOICE_ACCELERATOR);
+            shortcutOn = false;
+        }
+    } catch (error) {
+        console.error('Could not hold the voice key:', error.message);
+        shortcutOn = false;
+    }
+}
+
+/* ------------------------------------------------------------------ *
  * Holding the chord
  * ------------------------------------------------------------------ */
 
@@ -624,6 +926,8 @@ function onPtt(message = {}) {
     const seq = Number(message.seq) || 0;
     if (seq && seq <= lastSeq) return;
     if (seq) lastSeq = seq;
+    // Listening on a press of the voice key: the chord coming up is not the end of it.
+    if (press?.toggle && message.state !== 'next') return;
     if (message.state === 'down') pressed();
     else if (message.state === 'up') released();
     else if (message.state === 'cancel') cancelled();
@@ -665,8 +969,25 @@ function ensureConversation() {
     return conversationId;
 }
 
-function pressed() {
-    if (press) return;
+/**
+ * The turn a hold of the chord steers: the one the notch shows, a chat's or
+ * the buddy's, else the buddy's own still at work. None after a switch: what
+ * is said then is for the new agent.
+ */
+function steerable() {
+    if (freshNext) return '';
+    if (isBusy(shown)) return shown;
+    if (isBusy(conversationId)) return conversationId;
+    return '';
+}
+
+/**
+ * Start listening: the chord gone down, or the voice key pressed (`toggle`,
+ * naming the agent at work it is for). Held, it steers the turn at work, or
+ * asks the buddy afresh; pressed, it always steers the agent named.
+ */
+function pressed({ toggle = false, target: named = '' } = {}) {
+    if (press || !present) return;
     clearTimeout(lingerTimer);
     // Talking over the buddy stops it.
     hush();
@@ -679,31 +1000,51 @@ function pressed() {
         notice('Voice input is switched off in Settings, under Chat.');
         return;
     }
-    // Not after a switch: what is said then is for the new agent.
-    const steering = !freshNext && Boolean(conversationId) && Boolean(deps.ai?.isBusy?.(conversationId));
     let target = '';
-    try {
-        target = steering ? conversationId : ensureConversation();
-    } catch (error) {
-        notice(`Could not start a conversation: ${error.message}`);
-        return;
+    let steering = false;
+    if (toggle) {
+        target = named || shown;
+        if (!target) return;
+        steering = true;
+        // The one it is for is the one the notch shows while it listens.
+        if (target !== shown) focus(target);
+    } else {
+        target = steerable();
+        steering = Boolean(target);
+        try {
+            if (!steering) target = ensureConversation();
+        } catch (error) {
+            notice(`Could not start a conversation: ${error.message}`);
+            return;
+        }
     }
     // While the person talks, the runtime gets ready, so the first answer
     // does not wait on it starting. Nothing goes to a model.
     if (!steering) deps.ai.warm?.(target)?.catch?.(() => {});
     const displayId = displayAtCursor();
+    // A new request is the buddy's own turn from here: whatever was drawn
+    // before (a chat at rest, its own last reply) gives way to it.
+    const asking = steering ? {} : {
+        action: null, ask: null, held: '', said: '', chat: false, title: '', agent: '',
+    };
+    if (!steering) shown = target;
     press = {
         seq: lastSeq,
         at: Date.now(),
         mode: steering ? 'steer' : 'ask',
+        toggle,
         displayId,
         conversationId: target,
         looking: null,
         timer: setTimeout(() => released(), HOLD_LIMIT_MS),
     };
+    syncShortcut();
     push({
+        ...asking,
         phase: 'listening',
         mode: press.mode,
+        toggle,
+        others: othersCount(),
         heard: '',
         notice: '',
         reply: steering ? state.reply : '',
@@ -712,7 +1053,6 @@ function pressed() {
         drawing: null,
         // Talking over a reply being read out stops it.
         say: null,
-        ...(steering ? {} : { action: null, ask: null, held: '', said: '' }),
     });
     sendTo(displayId, 'buddy-listen', { action: 'start', live: voice.live });
 }
@@ -738,12 +1078,13 @@ function cancelled() {
 function dropPress() {
     clearTimeout(press?.timer);
     press = null;
+    syncShortcut();
 }
 
-/** Back to whatever the turn under way is doing, or to rest. */
+/** Back to whatever the turn shown is doing, or to another agent at work, or to rest. */
 function settleBack() {
-    const busy = conversationId && deps.ai?.isBusy?.(conversationId);
-    push({ phase: busy ? (state.action ? 'acting' : 'thinking') : 'idle', heard: '' });
+    if (isBusy(shown)) push({ phase: state.action ? 'acting' : 'thinking', heard: '', toggle: false });
+    else if (!refocus({ settling: true })) rest();
 }
 
 /**
@@ -799,27 +1140,33 @@ function pointerWords(id) {
 }
 
 async function act(taken, text) {
-    // Still at work: what was said steers the turn, or answers its question.
-    if (taken.mode === 'steer' && deps.ai.isBusy(taken.conversationId)) {
-        const where = pointerWords(taken.conversationId);
-        const result = await deps.ai.steer(taken.conversationId, where ? `${text} ${where}` : text);
+    // Still at work, or a chat's turn: what was said steers the turn, or
+    // answers its question; a chat whose turn ended while they spoke gets it
+    // as its next message (see `steer` in index.js), not the buddy.
+    const target = taken.conversationId;
+    if (taken.mode === 'steer' && (deps.ai.isBusy(target) || !owns(target))) {
+        const where = pointerWords(target);
+        const result = await deps.ai.steer(target, where ? `${text} ${where}` : text);
         if (!result?.success) {
             notice(result?.message || 'That did not reach the agent.');
             return;
         }
-        push({
-            phase: state.action ? 'acting' : 'thinking',
-            ask: result.answered ? null : state.ask,
-            said: result.answered ? 'Answered' : 'Got it',
-        });
+        if (shown === target) {
+            push({
+                phase: state.action ? 'acting' : 'thinking',
+                toggle: false,
+                ask: result.answered ? null : state.ask,
+                said: result.answered ? 'Answered' : 'Got it',
+            });
+        }
         return;
     }
 
-    // A new request, or the turn ended while they spoke: a message, with
-    // the picture of what they are looking at.
-    push({ phase: 'looking' });
+    // A new request, or the buddy's turn ended while they spoke: a message,
+    // with the picture of what they are looking at.
+    push({ phase: 'looking', toggle: false });
     const look = await (taken.looking || deps.computer.look());
-    const id = taken.mode === 'ask' ? taken.conversationId : ensureConversation();
+    const id = taken.mode === 'ask' ? target : ensureConversation();
     if (!deps.ai.has?.(id)) {
         notice('The conversation was closed. Try again.');
         return;
@@ -829,6 +1176,7 @@ async function act(taken, text) {
     briefed.add(id);
     conversationId = id;
     mine.add(id);
+    shown = id;
     // In the app too, as a tab beside the others: there it can be read in
     // full and stopped. Opened in the background, once, as the first message
     // goes; the app is not brought up over what the person is doing.
@@ -842,7 +1190,10 @@ async function act(taken, text) {
     }
     texts = [];
     lastTurnAt = Date.now();
-    push({ phase: 'thinking', since: Date.now(), action: null, ask: null, reply: '', said: '', held: '' });
+    push({
+        phase: 'thinking', since: Date.now(), action: null, ask: null, reply: '', said: '', held: '',
+        chat: false, title: '', agent: '', others: othersCount(),
+    });
     const result = await deps.ai.send(id, text, look?.ok ? [look.image] : [], [], [], { spoken: true, note });
     if (!result?.success) notice(result?.message || 'The agent did not take that.');
 }
@@ -889,8 +1240,8 @@ function canCue() {
 
 function notice(text) {
     clearTimeout(lingerTimer);
-    push({ phase: 'notice', notice: String(text || '').slice(0, 240), heard: '' });
-    lingerTimer = setTimeout(() => settleBack(), NOTICE_MS);
+    push({ phase: 'notice', notice: String(text || '').slice(0, 240), heard: '', toggle: false });
+    lingerTimer = setTimeout(() => settleBack(), timing.notice);
 }
 
 /* ------------------------------------------------------------------ *
@@ -910,7 +1261,15 @@ function slim(input) {
 }
 
 function onEvent(event, info) {
-    if (!enabled || !info || info.conversationId !== conversationId) return;
+    if (!present || !info?.conversationId) return;
+    const id = info.conversationId;
+    // A chat at work but not drawn yet keeps its name for when it is.
+    if (event.type === 'title' && drivers.has(id) && event.title) drivers.get(id).title = String(event.title).slice(0, 120);
+    if (id !== shown) {
+        // A message typed into the buddy's own tab, with nothing else drawn: its turn is drawn.
+        if (!(id === conversationId && !shown && event.type === 'user-message' && !info.remembering)) return;
+        shown = id;
+    }
     // The note-taking turn after a real one is the app's, not the person's.
     if (info.remembering) return;
     if (event.type === 'title') {
@@ -919,11 +1278,16 @@ function onEvent(event, info) {
     }
     // A subagent's work, or a child conversation's, is not this turn's.
     if (event.parentId || event.via) return;
+    // Spoken to, it speaks; a chat's turn is shown and never said.
+    const voiced = owns(id);
+    // A chat is drawn while it uses the computer, and as that turn ends;
+    // the rest of what it does is the app's to show.
+    if (!voiced && (ENDINGS.has(event.type) ? !WORKING.has(state.phase) : !drivers.has(id))) return;
     const listening = Boolean(press);
     switch (event.type) {
         case 'user-message':
             texts = [];
-            lastTurnAt = Date.now();
+            if (voiced) lastTurnAt = Date.now();
             if (!listening && state.phase !== 'thinking') push({ phase: 'thinking', since: Date.now(), reply: '', action: null });
             return;
         case 'tool-call':
@@ -951,9 +1315,9 @@ function onEvent(event, info) {
                     options: event.secret ? [] : (event.options || []).slice(0, 4).map(option => String(option).slice(0, 40)),
                 }
                 : { question: `Allow: ${String(event.title || event.name || 'this step').slice(0, 200)}?`, options: ['Yes', 'No'] };
-            // Said aloud too: it is answered by voice, often without
-            // looking up at the notch.
-            const said = listening ? null : speak(questionWords(ask));
+            // Said aloud too, in the buddy's own turns: it is answered by
+            // voice, often without looking up at the notch.
+            const said = listening || !voiced ? null : speak(questionWords(ask));
             push({
                 ...(listening ? {} : { phase: 'waiting' }),
                 action: null,
@@ -1086,15 +1450,18 @@ function speakable(text) {
 }
 
 function finish({ error = '', stopped = false } = {}) {
-    lastTurnAt = Date.now();
+    clearTimeout(goneTimer);
+    // The buddy's own turn speaks, points and draws; a chat's is shown only.
+    const voiced = owns(shown);
+    if (voiced) lastTurnAt = Date.now();
     const { body, point, recap, shapes } = readTags(texts.join('\n\n'));
     texts = [];
     // As said, delivery cues and all; and as shown, without them.
     const short = recapOf(body, recap);
-    const shown = tones.withoutCues(short);
+    const plain = tones.withoutCues(short);
     if (press) {
         // They are talking already: what this turn said waits in the notch.
-        push({ action: null, ask: null, reply: body, recap: shown, said: '' });
+        push({ action: null, ask: null, reply: body, recap: plain, said: '' });
         return;
     }
     if (error) {
@@ -1102,15 +1469,16 @@ function finish({ error = '', stopped = false } = {}) {
         return;
     }
     if (stopped) {
-        push({ phase: 'idle', action: null, ask: null, held: '' });
+        if (!refocus({ settling: true })) rest({ action: null, ask: null, held: '' });
         return;
     }
-    const drawn = shapes.map(sketch).filter(Boolean);
+    const drawn = voiced ? shapes.map(sketch).filter(Boolean) : [];
     const drawing = drawn.length ? { at: Date.now(), shapes: drawn } : null;
     // With a drawing and nowhere named to point, the mark goes to the first
     // thing drawn, as the hand that draws it, saying nothing of its own.
-    const spot = point ? place(point) : (drawn.length ? { ...anchorOf(drawn[0]), label: '', at: Date.now() } : null);
-    const say = speak(short);
+    const named = voiced && point ? place(point) : null;
+    const spot = named || (drawn.length ? { ...anchorOf(drawn[0]), label: '', at: Date.now() } : null);
+    const say = voiced ? speak(short) : null;
     push({
         phase: say ? 'speaking' : 'done',
         action: null,
@@ -1118,7 +1486,7 @@ function finish({ error = '', stopped = false } = {}) {
         held: '',
         said: '',
         reply: body,
-        recap: shown,
+        recap: plain,
         point: spot,
         drawing,
         say,
@@ -1134,7 +1502,7 @@ function finish({ error = '', stopped = false } = {}) {
 
 /** A pixel of the agent's latest screenshot, as a point on the desktop (DIPs) the windows draw on, or null. */
 function toDesk(x, y) {
-    const physical = deps.computer.frameToScreen(conversationId, x, y);
+    const physical = deps.computer.frameToScreen(shown || conversationId, x, y);
     if (!physical) return null;
     let dip = physical;
     try {
@@ -1289,23 +1657,35 @@ function spoke(sender, payload = {}) {
     if (state.phase === 'done') linger();
 }
 
+/**
+ * A finished turn's reply stays a while, then the notch folds; or, with
+ * another agent at work on the desktop, it stays a beat and that one is drawn.
+ */
 function linger() {
     clearTimeout(lingerTimer);
+    const next = [...drivers.keys()].some(id => id !== shown);
     lingerTimer = setTimeout(() => {
-        if (state.phase === 'done') push({ phase: 'idle' });
-    }, REPLY_MS);
+        if (state.phase !== 'done') return;
+        if (!refocus()) rest();
+    }, next ? timing.beat : timing.reply);
 }
 
 /** What the action under way is aimed at, by name, once the helper has found it. */
 function aimed(id, label) {
-    if (!enabled || id !== conversationId || !state.action || !label) return;
+    if (!present || id !== shown || !state.action || !label) return;
     push({ action: { ...state.action, aim: String(label).slice(0, 120) } });
 }
 
 /** The person's hand stopped the agents: took over the mouse or keyboard, or pressed Esc. */
 function held(ids = [], code = 'took-over') {
-    if (!enabled || !ids.includes(conversationId)) return;
-    push({ held: code === 'escape' ? 'escape' : 'took-over', action: null });
+    const how = code === 'escape' ? 'escape' : 'took-over';
+    for (const id of ids) {
+        const driver = drivers.get(id);
+        if (driver) driver.held = how;
+    }
+    syncShortcut();
+    if (!present || !ids.includes(shown)) return;
+    push({ held: how, action: null });
 }
 
 /** For the settings card: on, who it talks to, and what stands in its way. */
@@ -1368,8 +1748,14 @@ async function voices() {
     return deps.tts.voices(key);
 }
 
-function shutdown() {
+/**
+ * Everything of it gone: the main window closed for real, or (`final`) the
+ * app quitting, after which nothing brings it up again.
+ */
+function shutdown({ final: last = false } = {}) {
+    if (last) final = true;
     if (enabled) stop();
+    leave();
 }
 
 module.exports = {
@@ -1377,7 +1763,11 @@ module.exports = {
     configure,
     sync,
     isOn,
+    isPresent,
     owns,
+    // Who is at work on the desktop, and the voice key pressed while they are.
+    drivers: setDrivers,
+    voice: voicePressed,
     ready,
     isBuddyWindow,
     onPtt,
@@ -1404,12 +1794,15 @@ module.exports = {
         // Each window's clickable place and whether it takes the mouse now.
         reach: () => [...windows.values()].map(entry => ({ displayId: entry.display.id, hit: entry.hit || null, mouse: Boolean(entry.mouse) })),
         state: () => state,
+        shown: () => shown,
         reset: () => {
             enabled = false;
             press = null;
             lastSeq = 0;
             freshNext = false;
             conversationId = '';
+            shown = '';
+            drivers.clear();
             mine.clear();
             briefed.clear();
             tabbed.clear();
@@ -1418,9 +1811,12 @@ module.exports = {
         },
         enable: () => {
             enabled = true;
+            present = true;
             if (!unobserve && deps.ai?.observe) unobserve = deps.ai.observe(onEvent);
         },
         setElectron: (value) => { electron = value; },
         setPlatform: (value) => { platform = value; },
+        // Shorter waits, for a test: `{ reply, notice, beat, gone, leave }` in milliseconds.
+        setTiming: (patch) => { timing = { ...TIMING, ...(patch || {}) }; },
     },
 };

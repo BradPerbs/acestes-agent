@@ -638,7 +638,7 @@ func target(_ request: Json) throws -> Json {
             }
         }
         answer["rect"] = box(bounds)
-        // What is being aimed at, by name, for the card in the corner.
+        // What is being aimed at, by name, for the buddy's notch.
         answer["label"] = summary(element)
     } else {
         let x = number(request, "x", Int.min)
@@ -673,7 +673,7 @@ func target(_ request: Json) throws -> Json {
     return answer
 }
 
-/// A hit on Acestes's own corner card, which clicks go straight through: it
+/// A hit on one of Acestes's own click-through windows (the buddy's): it
 /// covers nothing. What actually takes the click is the window beneath.
 private func passesThrough(_ hit: AXUIElement, _ point: CGPoint) -> Bool {
     protected.contains(pidOf(hit)) && !protected.contains(ownerAt(point))

@@ -236,7 +236,7 @@ function RowContent({ item, conversationId, onRespond, onAnswer, onRevert, onOpe
         );
     }
     if (item.kind === 'steer') {
-        // Said to the corner card while the agent worked, and handed to it
+        // Said to the buddy while the agent worked, and handed to it
         // mid-turn: a lighter bubble than a message, since it did not start
         // a turn of its own, with what it was under it.
         return (

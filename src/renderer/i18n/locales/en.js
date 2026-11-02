@@ -1400,8 +1400,8 @@ export default {
         + 'to the servers only. Looking things up on the web stays available either way.',
     'settings.assistant.computerUse': 'Use this computer',
     'settings.assistant.computerUseDesc': 'Lets the agent work desktop apps with the real mouse and keyboard, where you '
-        + 'can watch the cursor move. It asks before it touches each app, and a badge says when it is driving. Click or '
-        + 'type anywhere outside Acestes to take over; Esc stops it.',
+        + 'can watch the cursor move. It asks before it touches each app, and the buddy beside your cursor says what '
+        + 'it is doing. Click or type anywhere outside Acestes to take over; Esc stops it.',
     'settings.assistant.computerUseMac': 'macOS asks once to allow Acestes Agent under Accessibility, and under Screen '
         + 'Recording for screenshots, in System Settings > Privacy & Security.',
     'settings.assistant.computerPace': 'Pace',
@@ -1581,11 +1581,14 @@ export default {
         + 'computer.',
     'settings.agentic.bundles': 'Tool bundles',
     'settings.buddy.title': 'Buddy',
-    'settings.buddy.desc': 'Acestes stays in the background, with a notch at the top of the screen and a mark '
-        + 'beside your cursor. Hold Ctrl+Alt anywhere and say what you want: the agent sees your screen and '
-        + 'where you point, and does it.',
-    'settings.buddy.background': 'While it is on, closing the window keeps Acestes running in the tray, '
-        + 'where the buddy can also be switched off.',
+    'settings.buddy.desc': 'Whenever an agent uses this computer, from a chat or by voice, the buddy shows what it '
+        + 'is doing: a notch at the top of the screen and a mark beside your cursor. Moving the mouse pauses the '
+        + 'agent, Esc stops it, and Ctrl+S steers it by voice.',
+    'settings.buddy.always': 'Always on',
+    'settings.buddy.alwaysDesc': 'Keeps the buddy beside your cursor when no agent is at work too. Hold Ctrl+Alt '
+        + 'anywhere and say what you want: the agent sees your screen and where you point, and does it.',
+    'settings.buddy.background': 'While it is always on, closing the window keeps Acestes running in the tray, '
+        + 'where it can also be switched off.',
     'settings.buddy.agent': 'Talks to',
     'settings.buddy.agentDesc': 'The agent what you say goes to. It keeps one conversation going while you '
         + 'talk to it, and starts a fresh one after twenty quiet minutes. Switch from anywhere with Ctrl+Alt+Space, '
@@ -1625,8 +1628,8 @@ export default {
     'settings.buddy.voiceTry': 'Try it',
     'settings.buddy.voiceTrying': 'Speaking…',
     'settings.buddy.notch': 'Show the notch',
-    'settings.buddy.notchDesc': 'The bar at the top of the main screen that shows what it hears, what it is '
-        + 'doing and what it said. The mark beside the cursor stays either way.',
+    'settings.buddy.notchDesc': 'The bar at the top of the main screen that shows what the agent is doing, '
+        + 'what it hears and what it said, with Stop and Open. The mark beside the cursor stays either way.',
     'settings.buddy.needsComputer': 'This agent may not use this computer, so the buddy can answer but not act.',
     'settings.buddy.allowComputer': 'Let it use this computer',
     'settings.buddy.needsVoice': 'Voice input is off, under Chat, so the buddy cannot hear you.',
@@ -2720,23 +2723,6 @@ export default {
     'activity.arranging': 'Arranging windows',
     'activity.using': 'Using {tool}',
     'activity.thinking': 'Thinking…',
-    'activity.waitingForYou': 'Waiting for you in Acestes',
-    'activity.done': 'Done',
-    'activity.untitled': 'New conversation',
-    'activity.paused': 'Paused · you have control',
-    'activity.stopped': 'Stopped',
-    'activity.listening': 'Listening',
-    'activity.steering': 'steering {title}',
-    'activity.steerHint': 'to send',
-    'activity.steered': 'Steered: it reads this at its next step',
-    'activity.answered': 'Answered: it carries on',
-    'activity.asks': 'It is asking you',
-    'activity.answerHint': 'to answer by voice',
-    'activity.sentAsMessage': 'Sent as a new message: the turn had ended',
-    'activity.notSent': 'Not sent',
-    'activity.notSentWhy': 'Acestes did not take the message.',
-    'activity.voiceOff': 'Voice input is off. Switch it on in Settings, under Chat.',
-    'activity.stoppedNothingSent': 'The agent was stopped, so nothing was sent.',
     'buddy.listening': 'Listening',
     'buddy.listeningSteer': 'Listening · it carries on meanwhile',
     'buddy.hearing': 'Writing it down…',
@@ -2749,6 +2735,14 @@ export default {
     'buddy.hint': 'Hold {chord} and talk',
     'buddy.answerHint': 'Hold {chord} to answer',
     'buddy.steerHint': 'Hold {chord} to steer',
+    'buddy.answerHintPress': 'Press {chord} to answer',
+    'buddy.steerHintPress': 'Press {chord} to steer',
+    'buddy.sendHint': 'Press {chord} again to send',
+    'buddy.untitled': 'New conversation',
+    'buddy.more_one': '+{count} more',
+    'buddy.more_other': '+{count} more',
+    'buddy.othersAtWork_one': '{count} more agent at work',
+    'buddy.othersAtWork_other': '{count} more agents at work',
     'buddy.stop': 'Stop',
     'buddy.openInApp': 'Open in Acestes',
     'buddy.talkingTo': 'Talking to',

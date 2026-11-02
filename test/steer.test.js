@@ -1,5 +1,5 @@
 /**
- * Steering a turn while it runs: words the user said to the corner card
+ * Steering a turn while it runs: words the user said to the buddy
  * during computer use wait on the conversation, and ride to the model on
  * the next result of one of our tools, whichever runtime is answering. The
  * transcript gets them at that moment. A turn stopped before then says they

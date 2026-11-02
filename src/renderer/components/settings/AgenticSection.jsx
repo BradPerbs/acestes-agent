@@ -159,10 +159,11 @@ export default function AgenticSection() {
                 <BrowserUse className={DIVIDED} settings={settings} update={update} />
             </SettingCard>
 
-            {/* The buddy: Ctrl+Alt anywhere, and the agent acts on what you
-                point at. Windows only for now (its push to talk is the
-                Windows helper's). */}
-            {window.api.platform === 'win32' && <BuddyCard settings={settings} update={update} />}
+            {/* The buddy: how an agent using this computer shows itself, and,
+                always on, Ctrl+Alt anywhere to talk to it (Windows only: its
+                push to talk is the Windows helper's). Wherever there is
+                computer use. */}
+            {desktop && <BuddyCard settings={settings} update={update} />}
 
             <SettingCard>
                 <SettingRow

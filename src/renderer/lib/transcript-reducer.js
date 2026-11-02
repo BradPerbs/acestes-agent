@@ -146,7 +146,7 @@ function step(state, event, owned) {
                     || (event.specs || []).map(spec => ({ ...spec, kind: 'snippet' })),
                 // Written somewhere other than the app (a chat app), when it was.
                 channel: event.channel || '',
-                // Said to the corner card rather than typed.
+                // Said to the buddy rather than typed.
                 spoken: Boolean(event.spoken),
             });
             busy = true;
@@ -154,8 +154,8 @@ function step(state, event, owned) {
             turnStartAt = event.at;
             break;
 
-        // Words the user said while the turn ran (the corner card's voice
-        // shortcut), at the moment the agent was handed them. Part of the
+        // Words the user said while the turn ran (to the buddy, held or by
+        // the voice key), at the moment the agent was handed them. Part of the
         // turn, not the start of another: the turn and its draft go on.
         case 'steer':
             edit().push({ kind: 'steer', id: `st-${event.at}-${items.length}`, text: event.text || '' });

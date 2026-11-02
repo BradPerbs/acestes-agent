@@ -13,8 +13,8 @@ import { useT } from '../../i18n';
  * elapsed time shows beside it for the same reason.
  *
  * Its parts (the ring, the rolling phrase, the phrase that turns over, the
- * clock) are exported for the card in the corner of the screen while an agent
- * drives the desktop (ActivityOverlay.jsx), so the two read as one thing.
+ * clock) are exported for the buddy's notch while an agent drives the
+ * desktop (BuddyOverlay.jsx), so the two read as one thing.
  */
 
 /** Our own tools, by what the work looks like from the outside. */
@@ -142,7 +142,7 @@ export function usePhrase(activity) {
  * `cue` changes and the new one rolling in under it.
  *
  * `cue` is what counts as a new phrase, and is the text itself unless said
- * otherwise. The overlay names an action and then, a moment later, what it
+ * otherwise. The buddy's notch names an action and then, a moment later, what it
  * is aimed at; that is the same action said better, so it changes in place
  * rather than rolling.
  *

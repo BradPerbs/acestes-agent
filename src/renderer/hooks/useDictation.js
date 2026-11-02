@@ -194,7 +194,7 @@ export default function useDictation({ live: liveDefault = false, onText, onNoti
     }, [finish]);
 
     // `options.live` picks the engine for this one recording, for a caller
-    // that learns it only when asked to listen (the corner card). Anything
+    // that learns it only when asked to listen (the buddy). Anything
     // else passed (a click event) leaves the hook's own.
     const start = useCallback(async (options) => {
         if (session.current || starting.current || state !== 'idle') return;

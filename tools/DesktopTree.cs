@@ -1162,7 +1162,7 @@ static partial class DesktopHelper
                 }
             }
             answer["rect"] = new object[] { bounds.left, bounds.top, width, height };
-            // What is being aimed at, by name, for the card in the corner.
+            // What is being aimed at, by name, for the buddy's notch.
             answer["label"] = Summary(element);
         }
         else
@@ -1208,7 +1208,7 @@ static partial class DesktopHelper
     }
 
     /// <summary>
-    /// A hit on Acestes's own corner card, which clicks go straight through:
+    /// A hit on one of Acestes's own click-through windows (the buddy's):
     /// it covers nothing. What actually takes the click at that point is the
     /// window beneath, and if that is Acestes too, Allowed refuses it later.
     /// </summary>

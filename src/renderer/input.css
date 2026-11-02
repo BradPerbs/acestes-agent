@@ -708,7 +708,7 @@ input[type="color"]::-webkit-color-swatch {
     transition: width 240ms cubic-bezier(0.2, 0, 0, 1);
 }
 
-/* The corner card's (ActivityOverlay.jsx): the rest of its row, with nothing
+/* The buddy's notch (BuddyOverlay.jsx): the rest of its row, with nothing
    beside it to glide, and a phrase too long for it cut by an ellipsis rather
    than at a letter, since the actions it names can run long. */
 .working-cell.working-fit {
@@ -722,19 +722,6 @@ input[type="color"]::-webkit-color-swatch {
     max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
-}
-
-/* A step darker (lighter, in the dark): the card is read at a glance from the
-   corner of the screen, over whatever app is behind it, where the line under
-   a turn sits quiet in a panel of its own. */
-.working-loud .working-phrase {
-    --working-base: rgb(107 114 128);
-    --working-glint: rgb(17 24 39);
-}
-
-.dark .working-loud .working-phrase {
-    --working-base: rgb(156 163 175);
-    --working-glint: rgb(243 244 246);
 }
 
 .working-phrase {
@@ -811,183 +798,10 @@ input[type="color"]::-webkit-color-swatch {
     }
 }
 
-/* The corner card -----------------------------------------------------------
-   The agents at work, in a corner of the screen (ActivityOverlay.jsx). Each
-   card is a hairline edge with an opaque face inside it, and behind the face
-   a large conic gradient turning, so a light runs round the edge: grey while
-   the agent thinks, violet while it acts, amber while it waits, rose while
-   the card listens. Turned with a transform, which the compositor does
-   alone. A paused, stopped or sent card has a still, tinted edge instead. */
-.activity-card {
-    --activity-hair: rgb(0 0 0 / 0.08);
-    --activity-face: #ffffff;
-    --activity-light: transparent;
-    --activity-spin: 3s;
-    position: relative;
-    padding: 1px;
-    border-radius: 18px;
-    overflow: hidden;
-    isolation: isolate;
-    background: var(--activity-hair);
-    box-shadow: 0 12px 32px -14px rgb(0 0 0 / 0.35), 0 2px 6px -3px rgb(0 0 0 / 0.14);
-    transition: opacity 400ms ease, background-color 400ms ease;
-}
-
-/* Dark is the app's own palette, as its dialogs wear it: a panel face with a
-   control edge, so the card follows the theme and colours picked in Settings. */
-.dark .activity-card {
-    --activity-hair: rgb(var(--app-control));
-    --activity-face: rgb(var(--app-raised));
-    box-shadow: 0 14px 36px -14px rgb(0 0 0 / 0.75), 0 2px 6px -3px rgb(0 0 0 / 0.45);
-}
-
-.activity-card::before {
-    content: '';
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    width: 230%;
-    aspect-ratio: 1;
-    background: conic-gradient(from 0deg,
-            transparent 0deg,
-            transparent 220deg,
-            var(--activity-light) 320deg,
-            transparent 360deg);
-    opacity: 0;
-    transform: translate(-50%, -50%) rotate(0deg);
-    transition: opacity 500ms ease;
-    animation: activity-sweep var(--activity-spin) linear infinite;
-}
-
-.activity-surface {
-    position: relative;
-    border-radius: 17px;
-    background: var(--activity-face);
-    padding: 11px 13px;
-}
-
-.activity-card[data-tone='thinking']::before {
-    --activity-light: rgb(0 0 0 / 0.32);
-    opacity: 1;
-}
-
-.dark .activity-card[data-tone='thinking']::before {
-    --activity-light: rgb(255 255 255 / 0.5);
-}
-
-.activity-card[data-tone='acting']::before {
-    --activity-light: rgb(139 92 246);
-    --activity-spin: 1.7s;
-    opacity: 1;
-}
-
-.dark .activity-card[data-tone='acting']::before {
-    --activity-light: rgb(167 139 250);
-}
-
-.activity-card[data-tone='waiting']::before {
-    --activity-light: rgb(245 158 11);
-    --activity-spin: 2.2s;
-    opacity: 1;
-}
-
-.activity-card[data-tone='listening']::before {
-    --activity-light: rgb(244 63 94);
-    --activity-spin: 1.9s;
-    opacity: 1;
-}
-
-.activity-card[data-tone='paused'] {
-    --activity-hair: rgb(245 158 11 / 0.5);
-}
-
-.activity-card[data-tone='stopped'] {
-    --activity-hair: rgb(239 68 68 / 0.5);
-}
-
-.activity-card[data-tone='sent'] {
-    --activity-hair: rgb(16 185 129 / 0.45);
-}
-
-.activity-card.activity-done {
-    opacity: 0.78;
-}
-
-@keyframes activity-sweep {
-    to {
-        transform: translate(-50%, -50%) rotate(360deg);
-    }
-}
-
-/* In from below with a spring, settling out of a blur; out to the right. */
-.activity-in {
-    animation: activity-in 460ms cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-.activity-out {
-    animation: activity-out 260ms cubic-bezier(0.4, 0, 1, 1) both;
-}
-
-@keyframes activity-in {
-    from {
-        opacity: 0;
-        transform: translateY(14px) scale(0.96);
-        filter: blur(6px);
-    }
-}
-
-@keyframes activity-out {
-    to {
-        opacity: 0;
-        transform: translateX(28px) scale(0.97);
-        filter: blur(4px);
-    }
-}
-
-/* Under the cursor the stack all but goes, so the cursor is never behind it. */
-.activity-stack {
-    transform-origin: bottom right;
-    transition: opacity 180ms ease, transform 240ms cubic-bezier(0.2, 0, 0, 1);
-}
-
-.activity-stack-faded {
-    opacity: 0.14;
-    transform: translateX(4px) scale(0.985);
-}
-
-.activity-said,
-.activity-line-in {
-    animation: activity-fade 360ms cubic-bezier(0.2, 0, 0, 1) both;
-}
-
-@keyframes activity-fade {
-    from {
-        opacity: 0;
-        transform: translateY(3px);
-    }
-}
-
-.activity-check path {
-    stroke-dasharray: 12;
-    stroke-dashoffset: 12;
-    animation: activity-draw 420ms 80ms cubic-bezier(0.65, 0, 0.35, 1) forwards;
-}
-
-@keyframes activity-draw {
-    to {
-        stroke-dashoffset: 0;
-    }
-}
-
-/* Listening: a halo that swells with the voice, and a waveform whose bars
-   reach by the microphone's level (`--level`, set each frame by
-   useDictation), each by its own share of it, with a slow wobble of their
-   own on top so the shape breathes even between words. */
-.activity-mic-halo {
-    transform: scale(calc(0.7 + var(--level, 0) * 1.6));
-    transition: transform 90ms linear;
-}
-
+/* The waveform of a voice, in the buddy's notch (BuddyOverlay.jsx): bars that
+   reach by the microphone's level (`--level`, set each frame by useDictation),
+   each by its own share of it, with a slow wobble of their own on top so the
+   shape breathes even between words. */
 .activity-wave {
     display: flex;
     align-items: center;
@@ -1043,16 +857,8 @@ input[type="color"]::-webkit-color-swatch {
     }
 }
 
-/* The words so far: the newest three lines, the older ones scrolled away. */
-.activity-words {
-    display: flex;
-    flex-direction: column;
-    justify-content: flex-end;
-    max-height: calc(1.375em * 3);
-    overflow: hidden;
-}
-
 /* The buddy -----------------------------------------------------------------
+   The sign on screen of an agent at work on the desktop, and, on for good,
    Acestes in the background (BuddyOverlay.jsx): a window per display, the
    size of it, transparent and click-through. A violet arrowhead rides beside
    the cursor on a spring and turns into a waveform, a turning ring or a
@@ -1328,6 +1134,18 @@ input[type="color"]::-webkit-color-swatch {
 
 .buddy-rec {
     animation: buddy-breathe 1.1s ease-in-out infinite;
+}
+
+/* Whose turn it is, when it is a chat's, and how many more are at work. */
+.buddy-who {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    margin-bottom: 7px;
+    font-size: 10.5px;
+    line-height: 14px;
+    color: rgb(255 255 255 / 0.4);
 }
 
 .buddy-heard,
@@ -1643,25 +1461,9 @@ input[type="color"]::-webkit-color-swatch {
     .buddy-ask-dot,
     .buddy-speaker>span,
     .buddy-speaking .buddy-arrow,
-    .buddy-wave>span {
-        animation: none;
-    }
-}
-
-@media (prefers-reduced-motion: reduce) {
-
-    .activity-card::before,
-    .activity-in,
-    .activity-out,
-    .activity-said,
-    .activity-line-in,
+    .buddy-wave>span,
     .activity-bar>span {
         animation: none;
-    }
-
-    .activity-check path {
-        animation: none;
-        stroke-dashoffset: 0;
     }
 }
 

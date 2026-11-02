@@ -17,8 +17,8 @@ import { useT } from '../../i18n';
  * Ctrl+S starts it and, pressed again, stops it, from anywhere in this
  * conversation's pane. A terminal or an editor keeps its own Ctrl+S (a save,
  * nano's write-out), and so does a pane the focus is not in. While an agent
- * drives the desktop the same keys are the corner card's instead, to steer it
- * by voice (see main/ai/overlay.js); the helper keeps them from the app then.
+ * drives the desktop the same keys are the buddy's instead, to steer it by
+ * voice (see `voice` in main/ai/buddy.js); the helper keeps them from the app then.
  */
 
 const clock = seconds => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;

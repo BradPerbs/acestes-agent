@@ -738,17 +738,6 @@ contextBridge.exposeInMainWorld('api', {
         reattach: (conversationIds) => ipcRenderer.invoke('ai-window-reattach', conversationIds),
         closeWindow: () => ipcRenderer.invoke('ai-window-close'),
         onAdoptTabs: (callback) => subscribe('ai-tabs-adopt', callback),
-        // The corner overlay's rows: the agents at work on the desktop.
-        onActivity: (callback) => subscribe('ai-activity', callback),
-        // The overlay told the cursor is over its cards (to fade), and told to
-        // start or stop listening when the voice shortcut is pressed.
-        onActivityHover: (callback) => subscribe('ai-activity-hover', callback),
-        onActivityVoice: (callback) => subscribe('ai-activity-voice', callback),
-        // The overlay's own state for main: where its cards are, whether it
-        // is listening. See main/ai/overlay.js.
-        activityUi: (state) => ipcRenderer.send('ai-activity-ui', state),
-        // Words said while an agent works, steering its turn without stopping it.
-        steer: (conversationId, text) => ipcRenderer.invoke('ai-steer', { conversationId, text }),
         // The composer's microphone: 16 kHz mono samples in, the words out,
         // transcribed on this machine. `onSpeech` hears how the first use's
         // model download is going. See main/ai/speech.js.
@@ -796,8 +785,9 @@ contextBridge.exposeInMainWorld('api', {
     },
 
     /**
-     * The buddy (main/ai/buddy.js): Acestes in the background, a notch at the
-     * top of the screen and a mark beside the cursor, Ctrl+Alt to talk. Its
+     * The buddy (main/ai/buddy.js): a notch at the top of the screen and a
+     * mark beside the cursor whenever an agent uses the computer, and, on for
+     * good, Acestes in the background with Ctrl+Alt to talk. Its
      * windows hear which display they are (`onHello`), what to draw
      * (`onState`), where the cursor is (`onCursor`) and when to listen
      * (`onListen`); they say they are ready, what they heard and that a reply

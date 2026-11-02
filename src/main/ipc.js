@@ -26,7 +26,6 @@ const sessionLog = require('./session-log');
 const assistant = require('./ai');
 const aiWindows = require('./ai/windows');
 const computer = require('./ai/computer');
-const overlay = require('./ai/overlay');
 const buddy = require('./ai/buddy');
 const tray = require('./tray');
 const speech = require('./ai/speech');
@@ -396,19 +395,17 @@ function register(getWindow) {
         // capture, so the user's own screen sharing still shows the app.
         hideFromCapture: (on) => {
             for (const window of BrowserWindow.getAllWindows()) {
-                // The corner overlay and the buddy are kept out of capture all the time.
-                if (window.isDestroyed() || overlay.isOverlay(window) || buddy.isBuddyWindow(window)) continue;
+                // The buddy's windows are kept out of capture all the time.
+                if (window.isDestroyed() || buddy.isBuddyWindow(window)) continue;
                 window.setContentProtection(Boolean(on));
             }
         },
         // The push-to-talk chord, for the buddy.
         ptt: message => buddy.onPtt(message),
     });
-    // The card in the corner of the screen while an agent is at work, drawn
-    // by the same bundle as this window. See ai/overlay.js.
-    overlay.configure({ urlOf: () => getWindow()?.webContents.getURL() || '' });
-    // The buddy: Acestes in the background, beside the cursor, Ctrl+Alt to
-    // talk. Drawn by the same bundle too. Started once its settings say so.
+    // The buddy: beside the cursor whenever an agent is at work on the
+    // desktop, and, on for good, Acestes in the background with Ctrl+Alt to
+    // talk. Drawn by the same bundle as this window. See ai/buddy.js.
     buddy.configure({
         ai: assistant,
         computer,
@@ -1761,14 +1758,6 @@ function register(getWindow) {
         return result;
     });
     handle('ai-interrupt', (event, conversationId) => assistant.interrupt(conversationId));
-    // Words said to the corner card while an agent drives the desktop: they
-    // steer the turn under way without stopping it. See `steer` in ai/index.js.
-    handle('ai-steer', (event, payload) => assistant.steer(payload?.conversationId, payload?.text));
-    // The corner card says where its cards are and whether it is listening,
-    // so main can fade it under the cursor and keep it up mid-sentence.
-    ipcMain.on('ai-activity-ui', (event, state) => {
-        if (overlay.isOverlay(BrowserWindow.fromWebContents(event.sender))) overlay.ui(state || {});
-    });
 
     // The buddy's windows: one is listening and says what it hears, one reads
     // the reply out and says when it has. Taken from those windows only.

@@ -6,7 +6,6 @@ import ErrorBoundary from './components/ErrorBoundary';
 import LockScreen from './components/LockScreen';
 import ScreenshotView from './components/ScreenshotView';
 import AssistantWindow from './components/assistant/AssistantWindow';
-import ActivityOverlay from './components/assistant/ActivityOverlay';
 import BuddyOverlay from './components/assistant/BuddyOverlay';
 import { INITIAL_THEME, applyAppColors, readAppColors } from './lib/app-colors';
 import { dismissBootSplash } from './lib/boot-splash';
@@ -60,9 +59,8 @@ import './input.css';
 const hashParams = new URLSearchParams(window.location.hash.slice(1));
 const screenshotId = hashParams.get('screenshot');
 const assistantWindowId = hashParams.get('assistant');
-// The card in the corner of the screen while an agent is at work.
-const activityOverlay = hashParams.has('activity');
-// The buddy's window on one display: the notch and the mark by the cursor.
+// The buddy's window on one display: the notch and the mark by the cursor,
+// up whenever an agent is at work on the desktop.
 const buddyOverlay = hashParams.has('buddy');
 
 // The sound of the assistant's notifications, played by whichever window
@@ -135,11 +133,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 ? <ScreenshotView id={screenshotId} />
                 : assistantWindowId
                     ? <AssistantWindow />
-                    : activityOverlay
-                        ? <ActivityOverlay />
-                        : buddyOverlay
-                            ? <BuddyOverlay />
-                            : <Root />}
+                    : buddyOverlay
+                        ? <BuddyOverlay />
+                        : <Root />}
         </ErrorBoundary>
     </React.StrictMode>
 );

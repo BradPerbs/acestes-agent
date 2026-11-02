@@ -23,7 +23,14 @@ const buddyTone = require('./buddy-tone');
  * belongs to, and nobody's working setup breaks on an update.
  */
 
-const CONFIG_VERSION = 2;
+/**
+ * 3: the buddy on by default. A file an older version wrote has `buddy: false`
+ * whether or not anyone chose it (the whole config is written), so it is
+ * switched on once on the way in; written again as 3, a choice made since is
+ * kept.
+ */
+const CONFIG_VERSION = 3;
+const BUDDY_ON_FROM = 3;
 
 const PROVIDERS = new Set([
     'claude-code', 'claude-desktop', 'codex', 'cursor', 'antigravity', 'muse', 'opencode', 'grok', 'kimi',
@@ -272,15 +279,17 @@ const DEFAULTS = {
     voiceModel: 'base',
     voiceLanguage: '',
     /**
-     * The buddy: Acestes kept in the background, with a notch at the top of
-     * the screen and a mark beside the cursor. Hold Ctrl+Alt anywhere and say
-     * what you want; the agent is handed the screen and where you point, and
-     * does it with the computer tools. The machine's, like the voice settings
-     * it listens with, and off until switched on. `buddyAgent` is who it talks
-     * to, '' for the agent selected in the app; `buddySpeak` reads its replies
-     * aloud; `buddyNotch` shows the notch. See buddy.js.
+     * The buddy always on: a notch at the top of the screen and a mark beside
+     * the cursor even with no agent at work (they show whenever one is,
+     * whatever this says), and Acestes kept in the background. Hold Ctrl+Alt
+     * anywhere and say what you want; the agent is handed the screen and where
+     * you point, and does it with the computer tools. The machine's, like the
+     * voice settings it listens with, and on from the start. `buddyAgent` is
+     * who it talks to, '' for the agent selected in the app; `buddySpeak`
+     * reads its recap aloud; `buddyNotch` shows the notch, for the agents at
+     * work too. See buddy.js.
      */
-    buddy: false,
+    buddy: true,
     buddyAgent: '',
     buddySpeak: true,
     buddyNotch: true,
@@ -597,6 +606,8 @@ function load() {
             const parsed = JSON.parse(fs.readFileSync(stateFile(), 'utf8'));
             config = sanitize(parsed?.config);
             secrets = readSecrets(parsed, config.provider);
+            // From before the buddy was on by default: on, as for a new install.
+            if ((Number(parsed?.version) || 0) < BUDDY_ON_FROM) config.buddy = true;
         } else {
             // Not written until something is changed, so until then each
             // start looks again and a Claude Code installed in the meantime

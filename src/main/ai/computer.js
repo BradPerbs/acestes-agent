@@ -373,8 +373,8 @@ const drivers = new Map();
 // Conversations whose turn the user stopped. An action already under way
 // when the stop came (a batch half done, one queued for the mouse) would
 // otherwise take the desktop back after it was let go, and with the turn
-// over nothing would ever let go of it again: the badge and the corner card
-// stayed up for good. Cleared by the next turn (see `resume`).
+// over nothing would ever let go of it again: the badge and the buddy's
+// notch stayed up for good. Cleared by the next turn (see `resume`).
 const halted = new Set();
 // Whether the helper's badge and hooks are on, and whether it has paused
 // itself on the user's hand since they were last switched on.
@@ -453,12 +453,12 @@ let hooks = {
     surface: () => {},
     // Keeps Acestes's own windows out of a screenshot, and lets them back in.
     hideFromCapture: () => {},
-    // Told who is driving whenever that changes, for the corner overlay.
+    // Told who is driving whenever that changes, for the buddy.
     driversChanged: () => {},
-    // Told what an action is aimed at, by name, for the corner overlay.
+    // Told what an action is aimed at, by name, for the buddy.
     aimed: () => {},
     // Told the user's hand stopped the drivers ('took-over' or 'escape'), for
-    // the corner overlay.
+    // the buddy.
     held: () => {},
     // Told the voice shortcut was pressed while driving, with who is driving.
     voice: () => {},
@@ -504,7 +504,7 @@ function pauseAll(code) {
     try {
         hooks.held([...drivers.keys()], code);
     } catch (error) {
-        console.error('Could not tell the overlay the drivers stopped:', error.message);
+        console.error('Could not tell the buddy the drivers stopped:', error.message);
     }
 }
 
@@ -553,7 +553,7 @@ function recordStop() {
     return call('record', { on: false }, 10000);
 }
 
-/** Whoever is watching who drives (the corner overlay) hears it on every change. */
+/** Whoever is watching who drives (the buddy) hears it on every change. */
 function announce() {
     try {
         hooks.driversChanged([...drivers.keys()]);
@@ -563,8 +563,8 @@ function announce() {
 }
 
 /**
- * The voice shortcut, which steers the agents at work by voice (see
- * overlay.js). The helper's keyboard hook sees it while driving, tells us,
+ * The voice shortcut, which steers the agents at work by voice (see `voice`
+ * in buddy.js). The helper's keyboard hook sees it while driving, tells us,
  * and keeps it from the app in front, so it is neither a save there nor the
  * user taking over. The same keys start the composer's microphone in the app.
  */
@@ -572,7 +572,7 @@ const VOICE_KEY = { key: 's', mods: 'ctrl' };
 
 /**
  * Switch the helper's driving on: its hooks, and the voice shortcut. Its own
- * badge at the top of the screen stays off; the corner card (overlay.js) says
+ * badge at the top of the screen stays off; the buddy (buddy.js) says
  * who is driving, and that the user's hand paused or stopped them. The labels
  * still go, for a helper built before `badge` was understood.
  */

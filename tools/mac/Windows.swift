@@ -159,7 +159,7 @@ func foregroundAnswer() -> Json {
 }
 
 /// The window that would take a click at a point: the topmost one there,
-/// leaving out this helper's own markers and Acestes's corner card, which
+/// leaving out this helper's own markers and Acestes's buddy windows, which
 /// float over everything and let clicks through.
 func windowAt(_ point: CGPoint) -> WindowInfo? {
     for window in cgWindows([.optionOnScreenOnly]) {

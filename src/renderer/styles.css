@@ -676,10 +676,6 @@ video {
   inset: 0px;
 }
 
-.inset-0\.5 {
-  inset: 0.125rem;
-}
-
 .inset-y-0 {
   top: 0px;
   bottom: 0px;
@@ -1049,6 +1045,10 @@ video {
   margin-bottom: 1.5rem;
 }
 
+.mb-8 {
+  margin-bottom: 2rem;
+}
+
 .ml-0\.5 {
   margin-left: 0.125rem;
 }
@@ -1123,6 +1123,10 @@ video {
 
 .mt-10 {
   margin-top: 2.5rem;
+}
+
+.mt-16 {
+  margin-top: 4rem;
 }
 
 .mt-2 {
@@ -1434,6 +1438,10 @@ video {
   max-height: 42vh;
 }
 
+.max-h-\[50vh\] {
+  max-height: 50vh;
+}
+
 .max-h-\[55\%\] {
   max-height: 55%;
 }
@@ -1484,6 +1492,10 @@ video {
 
 .min-h-\[3rem\] {
   min-height: 3rem;
+}
+
+.min-h-\[4\.5rem\] {
+  min-height: 4.5rem;
 }
 
 .min-h-full {
@@ -1795,6 +1807,10 @@ video {
   max-width: 16rem;
 }
 
+.max-w-\[18rem\] {
+  max-width: 18rem;
+}
+
 .max-w-\[230px\] {
   max-width: 230px;
 }
@@ -1815,12 +1831,20 @@ video {
   max-width: 45%;
 }
 
+.max-w-\[46rem\] {
+  max-width: 46rem;
+}
+
 .max-w-\[50\%\] {
   max-width: 50%;
 }
 
 .max-w-\[60\%\] {
   max-width: 60%;
+}
+
+.max-w-\[6rem\] {
+  max-width: 6rem;
 }
 
 .max-w-\[70\%\] {
@@ -2419,6 +2443,10 @@ video {
   border-radius: 14px;
 }
 
+.rounded-\[20px\] {
+  border-radius: 20px;
+}
+
 .rounded-\[2px\] {
   border-radius: 2px;
 }
@@ -2705,14 +2733,6 @@ video {
   background-color: rgb(245 158 11 / 0.1);
 }
 
-.bg-amber-500\/15 {
-  background-color: rgb(245 158 11 / 0.15);
-}
-
-.bg-amber-500\/40 {
-  background-color: rgb(245 158 11 / 0.4);
-}
-
 .bg-black\/20 {
   background-color: rgb(0 0 0 / 0.2);
 }
@@ -2766,10 +2786,6 @@ video {
 
 .bg-emerald-500\/10 {
   background-color: rgb(16 185 129 / 0.1);
-}
-
-.bg-emerald-500\/15 {
-  background-color: rgb(16 185 129 / 0.15);
 }
 
 .bg-emerald-500\/\[0\.10\] {
@@ -2955,10 +2971,6 @@ video {
 .bg-rose-500 {
   --tw-bg-opacity: 1;
   background-color: rgb(244 63 94 / var(--tw-bg-opacity, 1));
-}
-
-.bg-rose-500\/25 {
-  background-color: rgb(244 63 94 / 0.25);
 }
 
 .bg-rose-600 {
@@ -3260,11 +3272,6 @@ video {
   padding-bottom: 2rem;
 }
 
-.py-\[1px\] {
-  padding-top: 1px;
-  padding-bottom: 1px;
-}
-
 .py-px {
   padding-top: 1px;
   padding-bottom: 1px;
@@ -3306,6 +3313,10 @@ video {
   padding-bottom: 2rem;
 }
 
+.pb-\[14vh\] {
+  padding-bottom: 14vh;
+}
+
 .pl-0\.5 {
   padding-left: 0.125rem;
 }
@@ -3316,6 +3327,10 @@ video {
 
 .pl-1\.5 {
   padding-left: 0.375rem;
+}
+
+.pl-11 {
+  padding-left: 2.75rem;
 }
 
 .pl-12 {
@@ -3428,6 +3443,10 @@ video {
 
 .pt-1\.5 {
   padding-top: 0.375rem;
+}
+
+.pt-10 {
+  padding-top: 2.5rem;
 }
 
 .pt-2 {
@@ -3543,6 +3562,10 @@ video {
   font-size: 24px;
 }
 
+.text-\[34px\] {
+  font-size: 34px;
+}
+
 .text-\[9\.5px\] {
   font-size: 9.5px;
 }
@@ -3626,6 +3649,10 @@ video {
   line-height: 1.25rem;
 }
 
+.leading-\[1\.15\] {
+  line-height: 1.15;
+}
+
 .leading-\[1\.55\] {
   line-height: 1.55;
 }
@@ -3670,6 +3697,10 @@ video {
   letter-spacing: -0.02em;
 }
 
+.tracking-\[-0\.03em\] {
+  letter-spacing: -0.03em;
+}
+
 .tracking-\[0\.06em\] {
   letter-spacing: 0.06em;
 }
@@ -3688,6 +3719,21 @@ video {
 
 .tracking-wider {
   letter-spacing: 0.05em;
+}
+
+.text-amber-100 {
+  --tw-text-opacity: 1;
+  color: rgb(254 243 199 / var(--tw-text-opacity, 1));
+}
+
+.text-amber-200 {
+  --tw-text-opacity: 1;
+  color: rgb(253 230 138 / var(--tw-text-opacity, 1));
+}
+
+.text-amber-300 {
+  --tw-text-opacity: 1;
+  color: rgb(252 211 77 / var(--tw-text-opacity, 1));
 }
 
 .text-amber-500 {
@@ -3746,11 +3792,6 @@ video {
 .text-cyan-700 {
   --tw-text-opacity: 1;
   color: rgb(14 116 144 / var(--tw-text-opacity, 1));
-}
-
-.text-emerald-500 {
-  --tw-text-opacity: 1;
-  color: rgb(16 185 129 / var(--tw-text-opacity, 1));
 }
 
 .text-emerald-600 {
@@ -3850,6 +3891,11 @@ video {
   color: rgb(168 85 247 / var(--tw-text-opacity, 1));
 }
 
+.text-red-300 {
+  --tw-text-opacity: 1;
+  color: rgb(252 165 165 / var(--tw-text-opacity, 1));
+}
+
 .text-red-400 {
   --tw-text-opacity: 1;
   color: rgb(248 113 113 / var(--tw-text-opacity, 1));
@@ -3893,6 +3939,11 @@ video {
   color: transparent;
 }
 
+.text-violet-300 {
+  --tw-text-opacity: 1;
+  color: rgb(196 181 253 / var(--tw-text-opacity, 1));
+}
+
 .text-violet-500 {
   --tw-text-opacity: 1;
   color: rgb(139 92 246 / var(--tw-text-opacity, 1));
@@ -3911,6 +3962,22 @@ video {
 .text-white {
   --tw-text-opacity: 1;
   color: rgb(255 255 255 / var(--tw-text-opacity, 1));
+}
+
+.text-white\/40 {
+  color: rgb(255 255 255 / 0.4);
+}
+
+.text-white\/45 {
+  color: rgb(255 255 255 / 0.45);
+}
+
+.text-white\/70 {
+  color: rgb(255 255 255 / 0.7);
+}
+
+.text-white\/80 {
+  color: rgb(255 255 255 / 0.8);
 }
 
 .text-yellow-500 {
@@ -4090,20 +4157,12 @@ video {
   box-shadow: var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000);
 }
 
-.ring-inset {
-  --tw-ring-inset: inset;
-}
-
 .ring-black\/10 {
   --tw-ring-color: rgb(0 0 0 / 0.1);
 }
 
 .ring-black\/\[0\.04\] {
   --tw-ring-color: rgb(0 0 0 / 0.04);
-}
-
-.ring-black\/\[0\.06\] {
-  --tw-ring-color: rgb(0 0 0 / 0.06);
 }
 
 .ring-gray-400 {
@@ -5108,7 +5167,7 @@ input[type="color"]::-webkit-color-swatch {
   transition: width 240ms cubic-bezier(0.2, 0, 0, 1);
 }
 
-/* The corner card's (ActivityOverlay.jsx): the rest of its row, with nothing
+/* The buddy's notch (BuddyOverlay.jsx): the rest of its row, with nothing
    beside it to glide, and a phrase too long for it cut by an ellipsis rather
    than at a letter, since the actions it names can run long. */
 
@@ -5123,20 +5182,6 @@ input[type="color"]::-webkit-color-swatch {
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-/* A step darker (lighter, in the dark): the card is read at a glance from the
-   corner of the screen, over whatever app is behind it, where the line under
-   a turn sits quiet in a panel of its own. */
-
-.working-loud .working-phrase {
-  --working-base: rgb(107 114 128);
-  --working-glint: rgb(17 24 39);
-}
-
-.dark .working-loud .working-phrase {
-  --working-base: rgb(156 163 175);
-  --working-glint: rgb(243 244 246);
 }
 
 .working-phrase {
@@ -5212,184 +5257,10 @@ input[type="color"]::-webkit-color-swatch {
   }
 }
 
-/* The corner card -----------------------------------------------------------
-   The agents at work, in a corner of the screen (ActivityOverlay.jsx). Each
-   card is a hairline edge with an opaque face inside it, and behind the face
-   a large conic gradient turning, so a light runs round the edge: grey while
-   the agent thinks, violet while it acts, amber while it waits, rose while
-   the card listens. Turned with a transform, which the compositor does
-   alone. A paused, stopped or sent card has a still, tinted edge instead. */
-
-.activity-card {
-  --activity-hair: rgb(0 0 0 / 0.08);
-  --activity-face: #ffffff;
-  --activity-light: transparent;
-  --activity-spin: 3s;
-  position: relative;
-  padding: 1px;
-  border-radius: 18px;
-  overflow: hidden;
-  isolation: isolate;
-  background: var(--activity-hair);
-  box-shadow: 0 12px 32px -14px rgb(0 0 0 / 0.35), 0 2px 6px -3px rgb(0 0 0 / 0.14);
-  transition: opacity 400ms ease, background-color 400ms ease;
-}
-
-.dark .activity-card {
-  --activity-hair: rgb(255 255 255 / 0.09);
-  --activity-face: #0f0f12;
-  box-shadow: 0 14px 36px -14px rgb(0 0 0 / 0.75), 0 2px 6px -3px rgb(0 0 0 / 0.45);
-}
-
-.activity-card::before {
-  content: '';
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 230%;
-  aspect-ratio: 1;
-  background: conic-gradient(from 0deg,
-            transparent 0deg,
-            transparent 220deg,
-            var(--activity-light) 320deg,
-            transparent 360deg);
-  opacity: 0;
-  transform: translate(-50%, -50%) rotate(0deg);
-  transition: opacity 500ms ease;
-  animation: activity-sweep var(--activity-spin) linear infinite;
-}
-
-.activity-surface {
-  position: relative;
-  border-radius: 17px;
-  background: var(--activity-face);
-  padding: 11px 13px;
-}
-
-.activity-card[data-tone='thinking']::before {
-  --activity-light: rgb(0 0 0 / 0.32);
-  opacity: 1;
-}
-
-.dark .activity-card[data-tone='thinking']::before {
-  --activity-light: rgb(255 255 255 / 0.5);
-}
-
-.activity-card[data-tone='acting']::before {
-  --activity-light: rgb(139 92 246);
-  --activity-spin: 1.7s;
-  opacity: 1;
-}
-
-.dark .activity-card[data-tone='acting']::before {
-  --activity-light: rgb(167 139 250);
-}
-
-.activity-card[data-tone='waiting']::before {
-  --activity-light: rgb(245 158 11);
-  --activity-spin: 2.2s;
-  opacity: 1;
-}
-
-.activity-card[data-tone='listening']::before {
-  --activity-light: rgb(244 63 94);
-  --activity-spin: 1.9s;
-  opacity: 1;
-}
-
-.activity-card[data-tone='paused'] {
-  --activity-hair: rgb(245 158 11 / 0.5);
-}
-
-.activity-card[data-tone='stopped'] {
-  --activity-hair: rgb(239 68 68 / 0.5);
-}
-
-.activity-card[data-tone='sent'] {
-  --activity-hair: rgb(16 185 129 / 0.45);
-}
-
-.activity-card.activity-done {
-  opacity: 0.78;
-}
-
-@keyframes activity-sweep {
-  to {
-    transform: translate(-50%, -50%) rotate(360deg);
-  }
-}
-
-/* In from below with a spring, settling out of a blur; out to the right. */
-
-.activity-in {
-  animation: activity-in 460ms cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-.activity-out {
-  animation: activity-out 260ms cubic-bezier(0.4, 0, 1, 1) both;
-}
-
-@keyframes activity-in {
-  from {
-    opacity: 0;
-    transform: translateY(14px) scale(0.96);
-    filter: blur(6px);
-  }
-}
-
-@keyframes activity-out {
-  to {
-    opacity: 0;
-    transform: translateX(28px) scale(0.97);
-    filter: blur(4px);
-  }
-}
-
-/* Under the cursor the stack all but goes, so the cursor is never behind it. */
-
-.activity-stack {
-  transform-origin: bottom right;
-  transition: opacity 180ms ease, transform 240ms cubic-bezier(0.2, 0, 0, 1);
-}
-
-.activity-stack-faded {
-  opacity: 0.14;
-  transform: translateX(4px) scale(0.985);
-}
-
-.activity-said,
-.activity-line-in {
-  animation: activity-fade 360ms cubic-bezier(0.2, 0, 0, 1) both;
-}
-
-@keyframes activity-fade {
-  from {
-    opacity: 0;
-    transform: translateY(3px);
-  }
-}
-
-.activity-check path {
-  stroke-dasharray: 12;
-  stroke-dashoffset: 12;
-  animation: activity-draw 420ms 80ms cubic-bezier(0.65, 0, 0.35, 1) forwards;
-}
-
-@keyframes activity-draw {
-  to {
-    stroke-dashoffset: 0;
-  }
-}
-
-/* Listening: a halo that swells with the voice, and a waveform whose bars
-   reach by the microphone's level (`--level`, set each frame by
-   useDictation), each by its own share of it, with a slow wobble of their
-   own on top so the shape breathes even between words. */
-
-.activity-mic-halo {
-  transform: scale(calc(0.7 + var(--level, 0) * 1.6));
-  transition: transform 90ms linear;
-}
+/* The waveform of a voice, in the buddy's notch (BuddyOverlay.jsx): bars that
+   reach by the microphone's level (`--level`, set each frame by useDictation),
+   each by its own share of it, with a slow wobble of their own on top so the
+   shape breathes even between words. */
 
 .activity-wave {
   display: flex;
@@ -5446,29 +5317,621 @@ input[type="color"]::-webkit-color-swatch {
   }
 }
 
-/* The words so far: the newest three lines, the older ones scrolled away. */
+/* The buddy -----------------------------------------------------------------
+   The sign on screen of an agent at work on the desktop, and, on for good,
+   Acestes in the background (BuddyOverlay.jsx): a window per display, the
+   size of it, transparent and click-through. A violet arrowhead rides beside
+   the cursor on a spring and turns into a waveform, a turning ring or a
+   question as the buddy listens, works and asks, with what it is doing in a
+   dark pill beside it. On the main display a black notch hangs from the top
+   edge, MacBook-style, and eases open to show what is going on. Both are
+   dark on any theme: they sit over whatever app is in front, not over ours. */
 
-.activity-words {
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-  max-height: calc(1.375em * 3);
+.buddy-root {
+  position: fixed;
+  inset: 0;
   overflow: hidden;
+  color: #fff;
+}
+
+.buddy-root .working-phrase {
+  --working-base: rgb(255 255 255 / 0.62);
+  --working-glint: rgb(255 255 255);
+}
+
+.buddy-mark {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  will-change: transform;
+  transition: opacity 180ms ease;
+}
+
+.buddy-mark.buddy-mark-away {
+  opacity: 0 !important;
+}
+
+.buddy-glyph {
+  position: relative;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  transform: scale(var(--grow, 1));
+}
+
+.buddy-face {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transform: scale(0.6);
+  transition: opacity 160ms ease, transform 220ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.buddy-glyph-arrow .buddy-face-arrow,
+.buddy-glyph-wave .buddy-face-wave,
+.buddy-glyph-ring .buddy-face-ring,
+.buddy-glyph-ask .buddy-face-ask {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.buddy-face-arrow {
+  color: rgb(167 139 250);
+  filter: drop-shadow(0 0 5px rgb(139 92 246 / 0.8)) drop-shadow(0 1px 1.5px rgb(0 0 0 / 0.45));
+}
+
+.buddy-arrow {
+  width: 15px;
+  height: 15px;
+  transform: rotate(var(--turn, -35deg));
+}
+
+.buddy-speaking .buddy-arrow {
+  animation: buddy-speak 520ms ease-in-out infinite alternate;
+}
+
+@keyframes buddy-speak {
+  to {
+    transform: rotate(var(--turn, -35deg)) scale(1.22);
+  }
+}
+
+/* The ring, the waveform and the question sit on a dark disc, so they read
+   over a white page as well as a black one. */
+
+.buddy-face-ring::before,
+.buddy-face-wave::before,
+.buddy-face-ask::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: rgb(17 17 20 / 0.86);
+  box-shadow: 0 3px 10px -3px rgb(0 0 0 / 0.55), inset 0 0 0 1px rgb(255 255 255 / 0.08);
+}
+
+.buddy-face-wave::before {
+  inset: 0 -5px;
+}
+
+.buddy-face-ring svg {
+  position: relative;
+  width: 14px;
+  height: 14px;
+}
+
+.buddy-wave {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 16px;
+}
+
+.buddy-wave>span {
+  display: block;
+  width: 2.5px;
+  height: calc(3px + var(--level, 0) * var(--reach, 1) * 13px);
+  border-radius: 2px;
+  background: rgb(251 113 133);
+  box-shadow: 0 0 6px rgb(244 63 94 / 0.7);
+  transition: height 90ms linear;
+  animation: activity-wobble 700ms ease-in-out infinite alternate;
+}
+
+.buddy-ask-dot {
+  position: relative;
+  width: 7px;
+  height: 7px;
+  border-radius: 9999px;
+  background: rgb(251 191 36);
+  box-shadow: 0 0 8px rgb(245 158 11 / 0.9);
+  animation: buddy-breathe 1.4s ease-in-out infinite;
+}
+
+.buddy-bubble {
+  max-width: 320px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  padding: 3px 10px;
+  border-radius: 9999px;
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 16px;
+  color: rgb(255 255 255 / 0.92);
+  background: rgb(17 17 20 / 0.88);
+  box-shadow: 0 6px 16px -6px rgb(0 0 0 / 0.6), inset 0 0 0 1px rgb(255 255 255 / 0.08);
+  animation: buddy-pop 240ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+.buddy-bubble .working-cell {
+  vertical-align: top;
+}
+
+.buddy-tone-acting {
+  color: rgb(221 214 254);
+}
+
+.buddy-tone-waiting {
+  color: rgb(253 230 138);
+}
+
+.buddy-tone-stopped {
+  color: rgb(254 202 202);
+}
+
+.buddy-bubble-point {
+  color: #fff;
+  background: rgb(124 58 237);
+  box-shadow: 0 0 14px rgb(139 92 246 / 0.65), 0 6px 16px -6px rgb(0 0 0 / 0.5);
+  animation: buddy-pop 420ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@keyframes buddy-pop {
+  from {
+    opacity: 0;
+    transform: translateX(-4px) scale(0.6);
+  }
+}
+
+@keyframes buddy-breathe {
+  50% {
+    opacity: 0.55;
+    transform: scale(0.82);
+  }
+}
+
+/* The notch: black, hanging from the top edge, its top corners flared into
+   the edge the way a MacBook's are. It eases open with a little overshoot. */
+
+.buddy-notch {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #000;
+  color: #fff;
+  border-radius: 0 0 20px 20px;
+  box-shadow: 0 14px 34px -14px rgb(0 0 0 / 0.6);
+  transition:
+        width 460ms cubic-bezier(0.32, 1.25, 0.45, 1),
+        height 460ms cubic-bezier(0.32, 1.25, 0.45, 1),
+        border-radius 300ms ease,
+        box-shadow 300ms ease;
+}
+
+.buddy-notch.buddy-notch-rest {
+  border-radius: 0 0 13px 13px;
+  box-shadow: none;
+}
+
+.buddy-notch::before,
+.buddy-notch::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  width: 12px;
+  height: 12px;
+}
+
+.buddy-notch::before {
+  right: 100%;
+  background: radial-gradient(circle at 0 100%, transparent 11.5px, #000 12px);
+}
+
+.buddy-notch::after {
+  left: 100%;
+  background: radial-gradient(circle at 100% 100%, transparent 11.5px, #000 12px);
+}
+
+.buddy-notch-clip {
+  height: 100%;
+  overflow: hidden;
+  border-radius: inherit;
+}
+
+.buddy-notch-body {
+  padding: 10px 18px 13px;
+  animation: buddy-open 320ms 90ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+.buddy-notch-rest .buddy-notch-body {
+  height: 26px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: none;
+}
+
+@keyframes buddy-open {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+    filter: blur(3px);
+  }
+}
+
+.buddy-rest-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 9999px;
+  background: rgb(167 139 250);
+  box-shadow: 0 0 6px rgb(139 92 246 / 0.9);
+  animation: buddy-breathe 3.2s ease-in-out infinite;
+}
+
+.buddy-root .buddy-notch .activity-wave {
+  margin-top: 10px;
+  height: 26px;
+  gap: 3px;
+  color: rgb(251 113 133);
+}
+
+.buddy-rec {
+  animation: buddy-breathe 1.1s ease-in-out infinite;
+}
+
+/* Whose turn it is, when it is a chat's, and how many more are at work. */
+
+.buddy-who {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin-bottom: 7px;
+  font-size: 10.5px;
+  line-height: 14px;
+  color: rgb(255 255 255 / 0.4);
+}
+
+.buddy-heard,
+.buddy-reply,
+.buddy-said {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+       user-select: none;
+}
+
+.buddy-heard {
+  margin-top: 8px;
+  font-size: 12.5px;
+  line-height: 1.38;
+  color: rgb(255 255 255 / 0.85);
+  -webkit-line-clamp: 2;
+}
+
+.buddy-said {
+  margin-top: 6px;
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: rgb(255 255 255 / 0.5);
+  -webkit-line-clamp: 2;
+}
+
+.buddy-reply {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.42;
+  color: rgb(255 255 255 / 0.9);
+  -webkit-line-clamp: 4;
+}
+
+.buddy-reply.buddy-reply-old {
+  color: rgb(255 255 255 / 0.55);
+  font-size: 12px;
+  -webkit-line-clamp: 2;
+}
+
+/* The recap as it is said: the one thing in the notch meant to be read at a glance. */
+
+.buddy-recap {
+  min-width: 0;
+  flex: 1 1 0%;
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 18px;
+  color: #fff;
+}
+
+.buddy-trouble {
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: rgb(252 211 77 / 0.85);
+}
+
+.buddy-chip {
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-size: 11px;
+  color: rgb(255 255 255 / 0.75);
+  background: rgb(255 255 255 / 0.1);
+}
+
+/* Who it talks to: the one place of the buddy that takes a click (the rest
+   of it lets every click through; see `hit` in main/ai/buddy.js). */
+
+.buddy-agents {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  pointer-events: auto;
+}
+
+.buddy-agent {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 4px 10px 4px 8px;
+  border-radius: 9999px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  color: rgb(255 255 255 / 0.7);
+  background: rgb(255 255 255 / 0.08);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.06);
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+
+.buddy-agent:hover {
+  color: #fff;
+  background: rgb(255 255 255 / 0.14);
+}
+
+.buddy-agent[data-on='true'] {
+  color: #fff;
+  background: rgb(139 92 246 / 0.28);
+  box-shadow: inset 0 0 0 1px rgb(167 139 250 / 0.7);
+}
+
+.buddy-agent[data-dim='true']:not([data-on='true']) {
+  color: rgb(255 255 255 / 0.45);
+}
+
+.buddy-agent-dot {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-radius: 9999px;
+}
+
+/* While the agent works: open in the app, and stop. In the notch's top
+   corner; the first line of what is shown makes room for them. */
+
+.buddy-controls {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  display: flex;
+  gap: 5px;
+  pointer-events: auto;
+  animation: buddy-open 320ms 120ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+.buddy-notch-body-controls > :first-child {
+  padding-right: 58px;
+}
+
+.buddy-control {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  color: rgb(255 255 255 / 0.62);
+  background: rgb(255 255 255 / 0.09);
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.buddy-control:hover {
+  color: #fff;
+  background: rgb(255 255 255 / 0.18);
+}
+
+.buddy-control-stop:hover {
+  background: rgb(220 38 38 / 0.9);
+}
+
+.buddy-stop-square {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: currentColor;
+}
+
+.buddy-tone-switch {
+  color: #fff;
+  font-weight: 600;
+}
+
+.buddy-keys {
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 500;
+  color: rgb(255 255 255 / 0.78);
+  background: rgb(255 255 255 / 0.12);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.1);
+}
+
+.buddy-speaker {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 12px;
+}
+
+.buddy-speaker>span {
+  width: 2.5px;
+  height: 100%;
+  border-radius: 2px;
+  background: rgb(167 139 250);
+  animation: buddy-speaker 700ms ease-in-out infinite alternate;
+}
+
+.buddy-speaker>span:nth-child(2) {
+  animation-delay: -240ms;
+}
+
+.buddy-speaker>span:nth-child(3) {
+  animation-delay: -480ms;
+}
+
+@keyframes buddy-speaker {
+  from {
+    transform: scaleY(0.3);
+  }
+}
+
+.buddy-done-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 9999px;
+  background: rgb(52 211 153);
+}
+
+/* What it draws to show something: by hand, in the mark's violet, each
+   stroke drawn out in turn (--delay), with a pale rim and a soft shadow so
+   it reads over a white page and a black one. A box fills as it is drawn.
+   Taken down, the lot fades. */
+
+.buddy-drawing {
+  position: absolute;
+  inset: 0;
+  transition: opacity 340ms ease;
+}
+
+.buddy-drawing.buddy-drawing-leaving {
+  opacity: 0;
+}
+
+.buddy-drawing-canvas {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+}
+
+.buddy-shape {
+  filter: drop-shadow(0 0 1px rgb(255 255 255 / 0.75)) drop-shadow(0 2px 3px rgb(0 0 0 / 0.35));
+}
+
+.buddy-stroke {
+  fill: none;
+  stroke: rgb(139 92 246);
+  stroke-width: 3.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 1 1;
+  stroke-dashoffset: 1;
+  animation: buddy-stroke 560ms cubic-bezier(0.35, 0.6, 0.25, 1) var(--delay, 0ms) forwards;
+}
+
+.buddy-stroke-head {
+  animation-duration: 200ms;
+  animation-delay: calc(var(--delay, 0ms) + 500ms);
+}
+
+.buddy-shape-underline .buddy-stroke {
+  animation-duration: 420ms;
+}
+
+.buddy-fill {
+  fill: rgb(139 92 246 / 0.14);
+  transform-box: fill-box;
+  transform-origin: left center;
+  transform: scaleX(0);
+  animation: buddy-sweep 520ms cubic-bezier(0.3, 0.6, 0.2, 1) var(--delay, 0ms) forwards;
+}
+
+@keyframes buddy-stroke {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes buddy-sweep {
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.buddy-sketch-label {
+  position: absolute;
+}
+
+.buddy-sketch-label-centre {
+  translate: -50% -50%;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .activity-card::before,
-    .activity-in,
-    .activity-out,
-    .activity-said,
-    .activity-line-in,
-    .activity-bar>span {
-    animation: none;
+  .buddy-notch,
+    .buddy-face,
+    .buddy-mark {
+    transition: none;
   }
 
-  .activity-check path {
+  .buddy-stroke,
+    .buddy-fill {
     animation: none;
     stroke-dashoffset: 0;
+    transform: none;
+  }
+
+  .buddy-drawing {
+    transition: none;
+  }
+
+  .buddy-notch-body,
+    .buddy-bubble,
+    .buddy-rest-dot,
+    .buddy-rec,
+    .buddy-ask-dot,
+    .buddy-speaker>span,
+    .buddy-speaking .buddy-arrow,
+    .buddy-wave>span,
+    .activity-bar>span {
+    animation: none;
   }
 }
 
@@ -6689,6 +7152,10 @@ body.tab-dragging .session-tab {
   margin-top: 0px;
 }
 
+.first\:border-t-0:first-child {
+  border-top-width: 0px;
+}
+
 .last\:border-0:last-child {
   border-width: 0px;
 }
@@ -6776,6 +7243,10 @@ body.tab-dragging .session-tab {
 
 .hover\:bg-black\/20:hover {
   background-color: rgb(0 0 0 / 0.2);
+}
+
+.hover\:bg-black\/\[0\.05\]:hover {
+  background-color: rgb(0 0 0 / 0.05);
 }
 
 .hover\:bg-black\/\[0\.06\]:hover {
@@ -7065,6 +7536,10 @@ body.tab-dragging .session-tab {
   border-color: rgb(209 213 219 / var(--tw-border-opacity, 1));
 }
 
+.enabled\:hover\:bg-black\/\[0\.05\]:hover:enabled {
+  background-color: rgb(0 0 0 / 0.05);
+}
+
 .enabled\:hover\:bg-gray-100:hover:enabled {
   --tw-bg-opacity: 1;
   background-color: rgb(243 244 246 / var(--tw-bg-opacity, 1));
@@ -7343,19 +7818,6 @@ body.tab-dragging .session-tab {
   opacity: 0.5;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  @keyframes ping {
-    75%, 100% {
-      transform: scale(2);
-      opacity: 0;
-    }
-  }
-
-  .motion-safe\:animate-ping {
-    animation: ping 1s cubic-bezier(0, 0, 0.2, 1) infinite;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   .motion-reduce\:transition-none {
     transition-property: none;
@@ -7484,6 +7946,10 @@ body.tab-dragging .session-tab {
 
 .dark\:border-white\/40:is(.dark *) {
   border-color: rgb(255 255 255 / 0.4);
+}
+
+.dark\:border-white\/70:is(.dark *) {
+  border-color: rgb(255 255 255 / 0.7);
 }
 
 .dark\:border-white\/\[0\.06\]:is(.dark *) {
@@ -7898,11 +8364,6 @@ body.tab-dragging .session-tab {
   color: rgb(156 163 175 / var(--tw-text-opacity, 1));
 }
 
-.dark\:text-gray-50:is(.dark *) {
-  --tw-text-opacity: 1;
-  color: rgb(249 250 251 / var(--tw-text-opacity, 1));
-}
-
 .dark\:text-gray-500:is(.dark *) {
   --tw-text-opacity: 1;
   color: rgb(107 114 128 / var(--tw-text-opacity, 1));
@@ -8005,11 +8466,6 @@ body.tab-dragging .session-tab {
 .dark\:text-violet-300:is(.dark *) {
   --tw-text-opacity: 1;
   color: rgb(196 181 253 / var(--tw-text-opacity, 1));
-}
-
-.dark\:text-violet-400:is(.dark *) {
-  --tw-text-opacity: 1;
-  color: rgb(167 139 250 / var(--tw-text-opacity, 1));
 }
 
 .dark\:text-white:is(.dark *) {
@@ -8145,10 +8601,6 @@ body.tab-dragging .session-tab {
   --tw-ring-color: rgb(255 255 255 / 0.06);
 }
 
-.dark\:ring-white\/\[0\.08\]:is(.dark *) {
-  --tw-ring-color: rgb(255 255 255 / 0.08);
-}
-
 .dark\:ring-white\/\[0\.12\]:is(.dark *) {
   --tw-ring-color: rgb(255 255 255 / 0.12);
 }
@@ -8232,6 +8684,11 @@ body.tab-dragging .session-tab {
 .dark\:hover\:border-gray-400:hover:is(.dark *) {
   --tw-border-opacity: 1;
   border-color: rgb(156 163 175 / var(--tw-border-opacity, 1));
+}
+
+.dark\:hover\:border-neutral-500:hover:is(.dark *) {
+  --tw-border-opacity: 1;
+  border-color: rgb(var(--app-muted) / var(--tw-border-opacity, 1));
 }
 
 .dark\:hover\:border-neutral-600:hover:is(.dark *) {
@@ -8373,6 +8830,10 @@ body.tab-dragging .session-tab {
   background-color: rgb(255 255 255 / 0.06);
 }
 
+.dark\:hover\:bg-white\/\[0\.07\]:hover:is(.dark *) {
+  background-color: rgb(255 255 255 / 0.07);
+}
+
 .dark\:hover\:bg-white\/\[0\.08\]:hover:is(.dark *) {
   background-color: rgb(255 255 255 / 0.08);
 }
@@ -8493,6 +8954,10 @@ body.tab-dragging .session-tab {
 .dark\:enabled\:hover\:bg-surface-control:hover:enabled:is(.dark *) {
   --tw-bg-opacity: 1;
   background-color: rgb(var(--app-control) / var(--tw-bg-opacity, 1));
+}
+
+.dark\:enabled\:hover\:bg-white\/\[0\.07\]:hover:enabled:is(.dark *) {
+  background-color: rgb(255 255 255 / 0.07);
 }
 
 .dark\:enabled\:hover\:text-red-400:hover:enabled:is(.dark *) {

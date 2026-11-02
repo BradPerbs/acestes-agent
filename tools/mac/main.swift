@@ -209,8 +209,8 @@ private var labelDriving = "The agent is using your computer · Esc to stop"
 private var labelPaused = "Paused · you have control"
 private var labelStopped = "Stopped"
 
-// Whether the badge at the top of the screen is shown while driving. The app
-// draws a card of its own in a corner and asks for this one off.
+// Whether the badge at the top of the screen is shown while driving. The app's
+// buddy says who is driving, so the app asks for this one off.
 private var showBadge = true
 
 // The voice shortcut: a key code and the modifiers held with it, -1 for

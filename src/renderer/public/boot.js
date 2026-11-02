@@ -7,7 +7,7 @@
  * right one instead of in the frame's dark and then switching (main.jsx
  * applies it again, fully, once it runs). And whether this window shows the
  * boot splash at all: the screenshot viewer, the assistant's windows and the
- * corner card load this same page, and the card's is see-through.
+ * buddy's load this same page, and the buddy's are see-through.
  *
  * A classic script from public/, not part of the bundle: a module would wait
  * for the rest of it. Kept to what cannot wait; anything that throws here
@@ -40,5 +40,5 @@
         // No storage, or a palette that does not parse: the defaults stand.
     }
     var hash = location.hash;
-    if (!/[#&](screenshot|assistant|buddy)=|[#&]activity\b/.test(hash)) root.classList.add('booting');
+    if (!/[#&](screenshot|assistant|buddy)=/.test(hash)) root.classList.add('booting');
 })();

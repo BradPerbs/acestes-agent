@@ -394,14 +394,14 @@ function conversation(id, overrides = {}) {
         busy.add('c-voice');
         await api.keys({ keys: 'f11' });
         const drive = sent().find(request => request.cmd === 'drive' && request.on);
-        assert.strictEqual(drive.badge, false, 'the corner card says who drives instead');
+        assert.strictEqual(drive.badge, false, 'the buddy says who drives instead');
         assert.strictEqual(drive.voiceKey, computer.VOICE_KEY.key);
         assert.strictEqual(drive.voiceMods, computer.VOICE_KEY.mods);
         await new Promise(resolve => setTimeout(resolve, 30));
-        assert.deepStrictEqual(voiced, [['c-voice']], 'the overlay is told, with the driver to steer');
+        assert.deepStrictEqual(voiced, [['c-voice']], 'the buddy is told, with the driver to steer');
         assert.deepStrictEqual(held, [], 'the shortcut is not the user taking over');
 
-        // The user's hand still pauses them, and the overlay hears that too.
+        // The user's hand still pauses them, and the buddy hears that too.
         await api.click({ element: 3, count: 3 });
         assert.deepStrictEqual(held.at(-1), { ids: ['c-voice'], code: 'took-over' });
         busy.delete('c-voice');
@@ -438,11 +438,11 @@ function conversation(id, overrides = {}) {
         assert.ok(!sent().some(request => request.cmd === 'type'), 'nothing after the stop ran');
         assert.strictEqual(sent().filter(request => request.cmd === 'click').length, 1, 'only the click before the stop');
 
-        // A late action from the same turn is turned away, and the corner
-        // card was last told nobody is driving.
+        // A late action from the same turn is turned away, and the buddy
+        // was last told nobody is driving.
         assert.ok(/stopped this turn/.test((await api.click({ element: 3 })).error));
         assert.ok(!computer._test.drivers().has('c-halt'), 'not driving after the stop');
-        assert.ok(!announced.at(-1).includes('c-halt'), 'the overlay was told it let go');
+        assert.ok(!announced.at(-1).includes('c-halt'), 'the buddy was told it let go');
         await new Promise(resolve => setTimeout(resolve, 50));
         assert.ok(sent().some(request => request.cmd === 'drive' && request.on === false), 'the badge went');
 

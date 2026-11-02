@@ -19,7 +19,6 @@ const archive = require('./archive');
 const searchModule = require('./search');
 const titles = require('./titles');
 const computer = require('./computer');
-const overlay = require('./overlay');
 const buddy = require('./buddy');
 const { readImages } = require('./images');
 const { readFiles, fileBlock } = require('./attachments');
@@ -938,9 +937,6 @@ function emit(conversation, event) {
 
     trackEdits(conversation, stamped);
 
-    // The corner card for an agent at work on the desktop. See overlay.js.
-    if (overlay.watching(conversation.id)) overlay.event(conversation.id, stamped, conversation.title);
-
     if (conversation.parentId && FORWARDED.has(stamped.type) && !stamped.via) {
         const parent = conversations.get(conversation.parentId);
         if (parent) emit(parent, { ...event, via: conversation.id, viaTitle: conversation.title || '' });
@@ -1651,7 +1647,7 @@ function requestQuestion(conversation, { question, options = [], secret = '', si
         }, signal ? QUESTION_HOLD : QUESTION_WAIT);
 
         // The options and whether it wants a secret go with it, so an answer
-        // said to the corner card can be matched to a choice (see `steer`).
+        // said to the buddy can be matched to a choice (see `steer`).
         pendingQuestions.set(requestId, {
             resolve: settle,
             timer,
@@ -2303,8 +2299,8 @@ function handleProviderEvent(conversation, event) {
     // still open to close. endRun does it too, but only for a turn with a
     // run of its own: a message sent into a turn still going shares the
     // first one's run, which the first result closes, so the second turn's
-    // result found no run, nothing let go, and the badge and the corner
-    // card stayed up after it had finished.
+    // result found no run, nothing let go, and the desktop stayed held
+    // after the turn had finished.
     if (event.type === 'result' || event.type === 'error' || event.type === 'closed') {
         computer.release(conversation.id);
         // A steer the agent never got to read, because no tool call came
@@ -2937,38 +2933,25 @@ function stopMetric(watchId) {
 computer.configure({
     isBusy: conversationId => Boolean(conversations.get(conversationId)?.busy),
     interrupt: conversationId => interrupt(conversationId),
-    // Who is at work on the desktop, for the card in the corner of the screen.
-    // The buddy's own conversation is shown by the buddy, beside the cursor
-    // and in its notch, not in a card as well. See buddy.js.
-    driversChanged: ids => overlay.drivers(ids.filter(id => !buddy.owns(id)).map((id) => {
+    // Who is at work on the desktop, for the buddy: its notch and the mark
+    // beside the cursor are how anyone at the screen knows an agent is
+    // driving, from a chat or from the buddy itself. See buddy.js.
+    driversChanged: ids => buddy.drivers(ids.map((id) => {
         const conversation = conversations.get(id);
         const agent = conversation ? agents.get(conversation.agentId) : null;
-        return { id, title: conversation?.title || '', agent: agent?.name || '', look: agent?.look || null };
+        return { id, title: conversation?.title || '', agent: agent?.name || '' };
     })),
-    aimed: (conversationId, label) => {
-        overlay.aimed(conversationId, label);
-        buddy.aimed(conversationId, label);
-    },
-    // The user's hand stopped the drivers (took over, or Esc): the card says so,
-    // since the helper no longer puts a badge at the top of the screen.
-    held: (ids, code) => {
-        overlay.held(ids, code);
-        buddy.held(ids, code);
-    },
-    // The voice shortcut, pressed while agents drive: the card listens, and
-    // what is said steers the newest of them. See overlay.js and `steer`.
+    aimed: (conversationId, label) => buddy.aimed(conversationId, label),
+    // The user's hand stopped the drivers (took over, or Esc): the buddy says
+    // so, since the helper no longer puts a badge at the top of the screen.
+    held: (ids, code) => buddy.held(ids, code),
+    // The voice key, pressed while agents drive: the buddy listens, and what
+    // is said steers one of them. See `voice` in buddy.js, and `steer`.
     voice: (ids) => {
         // One standing on a question first, since it can go no further
         // without an answer; otherwise the newest.
         const id = [...ids].reverse().find(candidate => waitingCard(candidate)) || ids[ids.length - 1];
-        const conversation = id ? conversations.get(id) : null;
-        if (!conversation) return;
-        // The machine's voice settings, as the composer's microphone reads them.
-        const current = settings.get();
-        overlay.voice(id, {
-            live: current.voiceEngine === 'parakeet' || current.voiceEngine === 'nemotron',
-            enabled: current.voiceInput !== false,
-        });
+        if (id && conversations.get(id)) buddy.voice(id);
     },
     // In teach mode, a recorder event line, written to the trace. See teach.js.
     recorded: line => teach.ingest(line),
@@ -4214,7 +4197,7 @@ async function send(conversationId, text, attachments = [], tagged = [], attache
         ...(mentions.length ? { mentions: stripMentions(mentions) } : {}),
         // Where it was written, when not in the app: the bubble says so.
         ...(channel ? { channel } : {}),
-        // Said to the corner card during computer use rather than typed.
+        // Said to the buddy rather than typed.
         ...(options?.spoken ? { spoken: true } : {}),
     });
     // Told to the panel like the runtime's name will be, so the tab and the
@@ -4398,8 +4381,8 @@ function nameConversation(conversation) {
 /* ------------------------------------------------------------------ *
  * Steering a turn while it runs
  *
- * Said to the corner card while an agent drives the desktop (the voice
- * shortcut, see overlay.js): the turn is not stopped and sent again. What was
+ * Said to the buddy while an agent drives the desktop (Ctrl+Alt held, or the
+ * voice key, see buddy.js): the turn is not stopped and sent again. What was
  * said waits on the conversation and goes to the model with the next result
  * of one of our tools (tools.invoke asks `takeSteer`), which during computer
  * use is a second or two away. It goes into the transcript at that moment,

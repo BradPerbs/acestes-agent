@@ -296,21 +296,27 @@ function VoiceSettings({ settings, update, status, onStatus }) {
 }
 
 /**
- * The buddy (main/ai/buddy.js): Acestes in the background, a notch at the
- * top of the screen and a mark beside the cursor, Ctrl+Alt held anywhere to
- * talk to the agent, which sees the screen and where you point and acts.
+ * The buddy (main/ai/buddy.js): how an agent using this computer shows
+ * itself, a notch at the top of the screen and a mark beside the cursor that
+ * say what it is doing, whether it was asked in a chat or by voice. That part
+ * has nothing to switch: it is there whenever an agent drives the desktop.
  *
- * Its settings are the machine's, like the voice it listens with: whether it
- * is on, which agent it talks to, whether replies are read aloud, and whether
- * the notch shows. What would stop it working is said here, with the way to
- * fix it: an agent that may not use this computer can answer but not act,
- * and with voice input off it cannot hear anything at all.
+ * Always on (Windows), it stays beside the cursor at rest too, and Ctrl+Alt
+ * held anywhere talks to the agent, which sees the screen and where you
+ * point and acts. Those settings are the machine's, like the voice it listens
+ * with: which agent it talks to, how it sounds, whether its recap is read
+ * aloud. What would stop it working is said here, with the way to fix it: an
+ * agent that may not use this computer can answer but not act, and with
+ * voice input off it cannot hear anything at all. Whether the notch shows
+ * goes for both.
  */
 export default function BuddyCard({ settings, update }) {
     const t = useT();
     const { agents } = useAgents();
     const [status, setStatus] = useState(null);
     const [allowing, setAllowing] = useState(false);
+    // On for good needs the Windows helper's chord; a Mac shows the agents at work only.
+    const always = window.api.platform === 'win32';
 
     const check = useCallback(() => {
         window.api.buddy?.status().then(setStatus).catch(() => setStatus(null));
@@ -330,22 +336,30 @@ export default function BuddyCard({ settings, update }) {
         }
     };
 
-    const on = Boolean(settings.buddy);
+    const on = always && Boolean(settings.buddy);
 
     return (
         <SettingCard>
             <SettingRow
-                align="center"
                 title={t('settings.buddy.title')}
                 description={t('settings.buddy.desc')}
-                control={(
-                    <Toggle
-                        ariaLabel={t('settings.buddy.title')}
-                        checked={on}
-                        onChange={(value) => update({ buddy: value })}
-                    />
-                )}
             />
+
+            {always && (
+                <SettingRow
+                    className={DIVIDED}
+                    align="center"
+                    title={t('settings.buddy.always')}
+                    description={t('settings.buddy.alwaysDesc')}
+                    control={(
+                        <Toggle
+                            ariaLabel={t('settings.buddy.always')}
+                            checked={on}
+                            onChange={(value) => update({ buddy: value })}
+                        />
+                    )}
+                />
+            )}
 
             <Reveal open={on}>
                 <div className="mt-3 space-y-3 text-xs">
@@ -401,21 +415,22 @@ export default function BuddyCard({ settings, update }) {
                 <Reveal open={settings.buddySpeak !== false}>
                     <VoiceSettings settings={settings} update={update} status={status} onStatus={setStatus} />
                 </Reveal>
-
-                <SettingRow
-                    className={DIVIDED}
-                    align="center"
-                    title={t('settings.buddy.notch')}
-                    description={t('settings.buddy.notchDesc')}
-                    control={(
-                        <Toggle
-                            ariaLabel={t('settings.buddy.notch')}
-                            checked={settings.buddyNotch !== false}
-                            onChange={(value) => update({ buddyNotch: value })}
-                        />
-                    )}
-                />
             </Reveal>
+
+            {/* For the agents at work as much as for always on. */}
+            <SettingRow
+                className={DIVIDED}
+                align="center"
+                title={t('settings.buddy.notch')}
+                description={t('settings.buddy.notchDesc')}
+                control={(
+                    <Toggle
+                        ariaLabel={t('settings.buddy.notch')}
+                        checked={settings.buddyNotch !== false}
+                        onChange={(value) => update({ buddyNotch: value })}
+                    />
+                )}
+            />
         </SettingCard>
     );
 }
