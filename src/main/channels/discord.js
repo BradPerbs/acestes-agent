@@ -218,6 +218,8 @@ function createDiscordAdapter({ apiBase = DEFAULT_API, gatewayUrl = DEFAULT_GATE
         target: 'discord',
         prefix: '/',
         typing: true,
+        // What a bot may attach to a message on a server without boosts.
+        maxFileBytes: 10 * 1024 * 1024,
 
         prepare(raw) {
             const token = String(raw?.token || '').trim().replace(/^Bot\s+/i, '');
@@ -489,11 +491,15 @@ function createDiscordAdapter({ apiBase = DEFAULT_API, gatewayUrl = DEFAULT_GATE
 
                 typing: chatId => api.post(`/channels/${chatId}/typing`),
 
-                sendFile(chatId, { name, text, caption = '' }) {
+                /** A file: `data` as it is, or `text` as Markdown. Discord shows a picture inline either way. */
+                async sendFile(chatId, { name, text, data, mediaType = '', caption = '', photo = false }) {
                     const form = new FormData();
-                    form.append('payload_json', JSON.stringify({ content: caption, attachments: [{ id: 0, filename: name }], allowed_mentions: { parse: [] } }));
-                    form.append('files[0]', new Blob([String(text)], { type: 'text/markdown' }), name);
-                    return api.call('POST', `/channels/${chatId}/messages`, undefined, { form, timeout: 60000 });
+                    form.append('payload_json', JSON.stringify({ content: String(caption).slice(0, 2000), attachments: [{ id: 0, filename: name }], allowed_mentions: { parse: [] } }));
+                    const body = data ? new Blob([data], { type: mediaType || 'application/octet-stream' })
+                        : new Blob([String(text)], { type: 'text/markdown' });
+                    form.append('files[0]', body, name);
+                    await api.call('POST', `/channels/${chatId}/messages`, undefined, { form, timeout: 120000 });
+                    return { as: photo ? 'photo' : 'file' };
                 },
 
                 async fetch(attachment, maxBytes) {

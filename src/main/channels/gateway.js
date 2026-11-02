@@ -51,8 +51,10 @@ const { MODES } = require('./controls');
  *       listen({ signal, cursor, owner, emit, setCursor, onReady, accept })
  *       send(chatId, { markdown | formatted, buttons, silent }) -> { id }
  *       edit(chatId, messageId, { markdown | formatted, buttons })
- *       typing(chatId), fetch(attachment, maxBytes), sendFile?(chatId, file)
+ *       typing(chatId), fetch(attachment, maxBytes),
+ *       sendFile?(chatId, { name, text | data, mediaType, caption, photo }) -> { as }
  *   }
+ *   maxFileBytes          the largest file sendFile takes
  *
  * `listen` runs until its signal aborts, calling `emit` with each message,
  * button press or command, normalised; it throws an error with `kind`
@@ -80,6 +82,10 @@ const MAX_REPLY_WITHOUT_FILES = 8;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 /** The text file cap `send` enforces. */
 const MAX_FILE_CHARS = 64 * 1024;
+/** The largest file sent to the chat, for an adapter that does not say its own. */
+const MAX_SEND_BYTES = 10 * 1024 * 1024;
+/** Pictures a chat app shows as pictures rather than as a file to download. */
+const PHOTO_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
 
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 
@@ -1637,6 +1643,43 @@ function createGateway(deps = {}) {
         }
     }
 
+    /**
+     * For `send_file_to_user`: a picture or a file, into the chat following
+     * the conversation's turn when this channel started it, else the paired
+     * chat. A picture goes as one the app shows, unless `asFile`. Text files
+     * are masked like every other text leaving the machine.
+     */
+    async function sendFileToOwner({ name = 'file', data, mediaType = '', caption = '', asFile = false, conversationId = '' } = {}) {
+        const owner = config().owner;
+        if (!config().secret || !owner) return { error: `No ${label} account is paired.` };
+        if (!ready()) return { error: `${label} is switched off or not reachable right now.` };
+        if (typeof getClient()?.sendFile !== 'function') return { error: `${label} cannot take files from Acestes yet.` };
+        let bytes = Buffer.isBuffer(data) ? data : Buffer.from(data || '');
+        if (bytes.length === 0) return { error: 'There is nothing to send: the file is empty.' };
+        const type = String(mediaType || '').toLowerCase();
+        if (/^text\/|json|xml|yaml/.test(type) || TEXT_EXTENSIONS.test(name)) bytes = Buffer.from(scrub(bytes.toString('utf8')));
+        const max = adapter.maxFileBytes || MAX_SEND_BYTES;
+        if (bytes.length > max) {
+            return { error: `${name} is ${(bytes.length / 1048576).toFixed(1)} MB, and ${label} takes files up to ${Math.round(max / 1048576)} MB.` };
+        }
+        const chatId = String(live.get(conversationId)?.chatId || owner.chatId);
+        try {
+            const sent = await enqueue(chatId, current => current.sendFile(chatId, {
+                name,
+                data: bytes,
+                mediaType: type,
+                caption: scrub(String(caption || '')).trim(),
+                photo: !asFile && PHOTO_TYPES.has(type),
+            }));
+            return { sent: true, channel: adapter.name, as: sent?.as || 'file' };
+        } catch (error) {
+            return { error: error?.message || 'The file did not go.' };
+        }
+    }
+
+    /** Whether this channel's chat is following the conversation's turn. */
+    const follows = conversationId => Boolean(conversationId && live.has(conversationId));
+
     /** A job's result, for a job whose delivery asks for the channels. */
     function deliverJob(job, run) {
         const owner = config().owner;
@@ -1692,6 +1735,8 @@ function createGateway(deps = {}) {
         update,
         test,
         messageOwner,
+        sendFileToOwner,
+        follows,
         deliverJob,
         appClosing,
         keepAlive,

@@ -291,6 +291,19 @@ function setMessenger(fn) {
     messenger = typeof fn === 'function' ? fn : null;
 }
 
+/**
+ * Where `send_file_to_user` sends: the chat following the conversation's
+ * turn, else the paired channel the user last wrote from. Set by
+ * channels/index.js like the messenger.
+ */
+let fileSender = null;
+
+function setFileSender(fn) {
+    fileSender = typeof fn === 'function' ? fn : null;
+}
+
+const NO_CHANNEL = 'No channel is paired: the user has not connected Telegram, Discord, Slack or Matrix in Settings, Channels.';
+
 /** A job's run: nobody is at the desk watching it. See JOB_KINDS. */
 const UNWATCHED_KINDS = new Set(['scheduled', 'triggered']);
 /** The user asking, in so many words, to hear from the agent in a chat app. */
@@ -305,11 +318,15 @@ const ASKED_FOR_CHAT = /\b(telegram|discord|slack|matrix)\b|\b(message|text|ping
  * had the model answer it through this tool, a status line to Telegram every
  * minute of a turn typed at the desk.
  */
-function messageUserRefusal(conversation) {
+function messageUserRefusal(conversation, { file = false } = {}) {
     if (UNWATCHED_KINDS.has(conversation.runKind)) return '';
     const said = (conversation.events || []).filter(event => event?.type === 'user-message');
     if (said.some(event => event.channel)) return '';
     if (said.some(event => ASKED_FOR_CHAT.test(String(event.text || '')))) return '';
+    if (file) {
+        return 'Not sent: the user is at the desktop app reading this conversation and did not ask for it in a chat app. '
+            + 'Give the path in your reply instead.';
+    }
     return 'Not sent: the user is at the desktop app reading this conversation and did not ask to be messaged in a chat app. '
         + 'Say it in your reply instead. A reminder that the user has not heard from you is answered with a short sentence '
         + 'in your reply, never with message_user.';
@@ -429,6 +446,8 @@ function showConversation(conversationId, nearId = '') {
  */
 const CHANNEL_LABELS = { telegram: 'Telegram', discord: 'Discord', slack: 'Slack', matrix: 'Matrix' };
 const CHANNELS = new Set(Object.keys(CHANNEL_LABELS));
+/** The channels whose adapter has `sendFile` for pictures and files (see channels/gateway.js). */
+const CHANNELS_WITH_FILES = new Set(['telegram', 'discord']);
 
 function nextId(prefix) {
     counter += 1;
@@ -2104,11 +2123,24 @@ function startRuntime(conversation, current, lender) {
             // A message to the person in the chat app they paired. See
             // channels/index.js.
             messageUser: async (text) => {
-                if (!messenger) return { error: 'No channel is paired: the user has not connected Telegram, Discord, Slack or Matrix in Settings, Channels.' };
+                if (!messenger) return { error: NO_CHANNEL };
                 const refused = messageUserRefusal(conversation);
                 if (refused) return { error: refused };
                 const from = agents.get(conversation.agentId)?.name || '';
                 return messenger({ text: secrets.scrub(String(text || '')), from });
+            },
+            // A picture or file to the same place. Into the chat whose turn
+            // this is when one is, so it lands beside the reply it goes with.
+            sendFileToUser: async (file) => {
+                if (!fileSender) return { error: NO_CHANNEL };
+                const refused = messageUserRefusal(conversation, { file: true });
+                if (refused) return { error: refused };
+                return fileSender({
+                    ...file,
+                    caption: secrets.scrub(String(file?.caption || '')),
+                    conversationId: conversation.id,
+                    channel: conversation.channelTurn?.channel || '',
+                });
             },
             // The secrets store as this conversation's agent sees it, minus
             // reading: it lists its own names and the shared ones, resolves
@@ -4174,14 +4206,20 @@ async function send(conversationId, text, attachments = [], tagged = [], attache
     if (!conversation.remembering) {
         conversation.channelTurn = channel ? { channel } : null;
         // Said to the model once per switch rather than with every message.
-        if (channel && conversation.noteChannel !== channel) {
+        // The suffix is the note's version: a conversation told the older
+        // one, which said nothing about pictures, hears this one once.
+        const noted = channel ? `${channel}${CHANNELS_WITH_FILES.has(channel) ? '+files' : ''}` : '';
+        if (channel && conversation.noteChannel !== noted) {
             const app = CHANNEL_LABELS[channel];
             channelNote = `The user is writing through ${app}, away from this computer, and reads your replies there. `
-                + 'Keep replies short. Chart blocks and wide tables do not show there: say what they would have shown.';
+                + 'Keep replies short. Chart blocks and wide tables do not show there: say what they would have shown.'
+                + (CHANNELS_WITH_FILES.has(channel)
+                    ? ` To show them a screenshot, a picture or a file, send it with send_file_to_user: it appears in this ${app} chat.`
+                    : '');
         } else if (!channel && conversation.noteChannel) {
             channelNote = 'The user is back at the desktop app, reading your replies there.';
         }
-        conversation.noteChannel = channel;
+        conversation.noteChannel = noted;
     }
     // From the click to the runtime, stage by stage. See send-timing.js.
     const timer = sendTiming.createTimer();
@@ -5094,6 +5132,7 @@ module.exports = {
     setNotifier,
     observe,
     setMessenger,
+    setFileSender,
     setRemoteBridge,
     createMirror,
     ingestRemote,

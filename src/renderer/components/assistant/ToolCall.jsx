@@ -71,6 +71,7 @@ const TITLES = {
     read_conversation: 'assistant.didReadConversation',
     ask_user: 'assistant.didAsk',
     message_user: 'assistant.didMessageUser',
+    send_file_to_user: 'assistant.didSendFileToUser',
     delegate: 'assistant.didDelegate',
     fan_out: 'assistant.didFanOut',
     start_task: 'assistant.didStartTask',
@@ -241,6 +242,10 @@ export function describeCall(name, input = {}) {
             return { mono: false, text: input.question || '' };
         case 'message_user':
             return { mono: false, text: input.text || '' };
+        case 'send_file_to_user':
+            return input.path
+                ? { mono: true, text: input.path, detail: input.caption || '' }
+                : { mono: false, text: input.caption || '' };
         case 'Agent':
         case 'Task':
             return { mono: false, text: input.description || input.prompt || '' };

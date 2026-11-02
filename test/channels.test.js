@@ -91,7 +91,9 @@ function fakeTelegram() {
             if (/json/.test(request.headers['content-type'] || '')) {
                 try { body = JSON.parse(raw.toString('utf8') || '{}'); } catch { body = {}; }
             } else {
-                body = { multipart: raw.length };
+                // Kept whole, so a test can find the part names, file name,
+                // caption and bytes a file went with.
+                body = { multipart: raw.length, raw: raw.toString('latin1') };
             }
             const failure = failures.get(method);
             if (failure && failure.count > 0) {
@@ -122,6 +124,7 @@ function fakeTelegram() {
                 }
                 case 'sendMessage':
                 case 'sendDocument':
+                case 'sendPhoto':
                     messageId += 1;
                     // For pressing a menu's buttons: the id it went out as.
                     calls[calls.length - 1].messageId = messageId;
@@ -837,6 +840,63 @@ async function teardown(env) {
             const sent = await env.gateway.messageOwner({ text: 'The build **passed**.', from: 'Acestino' });
             assert.deepStrictEqual(sent, { sent: true, channel: 'telegram' });
             assert.ok(env.telegram.sent('sendMessage').some(call => /<b>Acestino<\/b>\n\nThe build <b>passed<\/b>\./.test(call.body.text)));
+        } finally {
+            await teardown(env);
+        }
+    });
+
+    await check('send_file_to_user: a picture shows in the chat, a file goes as one, and a photo Telegram refuses goes as a file', async () => {
+        const env = await setup();
+        // A PNG's signature and a little after it: bytes, not text.
+        const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0xff, 0x10, 0x80]);
+        try {
+            const none = await env.gateway.sendFileToOwner({ name: 'shot.png', data: png, mediaType: 'image/png' });
+            assert.ok(/No Telegram account is paired/.test(none.error), none.error);
+            await pairOwner(env);
+            env.telegram.clear();
+
+            const photo = await env.gateway.sendFileToOwner({ name: 'shot.png', data: png, mediaType: 'image/png', caption: 'The Atlas dashboard' });
+            assert.deepStrictEqual(photo, { sent: true, channel: 'telegram', as: 'photo' });
+            const [sentPhoto] = env.telegram.sent('sendPhoto');
+            assert.ok(/name="photo"; filename="shot.png"/.test(sentPhoto.body.raw), 'sent as the photo part');
+            assert.ok(sentPhoto.body.raw.includes('The Atlas dashboard'), 'with its caption');
+            assert.ok(sentPhoto.body.raw.includes(png.toString('latin1')), 'with its bytes unchanged');
+
+            const sharp = await env.gateway.sendFileToOwner({ name: 'shot.png', data: png, mediaType: 'image/png', asFile: true });
+            assert.strictEqual(sharp.as, 'file');
+            assert.strictEqual(env.telegram.sent('sendPhoto').length, 1, 'asFile skips the photo');
+
+            env.telegram.fail('sendPhoto', 400, 'Bad Request: PHOTO_INVALID_DIMENSIONS', 1);
+            const tall = await env.gateway.sendFileToOwner({ name: 'page.png', data: png, mediaType: 'image/png' });
+            assert.deepStrictEqual(tall, { sent: true, channel: 'telegram', as: 'file' });
+            assert.ok(env.telegram.sent('sendDocument').some(call => /name="document"; filename="page.png"/.test(call.body.raw)));
+
+            await env.gateway.sendFileToOwner({ name: 'app.log', data: Buffer.from('key=SUPERSECRETVALUE\n'), mediaType: 'text/plain' });
+            const log = env.telegram.sent('sendDocument').find(call => /filename="app.log"/.test(call.body.raw));
+            assert.ok(log && !log.body.raw.includes('SUPERSECRETVALUE'), 'a text file is masked like any text');
+
+            const big = await env.gateway.sendFileToOwner({ name: 'dump.zip', data: Buffer.alloc(51 * 1024 * 1024), mediaType: 'application/zip' });
+            assert.ok(/takes files up to 50 MB/.test(big.error), big.error);
+            const empty = await env.gateway.sendFileToOwner({ name: 'x.txt', data: Buffer.alloc(0) });
+            assert.ok(/empty/.test(empty.error), empty.error);
+        } finally {
+            await teardown(env);
+        }
+    });
+
+    await check('a file sent during a chat\'s turn goes to that chat, and the gateway says it follows the turn', async () => {
+        const env = await setup();
+        try {
+            await pairOwner(env);
+            env.telegram.message(OWNER, 'send me a screenshot');
+            await until(() => env.ai.calls.send.length === 1, { label: 'turn' });
+            const conversationId = env.ai.calls.send[0].id;
+            assert.strictEqual(env.gateway.follows(conversationId), true);
+            assert.strictEqual(env.gateway.follows('conv-elsewhere'), false);
+            env.telegram.clear();
+            const sent = await env.gateway.sendFileToOwner({ name: 'shot.jpg', data: Buffer.from([0xff, 0xd8, 0xff]), mediaType: 'image/jpeg', conversationId });
+            assert.strictEqual(sent.as, 'photo');
+            assert.ok(/name="chat_id"\r\n\r\n5001\r\n/.test(env.telegram.sent('sendPhoto')[0].body.raw), 'to the owner\'s chat');
         } finally {
             await teardown(env);
         }

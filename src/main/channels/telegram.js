@@ -29,6 +29,9 @@ const COMMANDS = [
 
 const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+/** What a bot may send: a photo up to 10 MB, any other file up to 50 MB. */
+const MAX_PHOTO_BYTES = 10 * 1024 * 1024;
+const MAX_FILE_BYTES = 50 * 1024 * 1024;
 
 function failure(message, kind) {
     const error = new Error(message);
@@ -88,6 +91,7 @@ function createTelegramAdapter({ apiFactory = token => createTelegramApi({ token
         target: 'telegram',
         prefix: '/',
         typing: true,
+        maxFileBytes: MAX_FILE_BYTES,
 
         prepare(raw) {
             const token = String(raw?.token || '').trim();
@@ -193,7 +197,23 @@ function createTelegramAdapter({ apiFactory = token => createTelegramApi({ token
 
                 typing: chatId => api.sendChatAction(chatId, 'typing'),
 
-                sendFile: (chatId, file) => api.sendDocument(chatId, file),
+                /**
+                 * A file, or with `photo` a picture shown in the chat. One
+                 * Telegram will not take as a photo (over 10 MB, too tall,
+                 * too long and thin) still goes, as a file.
+                 */
+                async sendFile(chatId, file) {
+                    if (file.photo && file.data && file.data.length <= MAX_PHOTO_BYTES) {
+                        try {
+                            await api.sendPhoto(chatId, file);
+                            return { as: 'photo' };
+                        } catch (error) {
+                            if (!(error instanceof TelegramError) || ![400, 413].includes(error.status)) throw error;
+                        }
+                    }
+                    await api.sendDocument(chatId, file);
+                    return { as: 'file' };
+                },
 
                 async fetch(attachment, maxBytes) {
                     const file = await api.getFile(attachment.ref);

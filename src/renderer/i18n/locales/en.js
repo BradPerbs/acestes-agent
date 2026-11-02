@@ -2650,6 +2650,7 @@ export default {
     'assistant.didReadTerminal': 'Read the terminal',
     'assistant.didRun': 'Ran',
     'assistant.didMessageUser': 'Messaged your phone',
+    'assistant.didSendFileToUser': 'Sent to your phone',
     'assistant.didType': 'Typed',
     'assistant.didList': 'Listed',
     'assistant.didRead': 'Read',

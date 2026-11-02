@@ -1,8 +1,8 @@
 /**
  * The handful of Telegram Bot API calls the gateway needs, over plain fetch.
  *
- * No library: the Bot API is JSON over HTTPS, and the gateway uses eight of
- * its methods. What a library would add is a dependency to keep up to date
+ * No library: the Bot API is JSON over HTTPS, and the gateway uses a dozen
+ * of its methods. What a library would add is a dependency to keep up to date
  * for a protocol that has not changed shape in years.
  *
  * Every call resolves to the `result` Telegram sent, or throws a
@@ -24,6 +24,9 @@ const RATE_RETRIES = 2;
 
 /** The longest wait a rate limit is honoured for before the call is given up. */
 const MAX_RATE_WAIT = 30;
+
+/** The longest caption Telegram takes on a photo or a file. */
+const MAX_CAPTION = 1024;
 
 class TelegramError extends Error {
     constructor(status, description, parameters = {}) {
@@ -133,13 +136,26 @@ function createTelegramApi({ token, base = DEFAULT_BASE, fetchImpl = globalThis.
         }),
         sendChatAction: (chatId, action = 'typing') => call('sendChatAction', { chat_id: chatId, action }),
         setMyCommands: (commands) => call('setMyCommands', { commands }),
-        /** A text file, for a reply too long to read as messages. */
-        sendDocument: (chatId, { name, text, caption = '' }) => {
+        /**
+         * A file: `data` (a Buffer) as it is, or `text` as Markdown, which is
+         * how a reply too long to read as messages goes.
+         */
+        sendDocument: (chatId, { name, text, data, mediaType = '', caption = '' }) => {
             const form = new FormData();
             form.append('chat_id', String(chatId));
-            if (caption) form.append('caption', caption);
-            form.append('document', new Blob([String(text)], { type: 'text/markdown' }), name);
-            return call('sendDocument', null, { form, timeout: 60000 });
+            if (caption) form.append('caption', String(caption).slice(0, MAX_CAPTION));
+            const body = data ? new Blob([data], { type: mediaType || 'application/octet-stream' })
+                : new Blob([String(text)], { type: 'text/markdown' });
+            form.append('document', body, name);
+            return call('sendDocument', null, { form, timeout: 120000 });
+        },
+        /** A picture, shown in the chat. Telegram shrinks it; a file keeps it whole. */
+        sendPhoto: (chatId, { name, data, mediaType = 'image/png', caption = '' }) => {
+            const form = new FormData();
+            form.append('chat_id', String(chatId));
+            if (caption) form.append('caption', String(caption).slice(0, MAX_CAPTION));
+            form.append('photo', new Blob([data], { type: mediaType }), name);
+            return call('sendPhoto', null, { form, timeout: 120000 });
         },
         getFile: (fileId) => call('getFile', { file_id: fileId }),
         /** The bytes of a file `getFile` described, capped at `maxBytes`. */

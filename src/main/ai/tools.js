@@ -15,6 +15,8 @@ const delegationTools = require('./delegation-tools');
 const fleetTools = require('./fleet-tools');
 const computerTools = require('./computer-tools');
 const metricTools = require('./metric-tools');
+const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const sandbox = require('./sandbox');
 const { DEFAULTS } = require('./settings');
@@ -1183,6 +1185,71 @@ const TOOLS = [
     },
 
     {
+        name: 'send_file_to_user',
+        title: 'Send a picture or file to the user\'s chat app',
+        // Like message_user: it changes nothing on any system, and goes only
+        // to the account the user paired themselves.
+        readOnly: true,
+        description:
+            'Send the user a picture or a file in the chat app they paired with Acestes (Telegram or Discord). '
+            + 'When they write to you from that app, this is how a screenshot, a chart you made, a PDF or a log '
+            + 'reaches them: it lands in the same chat, ahead of your reply. Pictures (PNG, JPEG, WebP) show in the '
+            + 'chat; anything else arrives as a file. Never tell them the chat is text only, and do not send '
+            + 'pictures by another route (Saved Messages, an image host). screenshot: true sends the latest picture '
+            + 'a tool gave you in this conversation; take it with marks: false so it has no numbered boxes. From a '
+            + 'conversation at the desktop, only when the user asked for it in their chat app, as with message_user.',
+        shape: {
+            path: z.string().max(1000).optional()
+                .describe('A file on this computer: inside the folders granted to you (under /workspace in a container), or in the temp folder.'),
+            screenshot: z.boolean().optional()
+                .describe('Send the latest picture a tool gave you in this conversation (a screenshot, a zoom) instead of a file.'),
+            caption: z.string().max(1000).optional().describe('A short line shown with it.'),
+            asFile: z.boolean().optional()
+                .describe('Send a picture as a file, at full quality, for when small text in it must stay sharp. Chat apps shrink pictures.'),
+        },
+        handler: async (input, ctx) => {
+            if (typeof ctx.sendFileToUser !== 'function') return fail('There is no way to send the user a file from here.');
+            const wantsShot = Boolean(input.screenshot);
+            if (wantsShot === Boolean(input.path)) return fail('Give either path or screenshot: true.');
+            let file;
+            if (wantsShot) {
+                const picture = lastPictures.get(ctx.conversationId);
+                if (!picture) {
+                    return fail('No picture has come back from a tool in this conversation yet. Take a screenshot first, or give a path.');
+                }
+                file = {
+                    name: `screenshot.${PICTURE_EXTENSIONS[picture.mediaType] || 'png'}`,
+                    mediaType: picture.mediaType,
+                    data: Buffer.from(picture.data, 'base64'),
+                };
+            } else {
+                const found = sendablePath(ctx, input.path);
+                if (found.error) return fail(found.error);
+                let stat;
+                try {
+                    stat = await fs.promises.stat(found.path);
+                } catch (error) {
+                    return fail(`Could not read "${found.path}": ${error.code === 'ENOENT' ? 'there is no such file' : error.message}`);
+                }
+                if (!stat.isFile()) return fail(`"${found.path}" is not a file.`);
+                if (stat.size === 0) return fail(`"${found.path}" is empty.`);
+                if (stat.size > MAX_SEND_BYTES) {
+                    return fail(`"${found.path}" is ${(stat.size / 1048576).toFixed(1)} MB. A chat app takes files up to 50 MB.`);
+                }
+                const name = path.basename(found.path);
+                file = {
+                    name,
+                    mediaType: MEDIA_TYPES[path.extname(name).toLowerCase()] || 'application/octet-stream',
+                    data: await fs.promises.readFile(found.path),
+                };
+            }
+            const result = await ctx.sendFileToUser({ ...file, caption: input.caption || '', asFile: Boolean(input.asFile) });
+            if (!result || result.error) return fail(result?.error || 'The file did not go.');
+            return ok({ sent: true, channel: result.channel || 'telegram', as: result.as || 'file', name: file.name, bytes: file.data.length });
+        },
+    },
+
+    {
         name: 'save_secret',
         title: 'Store a secret',
         // Auto-approved, and still a write. The two are usually the same
@@ -1404,6 +1471,7 @@ const BUNDLE_OF = {
     // user's chat app what one of them found.
     start_task: 'automation',
     message_user: 'automation',
+    send_file_to_user: 'automation',
     list_job_templates: 'automation',
     schedule_job: 'automation',
     list_jobs: 'automation',
@@ -1461,6 +1529,62 @@ function visibleTools(settings) {
 }
 
 /**
+ * The latest picture a tool handed the model, by conversation: a screenshot,
+ * a zoom. What `send_file_to_user` sends with `screenshot`, so a picture the
+ * agent has just looked at reaches the user's phone without the agent having
+ * to find where its runtime spilled it to disk. Only the newest is kept, and
+ * only for the most recent conversations.
+ */
+const lastPictures = new Map();
+const MAX_KEPT_PICTURES = 40;
+
+function keepPicture(conversationId, result) {
+    if (!conversationId || !Array.isArray(result?.images)) return;
+    const image = [...result.images].reverse().find(item => item?.data);
+    if (!image) return;
+    lastPictures.delete(conversationId);
+    lastPictures.set(conversationId, { data: image.data, mediaType: image.mediaType || 'image/png', at: Date.now() });
+    while (lastPictures.size > MAX_KEPT_PICTURES) lastPictures.delete(lastPictures.keys().next().value);
+}
+
+/** The most `send_file_to_user` reads: what Telegram takes from a bot as a document. */
+const MAX_SEND_BYTES = 50 * 1024 * 1024;
+
+const MEDIA_TYPES = {
+    '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif',
+    '.svg': 'image/svg+xml', '.pdf': 'application/pdf', '.zip': 'application/zip', '.json': 'application/json',
+    '.txt': 'text/plain', '.log': 'text/plain', '.md': 'text/markdown', '.csv': 'text/csv', '.html': 'text/html',
+    '.mp4': 'video/mp4', '.webm': 'video/webm',
+};
+
+const PICTURE_EXTENSIONS = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' };
+
+/**
+ * The file on this computer `send_file_to_user` may send, or why not: one
+ * inside the granted folders (a container's mounts, mapped back to the
+ * host), or in the temp folder, where a picture cropped or joined for the
+ * user usually lands. Wider than read_local_file by that one folder, since
+ * the file goes nowhere but the account the user paired.
+ */
+function sendablePath(ctx, target) {
+    const raw = String(target || '').trim();
+    if (!raw) return { error: 'A path is needed.' };
+    if (ctx?.sandbox?.execution === 'container') {
+        const checked = sandbox.containerPath(ctx.sandbox, raw);
+        if (checked.error) return { error: checked.error };
+        if (!checked.mount) {
+            return { error: `"${checked.path}" is in the container's own space. Save it into one of the mounted folders under /workspace first.` };
+        }
+        const inside = path.posix.relative(checked.mount.container, checked.path);
+        return { path: path.join(checked.mount.host, ...inside.split('/').filter(Boolean)) };
+    }
+    if (path.isAbsolute(raw) && sandbox.within(os.tmpdir(), raw)) return { path: path.resolve(raw) };
+    const grant = sandbox.grantFor(ctx?.sandbox, raw);
+    if (grant.error) return { error: `${grant.error} The temp folder (${os.tmpdir()}) is fine too.` };
+    return { path: grant.path };
+}
+
+/**
  * Run a tool, with the hooks around it.
  *
  * The one place every provider hands a call to a handler, so the hooks the
@@ -1489,6 +1613,7 @@ async function invoke(definition, input, ctx) {
         }
     }
     const result = await definition.handler(input, ctx);
+    keepPicture(ctx?.conversationId, result);
     if (hooks) {
         await hooks('post-tool', {
             tool: definition.name,

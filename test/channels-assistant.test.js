@@ -133,6 +133,7 @@ const eventsOf = (conversationId, type) => seen
         assert.strictEqual(assistant.effectiveSettings(conversation).approval, 'never', 'the mode it is in');
         const text = starts[0].session.sent[0];
         assert.ok(/writing through Telegram, away from this computer/.test(text), text);
+        assert.ok(/send it with send_file_to_user/.test(text), 'told how a picture reaches the phone');
         assert.ok(!/every change asks/.test(text), text);
         const started = eventsOf(conversationId, 'run-started')[0];
         assert.ok(started, 'a run started');
@@ -233,6 +234,72 @@ const eventsOf = (conversationId, type) => seen
         assert.strictEqual(typeof told[0].from, 'string');
     });
 
+    await check('send_file_to_user sends the latest screenshot or a file into the phone\'s chat, and keeps to the grants', async () => {
+        const context = starts.at(-1).options.toolContext();
+        const tool = catalog.BY_NAME.get('send_file_to_user');
+        assert.ok(tool, 'the tool is in the catalog');
+        assert.strictEqual(tool.readOnly, true);
+        assert.strictEqual(catalog.bundleOf('send_file_to_user'), 'automation');
+
+        assistant.setFileSender(null);
+        const none = await tool.handler({ path: path.join(os.tmpdir(), 'x.png') }, context);
+        assert.ok(none.isError, 'fails without a channel');
+
+        const got = [];
+        assistant.setFileSender(async (file) => {
+            got.push(file);
+            return { sent: true, channel: 'telegram', as: /^image\//.test(file.mediaType) && !file.asFile ? 'photo' : 'file' };
+        });
+
+        const early = await tool.handler({ screenshot: true }, context);
+        assert.ok(early.isError && /No picture/.test(early.text), early.text);
+        const both = await tool.handler({ screenshot: true, path: 'a.png' }, context);
+        assert.ok(both.isError && /either path or screenshot/.test(both.text), both.text);
+
+        // A picture handed back by a tool, the way a screenshot is.
+        const camera = { name: 'fake_camera', handler: async () => ({ text: '{}', images: [{ mediaType: 'image/jpeg', data: Buffer.from('JPEGBYTES').toString('base64') }] }) };
+        await catalog.invoke(camera, {}, context);
+        const shot = await tool.handler({ screenshot: true, caption: 'with SUPERSECRETVALUE123 in it' }, context);
+        assert.ok(!shot.isError, shot.text);
+        assert.deepStrictEqual(JSON.parse(shot.text), { sent: true, channel: 'telegram', as: 'photo', name: 'screenshot.jpg', bytes: 9 });
+        assert.strictEqual(got[0].data.toString(), 'JPEGBYTES');
+        assert.strictEqual(got[0].mediaType, 'image/jpeg');
+        assert.strictEqual(got[0].conversationId, conversationId);
+        assert.strictEqual(got[0].channel, 'telegram', 'goes to the chat whose turn it is');
+        assert.ok(!got[0].caption.includes('SUPERSECRETVALUE123'), 'the caption is masked');
+
+        // A picture made for the user in the temp folder.
+        const made = path.join(os.tmpdir(), `cb-send-file-${process.pid}.png`);
+        fs.writeFileSync(made, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+        try {
+            const sent = await tool.handler({ path: made, asFile: true }, context);
+            assert.ok(!sent.isError, sent.text);
+            assert.strictEqual(got[1].name, path.basename(made));
+            assert.strictEqual(got[1].mediaType, 'image/png');
+            assert.strictEqual(got[1].asFile, true);
+            assert.strictEqual(got[1].data.length, 4);
+        } finally {
+            fs.unlinkSync(made);
+        }
+
+        // Anywhere else is behind the same fence as read_local_file.
+        const outside = await tool.handler({ path: path.join(os.homedir(), '.ssh', 'id_rsa') }, context);
+        assert.ok(outside.isError && /temp folder/.test(outside.text), outside.text);
+        assert.strictEqual(got.length, 2, 'nothing else went');
+        const missing = await tool.handler({ path: path.join(os.tmpdir(), 'cb-no-such-file.png') }, context);
+        assert.ok(missing.isError && /no such file/.test(missing.text), missing.text);
+    });
+
+    await check('a conversation told the old phone note hears the new one, about pictures, once', async () => {
+        conversation.noteChannel = 'telegram';
+        await assistant.send(conversationId, 'one more from the phone', [], [], [], { channel: 'telegram' });
+        assert.ok(/send_file_to_user/.test(starts.at(-1).session.sent.at(-1)), starts.at(-1).session.sent.at(-1));
+        starts.at(-1).options.onEvent({ type: 'result', subtype: 'success', isError: false, costUsd: 0 });
+        await assistant.send(conversationId, 'and another', [], [], [], { channel: 'telegram' });
+        assert.ok(!/send_file_to_user/.test(starts.at(-1).session.sent.at(-1)), 'not again');
+        starts.at(-1).options.onEvent({ type: 'result', subtype: 'success', isError: false, costUsd: 0 });
+    });
+
     console.log('\nthe desktop, let go when a turn from the phone ends');
 
     const computer = require(path.join(ROOT, 'ai', 'computer'));
@@ -317,6 +384,27 @@ const eventsOf = (conversationId, type) => seen
         const fromJob = await tool.handler({ text: '/var is at 97%.' }, starts.at(-1).options.toolContext());
         assert.ok(!fromJob.isError, 'a job\'s run may');
         assert.strictEqual(told.length, 2);
+        starts.at(-1).options.onEvent({ type: 'result', subtype: 'success', isError: false, costUsd: 0 });
+    });
+
+    await check('send_file_to_user stays off the phone in a desk conversation too', async () => {
+        const tool = catalog.BY_NAME.get('send_file_to_user');
+        const got = [];
+        assistant.setFileSender(async (file) => {
+            got.push(file);
+            return { sent: true, channel: 'telegram', as: 'photo' };
+        });
+        const desk = assistant.create({ scope: 'global' }).conversationId;
+        await assistant.send(desk, 'make me a chart of the disk use');
+        const made = path.join(os.tmpdir(), `cb-send-desk-${process.pid}.png`);
+        fs.writeFileSync(made, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+        try {
+            const refused = await tool.handler({ path: made }, starts.at(-1).options.toolContext());
+            assert.ok(refused.isError && /Not sent/.test(refused.text), refused.text);
+            assert.strictEqual(got.length, 0, 'nothing reached the phone');
+        } finally {
+            fs.unlinkSync(made);
+        }
         starts.at(-1).options.onEvent({ type: 'result', subtype: 'success', isError: false, costUsd: 0 });
     });
 

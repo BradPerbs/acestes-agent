@@ -91,8 +91,9 @@ function build() {
             }),
         });
     }
-    // The agent's `message_user` goes out through here.
+    // The agent's `message_user` and `send_file_to_user` go out through here.
     assistant.setMessenger(({ text, from }) => messageOwner({ text, from }));
+    assistant.setFileSender(file => sendFileToOwner(file));
     return gateways;
 }
 
@@ -123,6 +124,27 @@ async function messageOwner({ text, from }) {
         if (last?.sent) return last;
     }
     return last || { error: 'The message did not go.' };
+}
+
+/**
+ * A picture or file from the agent: into the chat whose turn the
+ * conversation is on, so it lands beside the reply, else where the user last
+ * wrote from. A channel that cannot take files hands on to the next.
+ */
+async function sendFileToOwner(file) {
+    const ready = NAMES.map(name => build()[name]).filter(gateway => gateway.ready());
+    if (ready.length === 0) {
+        return { error: 'No channel is paired: the user has not connected Telegram, Discord, Slack or Matrix in Settings, Channels.' };
+    }
+    const id = file?.conversationId || '';
+    const rank = gateway => (gateway.follows(id) ? 2 : 0) + (gateway.name === file?.channel ? 1 : 0);
+    ready.sort((a, b) => (rank(b) - rank(a)) || (b.lastMessageAt() - a.lastMessageAt()));
+    let last = null;
+    for (const gateway of ready) {
+        last = await gateway.sendFileToOwner(file);
+        if (last?.sent) return last;
+    }
+    return last || { error: 'The file did not go.' };
 }
 
 function start(notifier) {
