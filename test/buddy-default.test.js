@@ -101,5 +101,21 @@ check('a version 3 file that says off is left off', () => {
     assert.strictEqual(start().get().buddy, false);
 });
 
+check('where the notch was dragged is kept across a restart, and put back with null', () => {
+    profile(null);
+    assert.strictEqual(start().get().buddyNotchPlace, null, 'the top middle on a new install');
+    start().set({ buddyNotchPlace: { display: '2528732444', x: 0.25, y: 0.75, dock: false } });
+    assert.deepStrictEqual(start().get().buddyNotchPlace, { display: '2528732444', x: 0.25, y: 0.75, dock: false });
+    // Docked, it is on the edge whatever y says; out of range is held to the display.
+    start().set({ buddyNotchPlace: { display: 7, x: 1.4, y: 0.6, dock: true } });
+    assert.deepStrictEqual(start().get().buddyNotchPlace, { display: '7', x: 1, y: 0, dock: true });
+    // Not a place: the top middle.
+    start().set({ buddyNotchPlace: { x: 'left', y: 0 } });
+    assert.strictEqual(start().get().buddyNotchPlace, null);
+    start().set({ buddyNotchPlace: { display: '1', x: 0.5, y: 0.5, dock: false } });
+    start().set({ buddyNotchPlace: null });
+    assert.strictEqual(start().get().buddyNotchPlace, null, 'put back');
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

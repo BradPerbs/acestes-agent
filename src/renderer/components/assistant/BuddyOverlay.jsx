@@ -23,12 +23,14 @@ import { getLanguage, useT } from '../../i18n';
  *               (Clicking · Save) as it does it. A reply that points
  *               somewhere sends it flying there along an arc, where it says
  *               what it found, then back to the cursor.
- *   the notch   on the main display, a black notch hanging from the top
- *               edge, MacBook-style: small at rest, opening to show what is
- *               heard, what the agent is at (and which chat it is, when it is
- *               not the buddy's own), what it asks, and what it said. With
- *               the cursor resting on it, it opens a little to say how to
- *               talk to it, and the last reply.
+ *   the notch   a black notch hanging from the top edge of the main display,
+ *               MacBook-style: small at rest, opening to show what is heard,
+ *               what the agent is at (and which chat it is, when it is not
+ *               the buddy's own), what it asks, and what it said. With the
+ *               cursor resting on it, it opens a little to say how to talk to
+ *               it, and the last reply, and can be dragged anywhere, on any
+ *               display: let go near a top edge it hangs from it, anywhere
+ *               else it floats, and it stays where it is left.
  *   drawings    what a reply drew to show something: loops, boxes, arrows
  *               and lines under words, in the mark's violet, stroke by
  *               stroke as if by hand, each on the display it is on, gone a
@@ -90,6 +92,21 @@ const POINT_MS = 3200;
 /** How near the notch the cursor has to rest for it to open a little, and for how long. */
 const PEEK_PAD = 14;
 const PEEK_AFTER = 450;
+/** The notch at rest, in CSS pixels. */
+const REST_W = 96;
+const REST_H = 18;
+/** Where it is unless it was dragged: hanging from the top edge, in the middle. */
+const TOP_MIDDLE = { x: 0.5, y: 0, dock: true };
+/** How near the top edge a notch let go of docks there. Kept with DOCK_ZONE in buddy.js. */
+const DOCK_ZONE = 36;
+/** How near the middle of the top edge a docked notch goes right to the middle. */
+const MIDDLE_SNAP = 28;
+/** How far the pointer moves with the button down before it is a drag, not a click. */
+const DRAG_AFTER = 4;
+/** How far it is kept from the display's sides, and a floating one from its top and bottom. */
+const EDGE = 8;
+/** What it is doing that it cannot be picked up from: a turn under way, or someone talking to it. */
+const BUSY = new Set(['listening', 'hearing', 'looking', 'thinking', 'acting', 'waiting']);
 
 /** What the cursor and the display are, shared by the mark and the notch without renders. */
 function useCursor(hello) {
@@ -635,27 +652,36 @@ function NotchBody({ state, peek, download, heardHere }) {
  * The one place of this window that can be clicked, while `ref`'s element
  * is drawn: main makes the window take the mouse with the pointer over it,
  * and only then (see `hit` in main/ai/buddy.js). Only one such place shows
- * at a time: the agents, or the buttons while the agent works.
+ * at a time: the whole notch while it can be picked up, else the agents, or
+ * the buttons while the agent works. `on` false leaves it to another; `at`
+ * changing says it moved, and it is measured again without the mouse being
+ * let go of between.
  */
-function useHitArea(ref, key) {
+function useHitArea(ref, key, on = true, at = '') {
+    const sendRef = useRef(null);
     useEffect(() => {
         const node = ref.current;
-        if (!node) return undefined;
+        if (!on || !node) return undefined;
         const send = () => {
             const rect = node.getBoundingClientRect();
             window.api.buddy.hit({ x: rect.left - 3, y: rect.top - 3, width: rect.width + 6, height: rect.height + 6 });
         };
+        sendRef.current = send;
         send();
         // The notch eases open around it, so it is measured again as it settles.
         const timers = [90, 200, 340, 520, 700].map(ms => setTimeout(send, ms));
         const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(send) : null;
         observer?.observe(node);
         return () => {
+            sendRef.current = null;
             timers.forEach(clearTimeout);
             observer?.disconnect();
             window.api.buddy.hit(null);
         };
-    }, [ref, key]);
+    }, [ref, key, on]);
+    useEffect(() => {
+        sendRef.current?.();
+    }, [at]);
 }
 
 /**
@@ -696,16 +722,17 @@ function WorkControls() {
 /**
  * Who the buddy talks to, and the others it could: the cursor resting on
  * the notch at rest, or a moment after a switch (Ctrl+Alt+Space). The row of
- * agents can be clicked (see useHitArea).
+ * agents can be clicked (see useHitArea); while the notch can be picked up,
+ * all of it takes the mouse, so the row is not told separately (`own`).
  */
-function AgentPicker({ state, peek, switched }) {
+function AgentPicker({ state, peek, switched, own = true }) {
     const t = useT();
     const row = useRef(null);
     const agents = state.agents || [];
     const current = agentOf(state);
     const chord = state.chord || 'Ctrl Alt';
 
-    useHitArea(row, agents.length);
+    useHitArea(row, agents.length, own);
 
     if (!agents.length) {
         return (
@@ -755,34 +782,104 @@ function AgentPicker({ state, peek, switched }) {
 
 /** The notch's size by phase, in CSS pixels: width, and the least height. */
 const SIZES = {
-    idle: [150, 26],
-    listening: [380, 0],
-    hearing: [360, 0],
-    looking: [330, 0],
-    thinking: [360, 0],
-    acting: [380, 0],
-    waiting: [420, 0],
-    speaking: [430, 0],
-    done: [430, 0],
-    notice: [400, 0],
+    idle: [REST_W, REST_H],
+    listening: [340, 0],
+    hearing: [320, 0],
+    looking: [300, 0],
+    thinking: [320, 0],
+    acting: [340, 0],
+    waiting: [380, 0],
+    speaking: [390, 0],
+    done: [390, 0],
+    notice: [360, 0],
 };
+/** Open on the agents. */
+const PICKER_W = 340;
+
+/** The window's size in CSS pixels, followed as it changes. */
+function useViewport() {
+    const [size, setSize] = useState(() => ({ width: window.innerWidth, height: window.innerHeight }));
+    useEffect(() => {
+        const follow = () => setSize({ width: window.innerWidth, height: window.innerHeight });
+        window.addEventListener('resize', follow);
+        return () => window.removeEventListener('resize', follow);
+    }, []);
+    return size;
+}
+
+const fraction = value => Math.min(1, Math.max(0, value));
+
+/**
+ * Where a notch let go of here would go: near the top edge it docks there
+ * (in the middle if near it), anywhere else it floats with its middle under
+ * the pointer. As fractions of the display, as main keeps it.
+ */
+function placeAt(x, y, view) {
+    const dock = y < DOCK_ZONE;
+    const across = dock && Math.abs(x - view.width / 2) < MIDDLE_SNAP ? 0.5 : x / (view.width || 1);
+    return { x: fraction(across), y: dock ? 0 : fraction(y / (view.height || 1)), dock };
+}
+
+/**
+ * Where the notch is drawn, in CSS pixels, at the width it is now: docked,
+ * hanging from the top edge; floating, opening downward in the top half of
+ * the display and upward in the bottom half, so it never opens off the
+ * screen. Kept clear of the sides however wide it opens.
+ */
+function notchStyle(place, view, width) {
+    const half = width / 2;
+    // A docked one's ears reach 8px past it.
+    const side = place.dock ? EDGE + 8 : EDGE;
+    const low = half + side;
+    const high = Math.max(low, view.width - half - side);
+    const left = Math.round(Math.min(high, Math.max(low, place.x * view.width)));
+    if (place.dock) return { left, top: 0 };
+    const middle = place.y * view.height;
+    const top = Math.round(Math.min(Math.max(middle - REST_H / 2, EDGE), Math.max(EDGE, view.height - REST_H - EDGE)));
+    if (middle <= view.height / 2) return { left, top };
+    return { left, bottom: Math.round(view.height - (top + REST_H)) };
+}
 
 function Notch({ state, cursor, download, heardHere }) {
     const box = useRef(null);
     const body = useRef(null);
-    const [height, setHeight] = useState(26);
+    const view = useViewport();
+    const [height, setHeight] = useState(REST_H);
     const [peek, setPeek] = useState(false);
+    // Being dragged: where it would go if let go now. And where it was let
+    // go, drawn there until main's word on it comes back.
+    const [drag, setDrag] = useState(null);
+    const [dropped, setDropped] = useState(null);
+    const press = useRef(null);
+    const dragging = Boolean(drag);
     const phase = state.phase || 'idle';
     const resting = phase === 'idle';
     // The agents show with the cursor resting on it at rest, and for a moment
     // after a switch whatever it is doing. Only with the buddy on for good:
     // otherwise it is up for the agents at work, and nothing is talked to.
     const switched = useFlash(state.switcher);
-    const picking = state.talk === 'hold' && ((peek && resting) || switched);
-    const closed = resting && !picking;
+    const picking = !dragging && state.talk === 'hold' && ((peek && resting) || switched);
+    // Carried about, it is the small one at rest.
+    const closed = dragging || (resting && !picking);
     // A turn under way: it can be stopped, or opened in the app, from here.
-    const working = !picking && ['thinking', 'acting', 'waiting'].includes(phase);
-    const [width, least] = picking ? [370, 0] : (SIZES[phase] || SIZES.idle);
+    const working = !picking && !dragging && ['thinking', 'acting', 'waiting'].includes(phase);
+    // It can be picked up with the pointer resting on it, unless a turn is
+    // under way or someone is talking to it; all of it takes the mouse then.
+    const movable = dragging || (peek && !BUSY.has(phase));
+    const [width, least] = closed ? SIZES.idle : picking ? [PICKER_W, 0] : (SIZES[phase] || SIZES.idle);
+
+    const saved = state.place;
+    const savedKey = saved ? `${saved.display}:${saved.x}:${saved.y}:${saved.dock}` : '';
+    useEffect(() => setDropped(null), [savedKey]);
+    // Main not having taken it after all: back to where it is kept.
+    useEffect(() => {
+        if (!dropped) return undefined;
+        const timer = setTimeout(() => setDropped(null), 1500);
+        return () => clearTimeout(timer);
+    }, [dropped]);
+    const place = drag || dropped || saved || TOP_MIDDLE;
+    const at = notchStyle(place, view, width);
+    useHitArea(box, 'notch', movable, `${at.left}:${at.top}:${at.bottom}:${view.width}:${view.height}`);
 
     // The height follows what is in it, so the notch eases open to fit.
     useLayoutEffect(() => {
@@ -798,9 +895,10 @@ function Notch({ state, cursor, download, heardHere }) {
 
     // The cursor resting on it opens it a little; this window hears no
     // mouse, so the cursor main tells it about is checked against it.
+    const peekCheck = useRef(null);
     useEffect(() => {
         let timer = 0;
-        const off = cursor.subscribe((point) => {
+        const check = (point) => {
             const bounds = cursor.hello?.bounds;
             const node = box.current;
             if (!bounds || !node) return;
@@ -809,7 +907,9 @@ function Notch({ state, cursor, download, heardHere }) {
             const scale = window.innerWidth > 0 ? bounds.width / window.innerWidth : 1;
             const x = (point.x - bounds.x) / scale;
             const y = (point.y - bounds.y) / scale;
-            const near = x >= rect.left - PEEK_PAD && x <= rect.right + PEEK_PAD && y <= rect.bottom + PEEK_PAD && y >= 0;
+            // Docked, from the very edge; floating, a little round it on every side.
+            const near = x >= rect.left - PEEK_PAD && x <= rect.right + PEEK_PAD
+                && y >= (rect.top > 0 ? rect.top - PEEK_PAD : 0) && y <= rect.bottom + PEEK_PAD;
             if (near && !timer) {
                 timer = setTimeout(() => setPeek(true), PEEK_AFTER);
             } else if (!near) {
@@ -817,22 +917,104 @@ function Notch({ state, cursor, download, heardHere }) {
                 timer = 0;
                 setPeek(false);
             }
-        });
+        };
+        peekCheck.current = check;
+        const off = cursor.subscribe(check);
         return () => {
+            peekCheck.current = null;
             off();
             clearTimeout(timer);
         };
     }, [cursor]);
 
+    // Moved without the pointer moving (put back from Settings, its display
+    // gone): whether the pointer is on it is asked again, so it does not stay
+    // open where nobody is.
+    const spot = `${at.left}:${at.top}:${at.bottom}`;
+    useEffect(() => {
+        if (!press.current && cursor.last.current) peekCheck.current?.(cursor.last.current);
+        // Only when it has moved.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [spot]);
+
+    /*
+     * Dragging it. The button going down on it is not yet a drag, so a click
+     * on an agent still picks it; a few pixels on, it is. From the press the
+     * pointer is followed over the whole window, not the notch alone: a quick
+     * hand is off the small notch before the drag has begun. Let go, main is
+     * told where, and keeps it (see `moveNotch` in buddy.js); let go over
+     * another display, main sees where the pointer is and puts it there.
+     */
+    const viewRef = useRef(view);
+    viewRef.current = view;
+    // Gone with a drag under way (switched off, say): nothing left listening.
+    useEffect(() => () => press.current?.stop(), []);
+
+    const onPointerDown = (event) => {
+        if (!movable || event.button !== 0) return;
+        press.current?.stop();
+        const held = { id: event.pointerId, x: event.clientX, y: event.clientY, moving: false, last: null };
+        const finish = (end) => {
+            held.stop();
+            if (!held.moving) return;
+            setDrag(null);
+            if (!end) return;
+            setDropped(end);
+            window.api.buddy.place(end);
+        };
+        const move = (next) => {
+            if (next.pointerId !== held.id) return;
+            // The button came up where it was not seen: the drag ends where it was last.
+            if (next.buttons === 0) {
+                finish(held.last);
+                return;
+            }
+            if (!held.moving) {
+                if (Math.hypot(next.clientX - held.x, next.clientY - held.y) < DRAG_AFTER) return;
+                held.moving = true;
+                try {
+                    box.current?.setPointerCapture(held.id);
+                } catch {
+                    // Followed all the same, over this window.
+                }
+            }
+            held.last = placeAt(next.clientX, next.clientY, viewRef.current);
+            setDrag(held.last);
+        };
+        const up = (next) => {
+            if (next.pointerId !== held.id) return;
+            // Where the pointer came up; a drag cut short ends where it was last seen.
+            finish(next.type === 'pointerup' ? placeAt(next.clientX, next.clientY, viewRef.current) : held.last);
+        };
+        held.stop = () => {
+            window.removeEventListener('pointermove', move, true);
+            window.removeEventListener('pointerup', up, true);
+            window.removeEventListener('pointercancel', up, true);
+            if (press.current === held) press.current = null;
+        };
+        window.addEventListener('pointermove', move, true);
+        window.addEventListener('pointerup', up, true);
+        window.addEventListener('pointercancel', up, true);
+        press.current = held;
+    };
+
     // The ears outside the box are drawn by the notch itself; what is inside
     // is clipped by a layer of its own, and measured at its natural height.
+    const classes = [
+        'buddy-notch',
+        closed && 'buddy-notch-rest',
+        !place.dock && 'buddy-notch-float',
+        movable && 'buddy-notch-movable',
+        dragging && 'buddy-notch-dragging',
+    ].filter(Boolean).join(' ');
     return (
         <div
             ref={box}
-            className={`buddy-notch ${closed ? 'buddy-notch-rest' : ''}`}
+            className={classes}
             data-phase={phase}
             data-picking={picking ? 'true' : 'false'}
-            style={{ width, height: closed ? 26 : height }}
+            style={{ ...at, width, height: closed ? REST_H : height }}
+            onPointerDown={onPointerDown}
         >
             <div className="buddy-notch-clip">
                 <div
@@ -841,7 +1023,7 @@ function Notch({ state, cursor, download, heardHere }) {
                     className={`buddy-notch-body ${working ? 'buddy-notch-body-controls' : ''}`}
                 >
                     {picking
-                        ? <AgentPicker state={state} peek={peek} switched={switched} />
+                        ? <AgentPicker state={state} peek={peek} switched={switched} own={!movable} />
                         : <NotchBody state={state} peek={peek} download={download} heardHere={heardHere} />}
                 </div>
             </div>
@@ -1099,6 +1281,9 @@ export default function BuddyOverlay() {
 
     if (!hello || !state) return null;
 
+    // The notch is on the display it was left on, the main one unless it was dragged.
+    const notchHere = state.place ? String(state.place.display) === String(hello.displayId) : hello.primary;
+
     // The voice's level is set on the root each frame (useDictation), so the
     // mark and the notch both read it.
     return (
@@ -1109,7 +1294,7 @@ export default function BuddyOverlay() {
             lang={getLanguage()}
         >
             <Drawing drawing={state.drawing} bounds={hello.bounds} />
-            {hello.primary && state.notch && (
+            {notchHere && state.notch && (
                 <Notch state={state} cursor={cursor} download={dictation.download} heardHere={listener} />
             )}
             <Mark state={state} cursor={cursor} />

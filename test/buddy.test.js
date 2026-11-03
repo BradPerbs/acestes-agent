@@ -800,6 +800,40 @@ async function main() {
         assert.deepStrictEqual(mouse(main), [false, true, false, true]);
     });
 
+    await test('the notch is at the top middle until it is dragged, and stays where it is left', async () => {
+        const [main] = live();
+        assert.deepStrictEqual(state().place, { display: 1, x: 0.5, y: 0, dock: true });
+        // Let go on its own display: where its window says, kept as a setting.
+        cursor = { x: 480, y: 540 };
+        assert.strictEqual(buddy.moveNotch(main.webContents, { x: 0.25, y: 0.5, dock: false }), true);
+        assert.deepStrictEqual(saved[saved.length - 1], { buddyNotchPlace: { display: '1', x: 0.25, y: 0.5, dock: false } });
+        assert.deepStrictEqual(state().place, { display: 1, x: 0.25, y: 0.5, dock: false });
+        // Docked: on the edge, whatever y said.
+        buddy.moveNotch(main.webContents, { x: 0.8, y: 0.3, dock: true });
+        assert.deepStrictEqual(state().place, { display: 1, x: 0.8, y: 0, dock: true });
+        // Let go over the other display: there, under the pointer; at its top edge, docked.
+        cursor = { x: 1920 + 640, y: 512 };
+        buddy.moveNotch(main.webContents, { x: 1, y: 0.47, dock: false });
+        assert.deepStrictEqual(state().place, { display: 2, x: 0.5, y: 0.5, dock: false });
+        cursor = { x: 1920 + 320, y: 10 };
+        buddy.moveNotch(main.webContents, { x: 1, y: 0.01, dock: false });
+        assert.deepStrictEqual(state().place, { display: 2, x: 0.25, y: 0, dock: true });
+        assert.deepStrictEqual(saved[saved.length - 1], { buddyNotchPlace: { display: '2', x: 0.25, y: 0, dock: true } });
+        // Not from a window of its own, nor a place that is no place.
+        const count = saved.length;
+        assert.strictEqual(buddy.moveNotch({ send: () => {} }, { x: 0.5, y: 0.5 }), false);
+        assert.strictEqual(buddy.moveNotch(main.webContents, { x: 'left', y: 0.5 }), false);
+        assert.strictEqual(saved.length, count);
+        // As read back after a restart; on a display that is not there now, the same place on the main one.
+        settingsNow = { ...settingsNow, buddyNotchPlace: { display: '99', x: 0.3, y: 0.7, dock: false } };
+        await buddy.sync();
+        assert.deepStrictEqual(state().place, { display: 1, x: 0.3, y: 0.7, dock: false });
+        // Put back from Settings.
+        settingsNow = { ...settingsNow, buddyNotchPlace: null };
+        await buddy.sync();
+        assert.deepStrictEqual(state().place, { display: 1, x: 0.5, y: 0, dock: true });
+    });
+
     await test('pointed at another agent in Settings, the next hold starts afresh with that one', async () => {
         settingsNow = { ...settingsNow, buddyAgent: 'a3' };
         await buddy.sync();

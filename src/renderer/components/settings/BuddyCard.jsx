@@ -431,6 +431,25 @@ export default function BuddyCard({ settings, update }) {
                     />
                 )}
             />
+            {/* Moved by dragging the notch itself; put back from here. */}
+            <Reveal open={settings.buddyNotch !== false}>
+                <SettingRow
+                    className={DIVIDED}
+                    align="center"
+                    title={t('settings.buddy.notchPlace')}
+                    description={t(settings.buddyNotchPlace ? 'settings.buddy.notchPlaceMoved' : 'settings.buddy.notchPlaceDesc')}
+                    control={(
+                        <Button
+                            size="sm"
+                            variant="secondary"
+                            disabled={!settings.buddyNotchPlace}
+                            onClick={() => update({ buddyNotchPlace: null })}
+                        >
+                            {t('settings.buddy.notchPlaceReset')}
+                        </Button>
+                    )}
+                />
+            </Reveal>
         </SettingCard>
     );
 }

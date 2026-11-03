@@ -54,7 +54,9 @@
  *
  * One window per display, each the size of it: transparent, click-through,
  * topmost. Each draws the mark when the cursor is on its display; the one on
- * the main display draws the notch and does the talking. The cursor is
+ * the display the notch was left on draws the notch (the top middle of the
+ * main display, unless it was dragged; see `moveNotch`), and the one on the
+ * main display does the talking. The cursor is
  * looked at here sixty times a second while the windows are up, and told to
  * them only when it moves. Always on is Windows only: the Mac helper does not
  * watch modifiers on their own yet. A Mac still shows the agents at work.
@@ -152,7 +154,7 @@ let enabled = false;
 let present = false;
 // The app is quitting: nothing comes up again.
 let final = false;
-let config = { notch: true, speak: true, agentId: '', voice: 'system', voiceModel: '', voiceId: '', tone: tones.toneOf({}) };
+let config = { notch: true, place: null, speak: true, agentId: '', voice: 'system', voiceModel: '', voiceId: '', tone: tones.toneOf({}) };
 // The recap being read out by ElevenLabs: its id, and how to stop it.
 let speaking = null;
 let baseUrl = '';
@@ -235,6 +237,8 @@ function fresh() {
         // What it drew on the screen: { at, shapes: [{ kind, ..., label }] } in DIPs, or null.
         drawing: null,
         notch: true,
+        // Where the notch is: { display, x, y, dock }, see `placeOf`.
+        place: null,
         chord: CHORD_LABEL,
         // Who it talks to, and who else it could: [{ id, name, color, computerUse }].
         agents: [],
@@ -289,6 +293,7 @@ async function sync() {
     const before = enabled ? roster().agentId : '';
     config = {
         notch: current.buddyNotch !== false,
+        place: current.buddyNotchPlace && typeof current.buddyNotchPlace === 'object' ? current.buddyNotchPlace : null,
         speak: current.buddySpeak !== false,
         agentId: String(current.buddyAgent || ''),
         voice: current.buddyVoice === 'elevenlabs' ? 'elevenlabs' : 'system',
@@ -303,7 +308,7 @@ async function sync() {
         const now = roster();
         // Pointed at another agent in Settings: the next hold talks to it.
         if (enabled && before && now.agentId !== before) freshNext = true;
-        push({ notch: config.notch, ...now });
+        push({ notch: config.notch, place: placeOf(), ...now });
     }
     return { enabled };
 }
@@ -375,7 +380,7 @@ function appear() {
     const { BrowserWindow, screen } = electron;
     if (typeof BrowserWindow !== 'function' || !canShow()) return;
     present = true;
-    state = { ...fresh(), notch: config.notch, talk: enabled ? 'hold' : 'press', ...roster() };
+    state = { ...fresh(), notch: config.notch, place: placeOf(), talk: enabled ? 'hold' : 'press', ...roster() };
     const url = deps.urlOf?.();
     if (url) baseUrl = url;
     layout();
@@ -486,6 +491,84 @@ function layout() {
         }
         if (entry.ready) hello(entry, primary);
     }
+    // The display the notch was left on may have come or gone.
+    const place = placeOf();
+    if (JSON.stringify(place) !== JSON.stringify(state.place)) push({ place });
+}
+
+/* ------------------------------------------------------------------ *
+ * Where the notch is
+ *
+ * At the top middle of the main display unless it was dragged elsewhere:
+ * the pointer resting on it, then the button held and the notch moved. Let
+ * go near a display's top edge, it hangs from it; anywhere else it floats.
+ * Where it was left is a setting (`buddyNotchPlace`), so it is there again
+ * after a restart; on a display that is not there now, it goes to the same
+ * place on the main one.
+ * ------------------------------------------------------------------ */
+
+/** How near a display's top edge, in DIPs, a notch let go of docks there. Kept with DOCK_ZONE in BuddyOverlay.jsx. */
+const DOCK_ZONE = 36;
+
+/**
+ * Where the notch is drawn: `{ display, x, y, dock }`, the display by its id
+ * and x and y the middle of the notch at rest as fractions of its size.
+ */
+function placeOf() {
+    const saved = config.place;
+    let displays = [];
+    try {
+        displays = electron.screen?.getAllDisplays?.() || [];
+    } catch {
+        displays = [];
+    }
+    const there = saved?.display ? displays.find(display => String(display.id) === String(saved.display)) : null;
+    const display = there ? there.id : primaryId();
+    if (!saved) return { display, x: 0.5, y: 0, dock: true };
+    const fraction = value => Math.min(1, Math.max(0, Number(value) || 0));
+    const dock = Boolean(saved.dock);
+    return { display, x: fraction(saved.x), y: dock ? 0 : fraction(saved.y), dock };
+}
+
+/**
+ * The notch let go of after a drag, from the window it was dragged in: where
+ * on that window's display, as fractions, and whether it docked to the top
+ * edge, as the window drew it. Let go over another display, it goes there,
+ * under the pointer. Kept in the settings, so it stays after a restart.
+ */
+function moveNotch(sender, payload = {}) {
+    let entry = null;
+    for (const candidate of windows.values()) {
+        if (!candidate.window.isDestroyed() && candidate.window.webContents === sender) entry = candidate;
+    }
+    if (!entry) return false;
+    const x = Number(payload?.x);
+    const y = Number(payload?.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+    let display = entry.display;
+    let at = { x, y, dock: Boolean(payload.dock) };
+    try {
+        const point = electron.screen.getCursorScreenPoint();
+        const under = electron.screen.getDisplayNearestPoint(point);
+        if (under && under.id !== display.id) {
+            const { bounds } = under;
+            const dock = point.y - bounds.y < DOCK_ZONE;
+            at = { x: (point.x - bounds.x) / bounds.width, y: (point.y - bounds.y) / bounds.height, dock };
+            display = under;
+        }
+    } catch {
+        // Where the pointer is could not be read: the window's word for it.
+    }
+    const fraction = value => Math.round(Math.min(1, Math.max(0, value)) * 10000) / 10000;
+    const saved = { display: String(display.id), x: fraction(at.x), y: at.dock ? 0 : fraction(at.y), dock: at.dock };
+    config.place = saved;
+    try {
+        deps.setSettings?.({ buddyNotchPlace: saved });
+    } catch (error) {
+        console.error('Where the notch was left could not be saved:', error.message);
+    }
+    push({ place: placeOf() });
+    return true;
 }
 
 function makeWindow(BrowserWindow, display) {
@@ -1775,6 +1858,7 @@ module.exports = {
     spoke,
     hit,
     pick,
+    moveNotch,
     stopTurn,
     openInApp,
     aimed,

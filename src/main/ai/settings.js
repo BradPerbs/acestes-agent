@@ -293,6 +293,11 @@ const DEFAULTS = {
     buddyAgent: '',
     buddySpeak: true,
     buddyNotch: true,
+    // Where the notch was dragged to, kept across restarts: the display (by
+    // its id) and a place on it as fractions of its size, docked to the top
+    // edge or floating. Null for the top middle of the main display. See
+    // `cleanNotchPlace`, and `moveNotch` in buddy.js.
+    buddyNotchPlace: null,
     // Whose voice says the recap: this computer's ('system'), or ElevenLabs,
     // with its model and voice. The ElevenLabs key is in the keychain, as the
     // secret `elevenlabs`, never here. See elevenlabs.js.
@@ -448,6 +453,28 @@ function cleanStar(raw) {
     return out;
 }
 
+/**
+ * Where the buddy's notch was dragged to: `{ display, x, y, dock }`, the
+ * display's id as a string ('' for the main one), x and y the middle of the
+ * notch at rest as fractions of that display's width and height, and `dock`
+ * whether it hangs from the top edge (y is 0 then). Anything else is null:
+ * the top middle of the main display.
+ */
+function cleanNotchPlace(raw) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    const x = Number(raw.x);
+    const y = Number(raw.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    const dock = Boolean(raw.dock);
+    const fraction = value => Math.round(Math.min(1, Math.max(0, value)) * 10000) / 10000;
+    return {
+        display: typeof raw.display === 'string' || typeof raw.display === 'number' ? String(raw.display).slice(0, 40) : '',
+        x: fraction(x),
+        y: dock ? 0 : fraction(y),
+        dock,
+    };
+}
+
 function sanitize(raw) {
     const next = {
         ...DEFAULTS,
@@ -517,6 +544,7 @@ function sanitize(raw) {
         if (typeof raw.buddyAgent === 'string') next.buddyAgent = raw.buddyAgent.trim().slice(0, 200);
         if ('buddySpeak' in raw) next.buddySpeak = Boolean(raw.buddySpeak);
         if ('buddyNotch' in raw) next.buddyNotch = Boolean(raw.buddyNotch);
+        if ('buddyNotchPlace' in raw) next.buddyNotchPlace = cleanNotchPlace(raw.buddyNotchPlace);
         if (['system', 'elevenlabs'].includes(raw.buddyVoice)) next.buddyVoice = raw.buddyVoice;
         if (['eleven_v4', 'eleven_flash_v2_5'].includes(raw.buddyVoiceModel)) next.buddyVoiceModel = raw.buddyVoiceModel;
         if (typeof raw.buddyVoiceId === 'string' && /^[A-Za-z0-9]{0,40}$/.test(raw.buddyVoiceId)) next.buddyVoiceId = raw.buddyVoiceId;

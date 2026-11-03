@@ -1810,6 +1810,10 @@ function register(getWindow) {
     ipcMain.on('buddy-pick-agent', (event, payload) => {
         buddy.pick(event.sender, payload || {});
     });
+    // The notch dragged somewhere else, and kept there. See `moveNotch`.
+    ipcMain.on('buddy-place', (event, payload) => {
+        buddy.moveNotch(event.sender, payload || {});
+    });
     // The notch's buttons while the agent works: stop it, or open its chat.
     ipcMain.on('buddy-stop', (event) => {
         buddy.stopTurn(event.sender);
