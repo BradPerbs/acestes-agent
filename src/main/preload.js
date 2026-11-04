@@ -807,7 +807,8 @@ contextBridge.exposeInMainWorld('api', {
         hit: (rect) => ipcRenderer.send('buddy-hit', rect || null),
         pickAgent: (agentId) => ipcRenderer.send('buddy-pick-agent', { agentId }),
         // The notch let go of after a drag: { x, y, dock } on this window's
-        // display, as fractions. Kept, so it is there after a restart.
+        // display, x and y as fractions, dock the edge it docked to ('top',
+        // 'left', 'right') or false. Kept, so it is there after a restart.
         place: (at) => ipcRenderer.send('buddy-place', at || {}),
         // While the agent works: stop its turn, or open its chat in the app.
         stop: () => ipcRenderer.send('buddy-stop'),

@@ -1632,7 +1632,8 @@ export default {
         + 'what it hears and what it said, with Stop and Open. The mark beside the cursor stays either way.',
     'settings.buddy.notchPlace': 'Notch position',
     'settings.buddy.notchPlaceDesc': 'At the top middle of the main screen. To move it, rest the pointer on the notch, then drag it '
-        + 'anywhere, on any screen. Let go near the top edge and it hangs from it; anywhere else it floats. It stays there after a restart.',
+        + 'anywhere, on any screen. Let go near the top edge and it hangs from it; near the left or right side it stands on end against it; '
+        + 'anywhere else it floats. It stays there after a restart.',
     'settings.buddy.notchPlaceMoved': 'Moved, and kept there after a restart. Rest the pointer on the notch and drag it to move it '
         + 'again, or put it back at the top middle of the main screen.',
     'settings.buddy.notchPlaceReset': 'Put it back',

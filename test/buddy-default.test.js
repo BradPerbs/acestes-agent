@@ -107,8 +107,19 @@ check('where the notch was dragged is kept across a restart, and put back with n
     start().set({ buddyNotchPlace: { display: '2528732444', x: 0.25, y: 0.75, dock: false } });
     assert.deepStrictEqual(start().get().buddyNotchPlace, { display: '2528732444', x: 0.25, y: 0.75, dock: false });
     // Docked, it is on the edge whatever y says; out of range is held to the display.
-    start().set({ buddyNotchPlace: { display: 7, x: 1.4, y: 0.6, dock: true } });
-    assert.deepStrictEqual(start().get().buddyNotchPlace, { display: '7', x: 1, y: 0, dock: true });
+    start().set({ buddyNotchPlace: { display: 7, x: 1.4, y: 0.6, dock: 'top' } });
+    assert.deepStrictEqual(start().get().buddyNotchPlace, { display: '7', x: 1, y: 0, dock: 'top' });
+    // Saved before it docked to the sides, `true` was the top.
+    start().set({ buddyNotchPlace: { display: '7', x: 0.4, y: 0.6, dock: true } });
+    assert.deepStrictEqual(start().get().buddyNotchPlace, { display: '7', x: 0.4, y: 0, dock: 'top' });
+    // On a side: on that side whatever x says.
+    start().set({ buddyNotchPlace: { display: '7', x: 0.4, y: 0.3, dock: 'left' } });
+    assert.deepStrictEqual(start().get().buddyNotchPlace, { display: '7', x: 0, y: 0.3, dock: 'left' });
+    start().set({ buddyNotchPlace: { display: '7', x: 0.4, y: 0.8, dock: 'right' } });
+    assert.deepStrictEqual(start().get().buddyNotchPlace, { display: '7', x: 1, y: 0.8, dock: 'right' });
+    // An edge it does not dock to: floating where it was.
+    start().set({ buddyNotchPlace: { display: '7', x: 0.4, y: 0.8, dock: 'bottom' } });
+    assert.deepStrictEqual(start().get().buddyNotchPlace, { display: '7', x: 0.4, y: 0.8, dock: false });
     // Not a place: the top middle.
     start().set({ buddyNotchPlace: { x: 'left', y: 0 } });
     assert.strictEqual(start().get().buddyNotchPlace, null);

@@ -295,7 +295,7 @@ const DEFAULTS = {
     buddyNotch: true,
     // Where the notch was dragged to, kept across restarts: the display (by
     // its id) and a place on it as fractions of its size, docked to the top
-    // edge or floating. Null for the top middle of the main display. See
+    // edge or a side, or floating. Null for the top middle of the main display. See
     // `cleanNotchPlace`, and `moveNotch` in buddy.js.
     buddyNotchPlace: null,
     // Whose voice says the recap: this computer's ('system'), or ElevenLabs,
@@ -457,20 +457,21 @@ function cleanStar(raw) {
  * Where the buddy's notch was dragged to: `{ display, x, y, dock }`, the
  * display's id as a string ('' for the main one), x and y the middle of the
  * notch at rest as fractions of that display's width and height, and `dock`
- * whether it hangs from the top edge (y is 0 then). Anything else is null:
- * the top middle of the main display.
+ * the edge it is docked to: 'top' (y is 0 then), 'left' or 'right' (x is 0
+ * or 1), or false for floating. `true`, from before it docked to the sides,
+ * is the top. Anything else is null: the top middle of the main display.
  */
 function cleanNotchPlace(raw) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
     const x = Number(raw.x);
     const y = Number(raw.y);
     if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
-    const dock = Boolean(raw.dock);
+    const dock = raw.dock === true ? 'top' : ['top', 'left', 'right'].includes(raw.dock) ? raw.dock : false;
     const fraction = value => Math.round(Math.min(1, Math.max(0, value)) * 10000) / 10000;
     return {
         display: typeof raw.display === 'string' || typeof raw.display === 'number' ? String(raw.display).slice(0, 40) : '',
-        x: fraction(x),
-        y: dock ? 0 : fraction(y),
+        x: dock === 'left' ? 0 : dock === 'right' ? 1 : fraction(x),
+        y: dock === 'top' ? 0 : fraction(y),
         dock,
     };
 }

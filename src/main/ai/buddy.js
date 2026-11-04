@@ -55,7 +55,8 @@
  * One window per display, each the size of it: transparent, click-through,
  * topmost. Each draws the mark when the cursor is on its display; the one on
  * the display the notch was left on draws the notch (the top middle of the
- * main display, unless it was dragged; see `moveNotch`), and the one on the
+ * main display, unless it was dragged to another edge or away from them;
+ * see `moveNotch`), and the one on the
  * main display does the talking. The cursor is
  * looked at here sixty times a second while the windows are up, and told to
  * them only when it moves. Always on is Windows only: the Mac helper does not
@@ -501,18 +502,44 @@ function layout() {
  *
  * At the top middle of the main display unless it was dragged elsewhere:
  * the pointer resting on it, then the button held and the notch moved. Let
- * go near a display's top edge, it hangs from it; anywhere else it floats.
- * Where it was left is a setting (`buddyNotchPlace`), so it is there again
- * after a restart; on a display that is not there now, it goes to the same
- * place on the main one.
+ * go near a display's top edge, it hangs from it; near its left or right
+ * side, it stands on end against that side; anywhere else it floats. Where
+ * it was left is a setting (`buddyNotchPlace`), so it is there again after a
+ * restart; on a display that is not there now, it goes to the same place on
+ * the main one.
  * ------------------------------------------------------------------ */
 
-/** How near a display's top edge, in DIPs, a notch let go of docks there. Kept with DOCK_ZONE in BuddyOverlay.jsx. */
+/** How near a display's edge, in DIPs, a notch let go of docks there. Kept with DOCK_ZONE in BuddyOverlay.jsx. */
 const DOCK_ZONE = 36;
+/** The edges it docks to. Kept with EDGES in BuddyOverlay.jsx and settings.js. */
+const EDGES = ['top', 'left', 'right'];
+
+/** The edge a place is docked to, or false: `true`, from before it docked to the sides, is the top. */
+function edgeOf(dock) {
+    if (dock === true) return 'top';
+    return EDGES.includes(dock) ? dock : false;
+}
+
+/** The edge a point on a display is near enough to dock to, the nearer of two in a corner; false for none. */
+function edgeNear(x, y, width, height) {
+    const near = [['top', y], ['left', x], ['right', width - x]]
+        .filter(([, gap]) => gap >= 0 && gap < DOCK_ZONE)
+        .sort((a, b) => a[1] - b[1]);
+    return near.length ? near[0][0] : false;
+}
+
+/** x and y as the edge it is docked to has them: on the top, y is 0; on a side, x is that side. */
+function pinTo(x, y, dock) {
+    if (dock === 'top') return { x, y: 0 };
+    if (dock === 'left') return { x: 0, y };
+    if (dock === 'right') return { x: 1, y };
+    return { x, y };
+}
 
 /**
- * Where the notch is drawn: `{ display, x, y, dock }`, the display by its id
- * and x and y the middle of the notch at rest as fractions of its size.
+ * Where the notch is drawn: `{ display, x, y, dock }`, the display by its id,
+ * x and y the middle of the notch at rest as fractions of its size, and dock
+ * the edge it is docked to ('top', 'left' or 'right'), or false.
  */
 function placeOf() {
     const saved = config.place;
@@ -524,17 +551,17 @@ function placeOf() {
     }
     const there = saved?.display ? displays.find(display => String(display.id) === String(saved.display)) : null;
     const display = there ? there.id : primaryId();
-    if (!saved) return { display, x: 0.5, y: 0, dock: true };
+    if (!saved) return { display, x: 0.5, y: 0, dock: 'top' };
     const fraction = value => Math.min(1, Math.max(0, Number(value) || 0));
-    const dock = Boolean(saved.dock);
-    return { display, x: fraction(saved.x), y: dock ? 0 : fraction(saved.y), dock };
+    const dock = edgeOf(saved.dock);
+    return { display, ...pinTo(fraction(saved.x), fraction(saved.y), dock), dock };
 }
 
 /**
  * The notch let go of after a drag, from the window it was dragged in: where
- * on that window's display, as fractions, and whether it docked to the top
- * edge, as the window drew it. Let go over another display, it goes there,
- * under the pointer. Kept in the settings, so it stays after a restart.
+ * on that window's display, as fractions, and the edge it docked to, if any,
+ * as the window drew it. Let go over another display, it goes there, under
+ * the pointer. Kept in the settings, so it stays after a restart.
  */
 function moveNotch(sender, payload = {}) {
     let entry = null;
@@ -546,13 +573,13 @@ function moveNotch(sender, payload = {}) {
     const y = Number(payload?.y);
     if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
     let display = entry.display;
-    let at = { x, y, dock: Boolean(payload.dock) };
+    let at = { x, y, dock: edgeOf(payload.dock) };
     try {
         const point = electron.screen.getCursorScreenPoint();
         const under = electron.screen.getDisplayNearestPoint(point);
         if (under && under.id !== display.id) {
             const { bounds } = under;
-            const dock = point.y - bounds.y < DOCK_ZONE;
+            const dock = edgeNear(point.x - bounds.x, point.y - bounds.y, bounds.width, bounds.height);
             at = { x: (point.x - bounds.x) / bounds.width, y: (point.y - bounds.y) / bounds.height, dock };
             display = under;
         }
@@ -560,7 +587,7 @@ function moveNotch(sender, payload = {}) {
         // Where the pointer is could not be read: the window's word for it.
     }
     const fraction = value => Math.round(Math.min(1, Math.max(0, value)) * 10000) / 10000;
-    const saved = { display: String(display.id), x: fraction(at.x), y: at.dock ? 0 : fraction(at.y), dock: at.dock };
+    const saved = { display: String(display.id), ...pinTo(fraction(at.x), fraction(at.y), at.dock), dock: at.dock };
     config.place = saved;
     try {
         deps.setSettings?.({ buddyNotchPlace: saved });

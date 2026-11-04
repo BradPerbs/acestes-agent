@@ -29,7 +29,8 @@ import { getLanguage, useT } from '../../i18n';
  *               the buddy's own), what it asks, and what it said. With the
  *               cursor resting on it, it opens a little to say how to talk to
  *               it, and the last reply, and can be dragged anywhere, on any
- *               display: let go near a top edge it hangs from it, anywhere
+ *               display: let go near a top edge it hangs from it, near a
+ *               side it stands on end against it and opens inward, anywhere
  *               else it floats, and it stays where it is left.
  *   drawings    what a reply drew to show something: loops, boxes, arrows
  *               and lines under words, in the mark's violet, stroke by
@@ -96,10 +97,10 @@ const PEEK_AFTER = 450;
 const REST_W = 96;
 const REST_H = 18;
 /** Where it is unless it was dragged: hanging from the top edge, in the middle. */
-const TOP_MIDDLE = { x: 0.5, y: 0, dock: true };
-/** How near the top edge a notch let go of docks there. Kept with DOCK_ZONE in buddy.js. */
+const TOP_MIDDLE = { x: 0.5, y: 0, dock: 'top' };
+/** How near an edge a notch let go of docks there. Kept with DOCK_ZONE in buddy.js. */
 const DOCK_ZONE = 36;
-/** How near the middle of the top edge a docked notch goes right to the middle. */
+/** How near the middle of the edge it docks to it goes right to the middle. */
 const MIDDLE_SNAP = 28;
 /** How far the pointer moves with the button down before it is a drag, not a click. */
 const DRAG_AFTER = 4;
@@ -809,24 +810,61 @@ function useViewport() {
 
 const fraction = value => Math.min(1, Math.max(0, value));
 
+/** Docked to the left or right side, where it stands on end. */
+const onSide = place => place.dock === 'left' || place.dock === 'right';
+
 /**
- * Where a notch let go of here would go: near the top edge it docks there
- * (in the middle if near it), anywhere else it floats with its middle under
- * the pointer. As fractions of the display, as main keeps it.
+ * The edge a point in this window is near enough to dock to, the nearer of
+ * two in a corner; false for none. Off this window (over another display)
+ * it is none: main sees where it was let go there. Kept with `edgeNear` in
+ * buddy.js.
  */
-function placeAt(x, y, view) {
-    const dock = y < DOCK_ZONE;
-    const across = dock && Math.abs(x - view.width / 2) < MIDDLE_SNAP ? 0.5 : x / (view.width || 1);
-    return { x: fraction(across), y: dock ? 0 : fraction(y / (view.height || 1)), dock };
+function edgeNear(x, y, width, height) {
+    const near = [['top', y], ['left', x], ['right', width - x]]
+        .filter(([, gap]) => gap >= 0 && gap < DOCK_ZONE)
+        .sort((a, b) => a[1] - b[1]);
+    return near.length ? near[0][0] : false;
 }
 
 /**
- * Where the notch is drawn, in CSS pixels, at the width it is now: docked,
- * hanging from the top edge; floating, opening downward in the top half of
- * the display and upward in the bottom half, so it never opens off the
- * screen. Kept clear of the sides however wide it opens.
+ * Where a notch let go of here would go: near the top edge it hangs from it,
+ * near a side it stands on end against it (in the middle of either if near
+ * it), anywhere else it floats with its middle under the pointer. As
+ * fractions of the display, as main keeps it.
  */
-function notchStyle(place, view, width) {
+function placeAt(x, y, view) {
+    const width = view.width || 1;
+    const height = view.height || 1;
+    const dock = edgeNear(x, y, width, height);
+    if (dock === 'top') {
+        const across = Math.abs(x - width / 2) < MIDDLE_SNAP ? 0.5 : x / width;
+        return { x: fraction(across), y: 0, dock };
+    }
+    if (dock) {
+        const down = Math.abs(y - height / 2) < MIDDLE_SNAP ? 0.5 : y / height;
+        return { x: dock === 'left' ? 0 : 1, y: fraction(down), dock };
+    }
+    return { x: fraction(x / width), y: fraction(y / height), dock: false };
+}
+
+/**
+ * Where the notch is drawn, in CSS pixels, at the size it is now: docked to
+ * the top, hanging from it; docked to a side, flush with it, opening inward
+ * and kept centred where it was left, as far as the screen allows; floating,
+ * opening downward in the top half of the display and upward in the bottom
+ * half, so it never opens off the screen. Kept clear of the sides however
+ * wide it opens.
+ */
+function notchStyle(place, view, width, height) {
+    if (onSide(place)) {
+        // Its ears reach 8px above and below it.
+        const room = EDGE + 8;
+        const top = Math.round(Math.min(
+            Math.max(place.y * view.height - height / 2, room),
+            Math.max(room, view.height - height - room),
+        ));
+        return place.dock === 'left' ? { left: 0, top } : { right: 0, top };
+    }
     const half = width / 2;
     // A docked one's ears reach 8px past it.
     const side = place.dock ? EDGE + 8 : EDGE;
@@ -866,7 +904,7 @@ function Notch({ state, cursor, download, heardHere }) {
     // It can be picked up with the pointer resting on it, unless a turn is
     // under way or someone is talking to it; all of it takes the mouse then.
     const movable = dragging || (peek && !BUSY.has(phase));
-    const [width, least] = closed ? SIZES.idle : picking ? [PICKER_W, 0] : (SIZES[phase] || SIZES.idle);
+    const [openWidth, least] = closed ? SIZES.idle : picking ? [PICKER_W, 0] : (SIZES[phase] || SIZES.idle);
 
     const saved = state.place;
     const savedKey = saved ? `${saved.display}:${saved.x}:${saved.y}:${saved.dock}` : '';
@@ -878,8 +916,14 @@ function Notch({ state, cursor, download, heardHere }) {
         return () => clearTimeout(timer);
     }, [dropped]);
     const place = drag || dropped || saved || TOP_MIDDLE;
-    const at = notchStyle(place, view, width);
-    useHitArea(box, 'notch', movable, `${at.left}:${at.top}:${at.bottom}:${view.width}:${view.height}`);
+    // Docked to a side, it stands on end at rest; open, it is the same panel
+    // as anywhere else, flush with that side.
+    const side = onSide(place);
+    const width = closed && side ? REST_H : openWidth;
+    const drawnHeight = closed ? (side ? REST_W : REST_H) : height;
+    const at = notchStyle(place, view, width, drawnHeight);
+    const spot = `${at.left}:${at.right}:${at.top}:${at.bottom}`;
+    useHitArea(box, 'notch', movable, `${spot}:${view.width}:${view.height}`);
 
     // The height follows what is in it, so the notch eases open to fit.
     useLayoutEffect(() => {
@@ -930,7 +974,6 @@ function Notch({ state, cursor, download, heardHere }) {
     // Moved without the pointer moving (put back from Settings, its display
     // gone): whether the pointer is on it is asked again, so it does not stay
     // open where nobody is.
-    const spot = `${at.left}:${at.top}:${at.bottom}`;
     useEffect(() => {
         if (!press.current && cursor.last.current) peekCheck.current?.(cursor.last.current);
         // Only when it has moved.
@@ -1004,6 +1047,7 @@ function Notch({ state, cursor, download, heardHere }) {
         'buddy-notch',
         closed && 'buddy-notch-rest',
         !place.dock && 'buddy-notch-float',
+        side && `buddy-notch-${place.dock}`,
         movable && 'buddy-notch-movable',
         dragging && 'buddy-notch-dragging',
     ].filter(Boolean).join(' ');
@@ -1013,7 +1057,7 @@ function Notch({ state, cursor, download, heardHere }) {
             className={classes}
             data-phase={phase}
             data-picking={picking ? 'true' : 'false'}
-            style={{ ...at, width, height: closed ? REST_H : height }}
+            style={{ ...at, width, height: drawnHeight }}
             onPointerDown={onPointerDown}
         >
             <div className="buddy-notch-clip">

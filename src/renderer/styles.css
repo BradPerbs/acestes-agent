@@ -5510,9 +5510,9 @@ input[type="color"]::-webkit-color-swatch {
 
 /* The notch: black, hanging from the top edge, its top corners flared into
    the edge the way a MacBook's are. It eases open with a little overshoot.
-   Where it is (left, and top or bottom) is set on it (BuddyOverlay.jsx
-   `notchStyle`); left eases with the width, so near a side it slides over as
-   it opens rather than jumping. */
+   Where it is (left, and top or bottom; on a side, left or right, and top)
+   is set on it (BuddyOverlay.jsx `notchStyle`); left eases with the width,
+   so near a side it slides over as it opens rather than jumping. */
 
 .buddy-notch {
   position: absolute;
@@ -5571,6 +5571,86 @@ input[type="color"]::-webkit-color-swatch {
   display: none;
 }
 
+/* Docked to a side it stands on end: a tall tab flush with that side, its
+   corners there flared into it, opening inward. Its top is set (it stays
+   centred where it was left as it grows), so it eases with the height. */
+
+.buddy-notch.buddy-notch-left,
+.buddy-notch.buddy-notch-right {
+  transform: none;
+  transition:
+        width 460ms cubic-bezier(0.32, 1.25, 0.45, 1),
+        height 460ms cubic-bezier(0.32, 1.25, 0.45, 1),
+        top 460ms cubic-bezier(0.32, 1.25, 0.45, 1),
+        border-radius 300ms ease,
+        box-shadow 300ms ease;
+}
+
+.buddy-notch.buddy-notch-left {
+  border-radius: 0 16px 16px 0;
+  box-shadow: 14px 0 34px -14px rgb(0 0 0 / 0.6);
+}
+
+.buddy-notch.buddy-notch-right {
+  border-radius: 16px 0 0 16px;
+  box-shadow: -14px 0 34px -14px rgb(0 0 0 / 0.6);
+}
+
+.buddy-notch.buddy-notch-left.buddy-notch-rest {
+  border-radius: 0 9px 9px 0;
+  box-shadow: none;
+}
+
+.buddy-notch.buddy-notch-right.buddy-notch-rest {
+  border-radius: 9px 0 0 9px;
+  box-shadow: none;
+}
+
+/* The ears, above and below it at the side. */
+
+.buddy-notch.buddy-notch-left::before,
+.buddy-notch.buddy-notch-right::before {
+  top: auto;
+  bottom: 100%;
+}
+
+.buddy-notch.buddy-notch-left::after,
+.buddy-notch.buddy-notch-right::after {
+  top: 100%;
+}
+
+.buddy-notch.buddy-notch-left::before {
+  left: 0;
+  right: auto;
+  background: radial-gradient(circle at 100% 0, transparent 7.5px, #000 8px);
+}
+
+.buddy-notch.buddy-notch-left::after {
+  left: 0;
+  background: radial-gradient(circle at 100% 100%, transparent 7.5px, #000 8px);
+}
+
+.buddy-notch.buddy-notch-right::before {
+  right: 0;
+  background: radial-gradient(circle at 0 0, transparent 7.5px, #000 8px);
+}
+
+.buddy-notch.buddy-notch-right::after {
+  left: auto;
+  right: 0;
+  background: radial-gradient(circle at 0 100%, transparent 7.5px, #000 8px);
+}
+
+/* What is in it comes in from the side it is on. */
+
+.buddy-notch-left .buddy-notch-body {
+  animation-name: buddy-open-left;
+}
+
+.buddy-notch-right .buddy-notch-body {
+  animation-name: buddy-open-right;
+}
+
 /* The pointer resting on it: it can be picked up and carried anywhere. */
 
 .buddy-notch.buddy-notch-movable {
@@ -5601,7 +5681,8 @@ input[type="color"]::-webkit-color-swatch {
 }
 
 .buddy-notch-rest .buddy-notch-body {
-  height: 18px;
+  /* 18px across, or 96px down when it stands on end at a side. */
+  height: 100%;
   padding: 0;
   display: flex;
   align-items: center;
@@ -5613,6 +5694,22 @@ input[type="color"]::-webkit-color-swatch {
   from {
     opacity: 0;
     transform: translateY(-4px);
+    filter: blur(3px);
+  }
+}
+
+@keyframes buddy-open-left {
+  from {
+    opacity: 0;
+    transform: translateX(-4px);
+    filter: blur(3px);
+  }
+}
+
+@keyframes buddy-open-right {
+  from {
+    opacity: 0;
+    transform: translateX(4px);
     filter: blur(3px);
   }
 }
@@ -5944,9 +6041,17 @@ input[type="color"]::-webkit-color-swatch {
 
 @media (prefers-reduced-motion: reduce) {
   .buddy-notch,
+    .buddy-notch.buddy-notch-left,
+    .buddy-notch.buddy-notch-right,
+    .buddy-notch.buddy-notch-dragging,
     .buddy-face,
     .buddy-mark {
     transition: none;
+  }
+
+  .buddy-notch-left .buddy-notch-body,
+    .buddy-notch-right .buddy-notch-body {
+    animation: none;
   }
 
   .buddy-stroke,

@@ -802,23 +802,43 @@ async function main() {
 
     await test('the notch is at the top middle until it is dragged, and stays where it is left', async () => {
         const [main] = live();
-        assert.deepStrictEqual(state().place, { display: 1, x: 0.5, y: 0, dock: true });
+        assert.deepStrictEqual(state().place, { display: 1, x: 0.5, y: 0, dock: 'top' });
         // Let go on its own display: where its window says, kept as a setting.
         cursor = { x: 480, y: 540 };
         assert.strictEqual(buddy.moveNotch(main.webContents, { x: 0.25, y: 0.5, dock: false }), true);
         assert.deepStrictEqual(saved[saved.length - 1], { buddyNotchPlace: { display: '1', x: 0.25, y: 0.5, dock: false } });
         assert.deepStrictEqual(state().place, { display: 1, x: 0.25, y: 0.5, dock: false });
-        // Docked: on the edge, whatever y said.
-        buddy.moveNotch(main.webContents, { x: 0.8, y: 0.3, dock: true });
-        assert.deepStrictEqual(state().place, { display: 1, x: 0.8, y: 0, dock: true });
+        // Docked: on the edge, whatever y said; `true`, as an older window says it, is the top.
+        buddy.moveNotch(main.webContents, { x: 0.8, y: 0.3, dock: 'top' });
+        assert.deepStrictEqual(state().place, { display: 1, x: 0.8, y: 0, dock: 'top' });
+        buddy.moveNotch(main.webContents, { x: 0.6, y: 0.3, dock: true });
+        assert.deepStrictEqual(state().place, { display: 1, x: 0.6, y: 0, dock: 'top' });
+        // On a side: on that side, whatever x said.
+        cursor = { x: 4, y: 300 };
+        buddy.moveNotch(main.webContents, { x: 0.01, y: 0.3, dock: 'left' });
+        assert.deepStrictEqual(state().place, { display: 1, x: 0, y: 0.3, dock: 'left' });
+        assert.deepStrictEqual(saved[saved.length - 1], { buddyNotchPlace: { display: '1', x: 0, y: 0.3, dock: 'left' } });
+        cursor = { x: 1915, y: 800 };
+        buddy.moveNotch(main.webContents, { x: 0.98, y: 0.74, dock: 'right' });
+        assert.deepStrictEqual(state().place, { display: 1, x: 1, y: 0.74, dock: 'right' });
+        // An edge it does not dock to: floating.
+        buddy.moveNotch(main.webContents, { x: 0.5, y: 0.99, dock: 'bottom' });
+        assert.deepStrictEqual(state().place, { display: 1, x: 0.5, y: 0.99, dock: false });
         // Let go over the other display: there, under the pointer; at its top edge, docked.
         cursor = { x: 1920 + 640, y: 512 };
         buddy.moveNotch(main.webContents, { x: 1, y: 0.47, dock: false });
         assert.deepStrictEqual(state().place, { display: 2, x: 0.5, y: 0.5, dock: false });
         cursor = { x: 1920 + 320, y: 10 };
         buddy.moveNotch(main.webContents, { x: 1, y: 0.01, dock: false });
-        assert.deepStrictEqual(state().place, { display: 2, x: 0.25, y: 0, dock: true });
-        assert.deepStrictEqual(saved[saved.length - 1], { buddyNotchPlace: { display: '2', x: 0.25, y: 0, dock: true } });
+        assert.deepStrictEqual(state().place, { display: 2, x: 0.25, y: 0, dock: 'top' });
+        assert.deepStrictEqual(saved[saved.length - 1], { buddyNotchPlace: { display: '2', x: 0.25, y: 0, dock: 'top' } });
+        // At its right side, standing on it; in its top right corner, the nearer edge.
+        cursor = { x: 1920 + 1270, y: 256 };
+        buddy.moveNotch(main.webContents, { x: 1, y: 0.25, dock: false });
+        assert.deepStrictEqual(state().place, { display: 2, x: 1, y: 0.25, dock: 'right' });
+        cursor = { x: 1920 + 1275, y: 20 };
+        buddy.moveNotch(main.webContents, { x: 1, y: 0.02, dock: false });
+        assert.deepStrictEqual(state().place, { display: 2, x: 1, y: 0.0195, dock: 'right' });
         // Not from a window of its own, nor a place that is no place.
         const count = saved.length;
         assert.strictEqual(buddy.moveNotch({ send: () => {} }, { x: 0.5, y: 0.5 }), false);
@@ -831,7 +851,7 @@ async function main() {
         // Put back from Settings.
         settingsNow = { ...settingsNow, buddyNotchPlace: null };
         await buddy.sync();
-        assert.deepStrictEqual(state().place, { display: 1, x: 0.5, y: 0, dock: true });
+        assert.deepStrictEqual(state().place, { display: 1, x: 0.5, y: 0, dock: 'top' });
     });
 
     await test('pointed at another agent in Settings, the next hold starts afresh with that one', async () => {
