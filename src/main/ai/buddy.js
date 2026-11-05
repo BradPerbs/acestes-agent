@@ -59,7 +59,8 @@
  * see `moveNotch`), and the one on the
  * main display does the talking. The cursor is
  * looked at here sixty times a second while the windows are up, and told to
- * them only when it moves. Always on is Windows only: the Mac helper does not
+ * them only when it moves; the mark, while it follows, asks for it once a
+ * frame as well (`cursorNow`). Always on is Windows only: the Mac helper does not
  * watch modifiers on their own yet. A Mac still shows the agents at work.
  */
 
@@ -83,8 +84,15 @@ const SWITCH_KEY = 'space';
 const SWITCH_LABEL = 'Ctrl Alt Space';
 /** The most agents offered in the notch. */
 const MOST_AGENTS = 12;
-/** How often the cursor is looked at while the buddy is on, in milliseconds. */
-const FOLLOW_EVERY = 16;
+/**
+ * How often the cursor is looked at while the buddy is on, in milliseconds.
+ * Windows runs this process's timers in steps of about 15.6ms, and 16 was two
+ * of them: some 37 times a second, unevenly. 8 is one step, about 64. The
+ * mark does not ride on this while it follows: it asks once a frame
+ * (`cursorNow`), at whatever rate the display draws. This is for the rest:
+ * which display the cursor is on, the notch opening under it, its hit area.
+ */
+const FOLLOW_EVERY = 8;
 /** A hold shorter than this was a slip of the hand: no picture is taken for it. */
 const SLIP_MS = 250;
 /** The longest anything is listened to: a chord stuck down is not a recording that never ends. */
@@ -704,6 +712,22 @@ function follow() {
     lastCursor = { x: point.x, y: point.y };
     sendAll('buddy-cursor', lastCursor);
     reach(lastCursor);
+}
+
+/**
+ * Where the cursor is this moment, for a buddy window's mark to follow
+ * frame by frame: on a 144 or 165Hz display, the timer above moves its target
+ * only every few frames, and that shows as steps. `lastCursor` is left alone,
+ * so `follow` still sees every move and tells the other windows.
+ */
+function cursorNow(sender) {
+    if (!present || !isBuddyWindow(sender)) return null;
+    try {
+        const point = electron.screen.getCursorScreenPoint();
+        return { x: point.x, y: point.y };
+    } catch {
+        return null;
+    }
 }
 
 /*
@@ -1886,6 +1910,7 @@ module.exports = {
     hit,
     pick,
     moveNotch,
+    cursorNow,
     stopTurn,
     openInApp,
     aimed,

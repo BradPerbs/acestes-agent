@@ -1814,6 +1814,8 @@ function register(getWindow) {
     ipcMain.on('buddy-place', (event, payload) => {
         buddy.moveNotch(event.sender, payload || {});
     });
+    // The cursor this moment, asked once a frame by the mark as it follows.
+    ipcMain.handle('buddy-cursor-now', (event) => buddy.cursorNow(event.sender));
     // The notch's buttons while the agent works: stop it, or open its chat.
     ipcMain.on('buddy-stop', (event) => {
         buddy.stopTurn(event.sender);

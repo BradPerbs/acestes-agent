@@ -799,6 +799,8 @@ contextBridge.exposeInMainWorld('api', {
         onHello: (callback) => subscribe('buddy-hello', callback),
         onState: (callback) => subscribe('buddy-state', callback),
         onCursor: (callback) => subscribe('buddy-cursor', callback),
+        // The cursor this moment, for the mark to follow frame by frame.
+        cursorNow: () => ipcRenderer.invoke('buddy-cursor-now'),
         onListen: (callback) => subscribe('buddy-listen', callback),
         heard: (payload) => ipcRenderer.send('buddy-heard', payload),
         spoke: (id) => ipcRenderer.send('buddy-spoke', { id }),

@@ -228,15 +228,50 @@ function Mark({ state, cursor }) {
     const label = now ? { tone: 'switch', text: now.name } : byPhase;
     const phase = state?.phase || 'idle';
 
+    // What was last written, so a frame that changes only where it is
+    // touches only the transform: the turn and the size stand still while it
+    // follows, and rewriting them restyles the arrowhead's glow every frame.
+    const drawn = useRef({});
     const draw = useCallback(() => {
         const s = sim.current;
         const el = node.current;
         if (!el) return;
-        el.style.transform = `translate3d(${s.x.toFixed(1)}px, ${s.y.toFixed(1)}px, 0)`;
-        el.style.setProperty('--turn', `${s.turn.toFixed(1)}deg`);
-        el.style.setProperty('--grow', (s.grow ?? 1).toFixed(3));
-        el.style.opacity = s.here || s.flight || s.rest ? '1' : '0';
+        const last = drawn.current;
+        const write = (key, value, apply) => {
+            if (last[key] === value) return;
+            last[key] = value;
+            apply(value);
+        };
+        write('at', `translate3d(${s.x.toFixed(1)}px, ${s.y.toFixed(1)}px, 0)`, (value) => { el.style.transform = value; });
+        write('turn', `${s.turn.toFixed(1)}deg`, value => el.style.setProperty('--turn', value));
+        write('grow', (s.grow ?? 1).toFixed(3), value => el.style.setProperty('--grow', value));
+        write('shown', s.here || s.flight || s.rest ? '1' : '0', (value) => { el.style.opacity = value; });
     }, []);
+
+    /*
+     * Where the cursor is this frame. Main's own look at it comes some 60
+     * times a second, so on a 144 or 165Hz display the target would move
+     * only every few frames and the mark with it in steps; while it follows,
+     * it asks main once a frame instead, one question in flight at a time,
+     * and what comes back is the target from the next frame on. Off this
+     * display it is not taken: the hand-off is main's, by `follow`.
+     */
+    const ask = useCallback(() => {
+        const s = sim.current;
+        const now = window.api.buddy.cursorNow;
+        if (s.asking || typeof now !== 'function') return;
+        s.asking = true;
+        now().then((point) => {
+            s.asking = false;
+            const bounds = cursor.hello?.bounds;
+            if (!point || !bounds || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return;
+            const inside = point.x >= bounds.x && point.x < bounds.x + bounds.width
+                && point.y >= bounds.y && point.y < bounds.y + bounds.height;
+            if (inside) cursor.last.current = point;
+        }, () => {
+            s.asking = false;
+        });
+    }, [cursor]);
 
     const target = useCallback(() => {
         const s = sim.current;
@@ -248,7 +283,9 @@ function Mark({ state, cursor }) {
 
     const tick = useCallback((now) => {
         const s = sim.current;
-        const dt = Math.min(3, Math.max(0.25, (now - (s.last || now - 16)) / 16.67));
+        // In 60Hz frames: about 0.36 of one at 165Hz. The floor is for a
+        // 360Hz display; the ceiling for a frame that came very late.
+        const dt = Math.min(3, Math.max(0.1, (now - (s.last || now - 16)) / 16.67));
         s.last = now;
         let moving = false;
         if (s.flight) {
@@ -276,6 +313,7 @@ function Mark({ state, cursor }) {
                 }
             }
         } else if (!s.rest) {
+            if (s.here) ask();
             const goal = target();
             if (goal && s.here) {
                 const ax = (goal.x - s.x) * PULL;
@@ -295,7 +333,7 @@ function Mark({ state, cursor }) {
         }
         draw();
         s.raf = moving ? requestAnimationFrame(tick) : 0;
-    }, [draw, target]);
+    }, [draw, target, ask]);
 
     const kick = useCallback(() => {
         const s = sim.current;
@@ -925,7 +963,9 @@ function Notch({ state, cursor, download, heardHere }) {
     const spot = `${at.left}:${at.right}:${at.top}:${at.bottom}`;
     useHitArea(box, 'notch', movable, `${spot}:${view.width}:${view.height}`);
 
-    // The height follows what is in it, so the notch eases open to fit.
+    // The height follows what is in it, so the notch eases open to fit. What
+    // is in it is laid out at the open width already, so this is one height
+    // per opening, not a new one each frame of the width easing out.
     useLayoutEffect(() => {
         const node = body.current;
         if (!node) return undefined;
@@ -1065,6 +1105,9 @@ function Notch({ state, cursor, download, heardHere }) {
                     ref={body}
                     key={closed ? 'rest' : picking ? 'agents' : `open:${phase}`}
                     className={`buddy-notch-body ${working ? 'buddy-notch-body-controls' : ''}`}
+                    // At the width it opens to from the first frame, so its
+                    // height is measured once rather than as it widens.
+                    style={closed ? undefined : { width }}
                 >
                     {picking
                         ? <AgentPicker state={state} peek={peek} switched={switched} own={!movable} />
