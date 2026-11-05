@@ -809,7 +809,7 @@ function set(patch, agentId) {
     // fanned out to agents that never deliberately diverged. An agent whose
     // value differs from both the old base and the old Acestes value chose
     // its own and keeps it. Sign-ins (accounts, menuAccounts) are identity
-    // and always stay per-agent.
+    // and always stay per-agent, as do the star and the quick prompts.
     drainPropagation();
     if (isGlobalSource(id)) {
         const globalPatch = {};
@@ -860,8 +860,10 @@ function isGlobalSource(id) {
 /**
  * Identity never propagates: a sign-in belongs to the agent that chose it.
  * Nor does the star: it is what this agent's chats start on, by choice.
+ * Nor do the quick prompts: they are the questions asked of this agent's
+ * work, and on every other agent they would be someone else's.
  */
-const GLOBAL_EXCEPT = new Set(['accounts', 'menuAccounts', 'starred']);
+const GLOBAL_EXCEPT = new Set(['accounts', 'menuAccounts', 'starred', 'quickPrompts']);
 
 /** Order-insensitive equality for JSON-safe setting values. */
 function stable(value) {

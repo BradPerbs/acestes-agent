@@ -1313,8 +1313,13 @@ function App() {
      * for a settings panel that is already mounted behind a conversation tab
      * and would not read the category again on its own.
      */
-    const handleOpenAssistantSettings = useCallback((focus = '') => {
+    const handleOpenAssistantSettings = useCallback((focus = '', agentId = '') => {
         const wanted = typeof focus === 'string' ? focus : '';
+        // The settings page is the selected agent's, so a jump made from a
+        // tab of another agent (its quick prompts, say) selects that one
+        // first: otherwise its prompts would be written for the wrong agent.
+        if (typeof agentId === 'string' && agentId && agentId !== activeAgentId
+            && agents.some(agent => agent.id === agentId)) selectAgent(agentId);
         window.localStorage.setItem('settings.category', categoryForFocus(wanted));
         // Which card the page should scroll to and light up, when the jump
         // was about one thing: "create quick prompts" from an empty chat
@@ -1325,7 +1330,7 @@ function App() {
         setActiveTabId('home');
         setActiveNav('settings');
         setReachedForPage(count => count + 1);
-    }, []);
+    }, [activeAgentId, agents, selectAgent]);
 
     /**
      * The assistant offering to take the user to the Snippets page, which is
@@ -1340,12 +1345,13 @@ function App() {
     // A detached assistant window asking for one of those pages. It has no
     // Home of its own, so the request comes here and the window comes forward.
     // From a detached conversation window. `settings:quickPrompts` names the
-    // card to land on, the same way a click in this window does.
+    // card to land on, the same way a click in this window does, and
+    // `settings:quickPrompts:<agent id>` the agent whose card it is.
     // Also from main, for a notification clicked that has no chat to open:
     // a job's run lands on Runs, a job that could not start on Jobs.
     useEffect(() => window.api.ai.onNavigate?.(({ nav }) => {
-        const [page, focus = ''] = String(nav || '').split(':');
-        if (page === 'settings') handleOpenAssistantSettings(focus);
+        const [page, focus = '', agent = ''] = String(nav || '').split(':');
+        if (page === 'settings') handleOpenAssistantSettings(focus, agent);
         else if (page === 'snippets') handleOpenSnippets();
         else if (page === 'runs' || page === 'jobs') {
             setActiveTabId('home');

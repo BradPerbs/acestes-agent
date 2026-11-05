@@ -521,21 +521,22 @@ export default function AssistantConversation({
     // conversation that main then ran on its own agent's account regardless.
     // The default runtime, model, effort and mode too: an unpinned
     // conversation runs on its own agent's, which is what the chips show.
+    // The quick prompts too (see below).
+    const ownSettings = agentSettings && (!agentId || agentSettings.agentId === agentId) ? agentSettings : null;
     const accountSettings = useMemo(() => {
         if (!settings) return settings;
-        const own = agentSettings && (!agentId || agentSettings.agentId === agentId) ? agentSettings : null;
-        return own
+        return ownSettings
             ? {
                 ...settings,
-                provider: own.provider,
-                model: own.model,
-                effort: own.effort,
-                approval: own.approval,
-                accounts: own.accounts,
-                menuAccounts: own.menuAccounts,
+                provider: ownSettings.provider,
+                model: ownSettings.model,
+                effort: ownSettings.effort,
+                approval: ownSettings.approval,
+                accounts: ownSettings.accounts,
+                menuAccounts: ownSettings.menuAccounts,
             }
             : settings;
-    }, [settings, agentSettings, agentId]);
+    }, [settings, ownSettings]);
 
     // What a new conversation starts on: this agent's starred model, effort
     // and mode, else the last ones picked or sent with in any tab of any
@@ -1267,7 +1268,9 @@ export default function AssistantConversation({
     );
 
     const empty = assistant.items.length === 0 && !assistant.starting && !assistant.failure;
-    const quickPrompts = settings?.quickPrompts || [];
+    // This tab's agent's own prompts, not the selected agent's: Home steps
+    // through the agents, and a tab can belong to one that is not selected.
+    const quickPrompts = (ownSettings || settings)?.quickPrompts || [];
 
     /**
      * The questions waiting on an answer, folded so that one command sent to
@@ -1459,7 +1462,7 @@ export default function AssistantConversation({
                             )) : (
                                 <button
                                     type="button"
-                                    onClick={() => onOpenSettings?.('quickPrompts')}
+                                    onClick={() => onOpenSettings?.('quickPrompts', agentId)}
                                     className="w-full h-12 px-3 rounded-xl flex items-center
                                         justify-center gap-1.5 text-xs font-medium
                                         select-none transition-colors

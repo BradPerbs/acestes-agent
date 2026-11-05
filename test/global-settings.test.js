@@ -129,6 +129,19 @@ const ALL_ON = {
         settings.set({ approval: 'writes' }, acestesId);
     });
 
+    await check('quick prompts stay on the agent they were written for', async () => {
+        settings.set({ quickPrompts: ['handle the tickets'] }, acestesId);
+        assert.deepStrictEqual(settings.get(acestesId).quickPrompts, ['handle the tickets']);
+        assert.deepStrictEqual(settings.get(workerId).quickPrompts, [], 'not fanned out from Acestes');
+        assert.deepStrictEqual(settings.takePropagation(), [], 'nothing restarts');
+        settings.set({ quickPrompts: ['check the backups'] }, workerId);
+        assert.deepStrictEqual(settings.get(workerId).quickPrompts, ['check the backups']);
+        assert.deepStrictEqual(settings.get(divergedId).quickPrompts, [], 'nor from any other agent');
+        assert.deepStrictEqual(settings.get(acestesId).quickPrompts, ['handle the tickets']);
+        settings.set({ quickPrompts: [] }, acestesId);
+        settings.set({ quickPrompts: [] }, workerId);
+    });
+
     await check('bare mode is off by default and propagates like any setting', async () => {
         assert.strictEqual(settings.get(workerId).bareProvider, false, 'off unless switched on');
         settings.set({ bareProvider: true }, acestesId);
