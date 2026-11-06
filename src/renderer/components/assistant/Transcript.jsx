@@ -255,7 +255,7 @@ function RowContent({ item, conversationId, onRespond, onAnswer, onRevert, onOpe
         );
     }
     if (item.kind === 'assistant') {
-        // The thinking as a collapsed thought row, the words under it as they
+        // The thinking as an open thought row, the words under it as they
         // always drew. Thinking with no words is the thought row alone.
         const thinking = String(item.thinking || '').trim();
         if (!String(item.text || '').trim()) {

@@ -59,85 +59,81 @@ function previewOf(item) {
  * One thought, standing in the transcript between groups: the model's
  * extended thinking, or a message with only thinking in it.
  *
- * Collapsed to one line with a brain, like a tool call. Opens into the full
- * text, with the extended thinking above it where there is any.
+ * Open, in full. Models narrate in their thinking ("let me check the config
+ * first"), and that reads as the agent talking, so it is not hidden: it used
+ * to fold to one truncated line the moment it finished streaming, which
+ * looked like the agent's words being swallowed. The header still folds it by
+ * hand, and only then shows a one-line preview.
+ *
+ * Live (still streaming in) and finished draw the same, so nothing moves when
+ * the thought is flushed into the transcript.
  */
 export function Thought({ item, bare = false, live = false }) {
     const t = useT();
-    const [open, setOpen] = useState(false);
+    const [open, setOpen] = useState(true);
+    const shown = live || open;
     const preview = previewOf(item);
     const thinking = String(item.thinking || '').trim();
     const text = String(item.text || '').trim();
+    const inset = bare ? 'pl-[10px]' : 'pl-6';
 
-    // A thought still streaming in: always expanded, collapsing on its own
-    // the moment it is flushed into the transcript as a Thought row.
-    if (live) {
-        return (
-            <div className="overflow-hidden" role="status" aria-label={t('assistant.thought')}>
-                <div className={`w-full min-w-0 pr-2.5 flex items-center gap-2 text-left select-none
-                    ${bare ? 'pl-[10px]' : 'pl-6'}`}>
-                    <BrainIcon size={14} strokeWidth={2} className="shrink-0 text-gray-400 dark:text-gray-500 animate-pulse" />
-                    <span className="text-[11px] font-medium text-gray-600 dark:text-gray-400 shrink-0">
-                        {t('assistant.thought')}
-                    </span>
-                </div>
-                <div className={`${bare ? 'pl-[10px]' : 'pl-6'} pr-2.5 pb-2.5 space-y-2`}>
-                    {thinking && (
-                        <div className="rounded-lg px-2.5 py-2 bg-gray-100/70 dark:bg-white/[0.04]">
-                            <div className="text-[12px] leading-relaxed text-gray-600 dark:text-gray-400">
-                                <Markdown text={item.thinking || ''} />
-                            </div>
-                        </div>
-                    )}
-                    {text && (
-                        <div className="px-2.5 text-[12px] leading-relaxed text-gray-700 dark:text-gray-300">
-                            <Markdown text={item.text || ''} />
-                        </div>
-                    )}
-                </div>
-            </div>
-        );
-    }
+    const label = (
+        <>
+            <BrainIcon
+                size={14}
+                strokeWidth={2}
+                className={`shrink-0 text-gray-400 dark:text-gray-500 ${live ? 'animate-pulse' : ''}`}
+            />
+            <span className="text-[11px] font-medium text-gray-600 dark:text-gray-400 shrink-0">
+                {t('assistant.thought')}
+            </span>
+        </>
+    );
 
     return (
-        <div className="overflow-hidden">
-            <button
-                type="button"
-                onClick={() => setOpen(value => !value)}
-                aria-expanded={open}
-                className={`w-full min-w-0 h-8 pr-2.5 flex items-center gap-2 text-left select-none
-                    transition-colors hover:bg-gray-100 dark:hover:bg-white/[0.06]
-                    ${bare ? 'pl-[10px]' : 'pl-6'}`}
-            >
-                <BrainIcon size={14} strokeWidth={2} className="shrink-0 text-gray-400 dark:text-gray-500" />
-                <span className="text-[11px] font-medium text-gray-600 dark:text-gray-400 shrink-0">
-                    {t('assistant.thought')}
-                </span>
-                {preview && (
-                    <span
-                        className="min-w-0 flex-1 truncate text-[11px] text-gray-500 dark:text-gray-500"
-                        title={preview}
-                    >
-                        {preview}
-                    </span>
-                )}
-                <ArrowDown01Icon
-                    size={13}
-                    strokeWidth={2}
-                    className={`shrink-0 ml-auto text-gray-400 dark:text-gray-600 transition-transform
-                        ${open ? 'rotate-180' : ''}`}
-                />
-            </button>
+        <div className="overflow-hidden" {...(live ? { role: 'status', 'aria-label': t('assistant.thought') } : {})}>
+            {live ? (
+                <div className={`w-full min-w-0 h-8 pr-2.5 flex items-center gap-2 select-none ${inset}`}>
+                    {label}
+                </div>
+            ) : (
+                <button
+                    type="button"
+                    onClick={() => setOpen(value => !value)}
+                    aria-expanded={open}
+                    className={`w-full min-w-0 h-8 pr-2.5 flex items-center gap-2 text-left select-none
+                        transition-colors hover:bg-gray-100 dark:hover:bg-white/[0.06] ${inset}`}
+                >
+                    {label}
+                    {!open && preview && (
+                        <span
+                            className="min-w-0 flex-1 truncate text-[11px] text-gray-500 dark:text-gray-500"
+                            title={preview}
+                        >
+                            {preview}
+                        </span>
+                    )}
+                    <ArrowDown01Icon
+                        size={13}
+                        strokeWidth={2}
+                        className={`shrink-0 ml-auto text-gray-400 dark:text-gray-600 transition-transform
+                            ${open ? 'rotate-180' : ''}`}
+                    />
+                </button>
+            )}
 
-            {open && (
-                <div className={`${bare ? 'pl-[10px]' : 'pl-6'} pr-2.5 pb-2.5 space-y-2`}>
+            {shown && (
+                <div className={`${inset} pr-2.5 pb-2.5 space-y-2`}>
                     {thinking && (
                         <div className="rounded-lg px-2.5 py-2 bg-gray-100/70 dark:bg-white/[0.04]">
-                            <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase
-                                tracking-wide text-gray-400 dark:text-gray-500">
-                                <BrainIcon size={11} strokeWidth={2} />
-                                {t('assistant.thoughtThinking')}
-                            </div>
+                            {/* Named only when words follow it, to tell the two apart. */}
+                            {text && (
+                                <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase
+                                    tracking-wide text-gray-400 dark:text-gray-500">
+                                    <BrainIcon size={11} strokeWidth={2} />
+                                    {t('assistant.thoughtThinking')}
+                                </div>
+                            )}
                             <div className="text-[12px] leading-relaxed text-gray-600 dark:text-gray-400">
                                 <Markdown text={thinking} />
                             </div>

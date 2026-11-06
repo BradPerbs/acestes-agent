@@ -1497,8 +1497,11 @@ export default function AssistantConversation({
                 />
 
                 {/* The turn in progress. Replaced by a finished block the
-                    moment the model closes it, so both are never shown. */}
-                {assistant.busy && assistant.draft.thinking && !assistant.draft.text && (
+                    moment the model closes it, so both are never shown. The
+                    thinking stays above the words as they stream, where the
+                    finished block draws it, rather than vanishing when they
+                    start and coming back when they end. */}
+                {assistant.busy && assistant.draft.thinking.trim() && (
                     <Thought item={{ text: '', thinking: assistant.draft.thinking }} live />
                 )}
                 {assistant.draft.text && (
