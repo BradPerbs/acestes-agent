@@ -735,12 +735,12 @@ async function runHooks(conversation, event, payload = {}) {
         }
         if (!result.success) {
             console.error(`Hook "${hook.command}" could not run: ${result.message}`);
-            emit(conversation, { type: 'notice', tone: 'warn', text: `The ${event} hook could not run: ${result.message}` });
+            emit(conversation, { type: 'notice', tone: 'warn', keepTurn: true, text: `The ${event} hook could not run: ${result.message}` });
             continue;
         }
         if (event === 'pre-tool' && result.exitCode === 2) {
             const reason = `${result.stderr || ''}${result.stdout || ''}`.trim() || `A hook blocked ${payload.tool}.`;
-            emit(conversation, { type: 'notice', tone: 'warn', text: `Blocked by a hook: ${reason.slice(0, 300)}` });
+            emit(conversation, { type: 'notice', tone: 'warn', keepTurn: true, text: `Blocked by a hook: ${reason.slice(0, 300)}` });
             return { blocked: true, message: `Blocked by the user's hook: ${reason.slice(0, 1000)}` };
         }
     }
@@ -790,6 +790,9 @@ function policySettings(conversation) {
         ...(patch.model ? { model: patch.model } : {}),
         ...(patch.effort ? { effort: patch.effort } : {}),
         ...(patch.approval ? { approval: patch.approval } : {}),
+        // The context size picked on the composer's ring, in tokens. Read by
+        // the OpenAI-compatible runtimes; the others report their own.
+        ...(patch.contextWindow ? { contextWindow: patch.contextWindow } : {}),
     };
     const policy = conversation.runPolicy;
     if (!policy || !policy.approvals || policy.approvals === 'inherit') return base;
@@ -1967,6 +1970,8 @@ async function retryOnLender(conversation, lender) {
     emit(conversation, {
         type: 'notice',
         tone: 'info',
+        // The turn goes on, on the lender's model.
+        keepTurn: true,
         text: `Not signed in to a model on this computer, so this runs on ${lender.name}'s model. Commands and screen actions still run here.`,
     });
     try {
@@ -2718,6 +2723,9 @@ function reportToParent(child, status) {
     emit(parent, {
         type: 'notice',
         tone: status === 'done' ? 'info' : 'warn',
+        // News about another conversation: the parent may be mid-turn, and
+        // that turn is not over because a child's is.
+        keepTurn: true,
         text: `"${title}" ${how}.${opening ? ` ${opening}${said.length > 280 ? '…' : ''}` : ''}`,
     });
     parent.pendingNote = [
@@ -3746,6 +3754,14 @@ function setConversationModel(conversationId, patch = {}) {
     // The mode; an empty one hands it back to the agent's own.
     const approval = patch.approval !== undefined ? patch.approval : current.approval;
     if (approval && settings.APPROVALS.has(approval)) next.approval = approval;
+    // The context size, in tokens; 0 hands it back to what the model lists.
+    // A size is a property of one model, so another model or runtime drops
+    // it unless the same change names one.
+    const sameModel = next.provider === current.provider && next.model === current.model;
+    const contextWindow = patch.contextWindow !== undefined
+        ? patch.contextWindow
+        : (sameModel ? current.contextWindow : 0);
+    if (Number(contextWindow) > 0) next.contextWindow = Math.min(10_000_000, Math.max(1000, Math.round(Number(contextWindow))));
     // Which sign-in, when the menu offered the runtime under more than one.
     // An account belongs to its runtime, so a change of runtime that does not
     // name one drops it, and an empty one goes back to the agent's choice.

@@ -109,8 +109,19 @@ const check = async (label, fn) => {
     await check('a short history is left alone; a long one is due for compaction', () => {
         assert.strictEqual(provider.needsCompaction(history(5)), false);
         assert.strictEqual(provider.needsCompaction(history(30)), true);
-        const big = [{ role: 'user', content: 'x'.repeat(130000) }];
-        assert.strictEqual(provider.needsCompaction(big), true, 'characters count as well as messages');
+        // Over on characters with the weight in what a summary would fold.
+        const heavyMiddle = history(10);
+        heavyMiddle[3] = { ...heavyMiddle[3], content: 'x'.repeat(130000) };
+        assert.strictEqual(provider.needsCompaction(heavyMiddle), true, 'characters count as well as messages');
+    });
+
+    await check('over on characters only in what stays verbatim, it does not summarise', () => {
+        // The weight in the system prompt and the last message: a summary
+        // would free nothing and the next step would be over again.
+        const heavyTail = history(10);
+        heavyTail[0] = { role: 'system', content: 'x'.repeat(60000) };
+        heavyTail[heavyTail.length - 2] = { ...heavyTail[heavyTail.length - 2], content: 'x'.repeat(70000) };
+        assert.strictEqual(provider.needsCompaction(heavyTail), false);
     });
 
     await check('the split keeps the system prompt, the tail verbatim, and never orphans a tool answer', () => {
@@ -131,9 +142,69 @@ const check = async (label, fn) => {
         assert.ok(/missing env var/.test(after[1].content));
         assert.ok(/run_command \{"command":"step 0"\} → output 0/.test(after[1].content), 'each folded tool call keeps a line of provenance');
         assert.ok(!after.some((message, index) => message.role === 'tool' && index > 0 && after[index - 1].role !== 'assistant' && after[index - 1].role !== 'tool'), 'no orphaned tool message');
-        // A second fold carries the first summary forward rather than losing it.
+        // A second fold replaces the first summary (the model was handed it
+        // to carry forward) and continues its provenance.
         const again = provider.foldHistory([...after, ...history(30).slice(2)], 'Later: restarted the service.');
-        assert.ok(/missing env var/.test(again[1].content) && /restarted the service/.test(again[1].content));
+        assert.ok(/restarted the service/.test(again[1].content));
+        assert.ok(!/missing env var/.test(again[1].content), 'the old summary text is not appended');
+        assert.ok(/step 0"\} → output 0/.test(again[1].content), 'the earlier provenance continues');
+    });
+
+    await check('the summary request hands over the previous summary whole', () => {
+        const after = provider.foldHistory(history(30), `Task: fix the deploy. ${'detail '.repeat(400)}END-OF-SUMMARY`);
+        const { middle } = provider.splitForCompaction([...after, ...history(30).slice(2)]);
+        const request = provider._test.summaryRequest(middle);
+        assert.ok(/END-OF-SUMMARY/.test(request[1].content), 'not cut like the other messages');
+        assert.ok(/replaces it/.test(request[0].content));
+    });
+
+    await check('summarising again and again stays the same size', () => {
+        let messages = history(30);
+        const sizes = [];
+        for (let round = 0; round < 40; round += 1) {
+            messages = provider.foldHistory([...messages, ...history(30).slice(2)], 's'.repeat(2500));
+            sizes.push(messages[1].content.length);
+        }
+        assert.ok(sizes[39] <= sizes[5] * 1.05, `grew from ${sizes[5]} to ${sizes[39]}`);
+        assert.ok(/earlier not listed/.test(messages[1].content), 'the provenance keeps the latest and says so');
+        const lines = messages[1].content.split('\n').filter(line => line.startsWith('- '));
+        assert.strictEqual(lines.length, provider._test.MAX_PROVENANCE);
+        assert.strictEqual(provider.needsCompaction([{ role: 'system', content: 'x'.repeat(30000) }, ...messages.slice(1)]), false,
+            'right after a fold it is not due again');
+    });
+
+    await check('a known window gives the history its share of it, after the tool definitions', () => {
+        assert.strictEqual(provider.limitsFor(0), provider.limitsFor(undefined), 'no window, the defaults');
+        assert.strictEqual(provider.limitsFor(0).compactChars, provider._test.COMPACT_CHARS);
+        const big = provider.limitsFor(262144, 88000);
+        assert.ok(big.compactChars > 400000 && big.compactChars < 262144 * 4, `262k tokens: ${big.compactChars} chars`);
+        assert.ok(big.compactAt > 48, 'message counts stop mattering');
+        const tiny = provider.limitsFor(16000, 88000);
+        assert.ok(tiny.compactChars >= 20000, 'a window smaller than the tools still leaves the history something');
+        // The same history: due on the defaults, not on a big window.
+        const long = history(10);
+        long[3] = { ...long[3], content: 'x'.repeat(200000) };
+        assert.strictEqual(provider.needsCompaction(long), true);
+        assert.strictEqual(provider.needsCompaction(long, big), false);
+    });
+
+    await check('the context reading is the server\'s count over the window, or an estimate said as one', () => {
+        const messages = [{ role: 'system', content: 'x'.repeat(4000) }];
+        const counted = provider.contextReading({
+            usage: { prompt_tokens: 50000, completion_tokens: 2000, prompt_tokens_details: { cached_tokens: 40000 } },
+            messages, window: 128000, listed: 262144, model: 'm',
+        });
+        assert.deepStrictEqual(
+            { used: counted.used, limit: counted.limit, percent: counted.percent, cached: counted.cached, modelLimit: counted.modelLimit, estimated: counted.estimated },
+            { used: 52000, limit: 128000, percent: 41, cached: 40000, modelLimit: 262144, estimated: undefined },
+        );
+        const guessed = provider.contextReading({ usage: null, messages, overheadChars: 4000, window: 0 });
+        assert.ok(Math.abs(guessed.used - 2000) <= 1, `about 8000 characters at four a token: ${guessed.used}`);
+        assert.strictEqual(guessed.estimated, true);
+        assert.strictEqual(guessed.percent, null, 'no window, no percentage');
+        assert.strictEqual(provider.windowOf({ id: 'a', context_length: 262144 }), 262144);
+        assert.strictEqual(provider.windowOf({ id: 'b', max_context_length: 32768 }), 32768, 'LM Studio\'s spelling');
+        assert.strictEqual(provider.windowOf({ id: 'c' }), 0);
     });
 
     console.log('\ntraces');

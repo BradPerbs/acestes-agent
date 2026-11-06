@@ -290,6 +290,25 @@ const forget = () => {
         assert.strictEqual(assistant.effectiveSettings(assistant._test.conversation(one.id)).approval, before);
     });
 
+    await check('a context size is the conversation\'s, and a change of model drops it', () => {
+        forget();
+        const one = openTab(first);
+        const running = () => assistant.effectiveSettings(assistant._test.conversation(one.id));
+        assistant.setConversationModel(one.id, { provider: 'openai', model: 'typesafe/jev-1.14' });
+        assistant.setConversationModel(one.id, { contextWindow: 128000 });
+        assert.strictEqual(running().contextWindow, 128000);
+        assert.strictEqual(running().model, 'typesafe/jev-1.14', 'picking a size leaves the model where it was');
+        assert.strictEqual(assistant.effectiveSettings(assistant._test.conversation(openTab(first).id)).contextWindow, undefined,
+            'another conversation is not moved');
+        assistant.setConversationModel(one.id, { contextWindow: 0 });
+        assert.strictEqual(running().contextWindow, undefined, '0 is back to what the model lists');
+        assistant.setConversationModel(one.id, { contextWindow: 64000 });
+        assistant.setConversationModel(one.id, { model: 'other/model' });
+        assert.strictEqual(running().contextWindow, undefined, 'a size belongs to the model it was picked for');
+        assistant.setConversationModel(one.id, { model: 'third/model', contextWindow: 1000000 });
+        assert.strictEqual(running().contextWindow, 1000000, 'unless the same change names one');
+    });
+
     await check('the last mode picked or sent in is what a new tab of any agent starts in', () => {
         forget();
         assert.strictEqual(openTab(second).pinned, null, 'nothing used yet: the agent\'s own');

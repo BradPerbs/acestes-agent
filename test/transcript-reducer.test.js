@@ -294,6 +294,29 @@ async function main() {
         assert.strictEqual(plain.items[0].signIn, undefined, 'other errors carry no button');
     });
 
+    check('a notice said mid-turn leaves the turn running; a plain one ends it', () => {
+        const opening = [
+            { type: 'user-message', text: 'tidy /var', at: 1 },
+            { type: 'tool-call', id: 't1', name: 'run_command', input: { command: 'du -sh /var/*' }, at: 2 },
+            { type: 'tool-result', id: 't1', text: '3G /var/log', at: 3 },
+            { type: 'text-delta', text: 'Looking at ', at: 4 },
+        ];
+        const kept = replay([
+            ...opening,
+            { type: 'notice', tone: 'info', keepTurn: true, text: 'Earlier turns were summarised.', at: 5 },
+        ]);
+        assert.strictEqual(kept.busy, true, 'the working line and Stop stay');
+        assert.strictEqual(kept.draft.text, 'Looking at ', 'the words being written are kept');
+        assert.strictEqual(kept.items.at(-1).kind, 'notice');
+        assert.strictEqual(kept.items.at(-1).text, 'Earlier turns were summarised.');
+
+        const ended = replay([
+            ...opening,
+            { type: 'notice', tone: 'info', text: 'This turn was cut short when the app closed.', at: 5 },
+        ]);
+        assert.strictEqual(ended.busy, false, 'a turn read back unfinished is closed out');
+    });
+
     console.log(`\n${passed} passed, ${failed} failed`);
     if (failed > 0) process.exit(1);
 }

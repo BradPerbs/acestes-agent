@@ -522,7 +522,23 @@ function step(state, event, owned) {
         // the model said. The main process uses it to close out a conversation
         // read back from disk whose last turn never finished, because the
         // process running it went away.
+        //
+        // One said while the turn goes on (`keepTurn`: history compacted, a
+        // hook that could not run, the turn handed to another computer's
+        // model) is a line and nothing more. Ending the turn on it took the
+        // working line and Stop away while the agent was still at work: on
+        // the OpenAI-compatible runtime, for every call after the first
+        // compaction.
         case 'notice':
+            if (event.keepTurn) {
+                edit().push({
+                    kind: 'notice',
+                    id: `nx-${event.at}-${items.length}`,
+                    tone: event.tone || 'info',
+                    text: event.text,
+                });
+                break;
+            }
             busy = false;
             settleTasks(items, edit);
             edit().push({

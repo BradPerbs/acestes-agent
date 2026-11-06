@@ -491,6 +491,8 @@ export default function useAssistant({
                 // An empty account is a choice too: back to the agent's own,
                 // rather than keeping the one picked before.
                 if (patch && 'account' in patch && !patch.account) delete next.account;
+                // And the context size: 0 is back to what the model lists.
+                if (patch && 'contextWindow' in patch && !patch.contextWindow) delete next.contextWindow;
                 return next;
             });
             return;

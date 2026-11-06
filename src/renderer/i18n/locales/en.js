@@ -2593,6 +2593,13 @@ export default {
     'assistant.context.label': 'Context {percent}% full, {tokens} tokens',
     'assistant.context.unknownLimit': 'Context: {tokens} tokens',
     'assistant.context.empty': 'Context: no reading yet',
+    'assistant.context.size': 'Context size',
+    'assistant.context.sizeAuto': 'Model default',
+    'assistant.context.sizeAutoKnown': '{size} tokens, as the model lists it',
+    'assistant.context.sizeAutoUnknown': 'The server lists no size, so a cautious one is used',
+    'assistant.context.sizeTokens': '{size} tokens',
+    'assistant.context.sizePicked': '{size}, picked',
+    'assistant.context.sizeModel': '{size}, model default',
 
     'assistant.currentSession': 'Current session',
     'assistant.nothingConnected': 'Nothing connected',

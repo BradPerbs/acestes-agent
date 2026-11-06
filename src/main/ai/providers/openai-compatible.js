@@ -357,19 +357,113 @@ const COMPACT_AT = 48;
 const COMPACT_CHARS = 120000;
 /** How many recent messages stay verbatim after a compaction. */
 const KEEP_TAIL = 12;
+/**
+ * Over on characters, how much a summary has to fold away to be worth one.
+ * When the weight is in what stays verbatim (the system prompt, the summary,
+ * the last few messages) a summary frees nothing, and the very next step is
+ * over again: that is how it came to summarise after every single call.
+ */
+const MIN_FOLD_CHARS = 40000;
+/** Provenance lines the summary carries, newest kept: one per tool call ever made would grow forever. */
+const MAX_PROVENANCE = 40;
+/** A summary is asked for in under 400 words; this is the backstop if the model ignores that. */
+const MAX_SUMMARY_CHARS = 8000;
 
 const SUMMARY_MARK = '[Earlier in this conversation, summarised]';
+const PROVENANCE_MARK = 'Tool calls so far, in order';
 
 function contentLength(message) {
     const text = typeof message.content === 'string' ? message.content : JSON.stringify(message.content ?? '');
     return text.length + JSON.stringify(message.tool_calls ?? '').length;
 }
 
-function needsCompaction(messages) {
-    if (messages.length >= COMPACT_AT) return true;
+/** The summary a previous compaction left, which a new one replaces rather than frees. */
+const isSummary = message => message?.role === 'user' && String(message.content || '').startsWith(SUMMARY_MARK);
+
+/*
+ * The limits above are for a window nobody has said: a local server reports
+ * none, and 120k characters is safe for the small contexts those run with.
+ * When the window is known (picked on the composer's context ring, or listed
+ * by the server for the model, as OpenRouter does), the history gets its real
+ * share of it instead.
+ */
+
+/** Characters per token, low on purpose: code and JSON run near 3, prose near 4. */
+const CHARS_PER_TOKEN = 3;
+/** How full the window gets before the middle is summarised, leaving room for the reply. */
+const COMPACT_SHARE = 0.75;
+/** However small the window, a history is allowed this much before it is summarised. */
+const MIN_COMPACT_CHARS = 20000;
+/** With a known window, message counts stop mattering; these are backstops only. */
+const WINDOWED_COMPACT_AT = 600;
+const WINDOWED_MAX_MESSAGES = 1000;
+
+const DEFAULT_LIMITS = Object.freeze({
+    compactAt: COMPACT_AT,
+    compactChars: COMPACT_CHARS,
+    minFold: MIN_FOLD_CHARS,
+    maxMessages: MAX_MESSAGES,
+});
+
+/**
+ * The history's limits for a window of `window` tokens, after the tool
+ * definitions sent beside it on every request (`overheadChars`). No window,
+ * the defaults.
+ */
+function limitsFor(window, overheadChars = 0) {
+    const tokens = Number(window);
+    if (!Number.isFinite(tokens) || tokens <= 0) return DEFAULT_LIMITS;
+    const compactChars = Math.max(MIN_COMPACT_CHARS, Math.round(tokens * CHARS_PER_TOKEN * COMPACT_SHARE) - overheadChars);
+    return {
+        compactAt: WINDOWED_COMPACT_AT,
+        compactChars,
+        minFold: Math.min(MIN_FOLD_CHARS, Math.round(compactChars / 3)),
+        maxMessages: WINDOWED_MAX_MESSAGES,
+    };
+}
+
+function historyChars(messages) {
     let total = 0;
     for (const message of messages) total += contentLength(message);
-    return total >= COMPACT_CHARS;
+    return total;
+}
+
+/**
+ * The composer's context ring, after one reply: what the request held and
+ * what came back, over the window. From the server's own count when it sends
+ * one (OpenRouter always does); otherwise estimated from the characters, at
+ * four to a token, and marked so, rather than leaving the ring empty.
+ *
+ * `limit` is the window the turn ran on; `modelLimit` the one the server
+ * lists for the model, which the ring's menu offers as the default.
+ */
+function contextReading({ usage, messages, overheadChars = 0, window = 0, listed = 0, model = '' }) {
+    const prompt = Number(usage?.prompt_tokens) || 0;
+    const reported = prompt > 0;
+    const used = reported
+        ? prompt + (Number(usage.completion_tokens) || 0)
+        : Math.round((historyChars(messages) + overheadChars) / 4);
+    const cached = Number(usage?.prompt_tokens_details?.cached_tokens) || 0;
+    return {
+        type: 'context',
+        used,
+        limit: window || 0,
+        percent: window ? Math.round((used / window) * 100) : null,
+        model,
+        modelLimit: listed || 0,
+        ...(cached > 0 ? { cached } : {}),
+        ...(reported ? {} : { estimated: true }),
+    };
+}
+
+function needsCompaction(messages, limits = DEFAULT_LIMITS) {
+    if (messages.length >= limits.compactAt) return true;
+    if (historyChars(messages) < limits.compactChars) return false;
+    let foldable = 0;
+    for (const message of splitForCompaction(messages).middle) {
+        if (!isSummary(message)) foldable += contentLength(message);
+    }
+    return foldable >= limits.minFold;
 }
 
 /**
@@ -405,21 +499,46 @@ function provenance(middle) {
     return lines;
 }
 
-/** Fold a summary and the tail back into one history. Pure. */
+/** The provenance lines a previous summary carried, to be continued rather than repeated. */
+function previousProvenance(content) {
+    const at = String(content || '').indexOf(`\n${PROVENANCE_MARK}`);
+    if (at < 0) return [];
+    return content.slice(at + 1).split('\n').slice(1).filter(line => line.startsWith('- '));
+}
+
+/**
+ * Fold a summary and the tail back into one history. Pure.
+ *
+ * The new summary replaces the previous one: it was written with the previous
+ * one in front of it (see summaryRequest), so nothing is lost by not carrying
+ * the old text along too. Carrying it along is what made the summary grow by
+ * a whole summary every time, until it alone kept the history over the
+ * limit. The provenance continues the previous list, newest kept.
+ */
 function foldHistory(messages, summary, keepTail = KEEP_TAIL) {
     const { head, middle, tail } = splitForCompaction(messages, keepTail);
     if (middle.length === 0) return messages;
-    const previous = middle[0]?.role === 'user' && String(middle[0].content || '').startsWith(SUMMARY_MARK) ? middle[0].content : '';
+    const previous = isSummary(middle[0]) ? middle[0].content : '';
+    const lines = [...previousProvenance(previous), ...provenance(middle)];
+    const kept = lines.slice(-MAX_PROVENANCE);
+    const dropped = lines.length - kept.length;
+    const header = `${PROVENANCE_MARK}${dropped > 0 ? ` (the latest ${kept.length}; ${dropped} earlier not listed)` : ''}:`;
     const folded = {
         role: 'user',
-        content: `${SUMMARY_MARK}\n\n${previous ? `${previous.slice(SUMMARY_MARK.length).trim()}\n\n` : ''}${summary.trim()}\n\nTool calls in that span, in order:\n${provenance(middle).join('\n') || '- none'}`,
+        content: `${SUMMARY_MARK}\n\n${summary.trim().slice(0, MAX_SUMMARY_CHARS)}\n\n${header}\n${kept.join('\n') || '- none'}`,
     };
     return [...head, folded, ...tail];
 }
 
-/** The request that writes the summary: the middle, and an instruction. */
+/**
+ * The request that writes the summary: the middle, and an instruction.
+ *
+ * A previous summary leads the middle and goes in whole, not cut like the
+ * other messages, since the new summary replaces it and has to carry it.
+ */
 function summaryRequest(middle) {
     const transcript = middle.map((message) => {
+        if (isSummary(message)) return `PREVIOUS SUMMARY (carry everything in it forward):\n${String(message.content).slice(SUMMARY_MARK.length).trim()}`;
         if (message.role === 'tool') return `TOOL RESULT: ${String(message.content || '').slice(0, 600)}`;
         const calls = Array.isArray(message.tool_calls)
             ? message.tool_calls.map(call => `CALL ${call.function?.name}(${String(call.function?.arguments || '').slice(0, 200)})`).join('\n')
@@ -427,7 +546,7 @@ function summaryRequest(middle) {
         return `${message.role.toUpperCase()}: ${String(message.content || '').slice(0, 1500)}${calls ? `\n${calls}` : ''}`;
     }).join('\n\n');
     return [
-        { role: 'system', content: 'You write a compact working summary of an agent conversation so the agent can continue it. Keep: the task as the user stated it, decisions taken, facts learned about the systems, what was tried and what happened, and what is still to do. Drop pleasantries. Write in plain prose with short lists, under 400 words.' },
+        { role: 'system', content: 'You write a compact working summary of an agent conversation so the agent can continue it. Keep: the task as the user stated it, decisions taken, facts learned about the systems, what was tried and what happened, and what is still to do. When the span opens with a previous summary, write one summary that replaces it: carry forward what still matters from it, merged with what happened since, not appended after it. Do not list tool calls; those are kept separately. Drop pleasantries. Write in plain prose with short lists, under 400 words.' },
         { role: 'user', content: `Summarise this span of the conversation:\n\n${transcript.slice(0, 60000)}` },
     ];
 }
@@ -437,8 +556,8 @@ function summaryRequest(middle) {
  * write the summary. Falls back to trimming if the summary request fails,
  * which loses more than a summary would but never leaves the loop stuck.
  */
-async function compactHistory(messages, { endpoint: target, model: name, extra: params, signal }) {
-    if (!needsCompaction(messages)) return false;
+async function compactHistory(messages, { endpoint: target, model: name, extra: params, signal, limits = DEFAULT_LIMITS }) {
+    if (!needsCompaction(messages, limits)) return false;
     const { middle } = splitForCompaction(messages);
     if (middle.length === 0) return false;
     try {
@@ -456,7 +575,7 @@ async function compactHistory(messages, { endpoint: target, model: name, extra: 
         messages.splice(0, messages.length, ...foldHistory(messages, summary));
         return true;
     } catch {
-        messages.splice(0, messages.length, ...trimHistory(messages));
+        messages.splice(0, messages.length, ...trimHistory(messages, limits.maxMessages));
         return false;
     }
 }
@@ -582,6 +701,8 @@ async function start({
     onEvent({ type: 'session', sessionId, model: settings.model || '' });
 
     const tools = functionTools(toolContext?.()?.settings);
+    // Sent beside the history on every request, so it comes off the window.
+    const toolChars = JSON.stringify(tools).length;
     let abort = null;
     let running = Promise.resolve();
     let closed = false;
@@ -595,6 +716,12 @@ async function start({
         const current = getSettings();
         const target = endpoint(current);
         const name = await model(current);
+        // The window: the size picked on the composer's context ring, else
+        // the one the server lists for the model, else unknown and the
+        // defaults. Read each turn, so a pick applies from the next one.
+        const listed = await modelWindow(target, name);
+        const window = Number(current.contextWindow) > 0 ? Number(current.contextWindow) : listed;
+        const limits = limitsFor(window, toolChars);
 
         stopped = false;
         messages.push({ role: 'user', content: text });
@@ -629,10 +756,11 @@ async function start({
                 // Summarised before it is cut, so the start of the task is
                 // carried forward rather than dropped. See compactHistory.
                 const compacted = await compactHistory(messages, {
-                    endpoint: target, model: name, extra: extra(current), signal: abort.signal,
+                    endpoint: target, model: name, extra: extra(current), signal: abort.signal, limits,
                 });
-                if (compacted) onEvent({ type: 'notice', tone: 'info', text: 'Earlier turns were summarised to keep the conversation within the model\'s context.' });
-                messages.splice(0, messages.length, ...trimHistory(messages));
+                // Said in the middle of the turn, which goes on after it.
+                if (compacted) onEvent({ type: 'notice', tone: 'info', keepTurn: true, text: 'Earlier turns were summarised to keep the conversation within the model\'s context.' });
+                messages.splice(0, messages.length, ...trimHistory(messages, limits.maxMessages));
 
                 reply = await complete({
                     endpoint: target,
@@ -666,6 +794,7 @@ async function start({
             if (reply.content.trim()) onEvent({ type: 'assistant-text', text: reply.content });
 
             collectUsage(reply.usage);
+            onEvent(contextReading({ usage: reply.usage, messages, overheadChars: toolChars, window, listed, model: name }));
 
             if (reply.toolCalls.length === 0) {
                 onEvent({
@@ -738,9 +867,8 @@ async function start({
  * the menu: which models are loaded is a decision the user made in LM Studio
  * or Ollama a minute ago, and no list written here could know it.
  */
-async function listModels({ baseUrl, apiKey = '', headers = {}, label = 'The server' }) {
-    if (!baseUrl) return null;
-
+/** The server's `/models`, every row, as it sent them. */
+async function fetchModelRows({ baseUrl, apiKey = '', headers = {}, label = 'The server' }) {
     const request = { ...headers };
     if (apiKey) request.Authorization = `Bearer ${apiKey}`;
 
@@ -754,9 +882,52 @@ async function listModels({ baseUrl, apiKey = '', headers = {}, label = 'The ser
 
     const payload = await response.json();
     const rows = Array.isArray(payload?.data) ? payload.data : [];
+    return rows.filter(row => row && typeof row.id === 'string' && row.id);
+}
+
+/**
+ * A model's context window in tokens, as its row says: OpenRouter's
+ * `context_length`, LM Studio's `max_context_length`. 0 when it says nothing,
+ * which is what most local servers say.
+ */
+function windowOf(row) {
+    const value = Number(row?.context_length ?? row?.max_context_length ?? row?.top_provider?.context_length);
+    return Number.isFinite(value) && value > 0 ? Math.round(value) : 0;
+}
+
+/** baseUrl -> { at, windows: Map<model, tokens> }, so a turn does not list hundreds of models each time. */
+const knownWindows = new Map();
+const WINDOWS_TTL = 60 * 60 * 1000;
+
+/**
+ * The window the server lists for a model, or 0. Read once an hour per
+ * address; a failure is remembered as nothing known, not retried every turn.
+ */
+async function modelWindow(endpoint, model) {
+    if (!endpoint?.baseUrl || !model) return 0;
+    let entry = knownWindows.get(endpoint.baseUrl);
+    if (!entry || Date.now() - entry.at > WINDOWS_TTL) {
+        let windows = new Map();
+        try {
+            const rows = await fetchModelRows(endpoint);
+            windows = new Map(rows.map(row => [row.id, windowOf(row)]));
+        } catch {
+            // Nothing known; the defaults apply.
+        }
+        entry = { at: Date.now(), windows };
+        knownWindows.set(endpoint.baseUrl, entry);
+    }
+    return entry.windows.get(model) || 0;
+}
+
+async function listModels({ baseUrl, apiKey = '', headers = {}, label = 'The server' }) {
+    if (!baseUrl) return null;
+
+    const rows = await fetchModelRows({ baseUrl, apiKey, headers, label });
+    // The menu fetched them anyway: the windows are kept for the turns.
+    knownWindows.set(baseUrl, { at: Date.now(), windows: new Map(rows.map(row => [row.id, windowOf(row)])) });
 
     return rows
-        .filter(row => row && typeof row.id === 'string' && row.id)
         .map(row => ({
             value: row.id,
             resolved: row.id,
@@ -766,6 +937,8 @@ async function listModels({ baseUrl, apiKey = '', headers = {}, label = 'The ser
             // last part of it, and the menu still shows the whole thing.
             short: row.id.split('/').pop(),
             description: String(row.owned_by || row.publisher || '').slice(0, 200),
+            // Tokens, or 0 when the server does not say.
+            context: windowOf(row),
             // Reasoning effort is not a field this API has. A model that thinks
             // does it because of how it was built, and a dial that changed
             // nothing would be a lie in the composer.
@@ -818,5 +991,8 @@ module.exports = {
     foldHistory,
     needsCompaction,
     splitForCompaction,
-    _test: { histories, runTool, COMPACT_AT, KEEP_TAIL, SUMMARY_MARK },
+    limitsFor,
+    contextReading,
+    windowOf,
+    _test: { histories, runTool, summaryRequest, knownWindows, COMPACT_AT, COMPACT_CHARS, KEEP_TAIL, MIN_FOLD_CHARS, MAX_PROVENANCE, SUMMARY_MARK },
 };

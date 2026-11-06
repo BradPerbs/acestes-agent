@@ -43,6 +43,9 @@ import { pickLine } from '../../lib/aeneid';
 import { agentColor } from '../../lib/agent-colors';
 import { TRANSCRIPT_HOLD } from '../../lib/transcript-find';
 
+/** The runtimes whose context size is picked on the composer's ring: the OpenAI-compatible API and local servers. */
+const WINDOW_PICKERS = new Set(['openai', 'local']);
+
 /** The rule inside a card, which is lighter than the one between two cards. */
 export const HAIRLINE = 'border-black/[0.06] dark:border-white/[0.06]';
 
@@ -693,6 +696,9 @@ export default function AssistantConversation({
         });
         return pinModel(patch);
     }, [shownSettings, pinModel]);
+    // The context size picked on the ring: this conversation's, not
+    // remembered for the next, since it is a property of the model in it.
+    const pickWindow = useCallback(contextWindow => pinModel({ contextWindow }), [pinModel]);
     // The star is this agent's: its new chats start on the model, at the
     // effort the menu rounded for it, in the mode this chat is in now.
     const starMode = shownSettings?.approval || '';
@@ -1907,6 +1913,13 @@ export default function AssistantConversation({
                             <ContextRing
                                 context={assistant.context}
                                 provider={shownSettings?.provider}
+                                // The OpenAI-compatible runtimes take their
+                                // window from here; the agent CLIs report
+                                // their own and keep a plain ring.
+                                {...(WINDOW_PICKERS.has(shownSettings?.provider) ? {
+                                    windowPick: Number(shownSettings?.contextWindow) || 0,
+                                    onPickWindow: pickWindow,
+                                } : {})}
                             />
                             <Usage
                                 account={assistant.account}

@@ -224,9 +224,12 @@ async function run() {
     const types = plain.events.map(event => event.type);
     assert.deepStrictEqual(
         types,
-        ['session', 'text-delta', 'text-delta', 'assistant-text', 'result'],
-        'a turn with no tool calls is one session, the deltas, the block and a result'
+        ['session', 'text-delta', 'text-delta', 'assistant-text', 'context', 'result'],
+        'a turn with no tool calls is one session, the deltas, the block, a context reading and a result'
     );
+    // No usage on the wire and no window listed: a count from the characters, said as one.
+    const reading = plain.events.find(event => event.type === 'context');
+    assert.ok(reading.used > 0 && reading.estimated === true && reading.percent === null);
     assert.strictEqual(
         plain.events.find(event => event.type === 'assistant-text').text,
         'Nothing is wrong.'
