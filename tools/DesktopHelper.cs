@@ -28,7 +28,9 @@
 //   watch  low-level hooks. Every event this process sends carries a mark;
 //          anything without it is the person. Their click or key outside
 //          Acestes, or their hand on the mouse mid-action, pauses the agent
-//          at once. Esc is swallowed and reported, so no app sees it either.
+//          at once; in the first seconds of a drive the hand only makes it
+//          wait, being likely still on its way off the mouse after sending
+//          the prompt. Esc is swallowed and reported, so no app sees it either.
 //          And, when asked, a chord held on its own (Ctrl+Alt) for push to
 //          talk, driving or not: the buddy listens while it is held.
 //
@@ -218,6 +220,11 @@ static partial class DesktopHelper
             Dictionary<string, object> answer;
             try
             {
+                if (acting && driving)
+                {
+                    WaitForHand();
+                    Anchor();
+                }
                 answer = Handle(request);
                 answer["ok"] = true;
             }
@@ -340,6 +347,14 @@ static partial class DesktopHelper
             Native.GetCursorPos(out point);
             lastX = point.X;
             lastY = point.Y;
+            // A drive starting, or starting again after the person's hand
+            // stopped it: their hand gets its moment (StartMs). Not when
+            // another agent joins one already under way.
+            if (!driving || paused)
+            {
+                Interlocked.Exchange(ref startedAt, Clock.ElapsedMilliseconds);
+                GraceFor(StartMs);
+            }
             paused = false;
             pauseCode = "";
             voiceHeld = false;
@@ -461,6 +476,16 @@ static partial class DesktopHelper
     static readonly Stopwatch Clock = Stopwatch.StartNew();
     static long graceUntil;
 
+    // The same for the start of a drive: the hand that just sent the prompt
+    // is often still on the mouse, and a twitch then would end the turn
+    // before the agent did anything. The first actions wait for it to rest
+    // (StillMs without a move) and its moves are not a takeover, for as long
+    // as StartMs. A click or a key outside Acestes still is.
+    const long StartMs = 3000;
+    const long StillMs = 300;
+    static long startedAt = long.MinValue;
+    static long handMovedAt = long.MinValue;
+
     static bool InGrace()
     {
         return Clock.ElapsedMilliseconds < Interlocked.Read(ref graceUntil);
@@ -468,7 +493,35 @@ static partial class DesktopHelper
 
     static void StartGrace()
     {
-        Interlocked.Exchange(ref graceUntil, Clock.ElapsedMilliseconds + GraceMs);
+        GraceFor(GraceMs);
+    }
+
+    /// <summary>A grace of this long from now, never cutting short one already running.</summary>
+    static void GraceFor(long ms)
+    {
+        long until = Clock.ElapsedMilliseconds + ms;
+        if (until > Interlocked.Read(ref graceUntil)) Interlocked.Exchange(ref graceUntil, until);
+    }
+
+    /// <summary>
+    /// In the first moments of a drive, an action waits until the person's
+    /// hand has been off the mouse for StillMs, so the agent's glide and
+    /// click are not fought by it, and never past the end of the start. The
+    /// hooks went in with the drive, so a move before it is not known: the
+    /// stillness is counted from the start at the earliest.
+    /// </summary>
+    static void WaitForHand()
+    {
+        long started = Interlocked.Read(ref startedAt);
+        if (started == long.MinValue) return;
+        long until = started + StartMs;
+        while (Clock.ElapsedMilliseconds < until)
+        {
+            long since = Math.Max(started, Interlocked.Read(ref handMovedAt));
+            if (Clock.ElapsedMilliseconds - since >= StillMs) return;
+            Guard();
+            Thread.Sleep(20);
+        }
     }
 
     /// <summary>
@@ -503,6 +556,7 @@ static partial class DesktopHelper
             {
                 if (message.ToInt32() == 0x0200)
                 {
+                    Interlocked.Exchange(ref handMovedAt, Clock.ElapsedMilliseconds);
                     if (InGrace())
                     {
                         // Settling, not reaching: measure from where it settles.
