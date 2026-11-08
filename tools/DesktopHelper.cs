@@ -648,7 +648,10 @@ static partial class DesktopHelper
      * Passed on to the app in front, so the keys still do what they always
      * did. Except while the agent drives: then the chord's keys are kept from
      * every app, so someone talking to the agent mid-task does not turn its
-     * typing into Ctrl+Alt shortcuts.
+     * typing into Ctrl+Alt shortcuts. Only until another key joins them: Alt
+     * then Tab is Alt+Tab, the person working, not talking, so the kept keys
+     * are handed back to Windows ahead of that key (HandBack). And not once
+     * the person has taken over: the agent is not typing then.
      * ---------------------------------------------------------------- */
 
     static volatile int pttMods;
@@ -833,6 +836,14 @@ static partial class DesktopHelper
                     pttActive = false;
                     TellPtt("cancel");
                 }
+                // A kept key in it: a shortcut the apps must see whole. Not
+                // Esc, the agent's stop key, which no app sees, nor the voice
+                // shortcut (Ctrl+S), whose Ctrl stays kept from the agent's typing.
+                if (PttKeptBits() != 0 && vk != 0x1B && !VoicePress(vk))
+                {
+                    HandBack(info);
+                    return new IntPtr(1);
+                }
             }
             return Native.CallNextHookEx(IntPtr.Zero, code, message, data);
         }
@@ -843,7 +854,7 @@ static partial class DesktopHelper
         {
             // Pressed while the agent drives: kept from every app, repeats and
             // release with it. One the apps saw go down, they see come up.
-            if (down && !was && driving) pttKept[vk] = true;
+            if (down && !was && driving && !paused) pttKept[vk] = true;
             if (pttKept[vk])
             {
                 if (!down) pttKept[vk] = false;
@@ -851,6 +862,40 @@ static partial class DesktopHelper
             }
         }
         return Native.CallNextHookEx(IntPtr.Zero, code, message, data);
+    }
+
+    /// <summary>Whether a key going down is the voice shortcut, as the driving hook will take it (see OnKeyboard).</summary>
+    static bool VoicePress(int vk)
+    {
+        return driving && voiceVk != 0 && vk == voiceVk && (voiceHeld || ModifiersDown() == voiceMods);
+    }
+
+    /// <summary>
+    /// A key gone down with push-to-talk keys kept from the apps (Alt, then
+    /// Tab): the kept keys go down for Windows after all, then the key, in that
+    /// order, so it lands as Alt+Tab and not a bare Tab. Which is why the key
+    /// itself is kept, and sent again behind them. From the hook: nothing here
+    /// waits. The kept keys go marked, so neither hook takes them for the
+    /// person; the key goes unmarked, so the driving hook sees the person take
+    /// over whichever hook Windows asked first. Their releases are no longer
+    /// kept, so Windows sees them come up.
+    /// </summary>
+    static void HandBack(Native.KBDLLHOOKSTRUCT info)
+    {
+        var inputs = new List<Native.INPUT>();
+        for (int vk = 0; vk < 256; vk++)
+        {
+            if (!pttKept[vk]) continue;
+            pttKept[vk] = false;
+            inputs.Add(KeyInput((ushort)vk, false));
+        }
+        var key = new Native.INPUT { type = 1 };
+        key.U.ki.wVk = (ushort)info.vkCode;
+        key.U.ki.wScan = (ushort)info.scanCode;
+        // LLKHF_EXTENDED, as KEYEVENTF_EXTENDEDKEY: the arrows and the rest.
+        key.U.ki.dwFlags = (info.flags & 0x01) != 0 ? 0x0001u : 0u;
+        inputs.Add(key);
+        Native.SendInput((uint)inputs.Count, inputs.ToArray(), Marshal.SizeOf(typeof(Native.INPUT)));
     }
 
     /* ---------------------------------------------------------------- *
@@ -2675,12 +2720,18 @@ static partial class DesktopHelper
 
     static void KeyEvent(ushort key, bool up)
     {
+        Send(KeyInput(key, up));
+    }
+
+    /// <summary>A key going down or up, marked as ours.</summary>
+    static Native.INPUT KeyInput(ushort key, bool up)
+    {
         var input = new Native.INPUT { type = 1 };
         input.U.ki.wVk = key;
         input.U.ki.wScan = (ushort)Native.MapVirtualKey(key, 0);
         input.U.ki.dwFlags = (up ? 0x0002u : 0u) | (Extended.Contains(key) ? 0x0001u : 0u);
         input.U.ki.dwExtraInfo = Mark;
-        Send(input);
+        return input;
     }
 
     static void KeyTap(ushort key)
