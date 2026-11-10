@@ -2304,6 +2304,7 @@ function App() {
                             hosts={currentHosts}
                             folders={currentFolders}
                             allHosts={agentHosts}
+                            chatHosts={hosts}
                             allFolders={folders}
                             currentFolderId={currentFolderId}
                             connectedHostIds={connectedHostIds}
@@ -2414,7 +2415,7 @@ function App() {
                                                 active={false}
                                                 status={conversationStatuses[tab.id]}
                                                 sessions={assistantSessions}
-                                                hosts={agentHosts}
+                                                hosts={hosts}
                                                 activeSessionId={activeSessionId}
                                                 agentId={tab.agentId || activeAgentId}
                                                 agentLook={lookFor(tab.agentId)}
@@ -2442,7 +2443,7 @@ function App() {
                                             sessionById={splitSessionById}
                                             conversationStatuses={conversationStatuses}
                                             sessions={assistantSessions}
-                                            hosts={agentHosts}
+                                            hosts={hosts}
                                             activeSessionId={activeSessionId}
                                             activeAgentId={activeAgentId}
                                             lookFor={lookFor}
@@ -2488,7 +2489,7 @@ function App() {
                                     active={activeTabId === tab.id}
                                     status={conversationStatuses[tab.id]}
                                     sessions={assistantSessions}
-                                    hosts={agentHosts}
+                                    hosts={hosts}
                                     activeSessionId={activeSessionId}
                                     agentId={tab.agentId || activeAgentId}
                                     agentLook={lookFor(tab.agentId)}

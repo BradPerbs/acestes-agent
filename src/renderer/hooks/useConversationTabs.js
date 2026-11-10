@@ -250,15 +250,21 @@ export default function useConversationTabs({
     ), [sessions, activeSessionId, t]);
 
     /** The selector's props for one tab, minus the scope itself. */
-    const scopePropsFor = useCallback((tab) => ({
-        onSetMode: (mode) => setScope(tab.id, mode === GLOBAL ? globalScope() : followScope()),
-        onToggle: (kind, id) => setScope(tab.id, current => toggle(current, kind, id)),
-        sessions,
-        hosts,
-        activeSessionId,
-        followLabel,
-        scopeLabel: describe(tab.scope, { sessions, hosts, activeSessionId }).label,
-    }), [setScope, sessions, hosts, activeSessionId, followLabel]);
+    const scopePropsFor = useCallback((tab) => {
+        // Only the hosts the tab's own agent can reach: its inventory and the
+        // records that belong to no agent. Pinning another agent's host would
+        // name a machine this conversation's tools cannot see.
+        const own = hosts.filter(host => !host.agentId || !tab.agentId || host.agentId === tab.agentId);
+        return {
+            onSetMode: (mode) => setScope(tab.id, mode === GLOBAL ? globalScope() : followScope()),
+            onToggle: (kind, id) => setScope(tab.id, current => toggle(current, kind, id)),
+            sessions,
+            hosts: own,
+            activeSessionId,
+            followLabel,
+            scopeLabel: describe(tab.scope, { sessions, hosts: own, activeSessionId }).label,
+        };
+    }, [setScope, sessions, hosts, activeSessionId, followLabel]);
 
     /* ------------------------------------------------------------------ *
      * Opening and closing

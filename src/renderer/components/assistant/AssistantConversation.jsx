@@ -426,7 +426,17 @@ export default function AssistantConversation({
      * rather than from a copy the panel took when it was tagged.
      */
     const [mentions, setMentions] = useState([]);
-    const mentionables = useMentionables({ agentId, hosts });
+    /**
+     * The hosts in this conversation's agent's inventory, and the ones that
+     * belong to no agent. Filtered here, by the conversation's own agent,
+     * rather than trusted from the caller: a chat with another agent than the
+     * one selected must see that agent's hosts, not the selected one's.
+     */
+    const ownHosts = useMemo(
+        () => hosts.filter(host => !host.agentId || !agentId || host.agentId === agentId),
+        [hosts, agentId],
+    );
+    const mentionables = useMentionables({ agentId, hosts: ownHosts });
 
     /** `{ query, start }` while the picker is open, and the row highlighted. */
     const [mention, setMention] = useState(null);
@@ -1269,8 +1279,8 @@ export default function AssistantConversation({
 
     /** What the tab is actually pointed at, for the placeholder. */
     const described = useMemo(
-        () => describe(scope, { sessions, hosts, activeSessionId }),
-        [scope, sessions, hosts, activeSessionId],
+        () => describe(scope, { sessions, hosts: ownHosts, activeSessionId }),
+        [scope, sessions, ownHosts, activeSessionId],
     );
 
     const empty = assistant.items.length === 0 && !assistant.starting && !assistant.failure;

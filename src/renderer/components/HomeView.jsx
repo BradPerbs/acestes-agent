@@ -27,6 +27,9 @@ function HomeView({
     hosts,
     folders,
     allHosts,
+    // Every host, whoever's: the Home composer can be pointed at an agent
+    // other than the selected one (octopus mode) and filters by that agent.
+    chatHosts,
     allFolders,
     currentFolderId,
     connectedHostIds,
@@ -124,7 +127,7 @@ function HomeView({
                     agentLook={agentLook}
                     agents={agents}
                     sessions={sessions}
-                    hosts={allHosts}
+                    hosts={chatHosts || allHosts}
                     activeSessionId={activeSessionId}
                     onLaunch={onLaunchConversation}
                     onOpenSettings={onOpenAssistantSettings}
