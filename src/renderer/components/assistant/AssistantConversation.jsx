@@ -1531,7 +1531,7 @@ export default function AssistantConversation({
                     they stop and the turn has not. */}
                 {assistant.busy && (!assistant.draft.text || draftQuiet)
                     && asking.length === 0 && questions.length === 0 && (
-                    <WorkingIndicator items={assistant.items} />
+                    <WorkingIndicator items={assistant.items} draft={assistant.draft} />
                 )}
             </div>
 

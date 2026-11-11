@@ -175,8 +175,13 @@ async function run() {
     });
     assert.deepStrictEqual(
         seen.map(event => event.type),
-        ['text-delta', 'thinking-delta', 'text-delta'],
+        ['text-delta', 'thinking-delta', 'text-delta', 'activity'],
         'deltas are announced as they arrive'
+    );
+    assert.deepStrictEqual(
+        seen.filter(event => event.type === 'activity'),
+        [{ type: 'activity', phase: 'composing', tool: 'run_command' }],
+        'a call being written is said once, by name, when its name arrives'
     );
 
     // The shape a server that ignores `stream` answers with.

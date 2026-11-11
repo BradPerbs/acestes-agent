@@ -7,10 +7,19 @@
  * without the subscription wrapped round it. See `useAssistant`.
  */
 
-/** A blank turn-in-progress, for the streaming text bubble. */
+/**
+ * A blank turn-in-progress, for the streaming text bubble.
+ *
+ * `activity` is what the model is in the middle of, for the working line
+ * (lib/working-activity.js): thinking, writing a call, or the runtime
+ * summarising the history. Null when nothing has said.
+ */
 function emptyDraft() {
-    return { text: '', thinking: '' };
+    return { text: '', thinking: '', activity: null };
 }
+
+/** The one thinking state, shared, so a stream of thoughts does not make one per word. */
+const THINKING = Object.freeze({ phase: 'thinking', tool: '' });
 
 /** Output tokens, however the runtime spelled its usage. */
 function outputTokensOf(usage) {
@@ -162,15 +171,26 @@ function step(state, event, owned) {
             break;
 
         case 'thinking-start':
-            draft = { ...draft, thinking: draft.thinking || '' };
+            draft = { ...draft, thinking: draft.thinking || '', activity: THINKING };
             break;
 
         case 'thinking-delta':
-            draft = { ...draft, thinking: draft.thinking + (event.text || '') };
+            draft = { ...draft, thinking: draft.thinking + (event.text || ''), activity: THINKING };
             break;
 
         case 'text-delta':
-            draft = { ...draft, text: draft.text + (event.text || '') };
+            draft = { ...draft, text: draft.text + (event.text || ''), activity: null };
+            break;
+
+        // What the model is in the middle of, said by the runtime as it
+        // happens: writing a call (`composing`, with the tool), or the history
+        // being summarised (`compacting`). An empty phase says it is over.
+        // Never in the log: the main process sends these to the window only.
+        case 'activity':
+            draft = {
+                ...draft,
+                activity: event.phase ? { phase: event.phase, tool: event.tool || '' } : null,
+            };
             break;
 
         case 'assistant-text':

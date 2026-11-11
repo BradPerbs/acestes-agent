@@ -1,80 +1,145 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useT } from '../../i18n';
+import { describeCall } from './ToolCall';
+import { chipFor, todoProgress, toolBucket, verbFor } from '../../lib/tool-bucket';
+import { DESKTOP_VERBS, workingActivity } from '../../lib/working-activity';
 
 /**
  * The line under the transcript while a turn is open and nothing is on screen
  * yet: no words streaming, no question standing.
  *
- * It says what kind of work is going on, not just that some is. The phrase is
- * drawn from the tool that is running right now, so a shell command reads as
- * poking the shell and an edit as writing code, and between tools it falls back
- * to thinking. The phrase turns over every few seconds, because a line that
- * never changes looks stuck by the tenth second, and after a few seconds the
- * elapsed time shows beside it for the same reason.
+ * It says what the agent is doing, in the words of the call itself: the
+ * command running, the file being edited, what a subagent is on. Between
+ * calls it says what the model is in the middle of when the runtime tells
+ * us (thinking, writing its next call, summarising the history), and that it
+ * is waiting on the model when nothing has. All of it is read off events the
+ * chat already has, so it costs no request. The rows above can be folded
+ * into a group, which leaves this as the one place the running call is named.
+ *
+ * The clock beside it counts from when the work last changed, so a command
+ * that has run for two minutes says so, and a model that has not answered for
+ * two minutes says that.
  *
  * Its parts (the ring, the rolling phrase, the phrase that turns over, the
  * clock) are exported for the buddy's notch while an agent drives the
  * desktop (BuddyOverlay.jsx), so the two read as one thing.
  */
 
-/** Our own tools, by what the work looks like from the outside. */
-const ACTIVITY = {
-    run_command: 'shell',
-    send_input: 'shell',
-    read_terminal: 'shell',
-    read_file: 'read',
-    list_directory: 'read',
-    search_local_files: 'read',
-    search_conversations: 'read',
-    read_conversation: 'read',
-    recall: 'read',
-    list_hosts: 'read',
-    list_sessions: 'read',
-    list_snippets: 'read',
-    read_snippet: 'read',
-    list_inventory: 'read',
-    write_file: 'write',
-    edit_file: 'write',
-    edit_local_file: 'write',
-    save_snippet: 'write',
-    save_host: 'write',
-    save_proxy: 'write',
-    save_key: 'write',
-    save_mcp_server: 'write',
-    save_folder: 'write',
-    remember: 'write',
-    connect_host: 'connect',
-    disconnect_session: 'connect',
-    Agent: 'agent',
-    Task: 'agent',
+/** Calls that say themselves better than their bucket's verb does. */
+const VERBS = {
+    ...DESKTOP_VERBS,
+    read_terminal: 'assistant.doing.readTerminal',
+    send_input: 'activity.typing',
+    Agent: 'assistant.doing.subagent',
+    Task: 'assistant.doing.subagent',
+    connect_host: 'assistant.doing.connect',
+    disconnect_session: 'assistant.doing.disconnect',
+    remember: 'assistant.doing.remember',
+    delegate: 'assistant.doing.handOff',
+    fan_out: 'assistant.doing.handOff',
+    run_on_device: 'assistant.doing.handOff',
+    start_task: 'assistant.doing.handOff',
+    new_conversation: 'assistant.doing.handOff',
+    branch_conversation: 'assistant.doing.handOff',
+    message_conversation: 'assistant.doing.message',
+    check_conversations: 'assistant.doing.checkConversations',
+    solve_captcha: 'assistant.doing.captcha',
 };
 
-/** A runtime's own tools (Bash, Edit, Grep…), guessed from the name. */
-function guess(name = '') {
-    const lower = name.toLowerCase();
-    if (/bash|shell|exec|command|terminal|powershell/.test(lower)) return 'shell';
-    if (/edit|write|patch|create|save|notebook/.test(lower)) return 'write';
-    if (/read|list|search|grep|glob|find|fetch|recall|view/.test(lower)) return 'read';
-    if (/connect|ssh/.test(lower)) return 'connect';
-    return 'think';
+/** Calls whose own words add nothing to the verb: an id, a wait condition. */
+const BARE = new Set([
+    'connect_host', 'disconnect_session', 'check_conversations', 'list_windows', 'read_clipboard', 'read_terminal',
+]);
+
+/** A call being written, by the bucket the transcript sorts it into. */
+const COMPOSING = {
+    commands: 'assistant.doing.composeCommand',
+    edits: 'assistant.doing.composeEdit',
+    searches: 'assistant.doing.composeSearch',
+    views: 'assistant.doing.composeRead',
+};
+
+/** A tool's own name, readable: `mcp__server__do_thing` as "do thing". */
+function toolLabel(name = '') {
+    return String(name).replace(/^mcp__.+?__/, '').replace(/_/g, ' ');
 }
 
-/** Which phrase list a tool's work is drawn from: shell, read, write, connect, agent or think. */
-export function activityOf(name) {
-    return name ? (ACTIVITY[name] || guess(name)) : 'think';
+/** A call's own words on one line, or '' when they would only be noise. */
+function oneLine(text) {
+    const line = String(text || '').replace(/\s+/g, ' ').trim();
+    // An argument that was an object, which the row's generic summary
+    // cannot spell: better no detail than "todos: [object Object]".
+    return line.includes('[object Object]') ? '' : line.slice(0, 200);
 }
 
-/** The newest call still running, or null between calls. */
-function runningTool(items) {
-    for (let index = items.length - 1; index >= 0; index -= 1) {
-        const item = items[index];
-        if (item.kind === 'user') return null;
-        if (item.kind === 'tool' && item.status === 'running') return item;
-        // A subagent sent off in the background: its call came back at
-        // once, and the turn is open because of what it is still doing.
-        if (item.kind === 'tool' && item.task?.status === 'running') return item;
+/** What a call is doing: a verb, and what it is aimed at. */
+function callLine(call, t) {
+    const input = call.input || {};
+    const verb = verbFor(call.name);
+    // list_hosts, list_sessions…: "Listing hosts" says more than "Reading".
+    const listing = /^list_(.+)$/.exec(String(call.name).replace(/^mcp__.+?__/, ''));
+    const said = VERBS[call.name] ? t(VERBS[call.name])
+        : listing ? t('assistant.doing.list', { what: listing[1].replace(/_/g, ' ') })
+            : verb ? t(`assistant.doing.${verb.icon}`)
+                : t('activity.using', { tool: toolLabel(call.name) });
+
+    if (BARE.has(call.name)) return { verb: said, detail: '', mono: false };
+    // A runtime's own tools spell what they look for or fetch in a field
+    // of their own; the row's generic summary would list every argument.
+    if (toolBucket(call.name) === 'searches' && (input.pattern || input.query)) {
+        return { verb: said, detail: oneLine(input.query || input.pattern), mono: Boolean(input.pattern && !input.query) };
     }
-    return null;
+    if (typeof input.url === 'string' && input.url) return { verb: said, detail: oneLine(input.url), mono: true };
+    if (call.name === 'do_steps') {
+        return { verb: said, detail: t('activity.stepCount', { count: (input.steps || []).length }), mono: false };
+    }
+    if (call.name === 'remember') return { verb: said, detail: oneLine(input.text), mono: false };
+    if (verb?.icon === 'todo') {
+        const progress = todoProgress(input);
+        return {
+            verb: said,
+            detail: progress ? t('assistant.todoProgress', { done: progress.done, total: progress.total }) : '',
+            mono: false,
+        };
+    }
+    const chip = chipFor(call.name, input);
+    if (chip) return { verb: said, detail: chip.base, mono: true };
+    const summary = describeCall(call.name, input);
+    return { verb: said, detail: oneLine(summary.text), mono: Boolean(summary.mono) };
+}
+
+/** The working line's words for a state from workingActivity. */
+function lineOf(activity, t) {
+    switch (activity.kind) {
+        case 'tool':
+            return callLine(activity.call, t);
+        case 'subagent': {
+            const task = activity.call.task || {};
+            const detail = task.activity || task.description || describeCall(activity.call.name, activity.call.input || {}).text;
+            return { verb: t('assistant.doing.subagent'), detail: oneLine(detail), mono: false };
+        }
+        case 'compacting':
+            return { verb: t('assistant.doing.compacting'), detail: '', mono: false };
+        case 'composing':
+            return { verb: t(COMPOSING[toolBucket(activity.tool)] || 'assistant.doing.compose'), detail: '', mono: false };
+        case 'thinking':
+            return { verb: t('assistant.doing.thinking'), detail: '', mono: false };
+        default:
+            return { verb: t('assistant.doing.waiting'), detail: '', mono: false };
+    }
+}
+
+/** When `key` last changed, held across renders. */
+function useSince(key) {
+    const [mark, setMark] = useState(() => ({ key, at: Date.now() }));
+    if (mark.key !== key) {
+        // Set during render, which React allows for state derived from
+        // props: the clock never shows one frame of the old work's time.
+        const next = { key, at: Date.now() };
+        setMark(next);
+        return next.at;
+    }
+    return mark.at;
 }
 
 const TURN_EVERY = 2600;
@@ -116,8 +181,9 @@ export function Ring({ className = '' }) {
 
 /**
  * One phrase from the list for a kind of work, turning over every few
- * seconds. A new kind of work starts on a random phrase, so two turns in a
- * row do not open with the same word.
+ * seconds, for the buddy's notch while the agent thinks. A new kind of work
+ * starts on a random phrase, so two turns in a row do not open with the same
+ * word.
  */
 export function usePhrase(activity) {
     const t = useT();
@@ -203,13 +269,13 @@ export function RollingPhrase({ text, cue = text, fit = false }) {
     );
 }
 
-export default function WorkingIndicator({ items }) {
+export default function WorkingIndicator({ items, draft }) {
     const t = useT();
-    const tool = runningTool(items);
-    const phrase = usePhrase(tool ? activityOf(tool.name) : 'think');
+    const activity = workingActivity(items, draft);
+    const line = lineOf(activity, t);
+    const plain = line.detail ? `${line.verb} ${line.detail}` : line.verb;
 
-    const [started] = useState(() => Date.now());
-    const seconds = useSeconds(started);
+    const seconds = useSeconds(useSince(activity.key));
 
     return (
         <div
@@ -217,14 +283,31 @@ export default function WorkingIndicator({ items }) {
             // A rolling phrase is not something said in the conversation, and
             // a find for "reading" should not land on it. See lib/transcript-find.
             data-find-skip=""
-            aria-label={t('assistant.working')}
+            aria-label={plain}
+            // A long command is cut to the row; the whole of it on hover.
+            title={plain}
             className="flex items-center gap-2 h-8 px-2.5 text-[11px] select-none
                 text-gray-400 dark:text-gray-500"
         >
             <Ring />
-            <RollingPhrase text={phrase} />
+            <RollingPhrase
+                fit
+                cue={activity.key}
+                text={(
+                    <>
+                        {line.verb}
+                        {line.detail && ' '}
+                        {line.detail && <span className={line.mono ? 'font-jetbrains' : ''}>{line.detail}</span>}
+                    </>
+                )}
+            />
+            {activity.more > 0 && (
+                <span className="shrink-0 text-gray-400/70 dark:text-gray-600">
+                    {t('assistant.doing.more', { count: activity.more })}
+                </span>
+            )}
             {seconds >= 3 && (
-                <span className="tabular-nums text-gray-400/70 dark:text-gray-600">
+                <span className="shrink-0 tabular-nums text-gray-400/70 dark:text-gray-600">
                     {elapsed(seconds)}
                 </span>
             )}

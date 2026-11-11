@@ -2372,6 +2372,15 @@ function handleProviderEvent(conversation, event) {
         emit(conversation, { ...event, provider: conversation.provider || '' });
         return;
     }
+    // What the model is in the middle of (writing a call, the history being
+    // summarised), for the chat's working line. True only for the moment it
+    // is said, so it goes to the windows and nowhere else: not the log, the
+    // file or the runs, and a panel opened later is not told something that
+    // has since stopped being so. The next event says where the turn went.
+    if (event.type === 'activity') {
+        notify('ai-event', { conversationId: conversation.id, event: { ...event, at: Date.now() } });
+        return;
+    }
     emit(conversation, event);
     recordRunEvent(conversation, event);
 }

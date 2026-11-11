@@ -6,6 +6,7 @@ import { createPcmPlayer } from '../../lib/pcm-player';
 import { speakSystem } from '../../lib/system-voice';
 import { agentColor } from '../../lib/agent-colors';
 import { centreOf, moved, sketchOf } from '../../lib/sketch';
+import { DESKTOP_VERBS as DOING } from '../../lib/working-activity';
 import { getLanguage, useT } from '../../i18n';
 
 /**
@@ -41,28 +42,6 @@ import { getLanguage, useT } from '../../i18n';
  * composer's microphone) and says what it hears; the one on the main display
  * reads replies out with this computer's voice.
  */
-
-/** What an agent is doing, by the tool it is in, as a live verb. */
-const DOING = {
-    click: 'activity.clicking',
-    type_text: 'activity.typing',
-    press_keys: 'activity.pressing',
-    scroll: 'activity.scrolling',
-    drag: 'activity.dragging',
-    hover: 'activity.pointing',
-    mouse_button: 'activity.pressing',
-    hold_key: 'activity.holding',
-    read_clipboard: 'activity.reading',
-    read_screen: 'activity.reading',
-    read_text: 'activity.reading',
-    screenshot: 'activity.looking',
-    zoom: 'activity.looking',
-    wait_for: 'activity.waitingFor',
-    do_steps: 'activity.steps',
-    open_app: 'activity.opening',
-    arrange_windows: 'activity.arranging',
-    list_windows: 'activity.looking',
-};
 
 /** A desktop action as words: the verb, and what it is aimed at by name once found, the call's own words until then. */
 function action(t, tool) {

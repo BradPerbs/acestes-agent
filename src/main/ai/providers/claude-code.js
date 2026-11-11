@@ -1436,6 +1436,12 @@ function translate(message, onEvent) {
                 }
             } else if (event?.type === 'content_block_start' && event.content_block?.type === 'thinking') {
                 onEvent({ type: 'thinking-start' });
+            } else if (event?.type === 'content_block_start' && event.content_block?.type === 'tool_use') {
+                // The call's name, before the model has written its input,
+                // which for a whole file can take a minute: the chat says a
+                // call is being written rather than nothing at all.
+                const tool = event.content_block.name || '';
+                onEvent({ type: 'activity', phase: 'composing', tool: localName(tool) || tool });
             }
             break;
         }

@@ -176,6 +176,10 @@ function createCollector(onEvent) {
         const key = raw.index ?? raw.id ?? position;
         const call = calls.get(key) || { id: '', name: '', args: '' };
         if (raw.id) call.id = raw.id;
+        // The name comes first and the arguments after it, which for a whole
+        // file can take the model a minute: said once, so the chat can show
+        // the call being written rather than nothing at all.
+        if (raw.function?.name && !call.name) onEvent({ type: 'activity', phase: 'composing', tool: raw.function.name });
         if (raw.function?.name) call.name = raw.function.name;
         if (typeof raw.function?.arguments === 'string') call.args += raw.function.arguments;
         calls.set(key, call);
@@ -556,10 +560,14 @@ function summaryRequest(middle) {
  * write the summary. Falls back to trimming if the summary request fails,
  * which loses more than a summary would but never leaves the loop stuck.
  */
-async function compactHistory(messages, { endpoint: target, model: name, extra: params, signal, limits = DEFAULT_LIMITS }) {
+async function compactHistory(messages, {
+    endpoint: target, model: name, extra: params, signal, limits = DEFAULT_LIMITS, onStart = () => {},
+}) {
     if (!needsCompaction(messages, limits)) return false;
     const { middle } = splitForCompaction(messages);
     if (middle.length === 0) return false;
+    // A request of its own, as long as a reply, with nothing streaming.
+    onStart();
     try {
         const reply = await complete({
             endpoint: target,
@@ -755,9 +763,19 @@ async function start({
             try {
                 // Summarised before it is cut, so the start of the task is
                 // carried forward rather than dropped. See compactHistory.
+                let summarising = false;
                 const compacted = await compactHistory(messages, {
-                    endpoint: target, model: name, extra: extra(current), signal: abort.signal, limits,
+                    endpoint: target,
+                    model: name,
+                    extra: extra(current),
+                    signal: abort.signal,
+                    limits,
+                    onStart: () => {
+                        summarising = true;
+                        onEvent({ type: 'activity', phase: 'compacting' });
+                    },
                 });
+                if (summarising) onEvent({ type: 'activity', phase: '' });
                 // Said in the middle of the turn, which goes on after it.
                 if (compacted) onEvent({ type: 'notice', tone: 'info', keepTurn: true, text: 'Earlier turns were summarised to keep the conversation within the model\'s context.' });
                 messages.splice(0, messages.length, ...trimHistory(messages, limits.maxMessages));
@@ -994,5 +1012,5 @@ module.exports = {
     limitsFor,
     contextReading,
     windowOf,
-    _test: { histories, runTool, summaryRequest, knownWindows, COMPACT_AT, COMPACT_CHARS, KEEP_TAIL, MIN_FOLD_CHARS, MAX_PROVENANCE, SUMMARY_MARK },
+    _test: { histories, runTool, summaryRequest, compactHistory, knownWindows, COMPACT_AT, COMPACT_CHARS, KEEP_TAIL, MIN_FOLD_CHARS, MAX_PROVENANCE, SUMMARY_MARK },
 };

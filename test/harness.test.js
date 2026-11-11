@@ -173,6 +173,37 @@ const check = async (label, fn) => {
             'right after a fold it is not due again');
     });
 
+    await check('the chat is told a summary is being written only when one is', async () => {
+        const original = global.fetch;
+        let requests = 0;
+        global.fetch = async () => {
+            requests += 1;
+            return {
+                ok: true,
+                status: 200,
+                headers: { get: () => 'application/json' },
+                json: async () => ({ choices: [{ message: { content: 'Summary of the diagnostics.' } }] }),
+            };
+        };
+        try {
+            const endpoint = { baseUrl: 'http://localhost:1234/v1', label: 'x' };
+            let started = 0;
+            const onStart = () => { started += 1; };
+
+            const short = history(5);
+            assert.strictEqual(await provider._test.compactHistory(short, { endpoint, model: 'm', extra: {}, onStart }), false);
+            assert.strictEqual(started, 0, 'nothing to summarise, nothing said');
+            assert.strictEqual(requests, 0);
+
+            const long = history(30);
+            assert.strictEqual(await provider._test.compactHistory(long, { endpoint, model: 'm', extra: {}, onStart }), true);
+            assert.strictEqual(started, 1, 'said once, before the request');
+            assert.strictEqual(requests, 1);
+        } finally {
+            global.fetch = original;
+        }
+    });
+
     await check('a known window gives the history its share of it, after the tool definitions', () => {
         assert.strictEqual(provider.limitsFor(0), provider.limitsFor(undefined), 'no window, the defaults');
         assert.strictEqual(provider.limitsFor(0).compactChars, provider._test.COMPACT_CHARS);

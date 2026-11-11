@@ -317,6 +317,35 @@ async function main() {
         assert.strictEqual(ended.busy, false, 'a turn read back unfinished is closed out');
     });
 
+    check('what the model is in the middle of rides on the draft until the next thing happens', () => {
+        const opening = [{ type: 'user-message', text: 'Fix it', at: 1 }];
+        assert.strictEqual(replay(opening).draft.activity, null, 'a new turn says nothing yet');
+
+        const thinking = replay([...opening, { type: 'thinking-delta', text: 'Hmm', at: 2 }]);
+        assert.strictEqual(thinking.draft.activity.phase, 'thinking');
+
+        const composing = replay([
+            ...opening,
+            { type: 'thinking-delta', text: 'Hmm', at: 2 },
+            { type: 'activity', phase: 'composing', tool: 'write_file', at: 3 },
+        ]);
+        assert.deepStrictEqual(composing.draft.activity, { phase: 'composing', tool: 'write_file' });
+        assert.strictEqual(composing.draft.thinking, 'Hmm', 'the thought it had stays');
+        assert.strictEqual(composing.items.length, 1, 'and it is not a row');
+
+        const called = applyEvent(composing, { type: 'tool-call', id: 't1', name: 'write_file', input: { path: 'a' }, at: 4 });
+        assert.strictEqual(called.draft.activity, null, 'the call landing ends the writing of it');
+
+        const summarising = replay([...opening, { type: 'activity', phase: 'compacting', at: 2 }]);
+        assert.strictEqual(summarising.draft.activity.phase, 'compacting');
+        const summarised = applyEvent(summarising, { type: 'activity', phase: '', at: 3 });
+        assert.strictEqual(summarised.draft.activity, null, 'an empty phase says it is over');
+        assert.strictEqual(summarised.busy, true, 'and the turn goes on');
+
+        const speaking = applyEvent(thinking, { type: 'text-delta', text: 'Done', at: 3 });
+        assert.strictEqual(speaking.draft.activity, null, 'words arriving are no longer thinking');
+    });
+
     console.log(`\n${passed} passed, ${failed} failed`);
     if (failed > 0) process.exit(1);
 }
