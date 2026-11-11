@@ -18,7 +18,7 @@ import { useT } from '../../i18n';
  *
  * The rest of what used to be on this page has pages of its own beside it in
  * the settings list: what the agent may do without asking (Permissions), what
- * it can reach and operate (Agentic Use), and the chat itself (Chat & Voice).
+ * it can reach and operate (Agentic Use), the chat itself (Chat), and voice (Voice).
  * One page of twenty cards had stopped being something anyone could find a
  * setting on.
  *

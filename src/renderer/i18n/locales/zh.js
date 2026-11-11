@@ -270,7 +270,8 @@ export default {
     'settings.nav.assistant': 'AI 助手',
     'settings.nav.permissions': '权限',
     'settings.nav.agentic': '代理操作',
-    'settings.nav.chat': '对话与语音',
+    'settings.nav.chat': '对话',
+    'settings.nav.voice': '语音',
     'settings.nav.channels': '渠道',
     'settings.nav.security': '安全',
     'settings.nav.backup': '备份',
@@ -520,8 +521,10 @@ export default {
     'settings.agentic.stepsDesc': '一个问题在代理停下汇报之前最多可以调用多少次工具。拖到最右边即不限制。',
     'settings.agentic.stepsUnlimited': '不限制：一轮会一直进行，直到工作完成或你停止它。适合无人值守的长任务。',
     'settings.agentic.noLimit': '不限制',
-    'settings.chat.title': '对话与语音',
-    'settings.chat.desc': '与 {name} 的对话：空白对话提供的快捷问题、用说话代替打字，以及它是否记下学到的东西。',
+    'settings.chat.title': '对话',
+    'settings.chat.desc': '与 {name} 的对话：空白对话提供的快捷问题、它是否记下学到的东西，以及历史记录保留多久。',
+    'settings.voicePage.title': '语音',
+    'settings.voicePage.desc': '用说话代替打字，以及智能体朗读回答时使用的声音。',
 
     /* ---- Settings: Monitoring ---- */
     'settings.monitoring.title': '监控',

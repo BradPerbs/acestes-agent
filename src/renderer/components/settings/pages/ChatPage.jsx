@@ -3,7 +3,7 @@ import ChatSection from '../ChatSection';
 import { useAgents } from '../../../hooks/useAgents';
 import { useT } from '../../../i18n';
 
-/** Quick prompts, memory after a turn, and voice input. See ChatSection. */
+/** Quick prompts, memory after a turn, the history and the done sound. See ChatSection. */
 export default function ChatPage() {
     const t = useT();
     const { active } = useAgents();

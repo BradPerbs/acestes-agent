@@ -902,7 +902,8 @@ export default {
     'settings.nav.assistant': 'AI Agent',
     'settings.nav.permissions': 'Permissions',
     'settings.nav.agentic': 'Agentic Use',
-    'settings.nav.chat': 'Chat & Voice',
+    'settings.nav.chat': 'Chat',
+    'settings.nav.voice': 'Voice',
     'settings.nav.channels': 'Channels',
     'settings.nav.devices': 'Devices',
     'settings.nav.security': 'Security',
@@ -1595,8 +1596,8 @@ export default {
         + 'or rest the pointer on the notch and click another.',
     'settings.buddy.agentSelected': 'The agent selected in the app',
     'settings.buddy.tone': 'Tone',
-    'settings.buddy.toneDesc': 'How it talks to you: the words of its recap and its questions, and with ElevenLabs how lively '
-        + 'the voice is. With Eleven v4 it can laugh, sigh or whisper too. The work itself stays as careful.',
+    'settings.buddy.toneDesc': 'How it talks to you: the words of its recap and its questions, and how lively '
+        + 'the voice is. With ElevenLabs’ Eleven v4 it can laugh, sigh or whisper too. The work itself stays as careful.',
     'settings.buddy.tone.neutral': 'Plain · clear and simple',
     'settings.buddy.tone.friendly': 'Friendly · warm, like a helpful colleague',
     'settings.buddy.tone.funny': 'Funny · a quick joke or a witty aside',
@@ -1609,22 +1610,8 @@ export default {
     'settings.buddy.speakDesc': 'When it finishes, one sentence on what it did or found, out loud, and any question it asks '
         + 'you. The full reply stays in the notch and the conversation.',
     'settings.buddy.voice': 'Voice',
-    'settings.buddy.voice.system': 'This computer’s own voices. Nothing to set up.',
-    'settings.buddy.voice.elevenlabs': 'Natural voices from ElevenLabs, on your own key. Each recap is a sentence, so a '
-        + 'few credits.',
-    'settings.buddy.voiceSystem': 'This computer',
-    'settings.buddy.voiceKey': 'ElevenLabs key',
-    'settings.buddy.voiceKeyDesc': 'From elevenlabs.io, under Developers, API keys. It goes into the keychain as the '
-        + 'secret elevenlabs and is never shown again.',
-    'settings.buddy.voiceKeySaved': 'Kept in the keychain as the secret elevenlabs. Paste a new one to replace it.',
-    'settings.buddy.voiceKeyReplace': 'New key',
-    'settings.buddy.voiceKeySave': 'Save',
-    'settings.buddy.voiceKeyRemove': 'Remove',
-    'settings.buddy.voiceModel': 'Model',
-    'settings.buddy.voiceModelDesc': 'Eleven v4 sounds the most natural. Flash v2.5 starts talking soonest.',
-    'settings.buddy.voicePick': 'ElevenLabs voice',
-    'settings.buddy.voicePickDesc': 'One of the voices on your ElevenLabs account. On a free plan, Voice Library voices are refused; premade ones and your own work.',
-    'settings.buddy.voiceFirst': 'Chosen for you',
+    'settings.buddy.voiceOn': 'Said in {voice}. The voice, its key and model are on the Voice page.',
+    'settings.buddy.voiceOpen': 'Voice settings',
     'settings.buddy.voiceTry': 'Try it',
     'settings.buddy.voiceTrying': 'Speaking…',
     'settings.buddy.notch': 'Show the notch',
@@ -1639,7 +1626,7 @@ export default {
     'settings.buddy.notchPlaceReset': 'Put it back',
     'settings.buddy.needsComputer': 'This agent may not use this computer, so the buddy can answer but not act.',
     'settings.buddy.allowComputer': 'Let it use this computer',
-    'settings.buddy.needsVoice': 'Voice input is off, under Chat, so the buddy cannot hear you.',
+    'settings.buddy.needsVoice': 'Voice input is off, under Voice, so the buddy cannot hear you.',
     'settings.agentic.bare': 'Bare provider CLI',
     'settings.agentic.bareDesc': 'Runs the CLI as it runs in a terminal: no Acestes system prompt, no session briefing, none of the app tools. Servers, inventory and memory are unreachable while on, and the CLI’s own permissions answer for its native tools. Takes effect on the next message: the current CLI session is dropped so the old prompt and tools do not linger.',
     'settings.agentic.bundlesDesc': 'Groups of extra tools, switched on or off together. All are on: switching one off leaves those tools out of what the agent is offered, so each question starts with fewer tokens.',
@@ -1663,9 +1650,59 @@ export default {
     'settings.agentic.stepsUnlimited': 'No limit: a turn goes on until the work is done or you stop '
         + 'it. Best for long unattended jobs; a run that loops keeps going.',
     'settings.agentic.noLimit': 'No limit',
-    'settings.chat.title': 'Chat & Voice',
+    'settings.chat.title': 'Chat',
     'settings.chat.desc': 'The conversation with {name}: the questions an empty chat offers, '
-        + 'speaking instead of typing, and whether it writes down what it learned.',
+        + 'whether it writes down what it learned, and how long the history is kept.',
+
+    /* ---------------------------------------------------------------- *
+     * Settings: Voice
+     * ---------------------------------------------------------------- */
+    'settings.voicePage.title': 'Voice',
+    'settings.voicePage.desc': 'Speaking to the agent instead of typing, and the voice it answers you in out loud.',
+    'settings.speech.title': 'Spoken voice',
+    'settings.speech.desc': 'The voice the buddy says its recap and its questions in. Its tone is set with the buddy, '
+        + 'under Agentic Use.',
+    'settings.speech.engine': 'Engine',
+    'settings.speech.engineSystem': 'This computer',
+    'settings.speech.engineName.system': 'this computer’s voice',
+    'settings.speech.engineName.elevenlabs': 'an ElevenLabs voice',
+    'settings.speech.engineName.openrouter': 'an OpenRouter voice',
+    'settings.speech.engine.system': 'This computer’s own voices. Nothing to set up.',
+    'settings.speech.engine.elevenlabs': 'Natural voices from ElevenLabs, on your own key. Each recap is a sentence, so a '
+        + 'few credits.',
+    'settings.speech.engine.openrouter': 'The speech models on OpenRouter, on one key: ElevenLabs, Gemini, Deepgram, Grok, '
+        + 'Kokoro and more. Paid from your OpenRouter credits; a recap costs a fraction of a cent.',
+    'settings.speech.model': 'Model',
+    'settings.speech.voice': 'Voice',
+    'settings.speech.voiceFirst': 'Chosen for you',
+    'settings.speech.keyReplace': 'New key',
+    'settings.speech.keySave': 'Save',
+    'settings.speech.keyRemove': 'Remove',
+    'settings.speech.try': 'Hear it',
+    'settings.speech.tryDesc': 'A sentence in the voice and tone as set.',
+    'settings.speech.tryButton': 'Try it',
+    'settings.speech.trying': 'Speaking…',
+    'settings.speech.elevenlabs.key': 'ElevenLabs key',
+    'settings.speech.elevenlabs.keyDesc': 'From elevenlabs.io, under Developers, API keys. It goes into the keychain as the '
+        + 'secret elevenlabs and is never shown again.',
+    'settings.speech.elevenlabs.keySaved': 'Kept in the keychain as the secret elevenlabs. Paste a new one to replace it.',
+    'settings.speech.elevenlabs.modelDesc': 'Eleven v4 sounds the most natural. Flash v2.5 starts talking soonest.',
+    'settings.speech.elevenlabs.voiceDesc': 'One of the voices on your ElevenLabs account. On a free plan, Voice Library '
+        + 'voices are refused; premade ones and your own work.',
+    'settings.speech.openrouter.key': 'OpenRouter key',
+    'settings.speech.openrouter.keyDesc': 'From openrouter.ai, under Keys. It goes into the keychain as the secret '
+        + 'openrouter and is never shown again.',
+    'settings.speech.openrouter.keySaved': 'Kept in the keychain as the secret openrouter. Paste a new one to replace it.',
+    'settings.speech.openrouter.keyProvider': 'Using the key of your OpenAI-compatible API, which is OpenRouter. Paste '
+        + 'another here to use that one instead.',
+    'settings.speech.openrouter.modelDesc': 'Most start talking within a second; Gemini’s take about two. MiniMax’s only '
+        + 'send MP3 and will not play here.',
+    'settings.speech.openrouter.loading': 'Listing OpenRouter’s speech models…',
+    'settings.speech.openrouter.free': 'free',
+    'settings.speech.openrouter.price': '${price}/M chars',
+    'settings.speech.openrouter.voiceDesc': 'One of the voices this model has.',
+    'settings.speech.openrouter.voiceOwn': 'This model speaks in a voice of its own; there is none to pick.',
+    'settings.speech.openrouter.voiceFirst': 'Chosen for you ({voice})',
 
     /* ---------------------------------------------------------------- *
      * Settings: Channels

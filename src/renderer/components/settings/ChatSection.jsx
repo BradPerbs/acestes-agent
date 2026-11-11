@@ -6,7 +6,6 @@ import Toggle from './ui/Toggle';
 import Button from '../ui/Button';
 import SegmentedControl from '../ui/SegmentedControl';
 import ConfirmDialog from '../ui/ConfirmDialog';
-import VoiceCard from './VoiceCard';
 import DoneSoundCard from './DoneSoundCard';
 import useAssistantSettings, { FIELD_CLASS } from './useAssistantSettings';
 import { SETTINGS_JUMP } from './SettingsNav';
@@ -15,7 +14,8 @@ import { useT } from '../../i18n';
 /**
  * The conversation itself: the one-click questions on an empty chat, whether
  * the agent has a memory at all and writes down what it learned after a turn,
- * how long the history is kept, and speaking a message instead of typing it.
+ * how long the history is kept, and the sound when a turn is done. Speaking
+ * to it, and the voice it answers in, are on the Voice page (VoicePage).
  */
 
 const toText = (list) => (list || []).join('\n');
@@ -228,8 +228,6 @@ export default function ChatSection() {
             </SettingCard>
 
             <DoneSoundCard settings={settings} update={update} fieldClass={FIELD_CLASS} />
-
-            <VoiceCard settings={settings} update={update} fieldClass={FIELD_CLASS} />
 
             {confirming && <ConfirmDialog {...confirming} onCancel={() => setConfirming(null)} />}
         </>

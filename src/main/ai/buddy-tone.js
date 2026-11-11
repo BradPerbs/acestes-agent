@@ -141,6 +141,16 @@ function voiceSettings(tone, model) {
     return settings;
 }
 
+/**
+ * How to say it, in words, for a voice that takes direction that way (on
+ * OpenRouter: Gemini's, OpenAI's and Fish Audio's speech models; the rest
+ * ignore it). Empty for the plain tone with nothing added.
+ */
+function direction(tone) {
+    const parts = [tone?.words, tone?.note].filter(Boolean);
+    return parts.length ? `Read this aloud, ${parts.join('; ')}.` : '';
+}
+
 module.exports = {
     TONES,
     NAMES,
@@ -153,4 +163,5 @@ module.exports = {
     withoutCues,
     cuesAsTags,
     voiceSettings,
+    direction,
 };

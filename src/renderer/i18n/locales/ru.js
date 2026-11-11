@@ -302,7 +302,8 @@ export default {
     'settings.nav.assistant': 'ИИ-ассистент',
     'settings.nav.permissions': 'Разрешения',
     'settings.nav.agentic': 'Агентная работа',
-    'settings.nav.chat': 'Чат и голос',
+    'settings.nav.chat': 'Чат',
+    'settings.nav.voice': 'Голос',
     'settings.nav.channels': 'Каналы',
     'settings.nav.security': 'Безопасность',
     'settings.nav.backup': 'Резервные копии',
@@ -602,9 +603,11 @@ export default {
     'settings.agentic.stepsDesc': 'Сколько вызовов инструментов может занять один вопрос, прежде чем агент остановится и отчитается. Сдвиньте до конца, чтобы снять ограничение.',
     'settings.agentic.stepsUnlimited': 'Без ограничения: ход продолжается, пока работа не сделана или вы его не остановите. Для долгих задач без присмотра.',
     'settings.agentic.noLimit': 'Без ограничения',
-    'settings.chat.title': 'Чат и голос',
-    'settings.chat.desc': 'Разговор с {name}: вопросы, которые предлагает пустой чат, голосовой '
-        + 'ввод вместо набора и записывает ли агент то, что узнал.',
+    'settings.chat.title': 'Чат',
+    'settings.chat.desc': 'Разговор с {name}: вопросы, которые предлагает пустой чат, записывает ли агент '
+        + 'то, что узнал, и как долго хранится история.',
+    'settings.voicePage.title': 'Голос',
+    'settings.voicePage.desc': 'Голосовой ввод вместо набора и голос, которым агент отвечает вслух.',
 
     /* ---- Settings: Monitoring ---- */
     'settings.monitoring.title': 'Мониторинг',

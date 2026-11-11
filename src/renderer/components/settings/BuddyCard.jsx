@@ -1,22 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import SettingCard from './ui/SettingCard';
 import SettingRow, { DIVIDED } from './ui/SettingRow';
 import Toggle from './ui/Toggle';
 import Select from '../ui/Select';
 import Button from '../ui/Button';
 import Reveal from '../ui/Reveal';
-import SegmentedControl from '../ui/SegmentedControl';
 import { FIELD_CLASS } from './useAssistantSettings';
+import useTrySay, { spokenEngine, voiceOptions } from './useTrySay';
+import { SETTINGS_JUMP } from './SettingsNav';
 import { useAgents } from '../../hooks/useAgents';
-import { bytesOf, createPcmPlayer } from '../../lib/pcm-player';
-import { speakSystem } from '../../lib/system-voice';
 import { useT } from '../../i18n';
-
-/** ElevenLabs' models, by id, as offered (see main/ai/elevenlabs.js). */
-const MODELS = [
-    { value: 'eleven_v4', label: 'Eleven v4' },
-    { value: 'eleven_flash_v2_5', label: 'Flash v2.5' },
-];
 
 /** The tones, by the name main knows them by (main/ai/buddy-tone.js). */
 const TONES = ['neutral', 'friendly', 'funny', 'memer', 'hype', 'serious'];
@@ -24,55 +17,10 @@ const TONES = ['neutral', 'friendly', 'funny', 'memer', 'hype', 'serious'];
 const TONE_NOTE_CHARS = 200;
 
 /**
- * A sentence said the way the buddy would say it, from Settings: main hands
- * back ElevenLabs' audio whole, or the words with a pace and pitch for this
- * computer's voice, which is said here.
- */
-function useTrySay() {
-    const [trying, setTrying] = useState(false);
-    const [error, setError] = useState('');
-    const player = useRef(null);
-    const quiet = useRef(null);
-
-    const hush = useCallback(() => {
-        player.current?.stop();
-        player.current = null;
-        quiet.current?.();
-        quiet.current = null;
-    }, []);
-
-    useEffect(() => hush, [hush]);
-
-    const run = useCallback(async (options) => {
-        setTrying(true);
-        setError('');
-        hush();
-        try {
-            const result = await window.api.buddy.tryVoice(options);
-            if (result?.error) {
-                setError(result.error);
-                return;
-            }
-            if (result?.system) {
-                quiet.current = speakSystem(result.system.text, () => {}, result.system);
-                return;
-            }
-            const next = createPcmPlayer(result.rate);
-            player.current = next;
-            next.push(bytesOf(result.data));
-            next.end(() => {});
-        } finally {
-            setTrying(false);
-        }
-    }, [hush]);
-
-    return { trying, error, run };
-}
-
-/**
  * How it talks: a tone (plain, friendly, funny, memer, hype, serious), and
  * the person's own words for it. It shapes the words of the spoken recap and
- * questions, and with ElevenLabs how lively the voice is.
+ * questions, and how lively the voice is (ElevenLabs' settings, OpenRouter's
+ * direction to the models that take it). The voice itself is on the Voice page.
  */
 function ToneSettings({ settings, update }) {
     const t = useT();
@@ -124,13 +72,7 @@ function ToneSettings({ settings, update }) {
                         size="sm"
                         variant="secondary"
                         disabled={trySay.trying}
-                        onClick={() => trySay.run({
-                            tone,
-                            note,
-                            engine: settings.buddyVoice === 'elevenlabs' ? 'elevenlabs' : 'system',
-                            voiceId: settings.buddyVoiceId || '',
-                            model: settings.buddyVoiceModel || 'eleven_v4',
-                        })}
+                        onClick={() => trySay.run({ ...voiceOptions(settings), tone, note })}
                     >
                         {trySay.trying ? t('settings.buddy.voiceTrying') : t('settings.buddy.voiceTry')}
                     </Button>
@@ -141,157 +83,35 @@ function ToneSettings({ settings, update }) {
     );
 }
 
+/** Settings' Voice page, from here: where the voice it speaks in is picked. */
+function openVoicePage() {
+    try {
+        window.localStorage.setItem('settings.category', 'voice');
+    } catch {
+        // No storage: the event alone does nothing, and the nav is still there.
+    }
+    window.dispatchEvent(new Event(SETTINGS_JUMP));
+}
+
 /**
- * Whose voice says the recap: this computer's, or ElevenLabs', with the
- * key (typed once, kept in the keychain as `elevenlabs`, never shown again),
- * the model, the voice from the account's own list, and a sentence to try it.
+ * Which voice says the recap, as set on the Voice page, with the way there:
+ * the voice is the machine's, and is picked beside the microphone's.
  */
-function VoiceSettings({ settings, update, status, onStatus }) {
+function VoiceSettings({ settings }) {
     const t = useT();
-    const engine = settings.buddyVoice === 'elevenlabs' ? 'elevenlabs' : 'system';
-    const hasKey = Boolean(status?.voiceKey);
-    const [key, setKey] = useState('');
-    const [saving, setSaving] = useState(false);
-    const [keyError, setKeyError] = useState('');
-    const [voices, setVoices] = useState(null);
-    const [voicesError, setVoicesError] = useState('');
-    const trySay = useTrySay();
-    const trying = trySay.trying;
-    const tryError = trySay.error;
-
-    const loadVoices = useCallback(async () => {
-        setVoicesError('');
-        const result = await window.api.buddy.voices();
-        if (result?.error) {
-            setVoices(null);
-            setVoicesError(result.error);
-        } else {
-            setVoices(result?.voices || []);
-        }
-    }, []);
-
-    useEffect(() => {
-        if (engine === 'elevenlabs' && hasKey) loadVoices();
-    }, [engine, hasKey, loadVoices]);
-
-    const saveKey = async (value) => {
-        setSaving(true);
-        setKeyError('');
-        try {
-            const next = await window.api.buddy.setVoiceKey(value);
-            if (next?.keyError) setKeyError(next.keyError);
-            else setKey('');
-            onStatus(next);
-        } finally {
-            setSaving(false);
-        }
-    };
-
-    // In the tone set above, so the voice is heard as the buddy will use it.
-    const tryVoice = () => trySay.run({
-        engine: 'elevenlabs',
-        voiceId: settings.buddyVoiceId || '',
-        model: settings.buddyVoiceModel || 'eleven_v4',
-        tone: settings.buddyTone || 'neutral',
-        note: settings.buddyToneNote || '',
-    });
-
+    const engine = spokenEngine(settings);
     return (
-        <>
-            <SettingRow
-                className={DIVIDED}
-                title={t('settings.buddy.voice')}
-                description={t(`settings.buddy.voice.${engine}`)}
-            >
-                <SegmentedControl
-                    ariaLabel={t('settings.buddy.voice')}
-                    segments={[
-                        { value: 'system', label: t('settings.buddy.voiceSystem') },
-                        { value: 'elevenlabs', label: 'ElevenLabs' },
-                    ]}
-                    value={engine}
-                    onChange={(value) => update({ buddyVoice: value })}
-                />
-            </SettingRow>
-
-            <Reveal open={engine === 'elevenlabs'}>
-                <SettingRow
-                    className={DIVIDED}
-                    title={t('settings.buddy.voiceKey')}
-                    description={hasKey ? t('settings.buddy.voiceKeySaved') : t('settings.buddy.voiceKeyDesc')}
-                >
-                    <div className="space-y-2">
-                        <div className="flex items-center gap-2">
-                            <input
-                                type="password"
-                                autoComplete="off"
-                                spellCheck={false}
-                                value={key}
-                                onChange={event => setKey(event.target.value)}
-                                placeholder={hasKey ? t('settings.buddy.voiceKeyReplace') : 'sk_...'}
-                                aria-label={t('settings.buddy.voiceKey')}
-                                className={`${FIELD_CLASS} max-w-sm`}
-                            />
-                            <Button size="sm" variant="secondary" onClick={() => saveKey(key)} disabled={saving || !key.trim()}>
-                                {t('settings.buddy.voiceKeySave')}
-                            </Button>
-                            {hasKey && (
-                                <Button size="sm" variant="secondary" onClick={() => saveKey('')} disabled={saving}>
-                                    {t('settings.buddy.voiceKeyRemove')}
-                                </Button>
-                            )}
-                        </div>
-                        {keyError && <p className="text-xs text-red-600 dark:text-red-400">{keyError}</p>}
-                    </div>
-                </SettingRow>
-
-                <SettingRow
-                    className={DIVIDED}
-                    title={t('settings.buddy.voiceModel')}
-                    description={t('settings.buddy.voiceModelDesc')}
-                >
-                    <SegmentedControl
-                        ariaLabel={t('settings.buddy.voiceModel')}
-                        segments={MODELS}
-                        value={settings.buddyVoiceModel || 'eleven_v4'}
-                        onChange={(value) => update({ buddyVoiceModel: value })}
-                    />
-                </SettingRow>
-
-                {hasKey && (
-                    <SettingRow
-                        className={DIVIDED}
-                        title={t('settings.buddy.voicePick')}
-                        description={t('settings.buddy.voicePickDesc')}
-                    >
-                        <div className="space-y-2">
-                            <div className="flex flex-wrap items-center gap-2">
-                                <div className="w-64">
-                                    <Select
-                                        value={settings.buddyVoiceId || ''}
-                                        onChange={(value) => update({ buddyVoiceId: value })}
-                                        className={FIELD_CLASS}
-                                        aria-label={t('settings.buddy.voicePick')}
-                                        options={[
-                                            { value: '', label: t('settings.buddy.voiceFirst') },
-                                            ...(voices || []).map(voice => ({
-                                                value: voice.id,
-                                                label: voice.category ? `${voice.name} · ${voice.category}` : voice.name,
-                                            })),
-                                        ]}
-                                    />
-                                </div>
-                                <Button size="sm" variant="secondary" onClick={tryVoice} disabled={trying}>
-                                    {trying ? t('settings.buddy.voiceTrying') : t('settings.buddy.voiceTry')}
-                                </Button>
-                            </div>
-                            {voicesError && <p className="text-xs text-red-600 dark:text-red-400">{voicesError}</p>}
-                            {tryError && <p className="text-xs text-red-600 dark:text-red-400">{tryError}</p>}
-                        </div>
-                    </SettingRow>
-                )}
-            </Reveal>
-        </>
+        <SettingRow
+            className={DIVIDED}
+            align="center"
+            title={t('settings.buddy.voice')}
+            description={t('settings.buddy.voiceOn', { voice: t(`settings.speech.engineName.${engine}`) })}
+            control={(
+                <Button size="sm" variant="secondary" onClick={openVoicePage}>
+                    {t('settings.buddy.voiceOpen')}
+                </Button>
+            )}
+        />
     );
 }
 
@@ -413,7 +233,7 @@ export default function BuddyCard({ settings, update }) {
                     )}
                 />
                 <Reveal open={settings.buddySpeak !== false}>
-                    <VoiceSettings settings={settings} update={update} status={status} onStatus={setStatus} />
+                    <VoiceSettings settings={settings} />
                 </Reveal>
             </Reveal>
 

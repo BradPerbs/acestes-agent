@@ -815,15 +815,18 @@ contextBridge.exposeInMainWorld('api', {
         // While the agent works: stop its turn, or open its chat in the app.
         stop: () => ipcRenderer.send('buddy-stop'),
         open: () => ipcRenderer.send('buddy-open'),
-        // ElevenLabs' audio for a recap, as it streams in: { id, chunk } then
-        // { id, done } or { id, error }. Raw 16-bit PCM at the say's rate.
+        // ElevenLabs' or OpenRouter's audio for a recap, as it streams in:
+        // { id, chunk, rate? } then { id, done } or { id, error }. Raw 16-bit
+        // PCM at the chunk's rate when it has one, else the say's.
         onAudio: (callback) => subscribe('buddy-audio', callback),
         status: () => ipcRenderer.invoke('buddy-status'),
         allowComputer: () => ipcRenderer.invoke('buddy-allow-computer'),
-        // Its voice, for Settings: the ElevenLabs key into the keychain (never
-        // read back), the account's voices, and a sentence to try one with.
-        setVoiceKey: (value) => ipcRenderer.invoke('buddy-voice-key', value),
+        // Its voice, for Settings: the ElevenLabs or OpenRouter key into the
+        // keychain (never read back), ElevenLabs' voices, OpenRouter's speech
+        // models with theirs, and a sentence to try one with.
+        setVoiceKey: (value, engine = 'elevenlabs') => ipcRenderer.invoke('buddy-voice-key', value, engine),
         voices: () => ipcRenderer.invoke('buddy-voices'),
+        speechModels: () => ipcRenderer.invoke('buddy-speech-models'),
         tryVoice: (options) => ipcRenderer.invoke('buddy-voice-try', options || {}),
     },
 

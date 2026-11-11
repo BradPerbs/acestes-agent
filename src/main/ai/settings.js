@@ -4,6 +4,7 @@ const fs = require('fs');
 const agents = require('../agents');
 const { isBrowserServer } = require('./browser-use');
 const buddyTone = require('./buddy-tone');
+const openrouterTts = require('./openrouter-tts');
 
 /**
  * How the assistant is configured.
@@ -298,12 +299,17 @@ const DEFAULTS = {
     // edge or a side, or floating. Null for the top middle of the main display. See
     // `cleanNotchPlace`, and `moveNotch` in buddy.js.
     buddyNotchPlace: null,
-    // Whose voice says the recap: this computer's ('system'), or ElevenLabs,
-    // with its model and voice. The ElevenLabs key is in the keychain, as the
-    // secret `elevenlabs`, never here. See elevenlabs.js.
+    // Whose voice says the recap: this computer's ('system'), ElevenLabs,
+    // with its model and voice, or one of OpenRouter's speech models, with
+    // its own model and voice. The keys are in the keychain, as the secrets
+    // `elevenlabs` and `openrouter`, never here. See elevenlabs.js and
+    // openrouter-tts.js. Set on the Voice page.
     buddyVoice: 'system',
     buddyVoiceModel: 'eleven_v4',
     buddyVoiceId: '',
+    // '' for the default model (openrouter-tts.js) and for the model's first voice.
+    buddyOpenRouterModel: '',
+    buddyOpenRouterVoice: '',
     // How what it says aloud sounds: a tone by name, and the person's own
     // words for it ("emphatic, cracks a joke now and then"). See buddy-tone.js.
     buddyTone: 'neutral',
@@ -546,7 +552,13 @@ function sanitize(raw) {
         if ('buddySpeak' in raw) next.buddySpeak = Boolean(raw.buddySpeak);
         if ('buddyNotch' in raw) next.buddyNotch = Boolean(raw.buddyNotch);
         if ('buddyNotchPlace' in raw) next.buddyNotchPlace = cleanNotchPlace(raw.buddyNotchPlace);
-        if (['system', 'elevenlabs'].includes(raw.buddyVoice)) next.buddyVoice = raw.buddyVoice;
+        if (['system', 'elevenlabs', 'openrouter'].includes(raw.buddyVoice)) next.buddyVoice = raw.buddyVoice;
+        if (typeof raw.buddyOpenRouterModel === 'string' && (!raw.buddyOpenRouterModel || openrouterTts.MODEL_ID.test(raw.buddyOpenRouterModel))) {
+            next.buddyOpenRouterModel = raw.buddyOpenRouterModel;
+        }
+        if (typeof raw.buddyOpenRouterVoice === 'string' && (!raw.buddyOpenRouterVoice || openrouterTts.VOICE.test(raw.buddyOpenRouterVoice))) {
+            next.buddyOpenRouterVoice = raw.buddyOpenRouterVoice;
+        }
         if (['eleven_v4', 'eleven_flash_v2_5'].includes(raw.buddyVoiceModel)) next.buddyVoiceModel = raw.buddyVoiceModel;
         if (typeof raw.buddyVoiceId === 'string' && /^[A-Za-z0-9]{0,40}$/.test(raw.buddyVoiceId)) next.buddyVoiceId = raw.buddyVoiceId;
         if (buddyTone.NAMES.includes(raw.buddyTone)) next.buddyTone = raw.buddyTone;

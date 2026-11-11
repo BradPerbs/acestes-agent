@@ -555,6 +555,88 @@ async function main() {
         settingsNow = { ...settingsNow, buddyVoice: 'system' };
     });
 
+    /* OpenRouter's speech models: the key from the keychain, the audio at the rate it says. */
+    const orStreams = [];
+    const fakeOpenRouter = {
+        RATE: 24000,
+        DEFAULT_MODEL: 'elevenlabs/eleven-flash-v2.5',
+        stream: async ({ key, text, model, voice, instructions, signal, onAudio }) => {
+            orStreams.push({ key, text, model, voice, instructions, signal });
+            onAudio(new Uint8Array([1, 2, 3, 4]), 44100);
+            await wait(10);
+            return { rate: 44100, bytes: 4 };
+        },
+        models: async () => ({ models: [{ id: 'fish-audio/s2.1-pro', name: 'Fish Audio: S2.1 Pro', voices: [], price: 15 }] }),
+    };
+    buddy.configure({ openrouterTts: fakeOpenRouter });
+
+    await test('with OpenRouter and a key, the recap streams in its model and voice, with the rate the audio came at', async () => {
+        keychain = { openrouter: 'sk-or-1' };
+        settingsNow = {
+            ...settingsNow,
+            buddyVoice: 'openrouter',
+            buddyOpenRouterModel: 'fish-audio/s2.1-pro',
+            buddyOpenRouterVoice: '',
+            buddyTone: 'friendly',
+            buddyToneNote: '',
+        };
+        await buddy.sync();
+        assert.strictEqual(buddy.status().openrouterKey, 'keychain');
+        windows[0].sent.length = 0;
+        emit({ type: 'user-message', text: 'send them' });
+        emit({ type: 'assistant-text', text: '[SAY: {warmly} Both invoices are sent.]' });
+        emit({ type: 'result', subtype: 'success' });
+        assert.strictEqual(state().say.engine, 'openrouter');
+        await wait(40);
+        const last = orStreams[orStreams.length - 1];
+        // No cues for a voice that would read them out; the tone goes as words instead.
+        assert.deepStrictEqual({ key: last.key, text: last.text, model: last.model, voice: last.voice },
+            { key: 'sk-or-1', text: 'Both invoices are sent.', model: 'fish-audio/s2.1-pro', voice: '' });
+        assert.ok(/warm and friendly/.test(last.instructions), last.instructions);
+        const audio = windows[0].sent.filter(entry => entry.channel === 'buddy-audio').map(entry => entry.payload);
+        assert.strictEqual(audio[0].rate, 44100);
+        assert.ok(audio[0].chunk && audio[audio.length - 1].done);
+        buddy.spoke(windows[0].webContents, { id: state().say.id });
+        // The plain tone gives no direction at all.
+        const toneOf = require(path.join(__dirname, '..', 'src', 'main', 'ai', 'buddy-tone'));
+        assert.strictEqual(toneOf.direction(toneOf.toneOf({})), '');
+    });
+
+    await test('with no OpenRouter key it says so, unless the OpenAI-compatible API is OpenRouter and has one', async () => {
+        keychain = {};
+        emit({ type: 'user-message', text: 'again' });
+        emit({ type: 'assistant-text', text: 'All set.' });
+        emit({ type: 'result', subtype: 'success' });
+        assert.strictEqual(state().say.engine, 'system');
+        assert.ok(/No OpenRouter key/.test(state().say.trouble), state().say.trouble);
+        assert.strictEqual(buddy.status().openrouterKey, '');
+        assert.ok(/no OpenRouter key/.test((await buddy.tryVoice({ engine: 'openrouter' })).error));
+        // The agent's API on OpenRouter, with a key: the same account, so that key.
+        const plainSettings = { get: () => settingsNow };
+        buddy.configure({
+            settings: {
+                get: () => ({ ...settingsNow, apiBaseUrl: 'https://openrouter.ai/api/v1', apiKeys: { openai: true } }),
+                readApiKey: provider => (provider === 'openai' ? 'sk-or-api' : ''),
+            },
+        });
+        assert.strictEqual(buddy.status().openrouterKey, 'provider');
+        const tried = await buddy.tryVoice({ engine: 'openrouter', tone: 'neutral' });
+        assert.strictEqual(tried.rate, 44100);
+        assert.ok(tried.data);
+        assert.strictEqual(orStreams[orStreams.length - 1].key, 'sk-or-api');
+        // Another API's key is never sent to OpenRouter.
+        buddy.configure({
+            settings: {
+                get: () => ({ ...settingsNow, apiBaseUrl: 'https://api.example.com/v1', apiKeys: { openai: true } }),
+                readApiKey: () => 'sk-elsewhere',
+            },
+        });
+        assert.strictEqual(buddy.status().openrouterKey, '');
+        buddy.configure({ settings: plainSettings });
+        settingsNow = { ...settingsNow, buddyVoice: 'system', buddyTone: 'neutral' };
+        await buddy.sync();
+    });
+
     await test('with speaking off, nothing is said', async () => {
         settingsNow = { ...settingsNow, buddySpeak: false };
         await buddy.sync();
@@ -1032,6 +1114,113 @@ async function main() {
         assert.ok(/answered 422: field required/.test(await refused(422, [{ loc: ['body', 'text'], msg: 'field required', type: 'missing' }])));
         await assert.rejects(elevenlabs.stream({ key: '', text: 'x', onAudio: () => {} }), /no ElevenLabs key/);
         answer = () => reply(200, {}, [[1, 2]]);
+    });
+
+    /* openrouter-tts.js against a stand-in for OpenRouter's API, shaped as it answered on 2026-11-11. */
+    console.log('openrouter-tts');
+    const orTts = require(path.join(__dirname, '..', 'src', 'main', 'ai', 'openrouter-tts'));
+    const orCalls = [];
+    const orReply = (status, body, parts, type = 'audio/pcm;rate=24000;channels=1') => ({
+        ok: status >= 200 && status < 300,
+        status,
+        headers: { get: name => (name.toLowerCase() === 'content-type' ? type : null) },
+        json: async () => body,
+        body: parts ? streamBody(parts) : null,
+    });
+    let orAnswer = () => orReply(200, {}, [[1, 2], [3, 4]]);
+    orTts._test.useFetch(async (url, options = {}) => {
+        orCalls.push({ url, options });
+        if (url.includes('/models?output_modalities=speech')) {
+            return orReply(200, {
+                data: [
+                    { id: 'hexgrad/kokoro-82m', name: 'hexgrad: Kokoro 82M', supported_voices: ['af_alloy', 'af_heart'], pricing: { prompt: '0.00000062', completion: '0' } },
+                    { id: 'elevenlabs/eleven-flash-v2.5', name: 'ElevenLabs: Eleven Flash v2.5', supported_voices: ['george', 'sarah'], pricing: { prompt: '0.00004', completion: '0' } },
+                    { id: 'google/gemini-3.8-flash-tts', name: 'Google: Gemini 3.8 Flash TTS', supported_voices: ['Zephyr'], pricing: { prompt: '0.0000005', completion: '0.000009' } },
+                    { id: 'fish-audio/s2.1-pro-free:free', name: 'Fish Audio: S2.1 Pro Free (free)', supported_voices: null, pricing: { prompt: '0', completion: '0' } },
+                    { id: 'not a model', name: 'x' },
+                ],
+            });
+        }
+        return orAnswer(url, options);
+    });
+
+    await test('it streams PCM from /audio/speech with the key, model, voice and direction, at the rate the answer gives', async () => {
+        const chunks = [];
+        orAnswer = () => orReply(200, {}, [[1, 2], [3, 4, 5]], 'audio/pcm;rate=44100;channels=1');
+        const result = await orTts.stream({
+            key: 'sk-or-1',
+            text: 'Both are sent.',
+            model: 'fish-audio/s2.1-pro-free:free',
+            voice: '',
+            instructions: 'Read this aloud, warm.',
+            onAudio: (chunk, rate) => chunks.push([[...chunk], rate]),
+        });
+        const call = orCalls[orCalls.length - 1];
+        assert.strictEqual(call.url, 'https://openrouter.ai/api/v1/audio/speech');
+        assert.strictEqual(call.options.method, 'POST');
+        assert.strictEqual(call.options.headers.Authorization, 'Bearer sk-or-1');
+        // A model with no voices of its own to pick is asked without one.
+        assert.deepStrictEqual(JSON.parse(call.options.body), {
+            model: 'fish-audio/s2.1-pro-free:free',
+            input: 'Both are sent.',
+            instructions: 'Read this aloud, warm.',
+            response_format: 'pcm',
+        });
+        assert.deepStrictEqual(chunks, [[[1, 2], 44100], [[3, 4, 5], 44100]]);
+        assert.deepStrictEqual(result, { rate: 44100, bytes: 5 });
+        orAnswer = () => orReply(200, {}, [[1, 2]]);
+    });
+
+    await test('with no voice picked it takes the model\'s first; with no model, the default; a voice picked goes as it is', async () => {
+        await orTts.stream({ key: 'sk-or-1', text: 'Hi.', model: '', onAudio: () => {} });
+        let body = JSON.parse(orCalls[orCalls.length - 1].options.body);
+        assert.deepStrictEqual({ model: body.model, voice: body.voice }, { model: 'elevenlabs/eleven-flash-v2.5', voice: 'george' });
+        await orTts.stream({ key: 'sk-or-1', text: 'Hi.', model: 'hexgrad/kokoro-82m', voice: 'af_heart', onAudio: () => {} });
+        body = JSON.parse(orCalls[orCalls.length - 1].options.body);
+        assert.deepStrictEqual({ model: body.model, voice: body.voice }, { model: 'hexgrad/kokoro-82m', voice: 'af_heart' });
+        assert.ok(!('instructions' in body));
+        // A model id that is not one becomes the default rather than going out as it is.
+        await orTts.stream({ key: 'sk-or-1', text: 'Hi.', model: '../../x', voice: 'george', onAudio: () => {} });
+        assert.strictEqual(JSON.parse(orCalls[orCalls.length - 1].options.body).model, 'elevenlabs/eleven-flash-v2.5');
+        assert.strictEqual(orTts._test.rateOf({ headers: { get: () => 'audio/pcm' } }), 24000);
+    });
+
+    await test('the speech models are listed with their voices and a price per million characters, when there is one', async () => {
+        const { models } = await orTts.models();
+        assert.deepStrictEqual(models.map(model => model.id), [
+            'elevenlabs/eleven-flash-v2.5', 'fish-audio/s2.1-pro-free:free', 'google/gemini-3.8-flash-tts', 'hexgrad/kokoro-82m',
+        ]);
+        const byId = Object.fromEntries(models.map(model => [model.id, model]));
+        assert.strictEqual(byId['elevenlabs/eleven-flash-v2.5'].price, 40);
+        assert.strictEqual(byId['hexgrad/kokoro-82m'].price, 0.62);
+        assert.strictEqual(byId['fish-audio/s2.1-pro-free:free'].price, 0);
+        // Priced by its output too: no one figure to show.
+        assert.strictEqual(byId['google/gemini-3.8-flash-tts'].price, null);
+        assert.deepStrictEqual(byId['fish-audio/s2.1-pro-free:free'].voices, []);
+        // Listed without a key, and once in a while rather than on every call.
+        const listings = orCalls.filter(call => call.url.includes('/models'));
+        assert.ok(listings.every(call => !call.options.headers?.Authorization));
+        assert.strictEqual(listings.length, 1);
+    });
+
+    await test('its refusals are said plainly: a bad key, no credits, a voice the model lacks, an MP3-only model', async () => {
+        const refused = async (status, message) => {
+            orAnswer = () => orReply(status, { error: { code: status, message } }, null, 'application/json');
+            try {
+                await orTts.stream({ key: 'sk-or-1', text: 'x', model: 'hexgrad/kokoro-82m', voice: 'af_heart', onAudio: () => {} });
+                return 'no error';
+            } catch (error) {
+                return error.message;
+            }
+        };
+        assert.ok(/refused the key/.test(await refused(401, 'User not found.')));
+        assert.ok(/credits are used up/.test(await refused(402, 'Insufficient credits. Add more using https://openrouter.ai/credits')));
+        assert.ok(/does not have the voice/.test(await refused(400, 'Unknown voice "x". Supported voices: a, b')));
+        assert.ok(/only sends MP3/.test(await refused(400, 'MiniMax TTS only supports response_format="mp3" for streaming. Got "pcm".')));
+        assert.ok(/model is gone/.test(await refused(400, 'Model nope/not-a-model does not exist')));
+        assert.ok(/answered 502: Provider returned error/.test(await refused(502, 'Provider returned error')));
+        await assert.rejects(orTts.stream({ key: '', text: 'x', onAudio: () => {} }), /no OpenRouter key/);
+        orAnswer = () => orReply(200, {}, [[1, 2]]);
     });
 
     console.log('buddy drawings (renderer/lib/sketch.js)');

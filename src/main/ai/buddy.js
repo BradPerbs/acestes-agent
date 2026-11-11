@@ -66,6 +66,7 @@
 
 const path = require('path');
 const elevenlabs = require('./elevenlabs');
+const openrouterTts = require('./openrouter-tts');
 const tones = require('./buddy-tone');
 
 let electron = {};
@@ -140,9 +141,11 @@ let deps = {
     ai: null,
     computer: null,
     settings: null,
-    // The keychain (secrets.js), for the ElevenLabs key; and the voice itself.
+    // The keychain (secrets.js), for the ElevenLabs and OpenRouter keys; and
+    // the voices themselves: ElevenLabs', and OpenRouter's speech models.
     secrets: null,
     tts: elevenlabs,
+    openrouterTts,
     // The agents (agents.js), to offer in the notch; and a settings change
     // made as Settings makes it, so the rest of the app hears of it.
     agents: null,
@@ -163,8 +166,11 @@ let enabled = false;
 let present = false;
 // The app is quitting: nothing comes up again.
 let final = false;
-let config = { notch: true, place: null, speak: true, agentId: '', voice: 'system', voiceModel: '', voiceId: '', tone: tones.toneOf({}) };
-// The recap being read out by ElevenLabs: its id, and how to stop it.
+let config = { notch: true, place: null, speak: true, agentId: '', voice: 'system', voiceModel: '', voiceId: '', orModel: '', orVoice: '', tone: tones.toneOf({}) };
+/** Whose voice says it: this computer's, ElevenLabs', or one of OpenRouter's speech models. */
+const VOICE_ENGINES = ['system', 'elevenlabs', 'openrouter'];
+const engineOf = value => (VOICE_ENGINES.includes(value) ? value : 'system');
+// The recap being read out by ElevenLabs or OpenRouter: its id, and how to stop it.
 let speaking = null;
 let baseUrl = '';
 // displayId -> { window, display, ready }
@@ -305,9 +311,11 @@ async function sync() {
         place: current.buddyNotchPlace && typeof current.buddyNotchPlace === 'object' ? current.buddyNotchPlace : null,
         speak: current.buddySpeak !== false,
         agentId: String(current.buddyAgent || ''),
-        voice: current.buddyVoice === 'elevenlabs' ? 'elevenlabs' : 'system',
+        voice: engineOf(current.buddyVoice),
         voiceModel: String(current.buddyVoiceModel || ''),
         voiceId: String(current.buddyVoiceId || ''),
+        orModel: String(current.buddyOpenRouterModel || ''),
+        orVoice: String(current.buddyOpenRouterVoice || ''),
         tone: tones.toneOf(current),
     };
     const wanted = Boolean(current.buddy) && supported();
@@ -1704,25 +1712,53 @@ function eraseLater(drawing, ms) {
  *
  * Only ever a recap or a question, a sentence or so: the reply itself is
  * in the notch and the conversation. In this computer's voice (the
- * renderer's speechSynthesis), or ElevenLabs', streamed from here to the
- * window on the main display as it comes; if ElevenLabs cannot, that one
- * time it is this computer's voice, and the notch says why.
+ * renderer's speechSynthesis), ElevenLabs', or one of OpenRouter's speech
+ * models', streamed from here to the window on the main display as it
+ * comes; if the voice picked cannot, that one time it is this computer's
+ * voice, and the notch says why.
  * ------------------------------------------------------------------ */
 
-/** The ElevenLabs key, from the keychain, as the buddy's agent sees it (its own, else the shared one). */
-function voiceKey() {
+/** The voices that need a key, by the name a person knows them by. */
+const VOICE_NAMES = { elevenlabs: 'ElevenLabs', openrouter: 'OpenRouter' };
+
+const hostOf = (url) => {
     try {
-        const agentId = deps.settings?.get(config.agentId || undefined)?.agentId || '';
-        return deps.secrets?.read(elevenlabs.SECRET, agentId) || '';
+        return new URL(String(url || '')).hostname;
     } catch {
         return '';
     }
+};
+
+/**
+ * A voice's key and where it was found, as the buddy's agent sees it: from
+ * the keychain (its own, else the shared one), as `elevenlabs` or
+ * `openrouter`. OpenRouter's may also be the one the OpenAI-compatible API
+ * runs on, when that API is OpenRouter and the keychain has none: the same
+ * account, so there is nothing to type twice.
+ */
+function keySource(engine = config.voice) {
+    if (!VOICE_NAMES[engine]) return { key: '', from: '' };
+    try {
+        const current = deps.settings?.get(config.agentId || undefined) || {};
+        const secret = engine === 'openrouter' ? openrouterTts.SECRET : elevenlabs.SECRET;
+        const stored = deps.secrets?.read(secret, current.agentId || '') || '';
+        if (stored) return { key: stored, from: 'keychain' };
+        if (engine === 'openrouter' && current.apiKeys?.openai && /(^|\.)openrouter\.ai$/i.test(hostOf(current.apiBaseUrl))) {
+            const key = deps.settings?.readApiKey?.('openai') || '';
+            if (key) return { key, from: 'provider' };
+        }
+    } catch {
+        // Nothing to read it from: no key.
+    }
+    return { key: '', from: '' };
 }
+
+const voiceKey = (engine = config.voice) => keySource(engine).key;
 
 /**
  * Say something: the `say` the windows are given to say it by, or null when
- * the buddy is not to speak. ElevenLabs' audio is started here and follows
- * the state to the window as `buddy-audio`.
+ * the buddy is not to speak. ElevenLabs' or OpenRouter's audio is started
+ * here and follows the state to the window as `buddy-audio`.
  */
 function speak(text) {
     hush();
@@ -1730,38 +1766,67 @@ function speak(text) {
     // Without its cues: what the notch shows, and what any voice but Eleven v4 says.
     const plain = tones.withoutCues(words);
     if (!config.speak || !plain) return null;
-    const key = config.voice === 'elevenlabs' ? voiceKey() : '';
+    const engine = config.voice;
+    const key = voiceKey(engine);
     const tone = config.tone;
     const say = {
         id: ++sayId,
         text: plain,
-        engine: key ? 'elevenlabs' : 'system',
-        rate: deps.tts.RATE,
+        engine: key ? engine : 'system',
+        // What the audio is expected at; OpenRouter's says its own with the first chunk.
+        rate: engine === 'openrouter' ? deps.openrouterTts.RATE : deps.tts.RATE,
         // This computer's voice, in the tone: how fast, and how high.
         pace: tone.pace,
         pitch: tone.pitch,
     };
-    if (config.voice === 'elevenlabs' && !key) say.trouble = 'No ElevenLabs key yet, so this computer\'s voice. Add the key in Settings.';
+    if (VOICE_NAMES[engine] && !key) say.trouble = `No ${VOICE_NAMES[engine]} key yet, so this computer's voice. Add the key in Settings, under Voice.`;
     if (key) stream(say, key, words);
     return say;
+}
+
+/** The voice picked, asked for the words: ElevenLabs' or an OpenRouter model's. */
+function voiceStream({ engine, key, words, tone, voiceId, model, signal, onAudio }) {
+    if (engine === 'openrouter') {
+        return deps.openrouterTts.stream({
+            key,
+            text: tones.withoutCues(words),
+            model: model || deps.openrouterTts.DEFAULT_MODEL,
+            voice: voiceId,
+            // Followed by the models that take direction (Gemini's, OpenAI's), ignored by the rest.
+            instructions: tones.direction(tone),
+            signal,
+            onAudio,
+        });
+    }
+    const chosen = model || elevenlabs.DEFAULT_MODEL;
+    return deps.tts.stream({
+        key,
+        // Eleven v4 performs the cues as its audio tags; Flash would read them out.
+        text: chosen === 'eleven_v4' ? tones.cuesAsTags(words) : tones.withoutCues(words),
+        voiceId,
+        model: model || '',
+        voiceSettings: tones.voiceSettings(tone, chosen),
+        signal,
+        onAudio,
+    });
 }
 
 function stream(say, key, words = say.text) {
     const controller = new AbortController();
     speaking = { id: say.id, controller };
     const to = primaryId();
-    const model = config.voiceModel || elevenlabs.DEFAULT_MODEL;
-    // Eleven v4 performs the cues as its audio tags; Flash would read them out.
-    const text = model === 'eleven_v4' ? tones.cuesAsTags(words) : tones.withoutCues(words);
+    const openrouter = say.engine === 'openrouter';
     // After this tick, so the state carrying `say` reaches the window first.
-    Promise.resolve().then(() => deps.tts.stream({
+    Promise.resolve().then(() => voiceStream({
+        engine: say.engine,
         key,
-        text,
-        voiceId: config.voiceId,
-        model: config.voiceModel,
-        voiceSettings: tones.voiceSettings(config.tone, model),
+        words,
+        tone: config.tone,
+        voiceId: openrouter ? config.orVoice : config.voiceId,
+        model: openrouter ? config.orModel : config.voiceModel,
         signal: controller.signal,
-        onAudio: chunk => sendTo(to, 'buddy-audio', { id: say.id, chunk }),
+        // With its rate when the voice says one: some of OpenRouter's models send 44.1 kHz.
+        onAudio: (chunk, rate) => sendTo(to, 'buddy-audio', { id: say.id, chunk, ...(rate ? { rate } : {}) }),
     })).then(() => {
         sendTo(to, 'buddy-audio', { id: say.id, done: true });
     }).catch((error) => {
@@ -1774,7 +1839,7 @@ function stream(say, key, words = say.text) {
     });
 }
 
-/** Stop whatever ElevenLabs is still sending. */
+/** Stop whatever ElevenLabs or OpenRouter is still sending. */
 function hush() {
     if (!speaking) return;
     speaking.controller.abort();
@@ -1838,16 +1903,19 @@ function status() {
         voiceInput: current.voiceInput !== false,
         // Whether the keychain holds an ElevenLabs key this agent can use. Whether, never which.
         voiceKey: Boolean(deps.secrets?.has(elevenlabs.SECRET, current.agentId || '')),
+        // Where its OpenRouter key would come from: 'keychain', 'provider'
+        // (the OpenAI-compatible API's, on OpenRouter), or '' for none.
+        openrouterKey: keySource('openrouter').from,
         conversationId,
     };
 }
 
 /**
  * Settings' "Try it": a sentence in the tone picked, so it can be heard
- * with the buddy off. In the ElevenLabs voice and model picked, handed back
- * whole for the settings window to play; or, for this computer's voice (or
- * `engine: 'system'`), the words with their pace and pitch, which the
- * settings window says itself.
+ * with the buddy off. In the ElevenLabs or OpenRouter voice and model
+ * picked, handed back whole for the settings window to play; or, for this
+ * computer's voice (or `engine: 'system'`), the words with their pace and
+ * pitch, which the settings window says itself.
  */
 async function tryVoice({ voiceId = '', model = '', tone: toneName = '', note = null, engine = '' } = {}) {
     const tone = tones.toneOf({
@@ -1855,21 +1923,27 @@ async function tryVoice({ voiceId = '', model = '', tone: toneName = '', note = 
         buddyToneNote: note === null ? config.tone.note : note,
     });
     const system = { text: tones.withoutCues(tone.sample), pace: tone.pace, pitch: tone.pitch };
-    if ((engine || config.voice) !== 'elevenlabs') return { system };
-    const key = voiceKey();
-    if (!key) return { error: 'There is no ElevenLabs key yet.' };
-    const chosen = model || config.voiceModel || elevenlabs.DEFAULT_MODEL;
+    const using = engine ? engineOf(engine) : config.voice;
+    if (!VOICE_NAMES[using]) return { system };
+    const key = voiceKey(using);
+    if (!key) return { error: `There is no ${VOICE_NAMES[using]} key yet.` };
+    const openrouter = using === 'openrouter';
     const chunks = [];
+    let heard = 0;
     try {
-        const { rate } = await deps.tts.stream({
+        const { rate } = await voiceStream({
+            engine: using,
             key,
-            text: chosen === 'eleven_v4' ? tones.cuesAsTags(tone.sample) : tones.withoutCues(tone.sample),
+            words: tone.sample,
+            tone,
             voiceId,
-            model: chosen,
-            voiceSettings: tones.voiceSettings(tone, chosen),
-            onAudio: chunk => chunks.push(Buffer.from(chunk)),
+            model: model || (openrouter ? config.orModel : config.voiceModel),
+            onAudio: (chunk, at) => {
+                chunks.push(Buffer.from(chunk));
+                if (at) heard = at;
+            },
         });
-        return { rate, data: Buffer.concat(chunks).toString('base64') };
+        return { rate: heard || rate, data: Buffer.concat(chunks).toString('base64') };
     } catch (error) {
         return { error: error.message };
     }
@@ -1877,9 +1951,14 @@ async function tryVoice({ voiceId = '', model = '', tone: toneName = '', note = 
 
 /** The voices on the ElevenLabs account, for Settings to offer. */
 async function voices() {
-    const key = voiceKey();
+    const key = voiceKey('elevenlabs');
     if (!key) return { error: 'There is no ElevenLabs key yet.' };
     return deps.tts.voices(key);
+}
+
+/** OpenRouter's speech models, each with its voices and price, for Settings to offer. Needs no key. */
+async function speechModels() {
+    return deps.openrouterTts.models();
 }
 
 /**
@@ -1918,6 +1997,7 @@ module.exports = {
     status,
     tryVoice,
     voices,
+    speechModels,
     shutdown,
     conversation: () => conversationId,
     _test: {

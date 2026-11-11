@@ -7,6 +7,7 @@ import AssistantPage from './pages/AssistantPage';
 import PermissionsPage from './pages/PermissionsPage';
 import AgenticPage from './pages/AgenticPage';
 import ChatPage from './pages/ChatPage';
+import VoicePage from './pages/VoicePage';
 import ChannelsPage from './pages/ChannelsPage';
 import DevicesPage from './pages/DevicesPage';
 import AppearancePage from './pages/AppearancePage';
@@ -22,6 +23,7 @@ const PAGES = {
     permissions: PermissionsPage,
     agentic: AgenticPage,
     chat: ChatPage,
+    voice: VoicePage,
     channels: ChannelsPage,
     devices: DevicesPage,
     appearance: AppearancePage,

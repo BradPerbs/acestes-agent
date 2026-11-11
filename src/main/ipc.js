@@ -1793,15 +1793,18 @@ function register(getWindow) {
         notify('ai-settings', assistant.settings.get());
         return buddy.status();
     });
-    // Its voice: the ElevenLabs key goes into the keychain as the shared
-    // secret `elevenlabs` (typed once, never sent back; empty removes it),
-    // the account's voices are listed for picking, and one can be tried.
-    handle('buddy-voice-key', (event, value) => {
-        const stored = aiSecrets.set('elevenlabs', String(value ?? '').trim(), '');
+    // Its voice: the ElevenLabs or OpenRouter key goes into the keychain as
+    // the shared secret `elevenlabs` or `openrouter` (typed once, never sent
+    // back; empty removes it), ElevenLabs' voices and OpenRouter's speech
+    // models are listed for picking, and one can be tried.
+    handle('buddy-voice-key', (event, value, engine) => {
+        const name = engine === 'openrouter' ? 'openrouter' : 'elevenlabs';
+        const stored = aiSecrets.set(name, String(value ?? '').trim(), '');
         if (stored?.error) return { ...buddy.status(), keyError: stored.error };
         return buddy.status();
     });
     handle('buddy-voices', () => buddy.voices());
+    handle('buddy-speech-models', () => buddy.speechModels());
     // The notch's agents: where they are, so that place alone takes the
     // mouse, and the one clicked. See `hit` and `choose` in ai/buddy.js.
     ipcMain.on('buddy-hit', (event, rect) => {
@@ -1829,7 +1832,7 @@ function register(getWindow) {
         // In the tone picked, and the voice it would say it in.
         tone: String(options?.tone || ''),
         note: typeof options?.note === 'string' ? options.note : null,
-        engine: options?.engine === 'system' || options?.engine === 'elevenlabs' ? options.engine : '',
+        engine: ['system', 'elevenlabs', 'openrouter'].includes(options?.engine) ? options.engine : '',
     }));
 
     /* ---------------- Channels ---------------- */

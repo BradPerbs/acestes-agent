@@ -286,7 +286,8 @@ export default {
     'settings.nav.assistant': 'Agente de IA',
     'settings.nav.permissions': 'Permissões',
     'settings.nav.agentic': 'Uso agêntico',
-    'settings.nav.chat': 'Conversa e voz',
+    'settings.nav.chat': 'Conversa',
+    'settings.nav.voice': 'Voz',
     'settings.nav.channels': 'Canais',
     'settings.nav.security': 'Segurança',
     'settings.nav.backup': 'Cópia de segurança',
@@ -586,9 +587,11 @@ export default {
     'settings.agentic.stepsDesc': 'Quantas chamadas de ferramentas uma pergunta pode usar antes de o agente parar e responder. Deslize até ao fim para não ter limite.',
     'settings.agentic.stepsUnlimited': 'Sem limite: uma vez continua até o trabalho estar feito ou até o parar. Bom para trabalhos longos sem supervisão.',
     'settings.agentic.noLimit': 'Sem limite',
-    'settings.chat.title': 'Conversa e voz',
-    'settings.chat.desc': 'A conversa com {name}: as perguntas que uma conversa vazia oferece, falar '
-        + 'em vez de escrever, e se anota o que aprendeu.',
+    'settings.chat.title': 'Conversa',
+    'settings.chat.desc': 'A conversa com {name}: as perguntas que uma conversa vazia oferece, se anota o que '
+        + 'aprendeu, e por quanto tempo o histórico é guardado.',
+    'settings.voicePage.title': 'Voz',
+    'settings.voicePage.desc': 'Falar com o agente em vez de escrever, e a voz com que ele responde em voz alta.',
 
     /* ---- Settings: Monitoring ---- */
     'settings.monitoring.title': 'Monitorização',

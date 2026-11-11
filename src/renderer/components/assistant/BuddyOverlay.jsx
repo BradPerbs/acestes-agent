@@ -1247,11 +1247,11 @@ function useListening(meterRef) {
 
 /**
  * The recap (or a question) said aloud, on the main display's window, and
- * main told when it has been. In this computer's voice, or ElevenLabs':
- * its audio comes on a channel of its own, by the say's id, as it streams,
- * and may come before the state that names it, so it waits a moment for
- * that. If ElevenLabs fails, or says nothing for a while, the same words
- * go in this computer's voice instead.
+ * main told when it has been. In this computer's voice, or ElevenLabs' or
+ * OpenRouter's: its audio comes on a channel of its own, by the say's id, as
+ * it streams, and may come before the state that names it, so it waits a
+ * moment for that. If that voice fails, or says nothing for a while, the
+ * same words go in this computer's voice instead.
  */
 function useSpeaker(say, primary) {
     const sayId = say?.id || 0;
@@ -1300,7 +1300,7 @@ function useSpeaker(say, primary) {
             quiet = speakSystem(say.text, end, { pace: say.pace, pitch: say.pitch });
         };
         let guard = 0;
-        if (say.engine === 'elevenlabs') {
+        if (say.engine === 'elevenlabs' || say.engine === 'openrouter') {
             current.current = {
                 id: sayId,
                 hear: (message) => {
@@ -1312,7 +1312,8 @@ function useSpeaker(say, primary) {
                         else fallBack();
                     } else if (message.chunk) {
                         clearTimeout(guard);
-                        player = player || createPcmPlayer(say.rate || 24000);
+                        // At the rate the audio says it is (some of OpenRouter's models send 44.1 kHz).
+                        player = player || createPcmPlayer(message.rate || say.rate || 24000);
                         player.push(message.chunk);
                     }
                 },

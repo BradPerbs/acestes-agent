@@ -277,6 +277,7 @@ export default {
     'settings.nav.permissions': 'Quyền hạn',
     'settings.nav.agentic': 'Tác vụ tự động',
     'settings.nav.chat': 'Trò chuyện',
+    'settings.nav.voice': 'Giọng nói',
     'settings.nav.channels': 'Kênh',
     'settings.nav.security': 'Bảo mật',
     'settings.nav.backup': 'Sao lưu',
@@ -568,9 +569,11 @@ export default {
     'settings.agentic.stepsDesc': 'Số lần gọi công cụ một câu hỏi được dùng trước khi tác tử dừng lại và báo cáo. Kéo hết cỡ để không giới hạn.',
     'settings.agentic.stepsUnlimited': 'Không giới hạn: một lượt chạy đến khi xong việc hoặc bạn dừng nó. Hợp với việc dài không cần trông.',
     'settings.agentic.noLimit': 'Không giới hạn',
-    'settings.chat.title': 'Trò chuyện & Giọng nói',
+    'settings.chat.title': 'Trò chuyện',
     'settings.chat.desc': 'Cuộc trò chuyện với {name}: các câu hỏi mà một cuộc trò chuyện trống gợi '
-        + 'ý, nói thay vì gõ, và việc nó có ghi lại điều đã học hay không.',
+        + 'ý, việc nó có ghi lại điều đã học hay không, và lịch sử được giữ bao lâu.',
+    'settings.voicePage.title': 'Giọng nói',
+    'settings.voicePage.desc': 'Nói với tác tử thay vì gõ, và giọng nói nó dùng để trả lời thành tiếng.',
 
     /* ---- Settings: Monitoring ---- */
     'settings.monitoring.title': 'Theo dõi',

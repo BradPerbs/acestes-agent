@@ -1308,7 +1308,7 @@ function App() {
      *
      * The category is written before navigating because that is where the
      * settings shell reads it from, so this lands on the agent's page that
-     * holds the card asked for (quick prompts are on Chat & Voice, accounts
+     * holds the card asked for (quick prompts are on Chat, accounts
      * on AI Agent) rather than on whichever one was open last. The event is
      * for a settings panel that is already mounted behind a conversation tab
      * and would not read the category again on its own.
