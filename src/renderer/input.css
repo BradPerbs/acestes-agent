@@ -651,6 +651,21 @@ input[type="color"]::-webkit-color-swatch {
     pointer-events: none;
 }
 
+/* The specks behind a large mark (AgentAura.jsx), under the helmet: the mark
+   that carries one isolates itself, so -1 is behind the helmet and not behind
+   the page. In the agent's colour as an outline would draw it, per theme. */
+.agent-aura {
+    position: absolute;
+    display: block;
+    pointer-events: none;
+    z-index: -1;
+    color: var(--agent-aura);
+}
+
+.dark .agent-aura {
+    color: var(--agent-aura-dark, var(--agent-aura));
+}
+
 /* The ink. AgentMark.jsx hands over the colour for each theme and this picks,
    since a helmet drawn in the colour itself disappears into a dark window. */
 .agent-mark-ink {

@@ -116,6 +116,80 @@ check('a helmet nobody can draw is refused rather than stored', () => {
     assert.strictEqual(shown(result.saved).helmet, 'corinthian');
 });
 
+check('an agent saved before there was a finish or a description is outlined and has none', () => {
+    const agent = shown('agent-1');
+    assert.strictEqual(agent.finish, 'outline');
+    assert.strictEqual(agent.description, '');
+});
+
+check('a colour of the agent\'s own is kept, in capitals', () => {
+    const result = agents.save({ name: 'Mint', color: '#3ad29f' });
+    assert.strictEqual(shown(result.saved).color, '#3AD29F');
+
+    agents.save({ id: result.saved, color: '#FF00AA' });
+    assert.strictEqual(shown(result.saved).color, '#FF00AA');
+
+    agents.save({ id: result.saved, color: 'teal' });
+    assert.strictEqual(shown(result.saved).color, 'teal', 'and it can go back to one of the set');
+});
+
+check('a colour that is not a colour is refused rather than stored', () => {
+    agents.save({ id: 'agent-1', color: '#FFF' });
+    agents.save({ id: 'agent-1', color: 'red; background: url(x)' });
+    agents.save({ id: 'agent-1', color: '#12345G' });
+    assert.strictEqual(shown('agent-1').color, 'amber');
+
+    const result = agents.save({ name: 'Unpainted', color: 'rgb(1,2,3)' });
+    assert.strictEqual(shown(result.saved).color, 'sky');
+});
+
+check('the finish is kept, and one nobody can draw is refused', () => {
+    const result = agents.save({ name: 'Enamel', color: 'violet', finish: 'solid' });
+    assert.strictEqual(shown(result.saved).finish, 'solid');
+
+    agents.save({ id: result.saved, finish: 'glitter' });
+    assert.strictEqual(shown(result.saved).finish, 'solid');
+
+    agents.save({ id: result.saved, finish: 'outline' });
+    assert.strictEqual(shown(result.saved).finish, 'outline');
+    assert.strictEqual(shown(result.saved).color, 'violet', 'the colour is untouched');
+});
+
+check('an agent has no effect until it is given one, then keeps it', () => {
+    assert.strictEqual(shown('agent-1').aura, 'none');
+
+    for (const aura of ['embers', 'stars', 'orbit', 'drift', 'none']) {
+        agents.save({ id: 'agent-1', aura });
+        assert.strictEqual(shown('agent-1').aura, aura);
+    }
+
+    const result = agents.save({ name: 'Forge', aura: 'embers' });
+    assert.strictEqual(shown(result.saved).aura, 'embers');
+});
+
+check('an effect nobody can draw is refused rather than stored', () => {
+    agents.save({ id: 'agent-1', aura: 'stars' });
+    agents.save({ id: 'agent-1', aura: 'fireworks' });
+    assert.strictEqual(shown('agent-1').aura, 'stars');
+
+    const result = agents.save({ name: 'Plain', aura: '<canvas>' });
+    assert.strictEqual(shown(result.saved).aura, 'none');
+});
+
+check('the description is kept, trimmed and capped, and can be emptied', () => {
+    const result = agents.save({ name: 'Keeper', description: '  Web servers\n and backups  ' });
+    assert.strictEqual(shown(result.saved).description, 'Web servers and backups');
+
+    agents.save({ id: result.saved, description: 'x'.repeat(200) });
+    assert.strictEqual(shown(result.saved).description.length, 60);
+
+    agents.save({ id: result.saved, name: 'Keeper' });
+    assert.strictEqual(shown(result.saved).description.length, 60, 'an edit that does not name it leaves it');
+
+    agents.save({ id: result.saved, description: '' });
+    assert.strictEqual(shown(result.saved).description, '');
+});
+
 check('the look is written to disk and read back', () => {
     const text = fs.readFileSync(path.join(userData, 'agents.json'), 'utf8');
     const saved = JSON.parse(text).agents;
@@ -123,6 +197,8 @@ check('the look is written to disk and read back', () => {
     assert.strictEqual(scout.color, 'black');
     assert.strictEqual(scout.crest, 'none');
     assert.strictEqual(saved.find(agent => agent.name === 'Ronin').helmet, 'greathelm');
+    assert.strictEqual(saved.find(agent => agent.name === 'Mint').color, 'teal');
+    assert.strictEqual(saved.find(agent => agent.name === 'Enamel').finish, 'outline');
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

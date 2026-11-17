@@ -4,16 +4,19 @@ import { InformationCircleIcon } from 'hugeicons-react';
 import Dialog from './ui/Dialog';
 import Button from './ui/Button';
 import Field, { FIELD_CLASS } from './ui/Field';
+import ColorField from './ui/ColorField';
 import SegmentedControl from './ui/SegmentedControl';
 import AgentMark from './assistant/AgentMark';
-import { AGENT_COLORS } from '../lib/agent-colors';
-import { AGENT_CRESTS, AGENT_HELMETS, agentLook, helmetCrests } from '../lib/agent-look';
+import { AGENT_COLORS, AGENT_FINISHES, agentColor, customColor, hasHue, isCustomColor } from '../lib/agent-colors';
+import { AGENT_AURAS, AGENT_CRESTS, AGENT_HELMETS, agentLook, helmetCrests } from '../lib/agent-look';
 import { useT } from '../i18n';
 
 /**
- * Naming an agent, new or renamed, and picking how its mark looks.
+ * Naming an agent, new or renamed, saying in a line what it is for, and
+ * picking how its mark looks.
  *
- * The look (a colour, a helmet, and what it wears on top) is what tells one agent's mark
+ * The look (a colour from the set or one of its own, a helmet, what it wears
+ * on top, outline or filled) is what tells one agent's mark
  * from another's across the app, so it is chosen here, where the agent is
  * made, with the mark itself drawn in each choice on offer rather than a row
  * of paint chips and a list of names.
@@ -243,11 +246,92 @@ function LookChoice({ label, options, value, lookFor, part, onChange, available 
 /** `crest` on `helmet` if it can wear it, or the crest it usually wears. */
 const crestOn = (helmet, crest) => (helmetCrests(helmet).includes(crest) ? crest : helmetCrests(helmet)[0]);
 
+/** The hues round the wheel, for the chip that stands for a colour of one's own. */
+const WHEEL = 'conic-gradient(from 90deg, #EF4444, #F59E0B, #EAB308, #22C55E, #06B6D4, #3B82F6, #8B5CF6, #EC4899, #EF4444)';
+
+/**
+ * The last chip in the row of colours: any colour at all, from the system's
+ * picker, opened straight from the chip so choosing one is a click and not
+ * two. Until one has been picked it is the colour wheel; after, it is the
+ * mark in that colour with a dot of the wheel on its shoulder, so it still
+ * reads as the one to pick from.
+ */
+function CustomColorChip({ value, selected, look, onPick, label }) {
+    const input = useRef(null);
+    const open = () => {
+        // Selected straight away, so a picker closed without a choice still
+        // leaves the agent in the colour the chip was showing, and the
+        // picker opens on it rather than on what the input held before.
+        const start = onPick(value);
+        const node = input.current;
+        if (!node) return;
+        if (start) node.value = start.toLowerCase();
+        try {
+            node.showPicker();
+        } catch {
+            node.click();
+        }
+    };
+    return (
+        <span className="relative">
+            <button
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                title={label}
+                aria-label={label}
+                onClick={open}
+                className={`relative w-8 h-8 rounded-full flex items-center justify-center transition-all
+                    hover:scale-110 active:scale-95 outline-none
+                    ${selected
+                        ? 'ring-2 ring-offset-2 ring-gray-900 dark:ring-white ring-offset-white dark:ring-offset-surface-raised'
+                        : 'focus-visible:ring-2 focus-visible:ring-gray-900/30 dark:focus-visible:ring-white/40'}`}
+            >
+                {value ? (
+                    <>
+                        <AgentMark size={28} look={{ ...look, color: value }} />
+                        <span
+                            className="absolute -right-0.5 -bottom-0.5 w-3 h-3 rounded-full
+                                border-2 border-white dark:border-surface-raised"
+                            style={{ background: WHEEL }}
+                        />
+                    </>
+                ) : (
+                    <span className="w-6 h-6 rounded-full flex items-center justify-center" style={{ background: WHEEL }}>
+                        <span className="w-3 h-3 rounded-full bg-white dark:bg-surface-raised" />
+                    </span>
+                )}
+            </button>
+            <input
+                ref={input}
+                type="color"
+                tabIndex={-1}
+                aria-hidden="true"
+                value={(value || '#7C3AED').toLowerCase()}
+                onChange={event => onPick(customColor(event.target.value))}
+                className="absolute inset-0 w-full h-full opacity-0 pointer-events-none"
+            />
+        </span>
+    );
+}
+
 export default function AgentDialog({ agent = null, suggestedLook = null, onClose, onSave }) {
     const t = useT();
     const [name, setName] = useState(agent?.name || '');
+    const [description, setDescription] = useState(agent?.description || '');
     const [look, setLook] = useState(() => agentLook(agent || suggestedLook));
     const setPart = (part) => (value) => setLook(current => ({ ...current, [part]: value }));
+    // The colour of the agent's own, kept while one of the set is tried on,
+    // so going back to it does not mean picking it again. Starts from the
+    // colour the agent had before it had one of its own.
+    const [custom, setCustom] = useState(() => customColor(agent?.color) || null);
+    const pickCustom = (value) => {
+        const hex = customColor(value) || agentColor(look.color).from || '#7C3AED';
+        setCustom(hex);
+        setPart('color')(hex);
+        return hex;
+    };
+    const wearingCustom = isCustomColor(look.color);
     const [mode, setMode] = useState('host');
     // The folders on this computer the agent is confined to. Asked here as
     // well as on the Sandbox card, because "this agent works in this folder"
@@ -275,7 +359,7 @@ export default function AgentDialog({ agent = null, suggestedLook = null, onClos
         if (!trimmed || saving) return;
         setSaving(true);
         try {
-            await onSave(trimmed, look, agent ? { folders } : { execution: mode, folders });
+            await onSave(trimmed, look, agent ? { folders } : { execution: mode, folders }, { description: description.trim() });
             onClose();
         } finally {
             setSaving(false);
@@ -300,9 +384,12 @@ export default function AgentDialog({ agent = null, suggestedLook = null, onClos
                 onSubmit={(event) => { event.preventDefault(); submit(); }}
                 className="flex flex-col gap-5"
             >
-                <div className="flex items-center gap-4">
-                    <AgentMark size={56} look={look} animated />
-                    <Field label={t('agents.nameLabel')} className="flex-1">
+                {/* A little room above the preview, for its effect to rise
+                    into before the dialog's edge; the field lifted over the
+                    specks that drift its way. */}
+                <div className="flex items-center gap-4 pt-8">
+                    <AgentMark size={56} look={look} animated aura="compact" className="ml-3" />
+                    <Field label={t('agents.nameLabel')} className="flex-1 relative z-[1]">
                         <input
                             autoFocus
                             type="text"
@@ -315,11 +402,24 @@ export default function AgentDialog({ agent = null, suggestedLook = null, onClos
                     </Field>
                 </div>
 
+                <Field label={t('agents.descriptionLabel')} hint={t('agents.descriptionHint')}>
+                    <input
+                        type="text"
+                        value={description}
+                        maxLength={60}
+                        onChange={(event) => setDescription(event.target.value)}
+                        placeholder={t('agents.descriptionPlaceholder')}
+                        className={FIELD_CLASS}
+                    />
+                </Field>
+
                 <div className="flex flex-col gap-1.5">
                     <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">
                         {t('agents.colorLabel')}
                     </span>
-                    <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label={t('agents.colorLabel')}>
+                    {/* gap-1 rather than 1.5, so the chip for a colour of
+                        one's own still fits on the row with the set. */}
+                    <div className="flex flex-wrap gap-1" role="radiogroup" aria-label={t('agents.colorLabel')}>
                         {AGENT_COLORS.map(option => (
                             <button
                                 key={option.id}
@@ -337,7 +437,55 @@ export default function AgentDialog({ agent = null, suggestedLook = null, onClos
                                 <AgentMark size={28} look={{ ...look, color: option.id }} />
                             </button>
                         ))}
+                        <CustomColorChip
+                            value={custom}
+                            selected={wearingCustom}
+                            look={look}
+                            onPick={pickCustom}
+                            label={t('agents.customColor')}
+                        />
                     </div>
+                    {/* The colour spelled out, to type or paste one in, only
+                        while the agent is wearing its own. */}
+                    {wearingCustom && (
+                        <div className="mt-1 max-w-[16rem]">
+                            <ColorField
+                                label={t('agents.customColor')}
+                                value={look.color.toLowerCase()}
+                                onChange={pickCustom}
+                            />
+                        </div>
+                    )}
+                </div>
+
+                {/* White and black are filled already, so for them the choice
+                    stands at solid and cannot be changed. */}
+                <LookChoice
+                    label={t('agents.finishLabel')}
+                    part="finish"
+                    options={AGENT_FINISHES}
+                    available={hasHue(look.color) ? AGENT_FINISHES : []}
+                    value={hasHue(look.color) ? look.finish : 'solid'}
+                    lookFor={finish => ({ ...look, finish })}
+                    onChange={setPart('finish')}
+                />
+
+                {/* Words rather than marks: the effect only shows behind a
+                    large mark, so the preview above is where it is seen. */}
+                <div className="flex flex-col gap-1.5">
+                    <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+                        {t('agents.auraLabel')}
+                    </span>
+                    <SegmentedControl
+                        ariaLabel={t('agents.auraLabel')}
+                        segments={AGENT_AURAS.map(value => ({ value, label: t(`agents.aura.${value}`) }))}
+                        value={look.aura}
+                        onChange={setPart('aura')}
+                        className="self-start"
+                    />
+                    <span className="text-[11px] text-gray-500 dark:text-neutral-500">
+                        {t('agents.auraHint')}
+                    </span>
                 </div>
 
                 {/* Each helmet shown, and picked, in the crest already chosen

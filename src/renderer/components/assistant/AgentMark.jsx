@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { agentInk } from '../../lib/agent-colors';
+import { agentAuraInk, agentInk } from '../../lib/agent-colors';
 import { agentLook } from '../../lib/agent-look';
 import { REST, drawHelmet, framing, helmetMask, whenHelmetReady } from './helmet/renderer';
+import AgentAura from './AgentAura';
 
 /**
  * An agent's mark: a helmet in ink, turned three quarters on. A Corinthian
@@ -10,8 +11,9 @@ import { REST, drawHelmet, framing, helmetMask, whenHelmetReady } from './helmet
  * Acestes was a king in the Aeneid, so the face is a warrior's. It is drawn
  * from a real model (see `helmet/renderer.js`, and `scripts/helmets` for
  * where the models come from), live, so it can be turned. `look` is which
- * helmet it is, which crest it wears and in which of the agent colours; it
- * takes an agent, a `{ color, helmet, crest }` or a bare colour id.
+ * helmet it is, which crest it wears, in which of the agent colours (or one
+ * of the agent's own) and whether it is filled; it takes an agent, a
+ * `{ color, helmet, crest, finish }` or a bare colour id.
  *
  * Two ways of showing it:
  *
@@ -30,6 +32,11 @@ import { REST, drawHelmet, framing, helmetMask, whenHelmetReady } from './helmet
  *
  * `mono` is the same helmet in the surrounding text colour, for when the
  * mark is a control rather than the subject.
+ *
+ * `aura` draws the agent's effect behind it (`AgentAura`), if it has one:
+ * true, or `'compact'` where there is little room above the mark. Asked for
+ * only where the mark is large and alone; a row of small marks each with
+ * specks around it would be a row of noise.
  *
  * Where there is no WebGL2 to draw with, it falls back to one drawing of the
  * helmet in its resting pose (`helmet/still.js`), and does not turn.
@@ -154,7 +161,7 @@ const RANGE = (() => {
     return angles;
 })();
 
-function LiveMark({ size, helmet, crest, paper, ratio, tint, wrapperProps }) {
+function LiveMark({ size, helmet, crest, paper, ratio, tint, wrapperProps, children }) {
     const wrapper = useRef(null);
     const canvas = useRef(null);
     // A canvas bigger than the mark, so the helmet can turn without running
@@ -223,6 +230,7 @@ function LiveMark({ size, helmet, crest, paper, ratio, tint, wrapperProps }) {
 
     return (
         <span ref={wrapper} {...wrapperProps}>
+            {children}
             <canvas
                 ref={canvas}
                 width={pixels}
@@ -239,7 +247,7 @@ function LiveMark({ size, helmet, crest, paper, ratio, tint, wrapperProps }) {
     );
 }
 
-function StillMark({ size, helmet, crest, paper, pixels, wrapperProps }) {
+function StillMark({ size, helmet, crest, paper, pixels, wrapperProps, children }) {
     const [ink, ground] = useMemo(() => [
         helmetMask({ helmet, crest, size, pixels, layer: 'ink' }),
         paper ? helmetMask({ helmet, crest, size, pixels, layer: 'paper' }) : null,
@@ -248,6 +256,7 @@ function StillMark({ size, helmet, crest, paper, pixels, wrapperProps }) {
 
     return (
         <span {...wrapperProps}>
+            {children}
             {ground && <span className="agent-mark-layer" style={{ ...layer(ground), backgroundColor: paper }} />}
             {ink && <span className="agent-mark-layer agent-mark-lines" style={layer(ink)} />}
         </span>
@@ -255,7 +264,7 @@ function StillMark({ size, helmet, crest, paper, pixels, wrapperProps }) {
 }
 
 /** The one drawing, for where the helmet cannot be drawn live. */
-function DrawnMark({ helmet, crest, paper, wrapperProps }) {
+function DrawnMark({ helmet, crest, paper, wrapperProps, children }) {
     const [drawing, setDrawing] = useState(null);
     useEffect(() => {
         let current = true;
@@ -268,6 +277,7 @@ function DrawnMark({ helmet, crest, paper, wrapperProps }) {
 
     return (
         <span {...wrapperProps}>
+            {children}
             {drawing && (
                 <svg viewBox="0 0 240 240" width="100%" height="100%" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
                     {paper && <path d={drawing.outline} fill={paper} stroke="none" />}
@@ -280,14 +290,15 @@ function DrawnMark({ helmet, crest, paper, wrapperProps }) {
     );
 }
 
-export default function AgentMark({ size = 18, animated = false, mono = false, look = null, className = '' }) {
-    const { color, helmet, crest } = agentLook(look);
-    const ink = agentInk(color);
+export default function AgentMark({ size = 18, animated = false, mono = false, aura = false, look = null, className = '' }) {
+    const { color, helmet, crest, finish, aura: effect } = agentLook(look);
+    const ink = agentInk(color, finish);
     const paper = mono ? null : ink.paper;
     const canDraw = useHelmetReady(helmet);
     const ratio = usePixelRatio();
     const pixels = Math.max(1, Math.round(size * ratio));
     const live = animated && !stillMotion();
+    const specks = aura && !mono && effect !== 'none' ? agentAuraInk(color) : null;
 
     const wrapperProps = {
         'aria-hidden': 'true',
@@ -296,12 +307,19 @@ export default function AgentMark({ size = 18, animated = false, mono = false, l
             width: size,
             height: size,
             ...(mono ? null : { '--agent-ink': ink.line, '--agent-ink-dark': ink.lineDark }),
+            // Its own stacking context, so the specks at -1 sit behind the
+            // helmet but in front of whatever the mark is on.
+            ...(specks ? { '--agent-aura': specks.line, '--agent-aura-dark': specks.lineDark, isolation: 'isolate' } : null),
         },
     };
 
+    const behind = specks ? (
+        <AgentAura kind={effect} size={size} compact={aura === 'compact'} tint={`${specks.line}/${specks.lineDark}`} />
+    ) : null;
+
     // While the model loads, an empty box of the right size, so nothing moves when it arrives.
-    if (canDraw === null) return <span {...wrapperProps} />;
-    if (canDraw === false) return <DrawnMark helmet={helmet} crest={crest} paper={paper} wrapperProps={wrapperProps} />;
-    if (live) return <LiveMark size={size} helmet={helmet} crest={crest} paper={paper} ratio={ratio} tint={mono ? 'mono' : `${ink.line}/${ink.lineDark}`} wrapperProps={wrapperProps} />;
-    return <StillMark size={size} helmet={helmet} crest={crest} paper={paper} pixels={pixels} wrapperProps={wrapperProps} />;
+    if (canDraw === null) return <span {...wrapperProps}>{behind}</span>;
+    if (canDraw === false) return <DrawnMark helmet={helmet} crest={crest} paper={paper} wrapperProps={wrapperProps}>{behind}</DrawnMark>;
+    if (live) return <LiveMark size={size} helmet={helmet} crest={crest} paper={paper} ratio={ratio} tint={mono ? 'mono' : `${ink.line}/${ink.lineDark}`} wrapperProps={wrapperProps}>{behind}</LiveMark>;
+    return <StillMark size={size} helmet={helmet} crest={crest} paper={paper} pixels={pixels} wrapperProps={wrapperProps}>{behind}</StillMark>;
 }

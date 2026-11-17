@@ -1,8 +1,15 @@
-import { AGENT_COLORS } from './agent-colors';
+import { AGENT_COLORS, AGENT_FINISHES, customColor } from './agent-colors';
 
 /**
- * What an agent's mark looks like: its colour, which helmet, and what the
- * helmet wears on top.
+ * What moves behind the mark where it is large (`components/assistant/AgentAura`).
+ * Kept here rather than imported from there, so this file stays free of React.
+ */
+export const AGENT_AURAS = ['none', 'embers', 'stars', 'orbit', 'drift'];
+
+/**
+ * What an agent's mark looks like: its colour, which helmet, what the helmet
+ * wears on top, whether it is drawn in outline or filled, and what, if
+ * anything, moves behind it.
  *
  * The ids are what the agent record stores, and `src/main/agents.js` keeps
  * the same lists so an unknown one is refused on the way in. The helmets
@@ -32,7 +39,7 @@ export const AGENT_HELMETS = [
     { id: 'kabuto', crests: ['none'] },
 ];
 
-export const DEFAULT_LOOK = { color: AGENT_COLORS[0].id, helmet: 'corinthian', crest: 'plume' };
+export const DEFAULT_LOOK = { color: AGENT_COLORS[0].id, helmet: 'corinthian', crest: 'plume', finish: 'outline', aura: 'none' };
 
 /** The crests `helmet` can wear, its usual one first. */
 export function helmetCrests(helmet) {
@@ -51,9 +58,13 @@ export function agentLook(value) {
     const helmet = AGENT_HELMETS.some(entry => entry.id === source.helmet) ? source.helmet : DEFAULT_LOOK.helmet;
     const crests = helmetCrests(helmet);
     return {
-        color: AGENT_COLORS.some(color => color.id === source.color) ? source.color : DEFAULT_LOOK.color,
+        color: AGENT_COLORS.some(color => color.id === source.color)
+            ? source.color
+            : (customColor(source.color) || DEFAULT_LOOK.color),
         helmet,
         crest: crests.includes(source.crest) ? source.crest : crests[0],
+        finish: AGENT_FINISHES.includes(source.finish) ? source.finish : DEFAULT_LOOK.finish,
+        aura: AGENT_AURAS.includes(source.aura) ? source.aura : DEFAULT_LOOK.aura,
     };
 }
 
@@ -81,8 +92,13 @@ export function nextAgentLook(agents) {
     }));
     for (const wear of WEARS) {
         const free = AGENT_COLORS.find(color => !worn.has(`${color.id}/${wear.helmet}/${wear.crest}`));
-        if (free) return { color: free.id, ...wear };
+        if (free) return { color: free.id, ...wear, finish: DEFAULT_LOOK.finish, aura: DEFAULT_LOOK.aura };
     }
     const turn = (agents?.length || 0) % (AGENT_COLORS.length * WEARS.length);
-    return { color: AGENT_COLORS[turn % AGENT_COLORS.length].id, ...WEARS[Math.floor(turn / AGENT_COLORS.length)] };
+    return {
+        color: AGENT_COLORS[turn % AGENT_COLORS.length].id,
+        ...WEARS[Math.floor(turn / AGENT_COLORS.length)],
+        finish: DEFAULT_LOOK.finish,
+        aura: DEFAULT_LOOK.aura,
+    };
 }

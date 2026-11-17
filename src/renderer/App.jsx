@@ -1994,14 +1994,15 @@ function App() {
         if (agent) setAgentDialog({ agent });
     }, [agents, activeAgent]);
 
-    const handleSaveAgentName = useCallback(async (name, look, sandbox = null) => {
+    const handleSaveAgentName = useCallback(async (name, look, sandbox = null, details = {}) => {
         // The dialog hands back the part of the envelope it edits: the mode
         // at creation, and the folders either time. The registry patches, so
         // the network and session settings on the Sandbox card are untouched.
         const patch = sandbox ? { sandbox } : {};
-        const { color, helmet, crest } = look;
-        if (agentDialog?.agent) await saveAgent({ id: agentDialog.agent.id, name, color, helmet, crest, ...patch });
-        else await saveAgent({ name, color, helmet, crest, ...patch });
+        const { color, helmet, crest, finish, aura } = look;
+        const fields = { name, description: details.description ?? '', color, helmet, crest, finish, aura, ...patch };
+        if (agentDialog?.agent) await saveAgent({ id: agentDialog.agent.id, ...fields });
+        else await saveAgent(fields);
     }, [agentDialog, saveAgent]);
 
     const handleDeleteAgent = useCallback((agentId) => {

@@ -64,8 +64,36 @@ function normalizeHook(raw) {
  * The colours an agent can wear, by id. The renderer holds the actual
  * gradients (`lib/agent-colors.js`); this list only has to agree with it, so
  * an id nobody can draw is refused rather than stored.
+ *
+ * Or a colour of the person's own, as `#RRGGBB`: the renderer works out the
+ * rest of its family from it. Stored in capitals, so the same colour typed
+ * twice is the same string.
  */
 const COLORS = ['sky', 'violet', 'emerald', 'amber', 'rose', 'orange', 'teal', 'slate', 'white', 'black'];
+const HEX = /^#[0-9a-f]{6}$/i;
+
+/** A colour as it is stored, or null for one nobody can draw. */
+function colorOf(value) {
+    if (COLORS.includes(value)) return value;
+    if (typeof value === 'string' && HEX.test(value)) return value.toUpperCase();
+    return null;
+}
+
+/**
+ * How the helmet is drawn: in lines only, over whatever is behind it, or
+ * filled with its colour. White and black are filled whatever this says.
+ */
+const FINISHES = ['outline', 'solid'];
+
+/**
+ * What moves behind the mark where it is large: nothing unless asked for.
+ * Drawn by the renderer (`components/assistant/AgentAura.jsx`), whose list
+ * this has to agree with.
+ */
+const AURAS = ['none', 'embers', 'stars', 'orbit', 'drift'];
+
+/** The line under an agent's name, as long as fits there. */
+const MAX_DESCRIPTION = 60;
 
 /**
  * What the helmet on the mark wears on top, by id, the same way: the helmet
@@ -253,9 +281,12 @@ function normalizeAgent(raw) {
     return {
         id,
         name: clean(raw.name) || DEFAULT_NAME,
-        color: COLORS.includes(raw.color) ? raw.color : COLORS[0],
+        description: clean(raw.description, MAX_DESCRIPTION),
+        color: colorOf(raw.color) || COLORS[0],
         helmet: HELMETS.includes(raw.helmet) ? raw.helmet : HELMETS[0],
         crest: CRESTS.includes(raw.crest) ? raw.crest : CRESTS[0],
+        finish: FINISHES.includes(raw.finish) ? raw.finish : FINISHES[0],
+        aura: AURAS.includes(raw.aura) ? raw.aura : AURAS[0],
         createdAt: Number.isFinite(raw.createdAt) ? raw.createdAt : Date.now(),
         // The assistant settings this agent overrides. Validated by the
         // settings module on the way in and again on the way out; this only
@@ -272,13 +303,16 @@ function normalizeAgent(raw) {
     };
 }
 
-function fresh(name = DEFAULT_NAME, color = COLORS[0], crest = CRESTS[0], helmet = HELMETS[0]) {
+function fresh({ name = DEFAULT_NAME, description = '', color, crest, helmet, finish, aura } = {}) {
     return {
         id: nextId('agent'),
         name,
-        color: COLORS.includes(color) ? color : COLORS[0],
+        description: clean(description, MAX_DESCRIPTION),
+        color: colorOf(color) || COLORS[0],
         helmet: HELMETS.includes(helmet) ? helmet : HELMETS[0],
         crest: CRESTS.includes(crest) ? crest : CRESTS[0],
+        finish: FINISHES.includes(finish) ? finish : FINISHES[0],
+        aura: AURAS.includes(aura) ? aura : AURAS[0],
         createdAt: Date.now(),
         settings: {},
         mcpServers: [],
@@ -334,9 +368,12 @@ function publicAgent(agent) {
     return {
         id: agent.id,
         name: agent.name,
+        description: agent.description || '',
         color: agent.color,
         helmet: agent.helmet,
         crest: agent.crest,
+        finish: agent.finish,
+        aura: agent.aura,
         createdAt: agent.createdAt,
         mcpServers: agent.mcpServers.map(server => ({ ...server, env: { ...server.env }, headers: { ...(server.headers || {}) } })),
         sandbox: sandboxModule.normalize(agent.sandbox),
@@ -402,15 +439,19 @@ function select(id) {
  * A new one is selected on creation: making an agent and then having to pick
  * it is two steps for one intention.
  */
-function save({ id, name, color, helmet, crest, mcpServers, sandbox: envelope, hooks: hookList } = {}) {
+function save({ id, name, description, color, helmet, crest, finish, aura, mcpServers, sandbox: envelope, hooks: hookList } = {}) {
     const current = load();
     const existing = id ? current.agents.find(agent => agent.id === id) : null;
 
     if (existing) {
         if (name !== undefined) existing.name = clean(name) || existing.name;
-        if (COLORS.includes(color)) existing.color = color;
+        // Unlike the name, the description can be emptied.
+        if (description !== undefined) existing.description = clean(description, MAX_DESCRIPTION);
+        if (colorOf(color)) existing.color = colorOf(color);
         if (HELMETS.includes(helmet)) existing.helmet = helmet;
         if (CRESTS.includes(crest)) existing.crest = crest;
+        if (FINISHES.includes(finish)) existing.finish = finish;
+        if (AURAS.includes(aura)) existing.aura = aura;
         if (Array.isArray(mcpServers)) {
             existing.mcpServers = mcpServers.map(server => normalizeServer(server, existing.id)).filter(Boolean).slice(0, MAX_SERVERS);
         }
@@ -431,7 +472,7 @@ function save({ id, name, color, helmet, crest, mcpServers, sandbox: envelope, h
         return { ...snapshot(), error: `At most ${MAX_AGENTS} agents.` };
     }
 
-    const agent = fresh(clean(name) || DEFAULT_NAME, color, crest, helmet);
+    const agent = fresh({ name: clean(name) || DEFAULT_NAME, description, color, crest, helmet, finish, aura });
     if (Array.isArray(mcpServers)) {
         agent.mcpServers = mcpServers.map(server => normalizeServer(server, agent.id)).filter(Boolean).slice(0, MAX_SERVERS);
     }

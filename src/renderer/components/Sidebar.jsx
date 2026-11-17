@@ -657,6 +657,7 @@ function Sidebar({
             options: agents.map(agent => ({
                 value: agent.id,
                 label: agent.name,
+                hint: agent.description || undefined,
                 icon: <AgentMark size={14} look={agent} />,
                 actions: [
                     {
@@ -757,8 +758,13 @@ function Sidebar({
                                         truncate text-gray-900 dark:text-white">
                                         {activeAgent?.name || t('agents.agent')}
                                     </span>
-                                    <span className="block text-[11px] leading-4 truncate text-gray-500 dark:text-neutral-500">
-                                        {t('agents.agent')}
+                                    {/* What the agent is for, in its own words, or
+                                        what it is when it has not been given any. */}
+                                    <span
+                                        className="block text-[11px] leading-4 truncate text-gray-500 dark:text-neutral-500"
+                                        title={activeAgent?.description || undefined}
+                                    >
+                                        {activeAgent?.description || t('agents.agent')}
                                     </span>
                                 </span>
                                 {/* Up and down rather than down: this opens a

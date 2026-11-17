@@ -1326,7 +1326,7 @@ export default function AssistantConversation({
     // the agent does, over the composer.
     const hero = home ? (
         <div className="flex flex-col items-center text-center mb-8 select-none">
-            <AgentMark size={72} animated look={agentLook} className="mb-6" />
+            <AgentMark size={72} animated aura look={agentLook} className="mb-6" />
             <h1 className="text-[34px] leading-[1.15] font-medium tracking-[-0.03em]
                 text-gray-900 dark:text-white">
                 {t(greetingKey())}
@@ -1440,7 +1440,7 @@ export default function AssistantConversation({
                             {/* No tile behind it. The mark brings its own
                                 colour, and a grey square around a logo is
                                 a frame around a frame. */}
-                            <AgentMark size={80} animated look={agentLook} className="mb-3" />
+                            <AgentMark size={80} animated aura look={agentLook} className="mb-3" />
                             <h2 className="text-sm font-semibold text-gray-900 dark:text-white">
                                 {line.text}
                             </h2>
