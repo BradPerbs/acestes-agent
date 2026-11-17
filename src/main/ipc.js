@@ -29,7 +29,6 @@ const computer = require('./ai/computer');
 const buddy = require('./ai/buddy');
 const tray = require('./tray');
 const speech = require('./ai/speech');
-const browserUse = require('./ai/browser-use');
 const updates = require('./updates');
 const startup = require('./startup');
 const failover = require('./failover');
@@ -1615,13 +1614,6 @@ function register(getWindow) {
                 to: next.computerUse ? 'on' : 'off',
             });
         }
-        if (Boolean(before.browserUse) !== Boolean(next.browserUse)) {
-            changes.push({
-                field: 'browser use',
-                from: before.browserUse ? 'on' : 'off',
-                to: next.browserUse ? 'on' : 'off',
-            });
-        }
         // Not a widening, but the one setting here that deletes things, so
         // the record of who chose it sits beside what it deleted.
         if ((before.historyDays || 0) !== (next.historyDays || 0)) {
@@ -1637,7 +1629,6 @@ function register(getWindow) {
                 detail: `Approvals: ${next.approval}`
                     + `${next.allowLocalTools ? ', local tools allowed' : ''}`
                     + `${next.computerUse ? ', computer use on' : ''}`
-                    + `${next.browserUse ? ', browser use on' : ''}`
                     + `${next.historyDays > 0 ? `, conversations kept ${next.historyDays} days` : ''}`,
                 changes,
             });
@@ -2250,13 +2241,6 @@ function register(getWindow) {
             return { ok: false, error: error.message };
         }
     });
-
-    // Browser use: whether this computer has what the Playwright server
-    // needs, and installing Node.js when it does not. The install is the
-    // user's to start, from the button in Settings that says so.
-    browserUse.setNotifier(state => broadcast('ai-browser', state));
-    handle('ai-browser-status', () => browserUse.status());
-    handle('ai-browser-install-node', () => browserUse.installNode());
 
     // Live dictation (Parakeet or Nemotron, as Settings says): audio streamed
     // in while the user talks, the words so far sent back to the window that

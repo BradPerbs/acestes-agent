@@ -10,7 +10,6 @@ import Toggle from './ui/Toggle';
 import Slider from './ui/Slider';
 import SegmentedControl from '../ui/SegmentedControl';
 import Capability, { Detail } from './Capability';
-import BrowserUse from './BrowserUse';
 import BuddyCard from './BuddyCard';
 import useAssistantSettings from './useAssistantSettings';
 import { useT } from '../../i18n';
@@ -18,9 +17,9 @@ import { useT } from '../../i18n';
 /**
  * What the selected agent can reach and operate, as a list of switches.
  *
- * Four things, from least reach to most: the servers (always, it is what the
- * agent is for), files and commands on this computer, the desktop's own apps
- * with the real mouse and keyboard, and a web browser. Each is a row with a
+ * Three things, from least reach to most: the servers (always, it is what the
+ * agent is for), files and commands on this computer, and the desktop's own
+ * apps with the real mouse and keyboard. Each is a row with a
  * name a person would use for it, one line on what it means, and a switch;
  * what there is to set once one is on opens underneath it. The long
  * explanations the old page led with are still there, under the switch they
@@ -155,8 +154,6 @@ export default function AgenticSection() {
                         </div>
                     </Capability>
                 )}
-
-                <BrowserUse className={DIVIDED} settings={settings} update={update} />
             </SettingCard>
 
             {/* The buddy: how an agent using this computer shows itself, and,

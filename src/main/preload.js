@@ -748,12 +748,6 @@ contextBridge.exposeInMainWorld('api', {
         speechStatus: (options) => ipcRenderer.invoke('ai-speech-status', options || {}),
         speechInstall: () => ipcRenderer.invoke('ai-speech-install'),
         speechDownload: (engine) => ipcRenderer.invoke('ai-speech-download', engine),
-        // Browser use, for its settings: whether Node.js and a browser are
-        // here, installing Node.js, and that install's output as it goes.
-        // See main/ai/browser-use.js.
-        browserStatus: () => ipcRenderer.invoke('ai-browser-status'),
-        browserInstallNode: () => ipcRenderer.invoke('ai-browser-install-node'),
-        onBrowser: (callback) => subscribe('ai-browser', callback),
         // Live dictation (Parakeet): audio streamed in as it is recorded,
         // `onDictation` hearing the words so far, stop handing back the rest.
         dictationStart: () => ipcRenderer.invoke('ai-dictation-start'),

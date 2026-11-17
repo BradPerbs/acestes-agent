@@ -2,7 +2,6 @@ const { app, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const agents = require('../agents');
-const { isBrowserServer } = require('./browser-use');
 const buddyTone = require('./buddy-tone');
 const openrouterTts = require('./openrouter-tts');
 
@@ -264,11 +263,6 @@ const DEFAULTS = {
     bareProvider: false,
     // How fast the cursor travels and the typing goes, so it can be followed.
     computerPace: 'normal',
-    // Whether the agent is handed its browser: the Playwright MCP servers on
-    // its inventory (browser-use.js). On by default, so an agent that was
-    // given one keeps it; off keeps the server record and simply leaves it
-    // out, so a server set up by hand is still there when it comes back on.
-    browserUse: true,
     // Speaking a message instead of typing it: the composer's microphone,
     // transcribed on this machine. On from the start with Parakeet, which
     // writes as the user talks and needs nothing installed; the two Whispers
@@ -542,7 +536,6 @@ function sanitize(raw) {
             next.toolBundles = { ...DEFAULTS.toolBundles };
         }
         if (COMPUTER_PACES.has(raw.computerPace)) next.computerPace = raw.computerPace;
-        if ('browserUse' in raw) next.browserUse = Boolean(raw.browserUse);
         if ('voiceInput' in raw) next.voiceInput = Boolean(raw.voiceInput);
         if (VOICE_ENGINES.has(raw.voiceEngine)) next.voiceEngine = raw.voiceEngine;
         if (VOICE_MODELS.has(raw.voiceModel)) next.voiceModel = raw.voiceModel;
@@ -688,7 +681,7 @@ const PER_AGENT = [
     'provider', 'model', 'effort', 'approval', 'starred', 'commandMode', 'maxTurns',
     'transcriptLines', 'allowLocalTools', 'autoApproveCommands',
     'blockedCommands', 'quickPrompts', 'instructions', 'memory', 'autoRemember', 'memoryTidy',
-    'accounts', 'menuAccounts', 'computerUse', 'computerPace', 'browserUse',
+    'accounts', 'menuAccounts', 'computerUse', 'computerPace',
     'toolBundles', 'bareProvider',
 ];
 
@@ -715,10 +708,7 @@ function get(agentId) {
         ...current,
         agentId: id,
         // The agent's MCP servers ride along so a provider reads one object.
-        // Its browser among them only while browser use is on: this is the
-        // one place every runtime reads its servers from.
-        mcpServers: (agents.get(id)?.mcpServers || [])
-            .filter(server => current.browserUse || !isBrowserServer(server)),
+        mcpServers: agents.get(id)?.mcpServers || [],
         // The envelope, for the same reason. A containerised agent has the
         // runtime's own local tools forced off here, once, so every provider
         // and the tool gate read the same answer: on this machine, that agent

@@ -1554,7 +1554,7 @@ export default {
         + 'the hooks that run around its work.',
     'settings.agentic.title': 'Agentic Use',
     'settings.agentic.desc': 'What {name} can reach and operate: commands on your servers, files and '
-        + 'a shell on this computer, the desktop’s own apps, and a web browser.',
+        + 'a shell on this computer, and the desktop’s own apps.',
     'settings.agentic.alwaysOn': 'Always on',
     'settings.agentic.servers': 'Your servers',
     'settings.agentic.serversDesc': 'Works through the SSH sessions you open. It never sees a stored '
@@ -1565,35 +1565,6 @@ export default {
     'settings.agentic.desktop': 'Desktop apps',
     'settings.agentic.desktopDesc': 'Uses the apps on your screen with the real mouse and keyboard, '
         + 'where you can watch. Also called computer use.',
-    'settings.agentic.browser': 'Web browser',
-    'settings.agentic.browserDesc': 'Opens pages in a real browser and clicks, types, fills forms and '
-        + 'reads them. Also called browser use.',
-    'settings.agentic.browserChecking': 'Checking this computer for what the browser needs…',
-    'settings.agentic.browserAdding': 'Setting up Playwright for this agent…',
-    'settings.agentic.browserTesting': 'Starting the browser server once to check it works. The first '
-        + 'start downloads Playwright, which can take a minute.',
-    'settings.agentic.browserReady_one': '{name} is ready, with {count} browser tool.',
-    'settings.agentic.browserReady_other': '{name} is ready, with {count} browser tools.',
-    'settings.agentic.browserSetUp': '{name} is set up.',
-    'settings.agentic.browserTest': 'Check it works',
-    'settings.agentic.browserRetry': 'Try again',
-    'settings.agentic.browserSlow': 'It did not answer in time. The first start downloads Playwright, '
-        + 'so give it another go in a moment.',
-    'settings.agentic.browserFailed': 'The browser server did not start: {error}',
-    'settings.agentic.browserSetupFailed': 'The browser could not be set up.',
-    'settings.agentic.browserMissing': 'No Chrome or Edge was found on this computer. Install one, '
-        + 'then check again.',
-    'settings.agentic.getChrome': 'Get Google Chrome',
-    'settings.agentic.checkAgain': 'Check again',
-    'settings.agentic.browserWindow': 'Show the browser window',
-    'settings.agentic.browserWindowDesc': 'Watch it work and step in for a sign-in or a captcha. Off, '
-        + 'it runs out of sight.',
-    'settings.agentic.browserExtension': 'Drives your own browser through the Playwright extension, '
-        + 'with your tabs and sign-ins.',
-    'settings.agentic.browserManage': 'Switching this off keeps {name}, so nothing has to be set up '
-        + 'again. Its full settings are in Inventory > MCP servers.',
-    'settings.agentic.nodeMissing': 'The browser runs on Node.js, which is not installed on this '
-        + 'computer.',
     'settings.agentic.bundles': 'Tool bundles',
     'settings.buddy.title': 'Buddy',
     'settings.buddy.desc': 'Whenever an agent uses this computer, from a chat or by voice, the buddy shows what it '
@@ -1650,15 +1621,6 @@ export default {
     'settings.agentic.bundle.integrations': 'Secrets and MCP',
     'settings.agentic.bundleTools_one': '{count} tool',
     'settings.agentic.bundleTools_other': '{count} tools',
-    'settings.agentic.nodeOld': 'Node.js {version} is too old for the browser. It needs version 18 or '
-        + 'later.',
-    'settings.agentic.nodeInstall': 'Install Node.js',
-    'settings.agentic.nodeDownload': 'Download from nodejs.org',
-    'settings.agentic.nodeInstalling': 'Installing Node.js…',
-    'settings.agentic.nodeInstallFailed': 'Node.js could not be installed.',
-    'settings.agentic.nodeInstallNote.winget': 'Installs the LTS release with winget. Windows may ask '
-        + 'for permission.',
-    'settings.agentic.nodeInstallNote.brew': 'Installs it with Homebrew.',
     'settings.agentic.stepsDesc': 'How many tool calls one question may take before the agent stops and '
         + 'reports back. Slide to the end for no limit.',
     'settings.agentic.stepsUnlimited': 'No limit: a turn goes on until the work is done or you stop '

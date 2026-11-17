@@ -1357,11 +1357,10 @@ function resolved(agentId) {
  * Changing one of these means the query has to be started again.
  */
 // computerUse among them: Claude Code loads the computer tools up front only
-// while it is on (see providers/claude-code.js). browserUse too: it decides
-// whether the browser's MCP server is in the set the query was started with.
-// memory as well: the notes and the memory section are in the system prompt,
-// which is only written when a query starts.
-const RESTART_ON = ['provider', 'maxTurns', 'allowLocalTools', 'computerUse', 'browserUse', 'memory', 'toolBundles', 'bareProvider'];
+// while it is on (see providers/claude-code.js). memory as well: the notes and
+// the memory section are in the system prompt, which is only written when a
+// query starts.
+const RESTART_ON = ['provider', 'maxTurns', 'allowLocalTools', 'computerUse', 'memory', 'toolBundles', 'bareProvider'];
 
 /** Bundle toggles compared by value: a fresh object per sanitize. */
 function bundlesChanged(before, after) {
