@@ -214,7 +214,50 @@ check('passes a single manifest through unchanged', () => {
     assert.strictEqual(result.text, only);
 });
 
-console.log(`\n${passed} passed`);
+/* ------------------------------------------------------------------ *
+ * Checking
+ * ------------------------------------------------------------------ */
 
-Module._load = realLoad;
-fs.rmSync(userData, { recursive: true, force: true });
+const checkAsync = async (label, fn) => {
+    try {
+        await fn();
+        console.log(`  ok   ${label}`);
+        passed++;
+    } catch (error) {
+        console.log(`  FAIL ${label}`);
+        console.log(`       ${error.message}`);
+        process.exitCode = 1;
+    }
+};
+
+(async () => {
+    console.log('\nupdates: checking');
+
+    const pushed = [];
+    updates.start((channel, next) => { if (channel === 'updates-state') pushed.push(next); });
+
+    await checkAsync('a finished check stops saying it is checking', async () => {
+        // The stub's fetch fails, which is a check with nothing coming after
+        // it: the same shape as one that finds no update. The button reads
+        // `checking` from the reply and from the last push, so both must be
+        // clear or it says "Checking..." forever.
+        const result = await updates.check({ manual: true });
+
+        assert.strictEqual(result.status.checking, false);
+        assert.strictEqual(pushed[pushed.length - 1].checking, false);
+        assert.strictEqual(updates.status().checking, false);
+    });
+
+    await checkAsync('says it is checking while the request is out', async () => {
+        pushed.length = 0;
+        const pending = updates.check({ manual: true });
+
+        assert.strictEqual(pushed[0].checking, true);
+        await pending;
+    });
+
+    console.log(`\n${passed} passed`);
+
+    Module._load = realLoad;
+    fs.rmSync(userData, { recursive: true, force: true });
+})();

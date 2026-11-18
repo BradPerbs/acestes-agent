@@ -758,9 +758,29 @@ async function check({ manual = false } = {}) {
         current.manual.push(Date.now());
     }
 
-    inFlight = (installable() ? runInstall() : runNotify()).finally(() => {
+    /*
+     * `inFlight` is cleared before the last word goes out, not after it.
+     * `runInstall` and `runNotify` push their result while the request is
+     * still counted as running, so the status they hand back says `checking`.
+     * When an update is found the download's events correct that a moment
+     * later, but when there is none nothing else is coming, and a button that
+     * reads `checking` off that status said "Checking..." for good.
+     */
+    const settle = () => {
         inFlight = null;
-    });
+        emit();
+    };
+
+    inFlight = (installable() ? runInstall() : runNotify()).then(
+        (result) => {
+            settle();
+            return { ...result, status: status() };
+        },
+        (error) => {
+            settle();
+            throw error;
+        },
+    );
 
     // Lets the button go into its pending state without waiting for the
     // request, since `checking` reads from `inFlight`.

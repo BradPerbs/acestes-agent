@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useEnterOn } from '../hooks/useEnter';
-import { Notification03Icon } from 'hugeicons-react';
+import { Loading03Icon, Notification03Icon, Refresh01Icon } from 'hugeicons-react';
 import useUpdate from '../hooks/useUpdate';
+import { formatDateTime } from '../lib/format';
+import { useT } from '../i18n';
 import Tooltip from './ui/Tooltip';
 
 /**
@@ -63,8 +65,34 @@ function NotificationItem({ item }) {
     );
 }
 
+/**
+ * The line under "Check for updates": the answer to the last press, or else
+ * what is already known. Empty when the update row above says it already, or
+ * while a download or restart is the thing in progress.
+ */
+function checkLine(t, status, message) {
+    if (message) return message;
+    if (!status || status.checking || status.downloading || status.ready) return '';
+
+    // Newer but not on the row above: a version this user was already sent
+    // to download, which is still worth saying when they ask.
+    if (status.newer) {
+        if (status.available) return '';
+        return status.mode === 'install'
+            ? t('settings.about.available', { version: status.latest.version })
+            : t('settings.about.availableToDownload', { version: status.latest.version });
+    }
+
+    return status.checkedAt
+        ? t('settings.about.upToDate', { when: formatDateTime(status.checkedAt) })
+        : '';
+}
+
 export default function NotificationsMenu({ items = [], onMarkAllRead }) {
+    const t = useT();
     const [open, setOpen] = useState(false);
+    const [checkBusy, setCheckBusy] = useState(false);
+    const [checkMessage, setCheckMessage] = useState('');
     const [pos, setPos] = useState(null);
     const btnRef = useRef(null);
     const panelRef = useRef(null);
@@ -75,7 +103,7 @@ export default function NotificationsMenu({ items = [], onMarkAllRead }) {
 
     // `open` is the panel's own state above, so the browser handoff is renamed
     // rather than shadowed.
-    const { status, open: openInBrowser, download, install } = useUpdate();
+    const { status, check, open: openInBrowser, download, install } = useUpdate();
 
     // `available` and not `newer`: in notify mode a version the user has
     // already been sent to download is still newer, and still not worth a dot
@@ -125,6 +153,34 @@ export default function NotificationsMenu({ items = [], onMarkAllRead }) {
     );
 
     const close = useCallback(() => setOpen(false), []);
+
+    // The same check as the About page, and the same rules for when it can
+    // run. The panel stays open so the answer lands where it was asked: a
+    // found update appears as the row at the top, anything else as the line
+    // under the button.
+    const checking = checkBusy || Boolean(status?.checking);
+    const canCheck = Boolean(status) && !status.disabled;
+
+    const runCheck = async () => {
+        setCheckBusy(true);
+        setCheckMessage('');
+
+        try {
+            const result = await check();
+            setCheckMessage(result.success ? '' : result.message);
+        } catch (error) {
+            setCheckMessage(error.message);
+        } finally {
+            setCheckBusy(false);
+        }
+    };
+
+    // A failure from the last time the panel was open is not news now.
+    useEffect(() => {
+        if (open) setCheckMessage('');
+    }, [open]);
+
+    const checkNote = checking ? '' : checkLine(t, status, checkMessage);
 
     // Measured before paint, or the panel shows up at the top-left of the
     // window for a frame on its way to the corner.
@@ -267,6 +323,43 @@ export default function NotificationsMenu({ items = [], onMarkAllRead }) {
                         <div className="px-2 py-5 text-center text-[11px] text-gray-400 dark:text-neutral-500">
                             No notifications
                         </div>
+                    )}
+
+                    {canCheck && (
+                        <>
+                            <div className="-mx-1 my-1 border-t border-gray-100 dark:border-neutral-800" />
+                            {/* Disabled while a download runs or a build waits
+                                for a restart, as on the About page: a check then
+                                could only start the transfer over. */}
+                            <button
+                                type="button"
+                                onClick={runCheck}
+                                disabled={checking || Boolean(status.downloading) || ready}
+                                className="w-full flex items-start gap-2 px-2 py-1.5 rounded-lg text-left transition-colors
+                                    hover:bg-gray-100 dark:hover:bg-neutral-800
+                                    disabled:cursor-not-allowed disabled:hover:bg-transparent dark:disabled:hover:bg-transparent"
+                            >
+                                <span className="mt-px shrink-0 text-gray-500 dark:text-gray-400">
+                                    {checking
+                                        ? <Loading03Icon size={13} strokeWidth={2} className="animate-spin" />
+                                        : <Refresh01Icon size={13} strokeWidth={2} />}
+                                </span>
+                                <span className="flex-1 min-w-0">
+                                    <span className={`block text-xs font-medium ${
+                                        status.downloading || ready
+                                            ? 'text-gray-400 dark:text-neutral-500'
+                                            : 'text-gray-900 dark:text-white'
+                                    }`}>
+                                        {checking ? t('settings.about.checkingShort') : t('settings.about.checkNow')}
+                                    </span>
+                                    {checkNote && (
+                                        <span className="block mt-0.5 text-[11px] leading-snug text-gray-400 dark:text-neutral-500">
+                                            {checkNote}
+                                        </span>
+                                    )}
+                                </span>
+                            </button>
+                        </>
                     )}
                 </div>,
                 document.body
