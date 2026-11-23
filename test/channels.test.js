@@ -609,6 +609,31 @@ async function teardown(env) {
         }
     });
 
+    await check('words said with tell_user go out at once, mid-turn, and are not a step', async () => {
+        const env = await setup();
+        try {
+            await pairOwner(env);
+            env.telegram.message(OWNER, 'what are approvals? then set the key');
+            await until(() => env.ai.calls.send.length === 1, { label: 'send' });
+            const id = env.ai.calls.send[0].id;
+
+            env.ai.emit(id, { type: 'user-message', text: 'what are approvals? then set the key', channel: 'telegram' });
+            env.ai.emit(id, { type: 'tool-call', name: 'tell_user', input: { text: 'Approvals are a yes or no from a person.' } });
+            env.ai.emit(id, { type: 'assistant-text', text: 'Approvals are a yes or no from a person.', told: true });
+            await until(() => env.telegram.sent('sendMessage').some(call => /Approvals are a yes or no/.test(call.body.text)), { label: 'told' });
+            env.ai.emit(id, { type: 'tool-call', name: 'run_local_command', input: { command: 'convex env set' } });
+            env.ai.emit(id, { type: 'assistant-text', text: 'The key is set.' });
+            env.ai.emit(id, { type: 'result', subtype: 'success', isError: false });
+            await until(() => env.telegram.sent('sendMessage').some(call => /The key is set/.test(call.body.text)), { label: 'reply' });
+            const told = env.telegram.sent('sendMessage').filter(call => /Approvals are a yes or no/.test(call.body.text));
+            assert.strictEqual(told.length, 1, 'sent once, not again with the reply');
+            const everything = [...env.telegram.sent('sendMessage'), ...env.telegram.sent('editMessageText')].map(call => call.body.text).join('\n');
+            assert.ok(!/tell_user/.test(everything), 'no step line for it');
+        } finally {
+            await teardown(env);
+        }
+    });
+
     await check('an approval card is answered from the phone, and says so', async () => {
         const env = await setup();
         try {

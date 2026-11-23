@@ -1123,8 +1123,15 @@ const TOOLS = [
             + 'answer. Use it when the next step depends on a choice only they can make: which of two '
             + 'hosts, whether to proceed a particular way, a value you cannot find. Not for approval of a '
             + 'tool call, which the app asks on its own. Keep the question to one line and the options '
-            + 'to two to four; the user can always type something else.',
+            + 'to two to four; the user can always type something else. What you write just before this '
+            + 'call may reach the user only as a one-line summary: anything they must read in full before '
+            + 'they answer (the answer to something they asked you, what you found, what the choice rests on) '
+            + 'goes in message.',
         shape: {
+            message: z.string().max(6000).optional()
+                .describe('What the user should read before the question, shown in full above it as your words: '
+                    + 'the answer to a question they asked you, a finding, the facts the choice rests on. Markdown. '
+                    + 'Leave it out when the question says enough.'),
             question: z.string().min(1).max(500).describe('The question, one or two sentences.'),
             options: z.array(z.string().min(1).max(120)).min(0).max(6).optional()
                 .describe('Answers to offer, in the order to show them. Omit for a free-text answer.'),
@@ -1137,6 +1144,7 @@ const TOOLS = [
             if (typeof ctx.askUser !== 'function') return fail('There is no one to ask here.');
             const options = (input.options || []).map(option => String(option).trim()).filter(Boolean).slice(0, 6);
             const reply = await ctx.askUser({
+                message: input.message || '',
                 question: input.question,
                 options,
                 secret: input.secret || '',
@@ -1155,6 +1163,28 @@ const TOOLS = [
                 });
             }
             return ok({ answer: reply.answer, chosen: reply.chosen || undefined });
+        },
+    },
+
+    {
+        name: 'tell_user',
+        title: 'Tell the user something, word for word',
+        // It changes nothing anywhere: it puts the agent's words in the chat.
+        readOnly: true,
+        description:
+            'Show the user a message in this conversation now, word for word, and carry on working. What you write '
+            + 'between tool calls may reach them only as a one-line summary; this arrives in full. Use it when they '
+            + 'must read something exactly before your turn ends: the answer to a question they asked you while you '
+            + 'keep working, a finding with its numbers, a command or value they need. Not for routine progress, '
+            + 'which your ordinary notes cover, and not for your final reply. Before a question, use ask_user\'s '
+            + 'message instead.',
+        shape: {
+            text: z.string().min(1).max(8000).describe('The message, in Markdown, exactly as the user should read it.'),
+        },
+        handler: async (input, ctx) => {
+            if (typeof ctx.tellUser !== 'function') return fail('There is no chat to show it in here. Put it in your reply.');
+            ctx.tellUser(input.text);
+            return ok({ shown: true });
         },
     },
 
@@ -1415,6 +1445,7 @@ const BUNDLE_OF = {
     connect_host: 'core',
     disconnect_session: 'core',
     ask_user: 'core',
+    tell_user: 'core',
     list_local_directory: 'core',
     read_local_file: 'core',
     search_local_files: 'core',

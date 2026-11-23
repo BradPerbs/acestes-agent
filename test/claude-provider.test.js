@@ -271,6 +271,47 @@ async function run() {
     assert.deepStrictEqual(ordinary.map(event => event.type), ['assistant-text', 'result']);
     assert.strictEqual(ordinary[1].isError, false);
 
+    // A note written between tool calls on Opus 5.5 comes back as a thinking
+    // block the server stamped 'narration': it is what the agent said, so it
+    // goes out as text. Listed by the CLI beside the message, or read from
+    // the signature when the CLI is older (this one is the envelope's head,
+    // field 2 > 1 > 8 = "narration", as Claude Code 2.1.325 received it).
+    const signature = (kind) => {
+        const tag = Buffer.from(kind);
+        const inner = Buffer.concat([Buffer.from([0x08, 0x14, 0x18, 0x02, 0x38, 0x01, 0x42, tag.length]), tag]);
+        const middle = Buffer.concat([Buffer.from([0x0a, inner.length]), inner]);
+        return Buffer.concat([Buffer.from([0x08, 0x04, 0x12, middle.length]), middle]).toString('base64');
+    };
+    const narrated = [];
+    provider.translate({
+        type: 'assistant',
+        message: {
+            role: 'assistant',
+            content: [
+                { type: 'thinking', thinking: '', signature: signature('thinking') },
+                { type: 'thinking', thinking: 'Staging has the key now.\n\n', signature: signature('narration') },
+                { type: 'thinking', thinking: 'a reasoning summary', signature: signature('thinking') },
+            ],
+        },
+        parent_tool_use_id: null,
+    }, event => narrated.push(event));
+    assert.deepStrictEqual(narrated, [{ type: 'assistant-text', text: 'Staging has the key now.', narration: true }]);
+    const listedNarration = [];
+    provider.translate({
+        type: 'assistant',
+        narration_block_indexes: [1],
+        message: { role: 'assistant', content: [{ type: 'text', text: 'Done.' }, { type: 'thinking', thinking: 'Found it.', signature: '' }] },
+        parent_tool_use_id: null,
+    }, event => listedNarration.push(event));
+    assert.deepStrictEqual(listedNarration.map(event => [event.text, Boolean(event.narration)]), [['Done.', false], ['Found it.', true]]);
+    const unreadable = [];
+    provider.translate({
+        type: 'assistant',
+        message: { role: 'assistant', content: [{ type: 'thinking', thinking: 'x', signature: '%%%' }, { type: 'thinking', thinking: 'y', signature: 'CAQS' }] },
+        parent_tool_use_id: null,
+    }, event => unreadable.push(event));
+    assert.deepStrictEqual(unreadable, [], 'a signature that cannot be read is thinking');
+
     // None of this on the other platforms, where npm and Homebrew put a real
     // `claude` on PATH.
     const posixNpm = provider.claudeCandidates({

@@ -1375,7 +1375,9 @@ function createGateway(deps = {}) {
             return;
         }
         const buttons = options.map((option, index) => [{ text: format.clip(option, 60), data: `q:${card.key}:${index}` }]);
-        sendCard(card, `**Question**${from}\n${md(event.question || '')}${options.length ? '' : '\n\n_Reply with your answer._'}`,
+        // What it wanted read first, ahead of the question.
+        const before = event.message ? `${md(format.clip(String(event.message), 3000))}\n\n` : '';
+        sendCard(card, `${before}**Question**${from}\n${md(event.question || '')}${options.length ? '' : '\n\n_Reply with your answer._'}`,
             buttons.length ? buttons : null);
     }
 
@@ -1468,13 +1470,20 @@ function createGateway(deps = {}) {
                 return;
             case 'tool-call':
                 if (entry.quiet) return;
-                entry.steps.push(stepLine(event));
+                // Telling the user something is not a step: the words go out
+                // on their own (`told` below).
+                if (!/(^|[_.:/])tell_user$/.test(String(event.name || ''))) entry.steps.push(stepLine(event));
                 // What the agent said before a tool call was narration; the
                 // reply is what it says after the last one.
                 entry.texts = [];
                 scheduleProgress(entry);
                 return;
             case 'assistant-text':
+                // Said with tell_user: for the user now, not held for the reply.
+                if (event.told) {
+                    if (!entry.quiet && event.text) sendReply(entry.chatId, event.text);
+                    return;
+                }
                 if (event.text) entry.texts.push(String(event.text));
                 return;
             case 'turn-resumed':

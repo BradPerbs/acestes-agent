@@ -206,6 +206,48 @@ async function main() {
         assert.ok(state.items.some(item => item.kind === 'notice' && item.text === 'Stopped.'));
     });
 
+    check('a narration note is drawn once, as what it said, not also as a thought', () => {
+        const note = 'Staging has the key now. Approvals are a yes or no from a person.';
+        const state = replay([
+            { type: 'user-message', text: 'go', at: 1 },
+            { type: 'thinking-start', at: 2 },
+            { type: 'thinking-delta', text: note, at: 3 },
+            { type: 'assistant-text', text: note, narration: true, at: 4 },
+            { type: 'tool-call', id: 't1', name: 'ask_user', input: {}, at: 5 },
+        ]);
+        const said = state.items.filter(item => item.kind === 'assistant');
+        assert.strictEqual(said.length, 1);
+        assert.strictEqual(said[0].text, note);
+        assert.strictEqual(said[0].thinking, '');
+    });
+
+    check('a question with a message draws the message as its words above the question', () => {
+        const state = replay([
+            { type: 'user-message', text: 'what are approvals?', at: 1 },
+            { type: 'question-request', requestId: 'ask-1', message: 'Approvals are a yes or no from a person.', question: 'Build them next?', options: ['Yes', 'No'], at: 2 },
+        ]);
+        const kinds = state.items.map(item => item.kind);
+        assert.deepStrictEqual(kinds.slice(-2), ['assistant', 'question']);
+        assert.strictEqual(state.items[state.items.length - 2].text, 'Approvals are a yes or no from a person.');
+    });
+
+    check('tell_user draws its words as the agent\'s message and no row of its own', () => {
+        const state = replay([
+            { type: 'user-message', text: 'what are approvals? and set the key', at: 1 },
+            { type: 'text-delta', text: 'Answering first.', at: 2 },
+            { type: 'tool-call', id: 't1', name: 'tell_user', input: { text: 'Approvals are a yes or no from a person.' }, at: 3 },
+            { type: 'assistant-text', text: 'Approvals are a yes or no from a person.', told: true, at: 4 },
+            { type: 'tool-result', id: 't1', isError: false, text: '{"shown":true}', at: 5 },
+            { type: 'tool-call', id: 't2', name: 'mcp__remote__tell_user', input: { text: 'Second.' }, at: 6 },
+            { type: 'assistant-text', text: 'Second.', told: true, at: 7 },
+        ]);
+        assert.ok(!state.items.some(item => item.kind === 'tool'), 'no tell_user rows');
+        assert.deepStrictEqual(
+            state.items.filter(item => item.kind === 'assistant').map(item => item.text),
+            ['Answering first.', 'Approvals are a yes or no from a person.', 'Second.'],
+        );
+    });
+
     check('a finished turn keeps its answer rate', () => {
         const state = replay([
             { type: 'user-message', text: 'go', at: 1000 },

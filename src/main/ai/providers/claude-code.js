@@ -569,7 +569,9 @@ function userContent(text, images = []) {
  */
 const ALWAYS_LOADED = new Set([
     'remember', 'recall', 'forget',
-    'ask_user',
+    // tell_user too: it is for a model whose notes are summarised, and one
+    // that must look it up first will just write the note instead.
+    'ask_user', 'tell_user',
     'search_conversations', 'read_conversation',
     'run_command', 'read_terminal', 'send_input', 'list_sessions', 'list_hosts', 'connect_host',
     'run_local_command', 'read_local_file', 'write_local_file', 'edit_local_file',
@@ -1377,6 +1379,91 @@ function resultEvent(message) {
 }
 
 /**
+ * One length-delimited field of a protobuf message, by number, or null.
+ * Only as much of the format as `blockKind` needs: varints are skipped,
+ * fixed-width fields stepped over, anything else ends the read.
+ */
+function protoField(bytes, wanted) {
+    const varint = (at) => {
+        let value = 0;
+        let scale = 1;
+        while (at < bytes.length) {
+            const byte = bytes[at];
+            at += 1;
+            value += (byte & 0x7f) * scale;
+            if (byte < 0x80) return [value, at];
+            scale *= 128;
+            if (scale > 2 ** 56) return [0, -1];
+        }
+        return [0, -1];
+    };
+    let at = 0;
+    while (at < bytes.length) {
+        const [key, next] = varint(at);
+        if (next < 0) return null;
+        at = next;
+        const number = Math.floor(key / 8);
+        const wire = key % 8;
+        if (wire === 0) {
+            const [, after] = varint(at);
+            if (after < 0) return null;
+            at = after;
+        } else if (wire === 2) {
+            const [length, start] = varint(at);
+            if (start < 0 || start + length > bytes.length) return null;
+            if (number === wanted) return bytes.subarray(start, start + length);
+            at = start + length;
+        } else if (wire === 1) {
+            at += 8;
+        } else if (wire === 5) {
+            at += 4;
+        } else {
+            return null;
+        }
+    }
+    return null;
+}
+
+/**
+ * The kind the server stamped on a thinking block's signature: 'thinking',
+ * or 'narration' for a note written between tool calls. Read the way the CLI
+ * reads it (field 2, then 1, then 8); '' for anything it cannot read.
+ */
+function blockKind(signature) {
+    try {
+        const none = Buffer.alloc(0);
+        const outer = protoField(Buffer.from(String(signature || ''), 'base64'), 2) || none;
+        const kind = protoField(protoField(outer, 1) || none, 8);
+        return kind ? kind.toString('utf8') : '';
+    } catch {
+        return '';
+    }
+}
+
+/**
+ * Which of a message's blocks are narration rather than thinking.
+ *
+ * On Claude Opus 5.5 and Fable 5.1 and later, a note the model writes to the
+ * user between tool calls no longer arrives as text: the server returns a
+ * short summary of it as a `thinking` block. Read as thinking, those notes
+ * were drawn as a thought and never kept, so a long turn said nothing, and a
+ * user who asked something mid-turn saw no answer. The CLI lists them as
+ * `narration_block_indexes` beside the message; a CLI from before that field
+ * lists nothing, so the signature is read instead.
+ */
+function narrationIndexes(message, blocks) {
+    const listed = Array.isArray(message.narration_block_indexes)
+        ? message.narration_block_indexes.filter(index => Number.isInteger(index) && blocks[index]?.type === 'thinking')
+        : [];
+    if (listed.length) return listed;
+    const found = [];
+    blocks.forEach((block, index) => {
+        if (block?.type === 'thinking' && block.signature && blockKind(block.signature) === 'narration') found.push(index);
+    });
+    return found;
+}
+
+/**
  * One SDK message, as one or more transcript events.
  *
  * A subagent's messages arrive on the same stream, marked with the call that
@@ -1460,8 +1547,30 @@ function translate(message, onEvent) {
                 break;
             }
             const blocks = message.message?.content || [];
-            const text = blocks.filter(block => block.type === 'text').map(block => block.text).join('');
-            if (text.trim()) onEvent({ type: 'assistant-text', text, ...(parentId ? { parentId } : {}) });
+            // What it said between tool calls, as the runtime hands it over
+            // on models that summarise those notes (see `narrationIndexes`).
+            // They are its words to the user, not its thinking: shown and
+            // kept as such, or a whole turn reads as silence.
+            // In the order they came: a run of text blocks is one message, a
+            // note is one of its own.
+            const narrated = new Set(narrationIndexes(message, blocks));
+            const mark = parentId ? { parentId } : {};
+            let text = '';
+            const flush = () => {
+                if (text.trim()) onEvent({ type: 'assistant-text', text, ...mark });
+                text = '';
+            };
+            blocks.forEach((block, index) => {
+                if (block?.type === 'text') {
+                    text += block.text || '';
+                } else if (narrated.has(index)) {
+                    const said = String(block.thinking || '').trim();
+                    if (!said) return;
+                    flush();
+                    onEvent({ type: 'assistant-text', text: said, narration: true, ...mark });
+                }
+            });
+            flush();
             for (const block of blocks) {
                 if (block.type !== 'tool_use') continue;
                 onEvent({

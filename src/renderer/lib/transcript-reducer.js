@@ -21,6 +21,22 @@ function emptyDraft() {
 /** The one thinking state, shared, so a stream of thoughts does not make one per word. */
 const THINKING = Object.freeze({ phase: 'thinking', tool: '' });
 
+/** tell_user, however the runtime prefixed our tools' names. */
+const TOLD = /(^|[_.:/])tell_user$/;
+
+/**
+ * A draft's thought without the narration that streamed into it: the last
+ * copy of the note taken out, whatever real thinking came before kept.
+ */
+function withoutNarration(thinking, said) {
+    const all = String(thinking || '');
+    const note = String(said || '').trim();
+    if (!note) return all;
+    const at = all.lastIndexOf(note);
+    if (at < 0) return all;
+    return (all.slice(0, at) + all.slice(at + note.length)).trim();
+}
+
 /** Output tokens, however the runtime spelled its usage. */
 function outputTokensOf(usage) {
     if (!usage || typeof usage !== 'object') return 0;
@@ -204,23 +220,27 @@ function step(state, event, owned) {
             // of a tool call repeats in the step's closing block. A finished
             // block identical to the nearest assistant item above (past only
             // notices) adds nothing, so it is dropped instead of drawn twice.
+            // A narration block (claude-code.js) streamed in as thinking, so
+            // the draft's thought holds the same words: they are drawn once,
+            // as what it said.
             {
+                const thinking = event.narration ? withoutNarration(draft.thinking, event.text) : draft.thinking;
                 let cursor = items.length - 1;
                 while (cursor >= 0 && items[cursor].kind === 'notice') cursor -= 1;
                 const prev = cursor >= 0 ? items[cursor] : null;
                 if (prev?.kind === 'assistant'
                     && String(prev.text || '') === String(event.text || '')
-                    && String(prev.thinking || '') === String(draft.thinking || '')) {
+                    && String(prev.thinking || '') === String(thinking || '')) {
                     draft = emptyDraft();
                     break;
                 }
+                edit().push({
+                    kind: 'assistant',
+                    id: `a-${event.at}-${items.length}`,
+                    text: event.text,
+                    thinking,
+                });
             }
-            edit().push({
-                kind: 'assistant',
-                id: `a-${event.at}-${items.length}`,
-                text: event.text,
-                thinking: draft.thinking,
-            });
             draft = emptyDraft();
             break;
 
@@ -228,6 +248,16 @@ function step(state, event, owned) {
             // A subagent's own work is its transcript, which opens from the
             // row of the call that started it; the parent shows that row.
             if (event.parentId) break;
+            // tell_user's words arrive a moment later as its message
+            // (`told`); a row saying it spoke would only repeat them. What
+            // streamed before the call still goes above it.
+            if (TOLD.test(String(event.name || ''))) {
+                if (draft.text.trim() || draft.thinking.trim()) {
+                    edit().push({ kind: 'assistant', id: `a-${event.at}-pre`, text: draft.text, thinking: draft.thinking });
+                }
+                draft = emptyDraft();
+                break;
+            }
             edit().push({
                 kind: 'tool',
                 id: event.id,
@@ -380,6 +410,15 @@ function step(state, event, owned) {
         // Its own kind of row: nothing in the transcript is waiting on it the
         // way a tool row waits on an approval, so it stands on its own.
         case 'question-request':
+            // What it wanted read first is its words, above the question.
+            if (String(event.message || '').trim()) {
+                edit().push({
+                    kind: 'assistant',
+                    id: `a-${event.requestId}-message`,
+                    text: event.message,
+                    thinking: '',
+                });
+            }
             edit().push({
                 kind: 'question',
                 id: event.requestId,

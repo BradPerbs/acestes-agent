@@ -1626,7 +1626,7 @@ function requestApproval(conversation, { toolName, name, input, local, signal = 
  * carries: a question and its options rather than a tool call, and the
  * answer is text rather than a verdict.
  */
-function requestQuestion(conversation, { question, options = [], secret = '', signal = null }) {
+function requestQuestion(conversation, { message = '', question, options = [], secret = '', signal = null }) {
     return new Promise((resolve) => {
         const requestId = nextId('ask');
         // A secret answer is stored under this name and never reaches the
@@ -1708,6 +1708,10 @@ function requestQuestion(conversation, { question, options = [], secret = '', si
         emit(conversation, {
             type: 'question-request',
             requestId,
+            // What the agent wants read before the question, in full: on
+            // models that summarise the words before a tool call, this is the
+            // one place an answer it owes the user cannot be cut down.
+            ...(String(message || '').trim() ? { message: String(message).trim().slice(0, 6000) } : {}),
             question: String(question || '').slice(0, 500),
             // A secret is typed, not picked: the options would be values.
             options: name ? [] : options.slice(0, 6),
@@ -2124,6 +2128,14 @@ function startRuntime(conversation, current, lender) {
             ),
             // A question to the person, answered on a card. See requestQuestion.
             askUser: (payload) => requestQuestion(conversation, payload || {}),
+            // Words for the person in this chat, mid-turn and in full: a tool
+            // input is never summarised the way a note between calls is.
+            // `told` keeps the call's own row out of the transcript.
+            tellUser: (text) => emit(conversation, {
+                type: 'assistant-text',
+                text: secrets.scrub(String(text || '')).trim(),
+                told: true,
+            }),
             // A message to the person in the chat app they paired. See
             // channels/index.js.
             messageUser: async (text) => {
@@ -3427,6 +3439,7 @@ function exportMarkdown(conversationId, { full = false, messagesOnly = false } =
                 lines.push(`_Approval: ${event.status}_`, '');
                 break;
             case 'question-request':
+                if (event.message) lines.push(`## Agent${stamp(event)}`, '', event.message, '');
                 lines.push(`> **Agent asked:** ${event.question}`, '');
                 break;
             case 'question-settled':
