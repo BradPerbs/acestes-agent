@@ -2043,6 +2043,9 @@ function App() {
                 title: tab.customTitle || status?.title || t('assistant.newConversation'),
                 renamed: Boolean(tab.customTitle),
                 busy: Boolean(status?.busy),
+                // Stopped on a question or an approval: marked apart from
+                // working, which a turn held on a question also is.
+                waiting: Boolean(status?.waiting),
                 finished: finishedTabIds.has(tab.id),
                 agentLook: lookFor(tab.agentId),
             };

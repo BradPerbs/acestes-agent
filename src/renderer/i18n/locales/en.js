@@ -754,6 +754,7 @@ export default {
     'titleBar.disconnectAll': 'Disconnect all',
     'titleBar.closeTab': 'Close tab',
     'titleBar.finished': 'Finished',
+    'titleBar.waiting': 'Waiting for your answer',
     'titleBar.closeOthers': 'Close others',
     'titleBar.closeRight': 'Close to the right',
     'titleBar.ungroup': 'Ungroup',

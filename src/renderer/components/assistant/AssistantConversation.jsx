@@ -36,6 +36,7 @@ import DictationButton from './DictationButton';
 import CipherField from '../home/CipherField';
 import { useT } from '../../i18n';
 import { groupApprovals } from '../../lib/approvals';
+import { waitingOnUser } from '../../lib/transcript-reducer';
 import { IMAGE_TYPES, imageFiles, readImage } from '../../lib/images';
 import { isAttachableFile, readTextFile } from '../../lib/files';
 import { describe, toWire } from '../../lib/assistant-scope';
@@ -593,9 +594,14 @@ export default function AssistantConversation({
         || (first?.files?.length ? first.files[0].name : ''),
     ).replace(/\s+/g, ' ').trim().slice(0, 60);
 
+    // And whether it is stopped on the user: a question or an approval still
+    // standing. The strip marks that apart from working, since a turn held on
+    // a question is busy too and would otherwise look like one at work.
+    const waiting = useMemo(() => waitingOnUser(assistant.items), [assistant.items]);
+
     useEffect(() => {
-        onStatus?.(tabId, { title, busy: assistant.busy });
-    }, [onStatus, tabId, title, assistant.busy]);
+        onStatus?.(tabId, { title, busy: assistant.busy, waiting });
+    }, [onStatus, tabId, title, assistant.busy, waiting]);
 
     // The model, the effort and the approval mode are all shown in the
     // composer, so the panel holds the settings rather than one field of them.

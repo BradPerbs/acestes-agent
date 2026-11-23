@@ -111,7 +111,7 @@ export default function useConversationTabs({
 }) {
     const t = useT();
 
-    /** What each tab reports about itself: `{ title, busy }`, by tab id. */
+    /** What each tab reports about itself: `{ title, busy, waiting }`, by tab id. */
     const [statuses, setStatuses] = useState({});
 
     // The list as it stands, for callbacks that must not close over a render.
@@ -165,7 +165,8 @@ export default function useConversationTabs({
     const reportStatus = useCallback((tabId, status) => {
         setStatuses(current => {
             const held = current[tabId];
-            if (held && held.title === status.title && held.busy === status.busy) return current;
+            if (held && held.title === status.title && held.busy === status.busy
+                && Boolean(held.waiting) === Boolean(status.waiting)) return current;
             return { ...current, [tabId]: status };
         });
     }, []);

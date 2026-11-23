@@ -4784,6 +4784,7 @@ function list({ agentId = '' } = {}) {
 
 /** One row of `list`, for one conversation. */
 function describe(conversation) {
+    const summary = archive.summaryOf(conversation);
     return {
         conversationId: conversation.id,
         agentId: conversation.agentId,
@@ -4791,12 +4792,16 @@ function describe(conversation) {
         scope: conversation.scope,
         sessionId: conversation.boundSessionId,
         busy: conversation.busy,
+        // A question or an approval standing since the user last spoke, parked
+        // ones included: the lists mark it, so the one chat out of twenty that
+        // is stopped on them can be found without opening each.
+        waiting: Boolean(summary.waiting),
         live: Boolean(conversation.session || conversation.starting),
         createdAt: conversation.createdAt,
         updatedAt: conversation.updatedAt,
         pinned: Boolean(conversation.pinned),
         // A mirror whose messages are still on the other device counts theirs.
-        messages: Math.max(archive.messageCount(conversation), conversation.remoteMessages || 0),
+        messages: Math.max(summary.messages, conversation.remoteMessages || 0),
         // Running on another of the user's computers: which one.
         ...(conversation.remote ? { device: conversation.remote.deviceName || 'another computer' } : {}),
     };

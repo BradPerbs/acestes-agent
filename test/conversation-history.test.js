@@ -185,6 +185,85 @@ const PNG = Buffer.from('89504e470d0a1a0a0000000d4948445200000001000000010806000
         assert.strictEqual(archive.isLoaded(stored), true);
     });
 
+    // What marks a chat in the lists as waiting on the user. The same cases
+    // are put to the panel's rule (waitingOnUser) in transcript-reducer.
+    await checkAsync('a chat is waiting on the user while a question or an approval stands, and not after', async () => {
+        const archive = fresh('ai/archive');
+        let at = 1;
+        const ev = event => ({ ...event, at: at++ });
+        const ask = ev({ type: 'user-message', text: 'Clean up /var' });
+        const question = ev({ type: 'question-request', requestId: 'q1', question: 'Delete the old logs?', options: ['Yes', 'No'] });
+        const waiting = archive.awaitingAnswer;
+
+        assert.strictEqual(waiting([]), false, 'an empty chat');
+        assert.strictEqual(waiting([ask]), false, 'working, nothing asked');
+        assert.strictEqual(waiting([ask, question]), true, 'a question standing');
+
+        const parked = [ask, question, ev({ type: 'question-settled', requestId: 'q1', status: 'parked' }), ev({ type: 'result' })];
+        assert.strictEqual(waiting(parked), true, 'parked: the turn is over but the card is still up');
+        assert.strictEqual(waiting([...parked, ev({ type: 'user-message', text: 'Yes' })]), false, 'the answer, sent as a message, ends it');
+
+        assert.strictEqual(waiting([ask, question, ev({ type: 'question-settled', requestId: 'q1', status: 'answered', answer: 'Yes' })]), false, 'answered');
+        assert.strictEqual(waiting([ask, question, ev({ type: 'question-settled', requestId: 'q1', status: 'dismissed' })]), false, 'stopped');
+
+        const approval = ev({ type: 'approval-request', requestId: 'r1', name: 'run_command', input: { command: 'rm /var/log/old.log' } });
+        assert.strictEqual(waiting([ask, approval]), true, 'an approval standing');
+        assert.strictEqual(waiting([ask, approval, ev({ type: 'approval-settled', requestId: 'r1', status: 'approved' })]), false, 'approved');
+
+        const forwarded = ev({ type: 'question-request', requestId: 'q2', question: 'Which host?', options: [], via: 'child-1' });
+        assert.strictEqual(waiting([ask, forwarded]), true, 'a delegated run\'s question, drawn and answered here');
+    });
+
+    await checkAsync('a parked question still marks the chat after a restart, without reading it in', async () => {
+        const { archive, map } = reopen();
+        const events = [
+            { type: 'user-message', text: 'Clean up /var', at: 1 },
+            { type: 'question-request', requestId: 'q-park', question: 'Delete the old logs?', options: ['Yes', 'No'], at: 2 },
+            { type: 'question-settled', requestId: 'q-park', status: 'parked', at: 3 },
+            { type: 'result', at: 4 },
+        ];
+        map.set('conv-asking', archive.track(conversation('conv-asking'), events));
+        archive.save('conv-asking');
+        archive.flush();
+        assert.strictEqual(archive.summaryOf(map.get('conv-asking')).waiting, true);
+
+        const again = reopen();
+        const stored = again.map.get('conv-asking');
+        assert.strictEqual(again.archive.summaryOf(stored).waiting, true, 'read from the index');
+        assert.strictEqual(again.archive.isLoaded(stored), false, 'and nothing was read in for it');
+        assert.strictEqual(stored.events.length, 4);
+        assert.strictEqual(again.archive.summaryOf(stored).waiting, true, 'and the events agree');
+
+        // Gone again, so the checks below count the folder as they expect.
+        again.map.delete('conv-asking');
+        again.archive.remove('conv-asking');
+        again.archive.flush();
+    });
+
+    await checkAsync('a question still being asked when the app closed does not mark the chat after it', async () => {
+        const { archive, map } = reopen();
+        const events = [
+            { type: 'user-message', text: 'Clean up /tmp', at: 1 },
+            { type: 'question-request', requestId: 'q-live', question: 'Everything in it?', options: ['Yes', 'No'], at: 2 },
+        ];
+        const live = conversation('conv-cut');
+        live.busy = true;
+        map.set('conv-cut', archive.track(live, events));
+        archive.save('conv-cut');
+        archive.flush();
+
+        // A turn cut short is read in at launch (see `hydrate` in index.js),
+        // which settles the question that died with the last process.
+        const again = reopen();
+        const stored = again.map.get('conv-cut');
+        void stored.events;
+        assert.strictEqual(again.archive.summaryOf(stored).waiting, false);
+
+        again.map.delete('conv-cut');
+        again.archive.remove('conv-cut');
+        again.archive.flush();
+    });
+
     await checkAsync('a change to a stub that was never read in keeps its events', async () => {
         const { archive, map } = reopen();
         const stored = map.get('conv-long');

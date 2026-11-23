@@ -67,11 +67,40 @@ function conversation() {
 
 async function main() {
     const reducer = await import(pathToFileURL(path.join(__dirname, '..', 'src', 'renderer', 'lib', 'transcript-reducer.js')).href);
-    const { INITIAL, applyEvent, applyBatch, replay } = reducer;
+    const { INITIAL, applyEvent, applyBatch, replay, waitingOnUser } = reducer;
     const events = conversation();
     const oneByOne = events.reduce((state, event) => applyEvent(state, event), INITIAL);
 
     console.log('transcript reducer');
+
+    // What marks a tab as waiting on the user. The same cases are put to the
+    // main process's rule (archive.awaitingAnswer) in conversation-history.
+    check('a chat is waiting on the user while a question or an approval stands, and not after', () => {
+        let at = 1;
+        const ev = event => ({ ...event, at: at++ });
+        const ask = ev({ type: 'user-message', text: 'Clean up /var' });
+        const question = ev({ type: 'question-request', requestId: 'q1', question: 'Delete the old logs?', options: ['Yes', 'No'] });
+        const waiting = list => waitingOnUser(replay(list).items);
+
+        assert.strictEqual(waiting([]), false, 'an empty chat');
+        assert.strictEqual(waiting([ask]), false, 'working, nothing asked');
+        assert.strictEqual(waiting([ask, question]), true, 'a question standing');
+
+        const parked = [ask, question, ev({ type: 'question-settled', requestId: 'q1', status: 'parked' }), ev({ type: 'result' })];
+        assert.strictEqual(waiting(parked), true, 'parked: the turn is over but the card is still up');
+        assert.strictEqual(waiting([...parked, ev({ type: 'user-message', text: 'Yes' })]), false, 'the answer, sent as a message, ends it');
+
+        assert.strictEqual(waiting([ask, question, ev({ type: 'question-settled', requestId: 'q1', status: 'answered', answer: 'Yes' })]), false, 'answered');
+        assert.strictEqual(waiting([ask, question, ev({ type: 'question-settled', requestId: 'q1', status: 'dismissed' })]), false, 'stopped');
+
+        const call = ev({ type: 'tool-call', id: 't1', name: 'run_command', input: { command: 'rm /var/log/old.log', session: 's1' } });
+        const approval = ev({ type: 'approval-request', requestId: 'r1', name: 'run_command', input: { command: 'rm /var/log/old.log', session: 's1' }, sessionId: 's1' });
+        assert.strictEqual(waiting([ask, call, approval]), true, 'an approval standing');
+        assert.strictEqual(waiting([ask, call, approval, ev({ type: 'approval-settled', requestId: 'r1', status: 'approved' })]), false, 'approved');
+
+        const forwarded = ev({ type: 'question-request', requestId: 'q2', question: 'Which host?', options: [], via: 'child-1' });
+        assert.strictEqual(waiting([ask, forwarded]), true, 'a delegated run\'s question, drawn and answered here');
+    });
 
     check('replaying a log gives what folding it one event at a time gives', () => {
         assert.deepStrictEqual(replay(events), oneByOne);

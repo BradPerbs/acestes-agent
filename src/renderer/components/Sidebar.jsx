@@ -21,7 +21,7 @@ import { agentLook } from '../lib/agent-look';
 import { cubicBezier, prefersReducedMotion, seconds } from '../lib/motion';
 import AgentMark from './assistant/AgentMark';
 import PanelMenu from './assistant/PanelMenu';
-import { Ring } from './assistant/WorkingIndicator';
+import { Ring, WaitingMark } from './assistant/WorkingIndicator';
 import MarqueeText from './ui/MarqueeText';
 import { useT } from '../i18n';
 
@@ -434,7 +434,7 @@ function ConversationsHeading({
     );
 }
 
-/** One chat in the list: its title, whether it is working or done, and a bin on hover. */
+/** One chat in the list: its title, whether it is waiting on you, working or done, and a bin on hover. */
 function ConversationRow({ conversation, active, finished, onOpen, onDelete, onPin, deleteLabel }) {
     const t = useT();
     const title = conversation.title || t('assistant.newConversation');
@@ -473,11 +473,22 @@ function ConversationRow({ conversation, active, finished, onOpen, onDelete, onP
                     ${conversation.pinned ? 'pr-8' : 'pr-3'} group-hover/row:pr-14 group-focus-within/row:pr-14
                     ${active ? ACTIVE : IDLE}`}
             >
-                {/* Working, said with the spinner the chat's own working line
-                    turns; done while you were elsewhere, a dot until it is
-                    opened. The way the tab strip says both, and in one slot,
-                    so the title does not move when one becomes the other. */}
-                {conversation.busy ? (
+                {/* Waiting on you, first: a question or an approval standing,
+                    parked ones included, which a turn held on a question is
+                    busy through as well. Working, said with the spinner the
+                    chat's own working line turns; done while you were
+                    elsewhere, a dot until it is opened. The way the tab strip
+                    says all three, and in one slot, so the title does not move
+                    when one becomes another. */}
+                {conversation.waiting ? (
+                    <span
+                        aria-label={t('titleBar.waiting')}
+                        title={t('titleBar.waiting')}
+                        className="shrink-0 w-3 h-3 flex items-center justify-center"
+                    >
+                        <WaitingMark />
+                    </span>
+                ) : conversation.busy ? (
                     <span aria-hidden="true" className="shrink-0 w-3 h-3 flex items-center justify-center">
                         <Ring />
                     </span>

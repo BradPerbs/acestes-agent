@@ -153,6 +153,7 @@ export default {
     'titleBar.disconnectAll': 'Отключить все',
     'titleBar.closeTab': 'Закрыть вкладку',
     'titleBar.finished': 'Готово',
+    'titleBar.waiting': 'Ждёт вашего ответа',
     'titleBar.closeOthers': 'Закрыть другие',
     'titleBar.closeRight': 'Закрыть вкладки справа',
     'titleBar.ungroup': 'Разгруппировать',

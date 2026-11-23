@@ -16,7 +16,7 @@ import PanelMenu from './PanelMenu';
 import ScopeMenu from './ScopeMenu';
 import AssistantConversation, { HAIRLINE } from './AssistantConversation';
 import ConversationFind from './ConversationFind';
-import { Ring } from './WorkingIndicator';
+import { Ring, WaitingMark } from './WorkingIndicator';
 import { useT } from '../../i18n';
 import { PANE_HEADER_HEIGHT } from '../../lib/layout';
 import {
@@ -191,11 +191,21 @@ function Tab({
             <div className="min-w-0 flex-1 flex">
                 <ScopeMenu compact inert={!active || closing} scope={scope} {...scopeProps} />
             </div>
-            {/* Working, said with the spinner the chat's own working line
-                turns: a tab that is answering while another is in front should
-                be visibly doing so. Done while you were elsewhere, a dot in
-                the same place until the tab is picked. */}
-            {status?.busy ? (
+            {/* Waiting on you, first: a question or an approval is standing,
+                and a turn held on one is busy as well. Working, said with the
+                spinner the chat's own working line turns: a tab that is
+                answering while another is in front should be visibly doing
+                so. Done while you were elsewhere, a dot in the same place
+                until the tab is picked. */}
+            {status?.waiting ? (
+                <span
+                    aria-label={t('titleBar.waiting')}
+                    title={t('titleBar.waiting')}
+                    className="shrink-0 mr-2 w-3 h-3 flex items-center justify-center"
+                >
+                    <WaitingMark />
+                </span>
+            ) : status?.busy ? (
                 <span aria-hidden="true" className="shrink-0 mr-2 w-3 h-3 flex items-center justify-center">
                     <Ring />
                 </span>
@@ -248,7 +258,7 @@ export default function AssistantWorkspace({
         : readStoredTabs()));
     const [ready, setReady] = useState(!detached);
 
-    /** What each tab reports about itself: `{ title, busy }`, by tab id. */
+    /** What each tab reports about itself: `{ title, busy, waiting }`, by tab id. */
     const [statuses, setStatuses] = useState({});
 
     const { tabs, activeId } = state;
@@ -803,6 +813,7 @@ export default function AssistantWorkspace({
                 held?.finished || (held?.busy && tabId !== stateRef.current.activeId),
             );
             if (held && held.title === status.title && held.busy === status.busy
+                && Boolean(held.waiting) === Boolean(status.waiting)
                 && Boolean(held.finished) === finished) return current;
             return { ...current, [tabId]: { ...status, finished } };
         });

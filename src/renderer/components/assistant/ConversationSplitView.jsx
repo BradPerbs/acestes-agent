@@ -5,6 +5,7 @@ import SplitLayout from '../panes/SplitLayout';
 import ConversationView from './ConversationView';
 import ConversationPaneSwitcher from './ConversationPaneSwitcher';
 import AgentMark from './AgentMark';
+import { WaitingMark } from './WorkingIndicator';
 import { OsIcon, hostOs } from '../../lib/os-icons';
 import { PANE_HEADER_HEIGHT } from '../../lib/layout';
 import { HAIRLINE, HeaderButton } from './AssistantConversation';
@@ -125,7 +126,11 @@ function ConversationPanePicker({ tabs, sessionTabs = [], usedTabIds, onPick, on
                         <span className="min-w-0 flex-1 truncate text-xs font-medium text-gray-900 dark:text-white">
                             {tab.title}
                         </span>
-                        {tab.busy && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />}
+                        {tab.waiting ? (
+                            <span title={t('titleBar.waiting')} aria-label={t('titleBar.waiting')} className="flex">
+                                <WaitingMark />
+                            </span>
+                        ) : tab.busy && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />}
                     </button>
                 ))}
                 {choices.length === 0 && sessions.length === 0 && (

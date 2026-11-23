@@ -658,6 +658,28 @@ function step(state, event, owned) {
     return { ...state, items, draft, busy, costUsd, turnStartAt, turnRates };
 }
 
+/**
+ * Whether the conversation is stopped on the user: a question the agent asked
+ * or an approval card, still standing since the last thing they said.
+ *
+ * What the tab strip and the lists mark, so that with twenty chats open the
+ * one waiting for an answer can be found without opening each. A parked
+ * question counts: the agent handed the turn back, but the card is still up
+ * and the answer is what it is waiting for. Only back to the user's last
+ * message, which is what answers a parked one. The same rule as the main
+ * process's `awaitingAnswer` (archive.js), over the items folded here.
+ */
+export function waitingOnUser(items) {
+    for (let index = items.length - 1; index >= 0; index -= 1) {
+        const item = items[index];
+        if (item.kind === 'user') return false;
+        if (item.kind === 'question' && (item.status === 'pending' || item.status === 'parked')) return true;
+        if (item.kind === 'tool' && item.approval?.status === 'pending') return true;
+        if (item.kind === 'approval' && item.status === 'pending') return true;
+    }
+    return false;
+}
+
 /** One event, on a list that is not the caller's to change. */
 export function applyEvent(state, event) {
     return step(state, event, false);

@@ -144,6 +144,7 @@ export default {
     'titleBar.disconnectAll': 'Desligar tudo',
     'titleBar.closeTab': 'Fechar separador',
     'titleBar.finished': 'Terminado',
+    'titleBar.waiting': 'À espera da sua resposta',
     'titleBar.closeOthers': 'Fechar os outros',
     'titleBar.closeRight': 'Fechar os da direita',
     'titleBar.ungroup': 'Desagrupar',

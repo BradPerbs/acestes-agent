@@ -136,6 +136,7 @@ export default {
     'titleBar.disconnectAll': '全部断开连接',
     'titleBar.closeTab': '关闭标签页',
     'titleBar.finished': '已完成',
+    'titleBar.waiting': '等待你的回答',
     'titleBar.closeOthers': '关闭其他标签页',
     'titleBar.closeRight': '关闭右侧标签页',
     'titleBar.ungroup': '解散分组',

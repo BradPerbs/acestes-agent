@@ -138,6 +138,7 @@ export default {
     'titleBar.disconnectAll': 'Ngắt kết nối tất cả',
     'titleBar.closeTab': 'Đóng thẻ',
     'titleBar.finished': 'Đã xong',
+    'titleBar.waiting': 'Đang chờ bạn trả lời',
     'titleBar.closeOthers': 'Đóng các thẻ khác',
     'titleBar.closeRight': 'Đóng các thẻ bên phải',
     'titleBar.ungroup': 'Bỏ nhóm',

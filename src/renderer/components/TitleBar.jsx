@@ -27,7 +27,7 @@ import ContextMenu from './ui/ContextMenu';
 import WindowControls from './ui/WindowControls';
 import NotificationsMenu from './NotificationsMenu';
 import AgentMark from './assistant/AgentMark';
-import { Ring } from './assistant/WorkingIndicator';
+import { Ring, WaitingMark } from './assistant/WorkingIndicator';
 import Tooltip, { useTooltip } from './ui/Tooltip';
 import MarqueeText from './ui/MarqueeText';
 import { TAB_COLORS, segmentStrip, tabColor, withAlpha } from '../lib/tabs';
@@ -470,11 +470,22 @@ function SessionTab({
                 : <span className="truncate flex-1 text-left min-w-0">{tab.title}</span>}
             {agentTip}
 
-            {/* Answering: the spinner the chat's own working line turns, so a
-                chat working behind another tab is visibly doing so. Done while
-                you were elsewhere: a dot in the same place, until it is looked
-                at. */}
-            {isConversation && tab.busy ? (
+            {/* Waiting on you: a question or an approval is standing, so the
+                one chat out of many that needs an answer can be found from the
+                strip. Ahead of the spinner, since a turn held on a question is
+                busy too. Answering: the spinner the chat's own working line
+                turns, so a chat working behind another tab is visibly doing
+                so. Done while you were elsewhere: a dot in the same place,
+                until it is looked at. */}
+            {isConversation && tab.waiting ? (
+                <span
+                    aria-label={t('titleBar.waiting')}
+                    title={t('titleBar.waiting')}
+                    className="shrink-0 w-3 h-3 flex items-center justify-center"
+                >
+                    <WaitingMark />
+                </span>
+            ) : isConversation && tab.busy ? (
                 <span aria-hidden="true" className="shrink-0 w-3 h-3 flex items-center justify-center">
                     <Ring />
                 </span>

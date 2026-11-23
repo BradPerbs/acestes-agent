@@ -9,6 +9,7 @@ import {
     SearchRemoveIcon,
 } from 'hugeicons-react';
 import AgentMark from './assistant/AgentMark';
+import { WaitingMark } from './assistant/WorkingIndicator';
 import EmptyFrame from './ui/EmptyFrame';
 import SearchField from './ui/SearchField';
 import ConfirmDialog from './ui/ConfirmDialog';
@@ -259,7 +260,9 @@ function ConversationsPanel({
         const meta = [
             when(t, conversation.updatedAt),
             t('conversations.messages', { count: conversation.messages || 0 }),
-            conversation.busy ? t('assistant.working') : '',
+            // Stopped on a question or an approval says so over "working",
+            // which a turn held on one also is.
+            conversation.waiting ? t('titleBar.waiting') : (conversation.busy ? t('assistant.working') : ''),
             hit && hit.matches > 0 ? t('conversations.matches', { count: hit.matches }) : '',
         ].filter(Boolean).join(' · ');
 
@@ -285,6 +288,15 @@ function ConversationsPanel({
                             <span className="text-sm font-semibold text-gray-900 dark:text-white truncate">
                                 {hit ? <Marked text={name} ranges={hit.titleRanges} /> : name}
                             </span>
+                            {conversation.waiting && (
+                                <span
+                                    aria-label={t('titleBar.waiting')}
+                                    title={t('titleBar.waiting')}
+                                    className="shrink-0 w-3 h-3 flex items-center justify-center"
+                                >
+                                    <WaitingMark />
+                                </span>
+                            )}
                             {hit?.byMeaning && (
                                 <span className="shrink-0 px-1.5 py-px rounded-md text-[10px] font-medium uppercase tracking-wide
                                     bg-violet-500/10 text-violet-700 dark:text-violet-300">

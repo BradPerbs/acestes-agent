@@ -180,6 +180,22 @@ export function Ring({ className = '' }) {
 }
 
 /**
+ * Stopped on the user: a question or an approval card is standing. Amber,
+ * the colour the cards give "waiting", and a dot that pulses outward rather
+ * than a ring that turns, so a chat that needs an answer reads apart from
+ * one at work at a glance down a strip of twenty tabs. Still for anyone who
+ * has asked the system for less motion.
+ */
+export function WaitingMark({ className = '' }) {
+    return (
+        <span aria-hidden="true" className={`relative flex w-2 h-2 shrink-0 ${className}`}>
+            <span className="absolute inset-0 rounded-full bg-amber-500 opacity-60 motion-safe:animate-ping" />
+            <span className="relative w-2 h-2 rounded-full bg-amber-500" />
+        </span>
+    );
+}
+
+/**
  * One phrase from the list for a kind of work, turning over every few
  * seconds, for the buddy's notch while the agent thinks. A new kind of work
  * starts on a random phrase, so two turns in a row do not open with the same

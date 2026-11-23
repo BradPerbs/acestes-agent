@@ -376,6 +376,33 @@ function unpack(record, currentProvider) {
     return conversation;
 }
 
+/**
+ * Whether the conversation is stopped on the user: a question or an approval
+ * card still standing since the last thing they said.
+ *
+ * A parked question counts. On a runtime that stops waiting after a few
+ * seconds that is most of them: the turn is over but the card is still up,
+ * and the answer goes as the next message, which is what ends it here. Read
+ * from the end back to that message, so a long conversation costs its last
+ * turn. A delegated run's cards are forwarded here and answered here, so
+ * they count too.
+ */
+function awaitingAnswer(events) {
+    const list = events || [];
+    const settled = new Set();
+    for (let index = list.length - 1; index >= 0; index -= 1) {
+        const event = list[index];
+        if (!event) continue;
+        if (event.type === 'user-message') return false;
+        if (event.type === 'approval-settled' || (event.type === 'question-settled' && event.status !== 'parked')) {
+            settled.add(event.requestId);
+        } else if ((event.type === 'question-request' || event.type === 'approval-request') && !settled.has(event.requestId)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 /** What the index keeps about a conversation's events: enough for a list row and a search sketch. */
 function summarize(events) {
     let messages = 0;
@@ -394,6 +421,7 @@ function summarize(events) {
         messages,
         firstMessage: first.slice(0, SKETCH_CHARS),
         lastMessage: spoken > 1 ? last.slice(0, SKETCH_CHARS) : '',
+        waiting: awaitingAnswer(events),
     };
 }
 
@@ -413,7 +441,7 @@ function summarize(events) {
 function track(conversation, events, summary = null) {
     const state = {
         events: Array.isArray(events) ? events : null,
-        summary: summary || { messages: 0, firstMessage: '', lastMessage: '' },
+        summary: summary || { messages: 0, firstMessage: '', lastMessage: '', waiting: false },
         usedAt: Date.now(),
         // Whether the file holds what is in memory, which is what lets the
         // events go again: what is let go has to be readable back.
@@ -451,6 +479,7 @@ function stub(meta, currentProvider) {
         messages: Number.isFinite(meta.messages) ? meta.messages : 0,
         firstMessage: typeof meta.firstMessage === 'string' ? meta.firstMessage : '',
         lastMessage: typeof meta.lastMessage === 'string' ? meta.lastMessage : '',
+        waiting: meta.waiting === true,
     });
 }
 
@@ -479,7 +508,6 @@ function summaryOf(conversation) {
 function messageCount(conversation) {
     return summaryOf(conversation).messages;
 }
-
 /**
  * A conversation's events for one look, without keeping them: a search over
  * a year of history reads each one and lets it go. In memory already, they
@@ -1064,6 +1092,7 @@ module.exports = {
     hasContent,
     messageCount,
     summaryOf,
+    awaitingAnswer,
     peekEvents,
     rewriteEvents,
     // For the tests, which look at the folder directly.
