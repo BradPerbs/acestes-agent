@@ -255,7 +255,7 @@ export default function useConversationTabs({
         // Only the hosts the tab's own agent can reach: its inventory and the
         // records that belong to no agent. Pinning another agent's host would
         // name a machine this conversation's tools cannot see.
-        const own = hosts.filter(host => !host.agentId || !tab.agentId || host.agentId === tab.agentId);
+        const own = hosts.filter(host => !tab.agentId || host.agentId === tab.agentId);
         return {
             onSetMode: (mode) => setScope(tab.id, mode === GLOBAL ? globalScope() : followScope()),
             onToggle: (kind, id) => setScope(tab.id, current => toggle(current, kind, id)),

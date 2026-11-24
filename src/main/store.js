@@ -424,7 +424,45 @@ function load() {
     }
 
     protectSecrets();
+    if (adoptUnowned(cache) > 0) persist();
     return cache;
+}
+
+/**
+ * Every record in the inventory belongs to exactly one agent, and an agent
+ * only ever sees its own. A record without an owner (one imported, restored
+ * from a backup, synced in, or saved by a build from before this rule) is
+ * given to the agent selected at the time, rather than left for every agent
+ * to see. The owner comes from agents.js, handed in by setOwnerResolver,
+ * since the store is required before the registry is.
+ */
+const OWNED = ['hosts', 'folders', 'keys', 'snippets', 'proxies'];
+let ownerResolver = null;
+
+function adoptUnowned(store) {
+    if (!store || typeof ownerResolver !== 'function') return 0;
+    let owner = '';
+    try {
+        owner = String(ownerResolver() || '');
+    } catch {
+        return 0;
+    }
+    if (!owner) return 0;
+    let adopted = 0;
+    for (const collection of OWNED) {
+        for (const record of store[collection] || []) {
+            if (record && !record.agentId) {
+                record.agentId = owner;
+                adopted += 1;
+            }
+        }
+    }
+    return adopted;
+}
+
+function setOwnerResolver(resolver) {
+    ownerResolver = resolver;
+    if (cache && adoptUnowned(cache) > 0) persist();
 }
 
 /**
@@ -441,6 +479,7 @@ function onChanged(hook) {
 
 function persist() {
     try {
+        adoptUnowned(cache);
         writeAtomic(storePath(), JSON.stringify(cache, null, 2));
 
         for (const hook of changeHooks) {
@@ -1820,6 +1859,7 @@ function previewImport(payload) {
 
 module.exports = {
     load,
+    setOwnerResolver,
     isEncryptionAvailable,
     onChanged,
     exportAll,

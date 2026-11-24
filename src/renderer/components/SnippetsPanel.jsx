@@ -57,7 +57,7 @@ function SnippetsPanel({ isActive = true, reachedForPage = 0, allHosts = [], age
     const { snippets: allSnippets, save, remove } = useSnippets();
     // The selected agent's, and the ones that belong to no agent in particular.
     const snippets = useMemo(() => allSnippets.filter(snippet => (
-        !snippet.agentId || !agentId || snippet.agentId === agentId
+        !agentId || snippet.agentId === agentId
     )), [allSnippets, agentId]);
     const [editing, setEditing] = useState(null);
     const [confirming, setConfirming] = useState(null);

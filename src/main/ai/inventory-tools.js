@@ -45,8 +45,12 @@ const vaultCredentials = agents.vaultCredentials;
  * requiring them back, which would be a cycle.
  */
 
-/** Proxies, keys and servers carry `agentId`; blank is everyone's. */
-const inAgent = (ctx) => (record) => !record.agentId || !ctx?.agentId || record.agentId === ctx.agentId;
+/**
+ * Every record carries the `agentId` of the agent it belongs to, and an agent
+ * sees only its own: no owner, or no agent asking, is nothing. The store gives
+ * an unowned record to the selected agent (see store.adoptUnowned).
+ */
+const inAgent = (ctx) => (record) => Boolean(ctx?.agentId) && record?.agentId === ctx.agentId;
 
 const KINDS = ['host', 'snippet', 'proxy', 'key', 'server', 'folder'];
 const SNIPPET_KINDS = ['command', 'package', 'spec'];
@@ -113,6 +117,7 @@ function build({ z, ok, fail, hostInScope, publicHost, agentHosts }) {
     const agentSnippets = (ctx) => store.getSnippets().filter(inAgent(ctx));
     const agentProxies = (ctx) => store.getProxies().filter(inAgent(ctx));
     const agentKeys = (ctx) => store.getKeys().filter(inAgent(ctx));
+    const agentFolders = async (ctx) => (await store.getFolders()).filter(inAgent(ctx));
     const agentServers = (ctx) => agents.get(ctx?.agentId)?.mcpServers || [];
 
     /** Tell the windows a collection changed, when the context can. */
@@ -176,7 +181,7 @@ function build({ z, ok, fail, hostInScope, publicHost, agentHosts }) {
                 if (!snippet) return fail(`There is no snippet with the id "${input.id}" in your inventory.`);
 
                 const composed = snippet.kind === 'package'
-                    ? snippetConfig.composeSnippet(snippet, store.getSnippets())
+                    ? snippetConfig.composeSnippet(snippet, agentSnippets(ctx))
                     : null;
 
                 return ok({
@@ -220,7 +225,7 @@ function build({ z, ok, fail, hostInScope, publicHost, agentHosts }) {
                         return ok({ total: servers.length, servers: servers.map(publicServer) });
                     }
                     case 'folders': {
-                        const folders = (await store.getFolders()).filter(folder => matches(needle, folder.name));
+                        const folders = (await agentFolders(ctx)).filter(folder => matches(needle, folder.name));
                         return ok({
                             total: folders.length,
                             folders: folders.slice(0, MAX_LIST).map(folder => ({
@@ -370,7 +375,7 @@ function build({ z, ok, fail, hostInScope, publicHost, agentHosts }) {
                 if (input.proxyId && !agentProxies(ctx).some(proxy => proxy.id === input.proxyId)) {
                     return fail(`There is no proxy with the id "${input.proxyId}" in your inventory.`);
                 }
-                if (input.folderId && !(await store.getFolders()).some(folder => folder.id === input.folderId)) {
+                if (input.folderId && !(await agentFolders(ctx)).some(folder => folder.id === input.folderId)) {
                     return fail(`There is no folder with the id "${input.folderId}".`);
                 }
 
@@ -668,7 +673,7 @@ function build({ z, ok, fail, hostInScope, publicHost, agentHosts }) {
                 parentId: z.string().optional().describe('The id of the folder this sits in. Empty for the top level.'),
             },
             handler: async (input, ctx) => {
-                const folders = await store.getFolders();
+                const folders = await agentFolders(ctx);
                 const existing = input.id ? folders.find(folder => folder.id === input.id) : null;
                 if (input.id && !existing) return fail(`There is no folder with the id "${input.id}".`);
                 if (input.parentId && !folders.some(folder => folder.id === input.parentId)) {
@@ -679,7 +684,7 @@ function build({ z, ok, fail, hostInScope, publicHost, agentHosts }) {
                 }
 
                 const saved = store.saveFolder({
-                    ...(existing ? { id: existing.id } : {}),
+                    ...(existing ? { id: existing.id } : { agentId: ctx.agentId || '' }),
                     name: clean(input.name, 120),
                     ...(input.parentId !== undefined ? { parentId: clean(input.parentId, 80) } : {}),
                 });
@@ -753,7 +758,7 @@ function build({ z, ok, fail, hostInScope, publicHost, agentHosts }) {
                         return ok({ deleted: 'server', name: server.name });
                     }
                     case 'folder': {
-                        const folder = (await store.getFolders()).find(entry => entry.id === input.id);
+                        const folder = (await agentFolders(ctx)).find(entry => entry.id === input.id);
                         if (!folder) return fail(`There is no folder with the id "${input.id}".`);
                         store.deleteFolder(input.id);
                         changed(ctx, 'hosts');

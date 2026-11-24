@@ -2814,7 +2814,9 @@ function delegateApiFor(conversation) {
         /** The same brief once per host, each child pinned to its host. */
         fanOut: async ({ hostIds, brief, title = '', open = false }) => {
             if (tooDeep()) return { error: `Delegation stops ${MAX_DELEGATION_DEPTH} levels deep. Do this part yourself.` };
-            const hosts = store.getHosts();
+            // Only this agent's own hosts: a host id from another agent's
+            // inventory is not one it may hand out.
+            const hosts = store.getHosts().filter(host => host.agentId === conversation.agentId);
             const wanted = hostIds.map(id => hosts.find(host => host.id === id)).filter(Boolean);
             if (wanted.length === 0) return { error: 'None of those host ids are saved.' };
             const results = [];
@@ -4196,11 +4198,13 @@ async function send(conversationId, text, attachments = [], tagged = [], attache
         taggedWorkspaceFiles.push({ id, name, text });
     }
     if (workspaceError) return { success: false, message: workspaceError };
+    // A tag can only reach the conversation's own agent's inventory.
+    const own = (record) => record.agentId === conversation.agentId;
     const attached = readMentions(tagged, {
-        hosts: store.getHosts(),
-        snippets: store.getSnippets(),
-        proxies: store.getProxies(),
-        keys: store.getKeys(),
+        hosts: store.getHosts().filter(own),
+        snippets: store.getSnippets().filter(own),
+        proxies: store.getProxies().filter(own),
+        keys: store.getKeys().filter(own),
         notes: memory.list(conversation.agentId),
         servers: agents.get(conversation.agentId)?.mcpServers || [],
         skills: taggedSkills,

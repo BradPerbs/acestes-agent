@@ -47,7 +47,7 @@ function ProxiesPanel({ isActive = true, reachedForPage = 0, allHosts = [], agen
     const { proxies: allProxies, save, remove, duplicate, test } = useProxies();
     // The selected agent's, and the ones that belong to no agent in particular.
     const proxies = useMemo(() => allProxies.filter(proxy => (
-        !proxy.agentId || !agentId || proxy.agentId === agentId
+        !agentId || proxy.agentId === agentId
     )), [allProxies, agentId]);
     const [editing, setEditing] = useState(null);
     const [confirming, setConfirming] = useState(null);

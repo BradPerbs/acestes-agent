@@ -43,7 +43,7 @@ const ROWS = 3;
 /** Past two rows' worth of items a bag spreads across two columns of the page. */
 const WIDE_AT = COLUMNS * 2 + 1;
 
-const inAgent = (agentId) => (record) => !record.agentId || !agentId || record.agentId === agentId;
+const inAgent = (agentId) => (record) => !agentId || record.agentId === agentId;
 
 /**
  * The square itself. The corner keeps IconTile's proportion (a third of the

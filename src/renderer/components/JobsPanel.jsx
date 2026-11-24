@@ -429,7 +429,7 @@ function JobsPanel({ agentId = '', hosts = [], reachedForPage = 0, onOpenConvers
         });
     }, []);
 
-    const mine = useMemo(() => hosts.filter(host => !host.agentId || host.agentId === agentId), [hosts, agentId]);
+    const mine = useMemo(() => hosts.filter(host => host.agentId === agentId), [hosts, agentId]);
 
     return (
         <div className="flex flex-col h-full min-h-0">

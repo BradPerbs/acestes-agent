@@ -78,7 +78,9 @@ const parse = (result) => JSON.parse(result.text);
         ...extra,
     });
 
-    // Seed: a shared snippet, one of each agent's, and a host of each.
+    // Seed: a snippet and a key saved with no owner, which the store gives to
+    // the selected agent (mine), one snippet of each agent's, and a host of each.
+    store.setOwnerResolver(() => mine);
     store.saveSnippet({ id: 'snip-shared', name: 'uptime', command: 'uptime' });
     store.saveSnippet({ id: 'snip-mine', name: 'Deploy runbook', kind: 'spec', command: '# Deploy\n\n1. Pull.', agentId: mine, tags: ['deploy'] });
     store.saveSnippet({ id: 'snip-theirs', name: 'Their secret plan', kind: 'spec', command: 'x', agentId: theirs });
@@ -101,10 +103,19 @@ const parse = (result) => JSON.parse(result.text);
         }
     });
 
-    await check('an agent lists its own snippets and the shared ones, not another agent\'s', async () => {
+    await check('an agent lists only its own snippets; one saved with no owner goes to the selected agent', async () => {
         const { snippets } = parse(await call('list_snippets', {}, ctx(mine)));
         const ids = snippets.map(entry => entry.id).sort();
         assert.deepStrictEqual(ids, ['snip-mine', 'snip-shared']);
+        const theirsSee = parse(await call('list_snippets', {}, ctx(theirs))).snippets.map(entry => entry.id);
+        assert.deepStrictEqual(theirsSee, ['snip-theirs']);
+        const keys = parse(await call('list_inventory', { kind: 'keys' }, ctx(theirs))).keys;
+        assert.strictEqual(keys.length, 0, 'another agent does not see the adopted key');
+    });
+
+    await check('a conversation with no agent sees no inventory at all', async () => {
+        const { snippets } = parse(await call('list_snippets', {}, ctx('')));
+        assert.deepStrictEqual(snippets, []);
     });
 
     await check('list_snippets filters by kind and by words', async () => {

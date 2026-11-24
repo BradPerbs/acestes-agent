@@ -434,7 +434,7 @@ export default function AssistantConversation({
      * one selected must see that agent's hosts, not the selected one's.
      */
     const ownHosts = useMemo(
-        () => hosts.filter(host => !host.agentId || !agentId || host.agentId === agentId),
+        () => hosts.filter(host => !agentId || host.agentId === agentId),
         [hosts, agentId],
     );
     const mentionables = useMentionables({ agentId, hosts: ownHosts });

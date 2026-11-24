@@ -240,11 +240,11 @@ async function viaSftp(sessionId, fn) {
 }
 
 /**
- * The hosts in the agent's inventory: its own, and the ones that belong to no
- * agent in particular, which is what a synced or imported host is.
+ * The hosts in the agent's inventory: its own and no others. A host with no
+ * owner is given one by the store (see store.adoptUnowned), never shared.
  */
 function agentHosts(ctx) {
-    return store.getHosts().filter(host => !host.agentId || !ctx?.agentId || host.agentId === ctx.agentId);
+    return store.getHosts().filter(host => Boolean(ctx?.agentId) && host.agentId === ctx.agentId);
 }
 
 /** A saved host, with everything the assistant has no business seeing gone. */

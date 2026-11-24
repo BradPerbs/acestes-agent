@@ -16,7 +16,7 @@ import { useSnippets } from './useSnippets';
  * it when the message is sent.
  */
 
-const inAgent = (agentId) => (record) => !record.agentId || !agentId || record.agentId === agentId;
+const inAgent = (agentId) => (record) => !agentId || record.agentId === agentId;
 
 export function useMentionables({ agentId = '', hosts = [] } = {}) {
     const { proxies: allProxies } = useProxies();

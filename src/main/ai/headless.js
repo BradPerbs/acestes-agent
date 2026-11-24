@@ -39,7 +39,7 @@ const DEFAULT_COLS = 160;
 const DEFAULT_ROWS = 48;
 
 async function open({ hostId, agentId = '' } = {}) {
-    const host = store.getHosts().find(entry => entry.id === hostId);
+    const host = store.getHosts().find(entry => entry.id === hostId && (!agentId || entry.agentId === agentId));
     if (!host) return { success: false, message: 'That host is not saved.' };
     if ((host.protocol || 'ssh') !== 'ssh') {
         return { success: false, message: 'Only SSH hosts can be opened without a window.' };

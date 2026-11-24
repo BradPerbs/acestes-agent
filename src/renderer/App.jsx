@@ -363,14 +363,14 @@ function App() {
     ), [agents, activeAgent]);
 
     /**
-     * The inventory as the selected agent sees it: its own records, and the
-     * ones that belong to no agent in particular, which is what a synced or
-     * imported host is. Everything on screen reads from these; the full lists
+     * The inventory as the selected agent sees it: its own records and no
+     * others. A record saved without an owner is given one by the store.
+     * Everything on screen reads from these; the full lists
      * stay for the session restore and for the agent's own tool calls, which
      * name a host by id.
      */
     const inAgent = useCallback((record) => (
-        !record.agentId || !activeAgentId || record.agentId === activeAgentId
+        !activeAgentId || record.agentId === activeAgentId
     ), [activeAgentId]);
     const agentHosts = useMemo(() => hosts.filter(inAgent), [hosts, inAgent]);
     const agentKeys = useMemo(() => keys.filter(inAgent), [keys, inAgent]);

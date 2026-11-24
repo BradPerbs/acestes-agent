@@ -227,6 +227,10 @@ const pendingBackups = new Map();
 let promptCounter = 0;
 
 function register(getWindow) {
+    // A record saved without an owner goes to the selected agent, so no
+    // agent is handed another's inventory. See store.adoptUnowned.
+    store.setOwnerResolver(() => agents.activeId());
+
     const notify = (channel, payload) => {
         const window = getWindow();
         if (window && !window.isDestroyed()) {

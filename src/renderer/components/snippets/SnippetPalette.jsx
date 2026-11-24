@@ -103,7 +103,7 @@ export default function SnippetPalette({ hostId, hostName, agentId, onInsert, on
     // Beside an agent's chat, the snippets in that agent's bag, as its
     // Snippets panel shows them: its own and the ones every agent shares.
     const snippets = useMemo(
-        () => (agentId ? library.filter(snippet => !snippet.agentId || snippet.agentId === agentId) : library),
+        () => (agentId ? library.filter(snippet => snippet.agentId === agentId) : library),
         [library, agentId]
     );
     const [query, setQuery] = useState('');
