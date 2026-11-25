@@ -239,6 +239,15 @@ const DEFAULTS = {
     // keyboard. Off until someone switches it on: it is the one tool that acts
     // where the person is working. See computer.js.
     computerUse: false,
+    // Whether the agent may start Spaceyard cloud sandboxes and work in them
+    // with the same computer tools: a desktop of its own, billed by the
+    // minute on the user's key (the secret `spaceyard`). Off until switched
+    // on. How long one may sit unused before it stops, and how long a stopped
+    // one is kept before it is destroyed (minutes; -1 never, 0 at once). See
+    // spaceyard.js.
+    spaceyard: false,
+    spaceyardIdle: 15,
+    spaceyardDestroy: 1440,
     // Tool bundles: groups of tools switched on or off together, not one by
     // one. All on by default, so upgrading changes nothing; switching a bundle
     // off leaves those definitions out of what the model is offered, saving
@@ -523,6 +532,14 @@ function sanitize(raw) {
         if ('autoRemember' in raw) next.autoRemember = Boolean(raw.autoRemember);
         if ('memoryTidy' in raw) next.memoryTidy = Boolean(raw.memoryTidy);
         if ('computerUse' in raw) next.computerUse = Boolean(raw.computerUse);
+        if ('spaceyard' in raw) next.spaceyard = Boolean(raw.spaceyard);
+        if ('spaceyardIdle' in raw) next.spaceyardIdle = clampNumber(raw.spaceyardIdle, DEFAULTS.spaceyardIdle, 5, 43200);
+        if ('spaceyardDestroy' in raw) {
+            // -1 keeps it, 0 destroys it as soon as it stops; anything else up to 30 days.
+            next.spaceyardDestroy = raw.spaceyardDestroy === -1 || raw.spaceyardDestroy === 0
+                ? raw.spaceyardDestroy
+                : clampNumber(raw.spaceyardDestroy, DEFAULTS.spaceyardDestroy, 1, 43200);
+        }
         if ('bareProvider' in raw) next.bareProvider = Boolean(raw.bareProvider);
         if (raw.toolBundles && typeof raw.toolBundles === 'object' && !Array.isArray(raw.toolBundles)) {
             // Known bundles only; unknown keys are dropped. Missing reads as
@@ -682,6 +699,7 @@ const PER_AGENT = [
     'transcriptLines', 'allowLocalTools', 'autoApproveCommands',
     'blockedCommands', 'quickPrompts', 'instructions', 'memory', 'autoRemember', 'memoryTidy',
     'accounts', 'menuAccounts', 'computerUse', 'computerPace',
+    'spaceyard', 'spaceyardIdle', 'spaceyardDestroy',
     'toolBundles', 'bareProvider',
 ];
 

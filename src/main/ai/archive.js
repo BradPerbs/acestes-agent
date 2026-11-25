@@ -2,6 +2,7 @@ const { app } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const { readTarget } = require('./spaceyard');
 
 /**
  * Conversations, kept across runs of the app, all of them.
@@ -172,6 +173,10 @@ function packMeta(conversation) {
         // The runtime, model and effort picked for this conversation, over
         // the agent's defaults. Null while it follows them.
         settingsPatch: conversation.settingsPatch || null,
+        // The cloud sandbox its computer tools act on, when not this
+        // computer. Kept so that after a restart they still go there, not
+        // here. See spaceyard.js.
+        computerTarget: conversation.computerTarget || null,
         // What goes with the next message: a branch's earlier conversation,
         // and a word about files the user undid. Both are spent on sending.
         carryOver: conversation.carryOver || '',
@@ -340,6 +345,7 @@ function unpackMeta(record, currentProvider) {
         titleSource: record.titleSource === 'draft' ? 'draft' : '',
         pinned: record.pinned === true,
         settingsPatch: readSettingsPatch(record.settingsPatch),
+        computerTarget: readTarget(record.computerTarget),
         carryOver: typeof record.carryOver === 'string' ? record.carryOver : '',
         pendingNote: typeof record.pendingNote === 'string' ? record.pendingNote : '',
         agentId: typeof record.agentId === 'string' ? record.agentId : '',

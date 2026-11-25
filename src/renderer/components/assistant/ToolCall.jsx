@@ -99,6 +99,11 @@ const TITLES = {
     hold_key: 'assistant.didHoldKey',
     read_clipboard: 'assistant.didReadClipboard',
     solve_captcha: 'assistant.didSolveCaptcha',
+    list_sandboxes: 'assistant.didListSandboxes',
+    start_sandbox: 'assistant.didStartSandbox',
+    stop_sandbox: 'assistant.didStopSandbox',
+    sandbox_command: 'assistant.didSandboxCommand',
+    use_computer: 'assistant.didUseComputer',
     watch_metric: 'assistant.didWatchMetric',
     read_metric: 'assistant.didReadMetric',
     stop_metric: 'assistant.didStopMetric',
@@ -311,6 +316,14 @@ export function describeCall(name, input = {}) {
             return { mono: false, text: [input.window, input.screen ? 'whole screen' : ''].filter(Boolean).join(' · ') };
         case 'zoom':
             return { mono: true, text: `${input.x0},${input.y0} → ${input.x1},${input.y1}` };
+        case 'start_sandbox':
+            return { mono: false, text: input.sandbox || [input.name, input.image || input.os].filter(Boolean).join(' · ') };
+        case 'stop_sandbox':
+            return { mono: false, text: [input.sandbox, input.destroy ? 'destroy' : ''].filter(Boolean).join(' · ') };
+        case 'sandbox_command':
+            return { mono: true, text: input.command || '' };
+        case 'use_computer':
+            return { mono: false, text: input.target || '' };
         case 'solve_captcha':
             return {
                 mono: false,

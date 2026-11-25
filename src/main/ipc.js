@@ -26,6 +26,7 @@ const sessionLog = require('./session-log');
 const assistant = require('./ai');
 const aiWindows = require('./ai/windows');
 const computer = require('./ai/computer');
+const spaceyard = require('./ai/spaceyard');
 const buddy = require('./ai/buddy');
 const tray = require('./tray');
 const speech = require('./ai/speech');
@@ -1618,6 +1619,14 @@ function register(getWindow) {
                 to: next.computerUse ? 'on' : 'off',
             });
         }
+        // Spending on the user's Spaceyard account is a reach of its own.
+        if (Boolean(before.spaceyard) !== Boolean(next.spaceyard)) {
+            changes.push({
+                field: 'cloud sandboxes',
+                from: before.spaceyard ? 'on' : 'off',
+                to: next.spaceyard ? 'on' : 'off',
+            });
+        }
         // Not a widening, but the one setting here that deletes things, so
         // the record of who chose it sits beside what it deleted.
         if ((before.historyDays || 0) !== (next.historyDays || 0)) {
@@ -1633,6 +1642,7 @@ function register(getWindow) {
                 detail: `Approvals: ${next.approval}`
                     + `${next.allowLocalTools ? ', local tools allowed' : ''}`
                     + `${next.computerUse ? ', computer use on' : ''}`
+                    + `${next.spaceyard ? ', cloud sandboxes on' : ''}`
                     + `${next.historyDays > 0 ? `, conversations kept ${next.historyDays} days` : ''}`,
                 changes,
             });
@@ -1949,6 +1959,19 @@ function register(getWindow) {
     // user's to delete, whichever agent they are looking through.
     handle('secrets-remove', (event, { name, agentId, shared } = {}) =>
         aiSecrets.remove(String(name || ''), shared ? '' : secretOwner(agentId)));
+
+    // Cloud sandboxes: the Spaceyard key, kept as the shared secret
+    // `spaceyard` (typed once, never sent back; empty removes it), and a
+    // check that Spaceyard takes it. An agent's own `spaceyard` secret, saved
+    // from a chat, counts too, as it does when the agent uses it. See
+    // ai/spaceyard.js.
+    handle('spaceyard-status', (event, agentId) => ({ hasKey: aiSecrets.has(spaceyard.KEY_NAME, secretOwner(agentId)) }));
+    handle('spaceyard-key', (event, value, agentId) => {
+        const stored = aiSecrets.set(spaceyard.KEY_NAME, String(value ?? '').trim(), '');
+        const status = { hasKey: aiSecrets.has(spaceyard.KEY_NAME, secretOwner(agentId)) };
+        return stored?.error ? { ...status, keyError: stored.error } : status;
+    });
+    handle('spaceyard-check', (event, agentId) => spaceyard.check(aiSecrets.read(spaceyard.KEY_NAME, secretOwner(agentId))));
 
     /* ---------------- Files ---------------- */
 

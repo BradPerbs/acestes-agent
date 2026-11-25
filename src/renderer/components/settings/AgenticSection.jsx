@@ -11,6 +11,7 @@ import Slider from './ui/Slider';
 import SegmentedControl from '../ui/SegmentedControl';
 import Capability, { Detail } from './Capability';
 import BuddyCard from './BuddyCard';
+import SpaceyardCapability from './SpaceyardCapability';
 import useAssistantSettings from './useAssistantSettings';
 import { useT } from '../../i18n';
 
@@ -154,6 +155,10 @@ export default function AgenticSection() {
                         </div>
                     </Capability>
                 )}
+
+                {/* A desktop of the agent's own, in the cloud: worked with the
+                    same tools, on any system. */}
+                <SpaceyardCapability className={DIVIDED} settings={settings} update={update} />
             </SettingCard>
 
             {/* The buddy: how an agent using this computer shows itself, and,

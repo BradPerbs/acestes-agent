@@ -316,6 +316,27 @@ function build(context) {
         );
     }
 
+    // Cloud sandboxes, when the agent may use them. Which one a conversation
+    // is in goes under Right now: it changes, and this does not.
+    if (context.spaceyard) {
+        blocks.push(
+            '',
+            '## Cloud sandboxes',
+            '',
+            'Besides this computer, you can work on a computer of your own: a Spaceyard sandbox, a Linux or Windows '
+            + 'cloud desktop on the user\'s account. start_sandbox starts one (or one that was stopped) and points the '
+            + 'computer tools at it: read_screen, screenshot, click, type_text, press_keys, scroll, drag, do_steps, '
+            + 'wait_for, open_app and list_windows then act on the sandbox, not on this computer, until use_computer or '
+            + 'stop_sandbox says otherwise. sandbox_command runs a shell command there, which is quicker than the '
+            + 'desktop for installing, downloading and checking files. Use one when the user asks for a sandbox or a '
+            + 'cloud computer, or for work that should not touch their own desktop: an installer to try, a site to '
+            + 'test, a browser session of its own. It is billed by the minute while it runs, so stop or destroy it '
+            + 'when the work is done, and give the user its watch link when they will want to see it or take over. '
+            + 'To type a password there, start the sandbox with that secret (start_sandbox secrets) and type its '
+            + '{{secret:name}} reference on its own.',
+        );
+    }
+
     // Cache-prefix order: static first, volatile last. Provider CLIs
     // (Claude Code, Pi, Opencode, Codex, ...) cache the prompt prefix natively,
     // so the open-session list and the memory notes sit at the end: a terminal
@@ -341,6 +362,14 @@ function build(context) {
 
 
     blocks.push('', '## Right now', '', situation(context));
+
+    if (context.computerTarget) {
+        blocks.push(
+            '',
+            `The computer tools in this conversation act on Spaceyard ${context.computerTarget}, not on this `
+            + 'computer. use_computer with target "this" switches back.'
+        );
+    }
 
     // Keyed on the default rather than the mode: a pinned set holding one
     // session has one, and reads exactly like a single pin. Two of anything

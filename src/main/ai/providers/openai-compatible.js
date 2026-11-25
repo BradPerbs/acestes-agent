@@ -74,6 +74,7 @@ function bundleKey(settings) {
     return catalog.BUNDLES.map(bundle => (bundles[bundle.id] !== false ? '1' : '0')).join('')
         + (settings.allowLocalTools === false ? '0' : '1')
         + (settings.computerUse ? '1' : '0')
+        + (settings.spaceyard ? '1' : '0')
         + (settings.memory === false ? '0' : '1');
 }
 

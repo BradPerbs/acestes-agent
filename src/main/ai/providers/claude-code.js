@@ -590,7 +590,9 @@ function alwaysLoaded(definition, { computerUse = false } = {}) {
 
 /** Our catalog, as the in-process MCP server the SDK expects. */
 function buildToolServer(sdk, toolContext, onEvent) {
-    const computerUse = Boolean(toolContext()?.settings?.computerUse);
+    // Cloud sandboxes are worked with the same tools, so they load them up
+    // front too.
+    const computerUse = Boolean(toolContext()?.settings?.computerUse || toolContext()?.settings?.spaceyard);
     const extras = definition => (alwaysLoaded(definition, { computerUse }) ? { alwaysLoad: true } : undefined);
     // Bundle toggles: only offered tools cost tokens.
     const settings = toolContext()?.settings;

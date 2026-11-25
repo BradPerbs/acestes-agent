@@ -1566,6 +1566,38 @@ export default {
     'settings.agentic.desktop': 'Desktop apps',
     'settings.agentic.desktopDesc': 'Uses the apps on your screen with the real mouse and keyboard, '
         + 'where you can watch. Also called computer use.',
+    'settings.spaceyard.title': 'Cloud sandboxes',
+    'settings.spaceyard.desc': 'Starts a Linux or Windows desktop of its own on Spaceyard and works there with the '
+        + 'same computer use tools, away from your screen.',
+    'settings.spaceyard.about': 'Sandboxes are billed by the minute to your Spaceyard account while they run. The agent '
+        + 'asks before starting one unless approvals are off, gives you a link to watch it or take over, and stops it '
+        + 'when the work is done. Background tasks can use them too.',
+    'settings.spaceyard.key': 'Spaceyard API key',
+    'settings.spaceyard.keyDesc': 'Made on the Spaceyard console\'s API key page. Kept in your keychain as "spaceyard" '
+        + 'and never shown again.',
+    'settings.spaceyard.keySaved': 'Saved in your keychain as "spaceyard". Paste a new one to replace it.',
+    'settings.spaceyard.keyPlaceholder': 'Paste your API key',
+    'settings.spaceyard.keyReplace': 'Paste a new key to replace it',
+    'settings.spaceyard.keySave': 'Save',
+    'settings.spaceyard.keyRemove': 'Remove',
+    'settings.spaceyard.check': 'Check',
+    'settings.spaceyard.checking': 'Checking...',
+    'settings.spaceyard.checkedOk': 'Spaceyard accepts the key: {startable} of {images} desktop images can be started '
+        + 'now, and {used} of {max} sandboxes are running.',
+    'settings.spaceyard.idle': 'Stop when unused for',
+    'settings.spaceyard.idleDesc': 'A sandbox nobody uses stops by itself after this long, keeping its disk.',
+    'settings.spaceyard.destroy': 'Destroy a stopped sandbox',
+    'settings.spaceyard.destroyDesc': 'A stopped sandbox still pays a little for its disk. It is removed this long '
+        + 'after it stops.',
+    'settings.spaceyard.destroy.never': 'Never',
+    'settings.spaceyard.destroy.atOnce': 'As soon as it stops',
+    'settings.spaceyard.after': 'After {when}',
+    'settings.spaceyard.minutes_one': '{count} minute',
+    'settings.spaceyard.minutes_other': '{count} minutes',
+    'settings.spaceyard.hours_one': '{count} hour',
+    'settings.spaceyard.hours_other': '{count} hours',
+    'settings.spaceyard.days_one': '{count} day',
+    'settings.spaceyard.days_other': '{count} days',
     'settings.agentic.bundles': 'Tool bundles',
     'settings.buddy.title': 'Buddy',
     'settings.buddy.desc': 'Whenever an agent uses this computer, from a chat or by voice, the buddy shows what it '
@@ -2738,6 +2770,11 @@ export default {
     'assistant.didCheckConversations': 'Checked on conversations',
     'assistant.didListWindows': 'Listed the windows',
     'assistant.didOpenApp': 'Opened',
+    'assistant.didListSandboxes': 'Listed the cloud sandboxes',
+    'assistant.didStartSandbox': 'Started a cloud sandbox',
+    'assistant.didStopSandbox': 'Stopped a cloud sandbox',
+    'assistant.didSandboxCommand': 'Ran in the sandbox',
+    'assistant.didUseComputer': 'Switched computer',
     'assistant.didReadScreen': 'Read the window',
     'assistant.didClick': 'Clicked',
     'assistant.didPressKeys': 'Pressed',

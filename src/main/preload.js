@@ -842,6 +842,17 @@ contextBridge.exposeInMainWorld('api', {
     },
 
     /**
+     * Cloud sandboxes (Spaceyard): whether there is a key, setting one (it
+     * goes into the keychain as the shared secret `spaceyard`; empty removes
+     * it), and asking Spaceyard whether it takes it. See main/ai/spaceyard.js.
+     */
+    spaceyard: {
+        status: (agentId) => ipcRenderer.invoke('spaceyard-status', agentId),
+        setKey: (value, agentId) => ipcRenderer.invoke('spaceyard-key', value, agentId),
+        check: (agentId) => ipcRenderer.invoke('spaceyard-check', agentId),
+    },
+
+    /**
      * The agent's files: its own and the shared ones, as records. The bytes
      * stay in main; a file is added from the user's own dialog or drop, and
      * opened, revealed or copied out by main. Changes from either side are

@@ -14,6 +14,7 @@ const jobTools = require('./job-tools');
 const delegationTools = require('./delegation-tools');
 const fleetTools = require('./fleet-tools');
 const computerTools = require('./computer-tools');
+const spaceyardTools = require('./spaceyard-tools');
 const metricTools = require('./metric-tools');
 const fs = require('fs');
 const os = require('os');
@@ -1386,6 +1387,13 @@ const TOOLS = [
     ...computerTools.build({ z, ok, fail }),
 
     /* -------------------------------------------------------------- *
+     * Cloud sandboxes: a computer of the agent's own, on Spaceyard,
+     * that the computer tools above can act on instead of this one.
+     * See spaceyard-tools.js and spaceyard.js.
+     * -------------------------------------------------------------- */
+    ...spaceyardTools.build({ z, ok, fail }),
+
+    /* -------------------------------------------------------------- *
      * Live charts: a command watched, a number pulled from each line
      * with the agent's own pattern. See metric-tools.js.
      * -------------------------------------------------------------- */
@@ -1480,6 +1488,12 @@ const BUNDLE_OF = {
     mouse_button: 'desktop',
     hold_key: 'desktop',
     read_clipboard: 'desktop',
+    // Cloud sandboxes: the same hands, on a computer of the agent's own.
+    list_sandboxes: 'desktop',
+    start_sandbox: 'desktop',
+    stop_sandbox: 'desktop',
+    sandbox_command: 'desktop',
+    use_computer: 'desktop',
     // Inventory: hosts, keys, proxies, snippets, files, folders, agents.
     list_hosts: 'inventory',
     list_snippets: 'inventory',
@@ -1529,6 +1543,9 @@ const BUNDLE_OF = {
 
 const bundleOf = (toolName) => BUNDLE_OF[toolName] || 'core';
 
+/** The tools that start, stop and choose a cloud sandbox: offered only while sandboxes are switched on. */
+const SANDBOX_TOOLS = new Set(spaceyardTools.NAMES);
+
 /**
  * Whether one bundle's toggle is on. Missing or malformed reads as on, so
  * an older config without toolBundles keeps everything it always had.
@@ -1552,9 +1569,15 @@ function visibleTools(settings) {
         if (!bundleOn(settings, bundle)) return false;
         if (bundle === 'workspace' && settings?.allowLocalTools === false) return false;
         if (bundle === 'memory' && settings?.memory === false) return false;
-        // Desktop bundle is computer tools; computerUse gates them in
-        // computer.js too, but leaving the definitions out saves the tokens.
-        if (bundle === 'desktop' && settings && 'computerUse' in settings && !settings.computerUse) return false;
+        // Desktop bundle is computer tools: offered while computer use is on
+        // here, or cloud sandboxes are, since a sandbox is worked with the
+        // same tools. computer.js and spaceyard.js refuse them too, but
+        // leaving the definitions out saves the tokens. The sandbox tools
+        // themselves only while sandboxes are on.
+        if (bundle === 'desktop' && settings) {
+            if (SANDBOX_TOOLS.has(tool.name)) return Boolean(settings.spaceyard);
+            if ('computerUse' in settings && !settings.computerUse && !settings.spaceyard) return false;
+        }
         return true;
     });
 }
@@ -1871,6 +1894,8 @@ function commandTextFor(toolName, input) {
     if (toolName === 'run_local_command') return String(input?.command ?? '');
     // A watched command runs again and again, wherever it runs.
     if (toolName === 'watch_metric') return String(input?.command ?? '');
+    // And a cloud sandbox's shell is a shell too.
+    if (toolName === 'sandbox_command') return String(input?.command ?? '');
     // Opening an app is starting a program, which is a command by any name.
     if (toolName === 'open_app') return [input?.app, input?.args].filter(Boolean).join(' ');
     return '';

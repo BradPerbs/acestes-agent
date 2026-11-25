@@ -19,6 +19,7 @@ const archive = require('./archive');
 const searchModule = require('./search');
 const titles = require('./titles');
 const computer = require('./computer');
+const spaceyard = require('./spaceyard');
 const buddy = require('./buddy');
 const { readImages } = require('./images');
 const { readFiles, fileBlock } = require('./attachments');
@@ -562,6 +563,7 @@ function sweepHistory() {
         conversations.delete(conversation.id);
         checkpoints.forget(conversation.id);
         computer.forget(conversation.id);
+        spaceyard.forget(conversation.id);
         archive.remove(conversation.id);
         deleted += 1;
     }
@@ -1272,6 +1274,9 @@ function copyUpTo(source, end) {
             : event));
     copy.title = source.title;
     copy.settingsPatch = source.settingsPatch ? { ...source.settingsPatch } : null;
+    // The transcript it carries may say its computer tools are in a cloud
+    // sandbox; so they are, or its clicks would land on this desktop instead.
+    copy.computerTarget = source.computerTarget ? { ...source.computerTarget } : null;
     copy.updatedAt = Date.now();
     const said = exportMarkdown(copy.id, { messagesOnly: true }) || '';
     copy.carryOver = said.length > MAX_CARRY_OVER ? said.slice(-MAX_CARRY_OVER) : said;
@@ -1359,8 +1364,9 @@ function resolved(agentId) {
 // computerUse among them: Claude Code loads the computer tools up front only
 // while it is on (see providers/claude-code.js). memory as well: the notes and
 // the memory section are in the system prompt, which is only written when a
-// query starts.
-const RESTART_ON = ['provider', 'maxTurns', 'allowLocalTools', 'computerUse', 'memory', 'toolBundles', 'bareProvider'];
+// query starts. spaceyard too: it adds the sandbox tools, and a section of
+// the prompt.
+const RESTART_ON = ['provider', 'maxTurns', 'allowLocalTools', 'computerUse', 'spaceyard', 'memory', 'toolBundles', 'bareProvider'];
 
 /** Bundle toggles compared by value: a fresh object per sanitize. */
 function bundlesChanged(before, after) {
@@ -1468,6 +1474,21 @@ function reconfigure(before, after, agentId = '') {
         if (offeringChanged && conversation.providerSessionId) {
             conversation.movedOver = saidBefore(conversation);
             conversation.providerSessionId = '';
+        }
+        // Cloud sandboxes switched off: a conversation working in one lets go
+        // of it, and is told so with its next message. Its computer tools
+        // would refuse anyway, and with the sandbox tools gone it would have
+        // no way to say "this computer" again.
+        if (before.spaceyard && !after.spaceyard && conversation.computerTarget) {
+            const left = spaceyard.describeTarget(conversation.computerTarget);
+            conversation.computerTarget = null;
+            spaceyard.forget(conversation.id);
+            conversation.pendingNote = [
+                conversation.pendingNote,
+                `The user switched cloud sandboxes off, so this conversation no longer works in ${left}. The computer `
+                    + 'tools act on this computer again, if computer use is on. The sandbox itself was not stopped.',
+            ].filter(Boolean).join('\n\n');
+            archive.save(conversation.id);
         }
     }
 }
@@ -2025,6 +2046,12 @@ function startRuntime(conversation, current, lender) {
             // What the agent may touch on this computer, so the prompt can say so
             // before the tools have to refuse.
             sandbox: sandboxModule.withApproval(agents.sandbox(conversation.agentId), current.approval),
+            // Cloud sandboxes, and the one this conversation works in, if any.
+            // See spaceyard.js.
+            spaceyard: Boolean(current.spaceyard),
+            computerTarget: current.spaceyard && conversation.computerTarget
+                ? spaceyard.describeTarget(conversation.computerTarget)
+                : '',
             memory: core?.text || '',
             memoryOff: current.memory === false,
         };
@@ -2089,9 +2116,17 @@ function startRuntime(conversation, current, lender) {
             // Conversations started, branched and opened in the open. See
             // conversationsApiFor.
             conversations: conversationsApiFor(conversation),
-            // This computer's apps, with the real mouse and keyboard. See
-            // computerApiFor.
-            computer: computerApiFor(conversation),
+            // This computer's apps, with the real mouse and keyboard (see
+            // computerApiFor), or, for a conversation pointed at a cloud
+            // sandbox, that sandbox's (see spaceyard.js). Decided on every
+            // call: start_sandbox and the click after it are one turn. A
+            // conversation pointed at a sandbox never falls back to this
+            // desktop by itself; when it cannot reach the sandbox it says so.
+            computer: conversation.computerTarget
+                ? spaceyard.computerFor(spaceyardStateFor(conversation))
+                : computerApiFor(conversation),
+            // Starting, stopping and choosing those sandboxes. See spaceyard-tools.js.
+            spaceyard: spaceyard.managerFor(spaceyardStateFor(conversation)),
             // What the user said while the turn ran, handed over with the
             // next tool result. See `steer`.
             takeSteer: () => takeSteers(conversation),
@@ -2351,6 +2386,7 @@ function handleProviderEvent(conversation, event) {
     // after the turn had finished.
     if (event.type === 'result' || event.type === 'error' || event.type === 'closed') {
         computer.release(conversation.id);
+        spaceyard.release(conversation.id);
         // A steer the agent never got to read, because no tool call came
         // after it: a finished turn sends it on as the next message, after
         // this event is in the log; a failed one says it was not delivered.
@@ -2365,6 +2401,7 @@ function handleProviderEvent(conversation, event) {
     if (event.type === 'turn-resumed') {
         conversation.busy = true;
         computer.resume(conversation.id);
+        spaceyard.resume(conversation.id);
         if (!conversation.runId) {
             beginRun(conversation, {
                 kind: conversation.runKind || 'interactive',
@@ -2480,6 +2517,7 @@ function endRun(conversation, status, detail = {}) {
     // The mouse is held for a turn, never longer: the badge goes and the
     // person has their desk back, whichever way the turn ended.
     computer.release(conversation.id);
+    spaceyard.release(conversation.id);
     const runId = conversation.runId;
     if (!runId) return;
     conversation.runId = '';
@@ -2908,6 +2946,28 @@ function computerApiFor(conversation) {
             return chain;
         },
     });
+}
+
+/**
+ * A cloud sandbox's side of one conversation, for spaceyard.js: what only the
+ * conversation knows, read fresh on every call, and where it keeps which
+ * sandbox it works in. That choice is saved with the conversation, so a
+ * restart does not quietly turn clicks meant for the sandbox onto this desktop.
+ */
+function spaceyardStateFor(conversation) {
+    return {
+        id: conversation.id,
+        title: () => conversation.title,
+        settings: () => effectiveSettings(conversation),
+        canSee: () => PROVIDERS[effectiveSettings(conversation).provider]?.supportsImages === true,
+        resolveSecrets: text => secrets.forAgent(conversation.agentId).resolve(text),
+        scrub: text => secrets.scrub(text),
+        target: () => conversation.computerTarget || null,
+        setTarget: (next) => {
+            conversation.computerTarget = next || null;
+            archive.save(conversation.id);
+        },
+    };
 }
 
 /**
@@ -4285,6 +4345,7 @@ async function send(conversationId, text, attachments = [], tagged = [], attache
     conversation.busy = true;
     // A new turn may take the desktop again after one that was stopped.
     computer.resume(conversation.id);
+    spaceyard.resume(conversation.id);
     nameConversation(conversation);
 
     // A message sent into a turn still going is a new turn of the same run
@@ -4590,6 +4651,7 @@ async function interrupt(conversationId) {
     // The desktop first, before the runtime is asked to stop: an action
     // still under way must not take it back once it is let go. See halt.
     if (conversation) computer.halt(conversationId);
+    if (conversation) spaceyard.halt(conversationId);
     if (conversation) dropSteers(conversation, 'the turn was stopped');
     if (!conversation?.session) return { success: false };
 
@@ -4702,6 +4764,7 @@ async function close(conversationId) {
     conversations.delete(conversationId);
     checkpoints.forget(conversationId);
     computer.forget(conversationId);
+    spaceyard.forget(conversationId);
     // Which notes it was shown, which no later message will ask about.
     memory.forgetConversation(conversationId);
     // Its live charts have nowhere to be drawn, and their commands no reader.
