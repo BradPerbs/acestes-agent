@@ -5,6 +5,7 @@ const Module = require('module');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const crypto = require('crypto');
 const assert = require('assert');
 
 const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'cb-test-agy-'));
@@ -168,6 +169,224 @@ async function test(name, fn) {
     });
 
     await session.close();
+    agy._test.useCommand(null);
+
+    await test('desktopCandidates lists the standard Windows, macOS and Linux Antigravity desktop paths', () => {
+        const win = agy.desktopCandidates({
+            platform: 'win32',
+            home: 'C:\\Users\\Brad',
+            env: { LOCALAPPDATA: 'C:\\Users\\Brad\\AppData\\Local', ProgramFiles: 'C:\\Program Files' },
+        });
+        assert.ok(win.some(entry => entry.exe === 'C:\\Users\\Brad\\AppData\\Local\\Programs\\antigravity\\Antigravity.exe'
+            && entry.asar === 'C:\\Users\\Brad\\AppData\\Local\\Programs\\antigravity\\resources\\app.asar'));
+        assert.ok(win.some(entry => entry.exe === 'C:\\Program Files\\Antigravity\\Antigravity.exe'));
+
+        const mac = agy.desktopCandidates({ platform: 'darwin', home: '/Users/brad', env: {} });
+        assert.ok(mac.some(entry => entry.exe === '/Applications/Antigravity.app/Contents/MacOS/Antigravity'
+            && entry.asar === '/Applications/Antigravity.app/Contents/Resources/app.asar'));
+        assert.ok(mac.some(entry => entry.exe === '/Users/brad/Applications/Antigravity.app/Contents/MacOS/Antigravity'));
+
+        const linux = agy.desktopCandidates({ platform: 'linux', home: '/home/brad', env: {} });
+        assert.ok(linux.some(entry => entry.exe === '/opt/Antigravity/Antigravity'));
+        assert.ok(linux.some(entry => entry.exe === '/usr/bin/antigravity'));
+    });
+
+    await test('findAntigravityDesktop detects standard installs and custom shim installs, ignoring stale shims', () => {
+        const winExe = 'C:\\Users\\Brad\\AppData\\Local\\Programs\\antigravity\\Antigravity.exe';
+        const direct = agy.findAntigravityDesktop({
+            platform: 'win32',
+            home: 'C:\\Users\\Brad',
+            env: { LOCALAPPDATA: 'C:\\Users\\Brad\\AppData\\Local' },
+            accessSync(target) {
+                if (target !== winExe) throw new Error('missing');
+            },
+            readFileSync() { throw new Error('missing'); },
+        });
+        assert.ok(direct);
+        assert.strictEqual(direct.exe, winExe);
+
+        // Custom install folder recorded in agy-node.cmd / agentapi.bat.
+        const customExe = 'D:\\Apps\\Antigravity\\Antigravity.exe';
+        const shim = 'C:\\Users\\Brad\\AppData\\Roaming\\Antigravity\\bin\\agy-node.cmd';
+        const viaShim = agy.findAntigravityDesktop({
+            platform: 'win32',
+            home: 'C:\\Users\\Brad',
+            env: { APPDATA: 'C:\\Users\\Brad\\AppData\\Roaming', LOCALAPPDATA: 'C:\\Users\\Brad\\AppData\\Local' },
+            readFileSync(target) {
+                if (target === shim) return `@echo off\r\nset ELECTRON_RUN_AS_NODE=1\r\n"${customExe}" %*\r\n`;
+                throw new Error('missing');
+            },
+            accessSync(target) {
+                if (target !== customExe) throw new Error('missing');
+            },
+        });
+        assert.ok(viaShim);
+        assert.strictEqual(viaShim.exe, customExe);
+        assert.strictEqual(viaShim.asar, 'D:\\Apps\\Antigravity\\resources\\app.asar');
+
+        // Stale shim pointing to a deleted executable is ignored.
+        const stale = agy.findAntigravityDesktop({
+            platform: 'win32',
+            home: 'C:\\Users\\Brad',
+            env: { APPDATA: 'C:\\Users\\Brad\\AppData\\Roaming', LOCALAPPDATA: 'C:\\Users\\Brad\\AppData\\Local' },
+            readFileSync(target) {
+                if (target === shim) return `@echo off\r\n"${customExe}" %*\r\n`;
+                throw new Error('missing');
+            },
+            accessSync() { throw new Error('missing'); },
+        });
+        assert.strictEqual(stale, null);
+    });
+
+    await test('platformSlug maps every supported desktop platform and rejects unknown ones', () => {
+        assert.strictEqual(agy._test.platformSlug({ platform: 'win32', arch: 'x64' }), 'windows_amd64');
+        assert.strictEqual(agy._test.platformSlug({ platform: 'win32', arch: 'arm64' }), 'windows_arm64');
+        assert.strictEqual(agy._test.platformSlug({ platform: 'darwin', arch: 'arm64' }), 'darwin_arm64');
+        assert.strictEqual(agy._test.platformSlug({ platform: 'darwin', arch: 'x64' }), 'darwin_amd64');
+        assert.strictEqual(agy._test.platformSlug({ platform: 'linux', arch: 'x64', isMusl: false }), 'linux_amd64');
+        assert.strictEqual(agy._test.platformSlug({ platform: 'linux', arch: 'arm64', isMusl: true }), 'linux_arm64_musl');
+        assert.strictEqual(agy._test.platformSlug({ platform: 'win32', arch: 'ia32' }), '');
+    });
+
+    await test('installAgy verifies SHA-512 and installs the companion CLI into the user bin directory', async () => {
+        const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'cb-agy-home-'));
+        const fakeLocal = path.join(fakeHome, 'AppData', 'Local');
+        const payload = Buffer.from('fake-agy-binary-bytes');
+        const sha512 = crypto.createHash('sha512').update(payload).digest('hex');
+        const isWin = process.platform === 'win32';
+        const downloadUrl = isWin
+            ? 'https://storage.googleapis.com/antigravity-public/antigravity-cli/1.5.17/windows-x64/cli_windows_x64.exe'
+            : 'https://storage.googleapis.com/antigravity-public/antigravity-cli/1.5.17/linux-x64/cli_linux_x64.tar.gz';
+        const expectedDest = isWin
+            ? path.join(fakeLocal, 'agy', 'bin', 'agy.exe')
+            : path.join(fakeHome, '.local', 'bin', 'agy');
+        const mockFetch = async (url) => {
+            if (url.endsWith('.json')) {
+                return { ok: true, status: 200, json: async () => ({ version: '1.5.17', url: downloadUrl, sha512 }) };
+            }
+            if (url === downloadUrl) {
+                return {
+                    ok: true,
+                    status: 200,
+                    body: (async function* () { yield payload.subarray(0, 8); yield payload.subarray(8); })(),
+                };
+            }
+            return { ok: false, status: 404 };
+        };
+        try {
+            const installed = await agy._test.installAgy({
+                platform: process.platform,
+                arch: 'x64',
+                home: fakeHome,
+                env: isWin ? { LOCALAPPDATA: fakeLocal } : {},
+                userData,
+                fetchFn: mockFetch,
+                extractTarFn: async (_archive, dir) => {
+                    const out = path.join(dir, 'antigravity');
+                    fs.writeFileSync(out, payload);
+                    return out;
+                },
+            });
+            assert.strictEqual(installed, expectedDest);
+            assert.deepStrictEqual(fs.readFileSync(installed), payload);
+
+            // Checksum mismatch is refused and leaves no broken binary behind.
+            const badHome = fs.mkdtempSync(path.join(os.tmpdir(), 'cb-agy-bad-'));
+            try {
+                await assert.rejects(() => agy._test.installAgy({
+                    platform: process.platform,
+                    arch: 'x64',
+                    home: badHome,
+                    env: isWin ? { LOCALAPPDATA: path.join(badHome, 'Local') } : {},
+                    userData: path.join(badHome, 'ud'),
+                    fetchFn: async (url) => (url.endsWith('.json')
+                        ? { ok: true, status: 200, json: async () => ({ version: '1.5.17', url: downloadUrl, sha512: '0'.repeat(128) }) }
+                        : { ok: true, status: 200, arrayBuffer: async () => payload }),
+                }), /checksum/i);
+                assert.ok(!fs.existsSync(isWin
+                    ? path.join(badHome, 'Local', 'agy', 'bin', 'agy.exe')
+                    : path.join(badHome, '.local', 'bin', 'agy')));
+            } finally {
+                fs.rmSync(badHome, { recursive: true, force: true });
+            }
+        } finally {
+            fs.rmSync(fakeHome, { recursive: true, force: true });
+        }
+    });
+
+    await test('detect returns notFound without CLI or desktop app, and auto-provisions when the desktop app is installed', async () => {
+        const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'cb-agy-detect-'));
+        const isWin = process.platform === 'win32';
+        const fakeLocal = path.join(fakeHome, 'AppData', 'Local');
+        const desktopExe = isWin
+            ? path.join(fakeLocal, 'Programs', 'antigravity', 'Antigravity.exe')
+            : process.platform === 'darwin'
+                ? path.join(fakeHome, 'Applications', 'Antigravity.app', 'Contents', 'MacOS', 'Antigravity')
+                : path.join(fakeHome, '.local', 'share', 'antigravity', 'Antigravity');
+        const cliDest = isWin
+            ? path.join(fakeLocal, 'agy', 'bin', 'agy.exe')
+            : path.join(fakeHome, '.local', 'bin', 'agy');
+        const baseOpts = {
+            platform: process.platform,
+            home: fakeHome,
+            env: isWin ? { LOCALAPPDATA: fakeLocal, APPDATA: path.join(fakeHome, 'AppData', 'Roaming'), ProgramFiles: path.join(fakeHome, 'PF') } : {},
+            userData: path.join(fakeHome, 'ud'),
+        };
+        try {
+            // Neither CLI nor desktop app: notFound without touching the network.
+            let fetched = 0;
+            const none = agy.detect({
+                ...baseOpts,
+                accessSync() { throw new Error('missing'); },
+                fetchFn: async () => { fetched += 1; throw new Error('should not fetch'); },
+            });
+            assert.deepStrictEqual(none, { ok: false, reason: 'notFound' });
+            assert.strictEqual(fetched, 0);
+
+            // Create an installed desktop app executable with no `agy` CLI yet.
+            fs.mkdirSync(path.dirname(desktopExe), { recursive: true });
+            fs.writeFileSync(desktopExe, 'desktop-app');
+
+            // Sync probe (install: false) recognises the desktop app without downloading.
+            assert.deepStrictEqual(agy.detect({
+                ...baseOpts,
+                install: false,
+            }), { ok: true, reason: '' });
+
+            // Interactive detect provisions the companion CLI and succeeds.
+            let provisioned = 0;
+            const ok = await agy.detect({
+                ...baseOpts,
+                installFn: async () => {
+                    provisioned += 1;
+                    fs.mkdirSync(path.dirname(cliDest), { recursive: true });
+                    fs.writeFileSync(cliDest, 'agy');
+                    return cliDest;
+                },
+            });
+            assert.deepStrictEqual(ok, { ok: true, reason: '' });
+            assert.strictEqual(provisioned, 1);
+
+            // Subsequent detect finds the installed CLI immediately without reinstalling.
+            const again = agy.detect({
+                ...baseOpts,
+                installFn: async () => { provisioned += 1; return ''; },
+            });
+            assert.deepStrictEqual(again, { ok: true, reason: '' });
+            assert.strictEqual(provisioned, 1);
+
+            // Offline failure when only the desktop app is present reports an error rather than notFound.
+            fs.rmSync(path.dirname(cliDest), { recursive: true, force: true });
+            const offline = await agy.detect({
+                ...baseOpts,
+                installFn: async () => { throw new Error('offline'); },
+            });
+            assert.deepStrictEqual(offline, { ok: false, reason: 'error' });
+        } finally {
+            fs.rmSync(fakeHome, { recursive: true, force: true });
+        }
+    });
+
     console.log(`${passed} passed, 0 failed`);
     fs.rmSync(userData, { recursive: true, force: true });
     process.exitCode = 0;

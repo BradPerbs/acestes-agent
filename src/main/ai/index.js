@@ -5060,6 +5060,19 @@ function locateAgent(provider) {
         }
         return { command: desktop.exe, version, managedBy: 'app' };
     }
+    if (provider === 'antigravity' && !agent.findAgy?.()) {
+        const desktop = agent.findAntigravityDesktop?.();
+        if (!desktop) return null;
+        let version = '';
+        if (desktop.asar) {
+            try {
+                version = JSON.parse(fs.readFileSync(path.join(desktop.asar, 'package.json'), 'utf8')).version || '';
+            } catch {
+                // Left unread: the check says so rather than guessing.
+            }
+        }
+        return { command: desktop.exe, version, managedBy: 'app' };
+    }
     if (provider === 'cursor') {
         const launch = agent.cursorLauncher?.([]);
         return launch ? { command: launch.command, prefix: launch.args } : null;
